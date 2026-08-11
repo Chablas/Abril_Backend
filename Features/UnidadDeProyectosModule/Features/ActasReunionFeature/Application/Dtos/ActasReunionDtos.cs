@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         public int WorkerId { get; set; }
         public string FullName { get; set; } = null!;
-        /// <summary>workers.puesto; si está vacío se hace fallback a workers.ocupacion.</summary>
+        /// <summary>Nombre del puesto del trabajador (catálogo <c>puesto</c>).</summary>
         public string? Cargo { get; set; }
     }
 
@@ -158,7 +158,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int? ReunionParticipanteId { get; set; }
         /// <summary>
         /// workers.id cuando el participante se eligió del desplegable de trabajadores de Abril.
-        /// Si el worker no tiene puesto ni ocupacion, el Cargo ingresado a mano se guarda en workers.puesto.
+        /// Si el worker no tiene puesto, el Cargo ingresado a mano se da de alta en el catálogo `puesto`.
         /// </summary>
         public int? WorkerId { get; set; }
         public string Nombre { get; set; } = null!;

@@ -12,15 +12,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public int? DocumentIdentityTypeId { get; set; }
         public string? NumeroDocumento { get; set; }
         public DateOnly? Cumpleanos { get; set; }
+        /// <summary>Nombre de la categoría (campo de lógica), para mostrar.</summary>
         public string? Categoria { get; set; }
-        public string? Ocupacion { get; set; }
-        public int? OcupacionId { get; set; }
-        /// <summary>Nombre del puesto final (autocompletado de Categoría + Ocupación, editable).</summary>
+        /// <summary>Nombre del puesto (campo de presentación), para mostrar.</summary>
         public string? Puesto { get; set; }
         /// <summary>Nodo del árbol de áreas asignado al trabajador (workers.area_scope_id). Null = sin área.</summary>
         public int? AreaScopeId { get; set; }
-        /// <summary>FK al catálogo <c>workers_category</c> (workers.worker_category_id). Null = sin categoría normalizada.</summary>
-        public int? WorkerCategoryId { get; set; }
+        /// <summary>FK a <c>categoria</c> (workers.categoria_id). Null = sin categoría.</summary>
+        public int? CategoriaId { get; set; }
+        /// <summary>FK a <c>puesto</c> (workers.puesto_id). Null = sin puesto.</summary>
+        public int? PuestoId { get; set; }
         /// <summary>Correo corporativo del trabajador (workers.email_corporativo). Null/vacío = sin correo.</summary>
         public string? EmailCorporativo { get; set; }
         /// <summary>Correo personal / de contacto (person.email). Puede repetirse entre trabajadores.</summary>

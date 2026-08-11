@@ -93,7 +93,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby r.AreaScopeId, r.OrdenPrioridad, r.AreaRevisoresId
                 select new
@@ -106,7 +106,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                         RevisorWorkerId = r.RevisorId,
                         RevisorFullName = p != null ? p.FullName : null,
                         RevisorEmail = w.EmailCorporativo,
-                        RevisorCategory = c != null ? c.Name : null,
+                        RevisorCategory = c != null ? c.Nombre : null,
                         OrdenPrioridad = r.OrdenPrioridad,
                         Active = r.Active,
                     }
@@ -332,8 +332,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var areaScopeWorker = await (
                 from w in ctx.Worker
                 where w.Person != null && w.Person.UserId == userId && w.AreaScopeId != null
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
-                where CategoriasConVista.Contains(c.Name.ToLower())
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
+                where CategoriasConVista.Contains(c.Nombre.ToLower())
                 select w.AreaScopeId
             ).FirstOrDefaultAsync();
             if (areaScopeWorker == null) return null;

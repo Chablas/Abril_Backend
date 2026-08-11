@@ -17,31 +17,34 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
     private const int MetaEvalResidente   = 1;
 
     // Samuel Justiniani (sjustiniani@abril.pe) — excepción explícita a pedido suyo
-    // ("los Coordinadores SSOMA y yo"). Su ocupación real es "SSOMA", no calza con el
-    // texto "Coordinador SSOMA" que sí usan los demás coordinadores.
+    // ("los Coordinadores SSOMA y yo").
     private const int WorkerIdSamuel = 12305;
 
+    /// <summary>Categoría que da el permiso. Ver <c>Migrations_Manual/categoria_puesto_unificados.sql</c>.</summary>
+    private const string CategoriaCoordinadorSsoma = "COORDINADOR SSOMA";
+
     /// <summary>
-    /// El usuario logueado tiene permiso para ocultar/mostrar (cualquier tarjeta) si
-    /// su propio worker es Coordinador SSOMA — revisa tanto "ocupacion" como
-    /// "categoria" porque ese dato no siempre vive en el mismo campo — o si es Samuel.
+    /// El usuario logueado tiene permiso para ocultar/mostrar (cualquier tarjeta) si su
+    /// propio worker es Coordinador SSOMA, o si es Samuel.
+    ///
+    /// Antes esto se resolvía concatenando categoría + ocupación y buscando las palabras
+    /// "Coordinador" y "SSOMA" en el texto, porque el dato no siempre vivía en el mismo
+    /// campo. Al unificar los catálogos se creó la categoría COORDINADOR SSOMA y se
+    /// asignó a exactamente los mismos trabajadores que esa búsqueda alcanzaba, así que
+    /// ahora es una comparación directa contra la categoría.
     /// </summary>
     public async Task<bool> EsCoordinadorSsomaAsync(int userId)
     {
         await using var ctx = await factory.CreateDbContextAsync();
         var datos = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => new { w.Id, w.Ocupacion, w.Categoria })
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId,
+                  (p, w) => new { w.Id, Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre })
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
 
-        // "Coordinador" y "SSOMA" pueden venir en el mismo campo o repartidos entre
-        // Categoria y Ocupacion (ej. Categoria="Coordinador", Ocupacion="SSOMA").
-        var textoCombinado = $"{datos.Categoria} {datos.Ocupacion}";
-
-        return textoCombinado.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
-            && textoCombinado.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(datos.Categoria, CategoriaCoordinadorSsoma, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task OcultarAsync(int workerId, string? motivo, int userId)
@@ -102,10 +105,17 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
 
         var staffBase = (await ctx.Worker
             .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
-            .Select(w => new { WorkerId = w.Id, w.PersonId, w.Ocupacion, w.ApellidoNombre })
+            .Select(w => new
+            {
+                WorkerId = w.Id,
+                w.PersonId,
+                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
+                w.ApellidoNombre
+            })
             .ToListAsync())
             .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))
-            .Select(s => new { s.WorkerId, s.PersonId, s.Ocupacion, s.ApellidoNombre, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
+            .Select(s => new { s.WorkerId, s.PersonId, s.Categoria, s.Puesto, s.ApellidoNombre, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
             .ToList();
 
         if (proyectoId.HasValue)
@@ -175,8 +185,9 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 kv.Key, NombreSupervisorMatcher.Tokens(kv.Value)))
             .ToList();
 
+        // Antes se filtraba por ocupacion = 'Residencia'; ahora es la categoría RESIDENTE.
         var residenteWorkerIds = staffBase
-            .Where(s => string.Equals(s.Ocupacion, "Residencia", StringComparison.OrdinalIgnoreCase))
+            .Where(s => string.Equals(s.Categoria, "RESIDENTE", StringComparison.OrdinalIgnoreCase))
             .Select(s => s.WorkerId)
             .ToHashSet();
 

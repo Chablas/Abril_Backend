@@ -6,6 +6,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMed
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.Shared;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -13,11 +14,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private readonly IDescansoMedicoRepository _repo;
         private readonly ITrabajadorRestringidoService _restringido;
+        private readonly IDescansoCertificadoStorage _certificados;
 
-        public DescansoMedicoService(IDescansoMedicoRepository repo, ITrabajadorRestringidoService restringido)
+        public DescansoMedicoService(
+            IDescansoMedicoRepository repo,
+            ITrabajadorRestringidoService restringido,
+            IDescansoCertificadoStorage certificados)
         {
             _repo = repo;
             _restringido = restringido;
+            _certificados = certificados;
         }
 
         public Task<List<DescansoTipoDto>> GetTipos() => _repo.GetTipos();
@@ -34,7 +40,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<DescansoMedicoDetalleDto> GetById(int id) => _repo.GetById(id);
 
-        public Task<int> Create(DescansoMedicoCreateDto dto, int? userId, List<(string Url, string Nombre)> adjuntos)
+        public async Task<int> Create(DescansoMedicoCreateDto dto, int? userId)
         {
             if (dto.WorkerId <= 0)
                 throw new AbrilException("El trabajador es obligatorio.", 400);
@@ -42,7 +48,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 throw new AbrilException("El tipo de descanso es obligatorio.", 400);
             if (dto.FechaFin < dto.FechaInicio)
                 throw new AbrilException("La fecha de fin no puede ser anterior a la fecha de inicio.", 400);
-            return _repo.Create(dto, userId ?? 0, adjuntos);
+
+            // Mismo destino que Mi Salud: la carpeta de SharePoint configurada en ss_descanso_carpeta.
+            var adjuntos = await _certificados.SubirAsync(dto.Documentos ?? [], "ssoma");
+
+            return await _repo.Create(dto, userId ?? 0, adjuntos);
+        }
+
+        public async Task<DescansoCertificadoArchivoDto> GetCertificado(int adjuntoId)
+        {
+            var adjunto = await _repo.GetAdjunto(adjuntoId)
+                ?? throw new AbrilException("El certificado solicitado no existe.", 404);
+
+            return await _certificados.DescargarAsync(
+                    adjunto.DriveId, adjunto.ItemId, adjunto.Url, adjunto.NombreArchivo)
+                ?? throw new AbrilException("No se pudo obtener el certificado desde SharePoint.", 502);
         }
 
         public Task Update(int id, DescansoMedicoUpdateDto dto)

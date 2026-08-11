@@ -9,9 +9,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public DateOnly? FechaNacimiento { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }
-        public string? Categoria { get; set; }
-        public string? Ocupacion { get; set; }
-        public int? OcupacionId { get; set; }
+        /// <summary>FK a <c>categoria</c>: el campo de lógica del trabajador.</summary>
+        public int? CategoriaId { get; set; }
+        /// <summary>FK a <c>puesto</c>: el campo de presentación del trabajador.</summary>
+        public int? PuestoId { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }

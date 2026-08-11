@@ -33,7 +33,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from c in ctx.GthCandidato
                 where c.GthCandidatoId == f.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 select new { c.Nombre, Puesto = p.Nombre }).FirstOrDefaultAsync();
 
             var dto = new PostulanteFormularioPublicoDto
@@ -58,8 +58,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(x => new OpcionDto { Id = x.GthDisponibilidadId, Nombre = x.Nombre }).ToListAsync();
             dto.MotivosCese = await ctx.GthMotivoCese.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new OpcionDto { Id = x.GthMotivoCeseId, Nombre = x.Nombre }).ToListAsync();
-            dto.Convocatorias = await ctx.GthPuesto.Where(x => x.State && x.Active).OrderBy(x => x.Orden).ThenBy(x => x.Nombre)
-                .Select(x => new OpcionDto { Id = x.GthPuestoId, Nombre = x.Nombre }).ToListAsync();
+            dto.Convocatorias = await ctx.Puesto.Where(x => x.State && x.Active).OrderBy(x => x.Orden).ThenBy(x => x.Nombre)
+                .Select(x => new OpcionDto { Id = x.PuestoId, Nombre = x.Nombre }).ToListAsync();
             dto.Distritos = await ctx.GthDistrito.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new DistritoOpcionDto { Id = x.GthDistritoId, Nombre = x.Nombre, Provincia = x.Provincia }).ToListAsync();
 
@@ -93,7 +93,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             f.GthDistritoId           = r.DistritoId;
             f.CorreoElectronico       = Trim(r.CorreoElectronico);
             f.NumeroCelular           = Trim(r.NumeroCelular);
-            f.ConvocatoriaGthPuestoId = r.ConvocatoriaId;
+            f.ConvocatoriaPuestoId = r.ConvocatoriaId;
             f.PretensionesSalariales  = Trim(r.PretensionesSalariales);
             f.GthDisponibilidadId     = r.DisponibilidadId;
             f.Linkedin                = Trim(r.Linkedin);
@@ -137,7 +137,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where c.GthCandidatoId == candidatoId && c.State
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 select new { c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre }).FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
@@ -228,7 +228,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from tdoc in tdocJ.DefaultIfEmpty()
                 join dist in ctx.GthDistrito on f.GthDistritoId equals dist.GthDistritoId into distJ
                 from dist in distJ.DefaultIfEmpty()
-                join conv in ctx.GthPuesto on f.ConvocatoriaGthPuestoId equals conv.GthPuestoId into convJ
+                join conv in ctx.Puesto on f.ConvocatoriaPuestoId equals conv.PuestoId into convJ
                 from conv in convJ.DefaultIfEmpty()
                 join disp in ctx.GthDisponibilidad on f.GthDisponibilidadId equals disp.GthDisponibilidadId into dispJ
                 from disp in dispJ.DefaultIfEmpty()
@@ -374,7 +374,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             DistritoId             = f.GthDistritoId,
             CorreoElectronico      = f.CorreoElectronico,
             NumeroCelular          = f.NumeroCelular,
-            ConvocatoriaId         = f.ConvocatoriaGthPuestoId,
+            ConvocatoriaId         = f.ConvocatoriaPuestoId,
             PretensionesSalariales = f.PretensionesSalariales,
             DisponibilidadId       = f.GthDisponibilidadId,
             Linkedin               = f.Linkedin,

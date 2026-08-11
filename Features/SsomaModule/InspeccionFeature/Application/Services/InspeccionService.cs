@@ -159,7 +159,7 @@ public class InspeccionService : IInspeccionService
         var req = new UnirseInspeccionRequest
         {
             Nombre = worker.ApellidoNombre ?? "",
-            Cargo = worker.Cargo ?? worker.Ocupacion,
+            Cargo = worker.Cargo ?? worker.Puesto,
             Empresa = worker.EmpresaActual,
         };
         await _repo.UnirseAsync(inspeccionId, req, worker.Id);

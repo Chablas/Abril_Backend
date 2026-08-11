@@ -122,7 +122,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         .OrderByDescending(i => i.FechaDerivacion)
                         .Select(i => (string?)i.UrlInforme)
                         .FirstOrDefault(),
-                    PuestoOrigen = x.cv.PuestoOrigen ?? x.w.Ocupacion,
+                    PuestoOrigen = x.cv.PuestoOrigen ?? (x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre),
                     PuestoDestino = x.cv.PuestoDestino,
                     ObraOficinaStaffOrigenId = x.cv.ObraOficinaStaffOrigenId ?? x.w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = x.oso != null ? x.oso.Name
@@ -180,7 +180,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = e.WorkerId,
                     WorkerNombre = per != null ? per.FullName : "",
                     WorkerDni = per != null ? per.DocumentIdentityCode : "",
-                    WorkerOcupacion = w.Ocupacion,
+                    WorkerPuesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                     TipoEmo = et != null ? et.Nombre : null,
                     FechaEmoOrigen = e.FechaEmo,
                     AptitudOrigen = e.Aptitud,
@@ -193,7 +193,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaVencimiento = cv.FechaVencimiento,
                     Resultado = cv.Resultado,
                     Notas = cv.Observaciones,
-                    PuestoOrigen = cv.PuestoOrigen ?? w.Ocupacion,
+                    PuestoOrigen = cv.PuestoOrigen ?? (w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre),
                     PuestoDestino = cv.PuestoDestino,
                     ObraOficinaStaffOrigenId = cv.ObraOficinaStaffOrigenId ?? w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = oso != null ? oso.Name
@@ -320,7 +320,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .FirstOrDefaultAsync();
 
             return (
-                vinculacionOrigen?.Puesto ?? emo.Worker?.Ocupacion,
+                vinculacionOrigen?.Puesto ?? emo.Worker?.PuestoCatalogo?.Nombre,
                 vinculacionOrigen?.ObraOficinaStaffId ?? emo.Worker?.ObraOficinaStaffId
             );
         }
@@ -339,7 +339,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .FirstOrDefaultAsync();
 
             return (
-                vinculacionActual?.Puesto ?? emo.Worker?.Ocupacion,
+                vinculacionActual?.Puesto ?? emo.Worker?.PuestoCatalogo?.Nombre,
                 vinculacionActual?.ObraOficinaStaffId ?? emo.Worker?.ObraOficinaStaffId
             );
         }

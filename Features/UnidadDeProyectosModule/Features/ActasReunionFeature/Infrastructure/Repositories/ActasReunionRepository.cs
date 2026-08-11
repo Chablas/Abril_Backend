@@ -3,6 +3,7 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeatur
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories
@@ -792,8 +793,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         /// <summary>
         /// Trabajadores de Abril (workers con email_corporativo @abril.pe) para los desplegables
-        /// de "Convocado por" y de participantes. El cargo sale de workers.puesto con fallback
-        /// a workers.ocupacion.
+        /// de "Convocado por" y de participantes. El cargo es el puesto del catálogo.
         /// </summary>
         private static async Task<List<TrabajadorAbrilDto>> GetTrabajadoresAbril(AppDbContext ctx)
         {
@@ -807,9 +807,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 {
                     WorkerId = w.Id,
                     FullName = p.FullName,
-                    Cargo = w.Puesto != null && w.Puesto.Trim() != ""
-                        ? w.Puesto
-                        : (w.Ocupacion != null && w.Ocupacion.Trim() != "" ? w.Ocupacion : null),
+                    Cargo = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                 }
             ).ToListAsync();
         }
@@ -826,26 +824,42 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         /// <summary>
         /// Si un participante se eligió del desplegable de trabajadores (trae WorkerId) y su cargo
-        /// se ingresó a mano porque el worker no tenía puesto ni ocupacion, ese texto se guarda en
-        /// workers.puesto para completar la ficha del trabajador. No pisa datos existentes.
+        /// se ingresó a mano porque el worker no tenía puesto, se completa la ficha del trabajador.
+        /// No pisa datos existentes.
+        ///
+        /// El puesto ya no es texto libre: si el cargo escrito no existe en el catálogo se da de
+        /// alta ahí (en MAYÚSCULAS y sin categoría, para que la asignen desde Configuración) y se
+        /// apunta el trabajador a esa fila. Así el catálogo sigue siendo la única fuente.
         /// </summary>
         private static async Task BackfillPuestoTrabajadores(AppDbContext ctx, List<ReunionParticipanteInput> participantes)
         {
             var cargoPorWorker = participantes
                 .Where(p => p.WorkerId.HasValue && !string.IsNullOrWhiteSpace(p.Cargo))
                 .GroupBy(p => p.WorkerId!.Value)
-                .ToDictionary(g => g.Key, g => g.First().Cargo!.Trim());
+                .ToDictionary(g => g.Key, g => g.First().Cargo!.Trim().ToUpperInvariant());
             if (cargoPorWorker.Count == 0) return;
 
             var ids = cargoPorWorker.Keys.ToList();
             var workers = await ctx.Worker
-                .Where(w => ids.Contains(w.Id)
-                    && (w.Puesto == null || w.Puesto.Trim() == "")
-                    && (w.Ocupacion == null || w.Ocupacion.Trim() == ""))
+                .Where(w => ids.Contains(w.Id) && w.PuestoId == null)
                 .ToListAsync();
+            if (workers.Count == 0) return;
+
+            var nombres = workers.Select(w => cargoPorWorker[w.Id]).Distinct().ToList();
+            var existentes = await ctx.Puesto
+                .Where(p => p.State && nombres.Contains(p.Nombre))
+                .ToDictionaryAsync(p => p.Nombre, p => p);
+
             foreach (var worker in workers)
             {
-                worker.Puesto = cargoPorWorker[worker.Id];
+                var nombre = cargoPorWorker[worker.Id];
+                if (!existentes.TryGetValue(nombre, out var puesto))
+                {
+                    puesto = new Puesto { Nombre = nombre, CreatedDateTime = DateTime.UtcNow };
+                    ctx.Puesto.Add(puesto);
+                    existentes[nombre] = puesto;
+                }
+                worker.PuestoCatalogo = puesto;
                 worker.UpdatedAt = DateTimeOffset.UtcNow;
             }
         }

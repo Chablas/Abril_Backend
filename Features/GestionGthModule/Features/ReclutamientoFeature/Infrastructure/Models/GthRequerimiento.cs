@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Correlativo (NNNN) dentro del año.</summary>
         public int Numero { get; set; }
 
-        public int GthPuestoId { get; set; }
+        public int PuestoId { get; set; }
         public int GthTipoRequerimientoId { get; set; }
 
         /// <summary>FK a <c>project</c> (proyecto/obra destino de la vacante).</summary>

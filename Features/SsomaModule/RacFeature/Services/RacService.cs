@@ -193,7 +193,7 @@ public class RacService : IRacService
                 cerradoPorNombre = personaCierre.FullName;
                 cerradoPorCargo = await ctx.Worker
                     .Where(w => w.PersonId == personaCierre.PersonId)
-                    .Select(w => w.Ocupacion)
+                    .Select(w => w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre)
                     .FirstOrDefaultAsync();
             }
         }
@@ -295,10 +295,10 @@ public class RacService : IRacService
                         v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
                     .ThenByDescending(w => w.Estado == "ACTIVO" ? 1 : 0)
                     .ThenByDescending(w => w.Id)
-                    .Select(w => new { w.Ocupacion })
+                    .Select(w => new { Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre })
                     .FirstOrDefaultAsync();
-                if (!string.IsNullOrEmpty(worker?.Ocupacion))
-                    reportanteCargo = worker.Ocupacion;
+                if (!string.IsNullOrEmpty(worker?.Puesto))
+                    reportanteCargo = worker.Puesto;
             }
         }
 
@@ -309,14 +309,19 @@ public class RacService : IRacService
         {
             var workerReportante = await ctx.Worker
                 .Where(w => w.Id == req.ReportanteId.Value)
-                .Select(w => new { w.ApellidoNombre, w.Ocupacion, w.Categoria })
+                .Select(w => new
+                {
+                    w.ApellidoNombre,
+                    Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
+                    Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre
+                })
                 .FirstOrDefaultAsync();
             if (workerReportante is not null)
             {
                 reportanteNombre = workerReportante.ApellidoNombre;
                 reportanteCargo = !string.IsNullOrEmpty(req.ReportanteCargo)
                     ? req.ReportanteCargo
-                    : (workerReportante.Ocupacion ?? workerReportante.Categoria);
+                    : (workerReportante.Puesto ?? workerReportante.Categoria);
             }
         }
 

@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         // LessonJefeResolver, que solo usa "Jefe" para decidir quién PUEDE
         // aprobar/rechazar lecciones (jerarquía de revisión). Aquí solo definimos
         // quién aparece/puede activarse en la sección Jefaturas.
-        private static readonly string[] CategoriasJefatura = { "Jefe", "Coordinador", "Residente" };
+        private static readonly string[] CategoriasJefatura = { "JEFE", "COORDINADOR", "RESIDENTE" };
 
         public LessonReminderRepository(
             IDbContextFactory<AppDbContext> factory,
@@ -642,15 +642,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             // Todos los workers con categoria 'Jefe' (texto exacto, igual que LessonJefeResolver).
             var jefes = await (
                 from w in ctx.Worker
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
-                where CategoriasJefatura.Contains(c.Name)
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
+                where CategoriasJefatura.Contains(c.Nombre)
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 select new
                 {
                     w.Id,
                     w.EmailCorporativo,
-                    Categoria = c.Name,
+                    Categoria = c.Nombre,
                     FullName = p != null ? p.FullName : null
                 }
             ).ToListAsync();
@@ -683,8 +683,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var isJefe = await (
                 from w in ctx.Worker
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
-                where w.Id == workerId && CategoriasJefatura.Contains(c.Name)
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
+                where w.Id == workerId && CategoriasJefatura.Contains(c.Nombre)
                 select w.Id
             ).AnyAsync();
             if (!isJefe)
@@ -726,11 +726,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var jefes = await (
                 from r in ctx.LessonJefeReminder
                 join w in ctx.Worker on r.WorkerId equals w.Id
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where r.State
                       && r.Active
-                      && CategoriasJefatura.Contains(c.Name)
+                      && CategoriasJefatura.Contains(c.Nombre)
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo != ""
                 select new
@@ -790,13 +790,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 join j in ctx.Worker on w.WorkerLessonJefeId equals j.Id into jj
                 from j in jj.DefaultIfEmpty()
                 join jp in ctx.Person on j.PersonId equals jp.PersonId into jpj
                 from jp in jpj.DefaultIfEmpty()
-                join jc in ctx.WorkersCategory on j.WorkerCategoryId equals jc.WorkersCategoryId into jcj
+                join jc in ctx.Categoria on j.CategoriaId equals jc.CategoriaId into jcj
                 from jc in jcj.DefaultIfEmpty()
                 orderby p != null ? p.FullName : ""
                 select new WorkerRevisorItemDTO
@@ -804,13 +804,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
                     Email = w.EmailCorporativo,
-                    CategoryId = w.WorkerCategoryId,
-                    Category = c != null ? c.Name : null,
+                    CategoryId = w.CategoriaId,
+                    Category = c != null ? c.Nombre : null,
                     JefeWorkerId = w.WorkerLessonJefeId,
                     JefeFullName = jp != null ? jp.FullName : null,
                     JefeEmail = j != null ? j.EmailCorporativo : null,
-                    JefeCategoryId = j != null ? j.WorkerCategoryId : null,
-                    JefeCategory = jc != null ? jc.Name : null,
+                    JefeCategoryId = j != null ? j.CategoriaId : null,
+                    JefeCategory = jc != null ? jc.Nombre : null,
                     AutoApproveLesson = w.AutoApproveLesson
                 }
             ).ToListAsync();

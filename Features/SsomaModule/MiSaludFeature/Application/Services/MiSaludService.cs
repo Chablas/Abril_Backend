@@ -1,9 +1,9 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
@@ -21,18 +21,18 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
         private const string CorreoMedicoOcupacional = "MEDICO_OCUPACIONAL";
 
         private readonly IMiSaludRepository _repo;
-        private readonly ISharePointHabService _sharePoint;
+        private readonly IDescansoCertificadoStorage _certificados;
         private readonly IEmailService _emailService;
         private readonly ILogger<MiSaludService> _logger;
 
         public MiSaludService(
             IMiSaludRepository repo,
-            ISharePointHabService sharePoint,
+            IDescansoCertificadoStorage certificados,
             IEmailService emailService,
             ILogger<MiSaludService> logger)
         {
             _repo         = repo;
-            _sharePoint   = sharePoint;
+            _certificados = certificados;
             _emailService = emailService;
             _logger       = logger;
         }
@@ -56,22 +56,10 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
 
             var workerId = await _repo.ResolverWorkerIdAsync(userId);
 
-            var adjuntos = new List<(string Url, string Nombre)>();
-            foreach (var documento in dto.Documentos ?? [])
-            {
-                if (documento.Length <= 0) continue;
-                try
-                {
-                    using var stream = documento.OpenReadStream();
-                    var url = await _sharePoint.SubirArchivoAsync(
-                        stream, documento.FileName, "descanso-medico");
-                    adjuntos.Add((url, documento.FileName));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error subiendo certificado de descanso para worker {WorkerId}", workerId);
-                }
-            }
+            // Los certificados van a la carpeta de SharePoint configurada en ss_descanso_carpeta.
+            // A diferencia de antes, si la subida falla el registro no se guarda: un descanso sin
+            // su certificado no le sirve a nadie y el trabajador no se enteraba de que se perdió.
+            var adjuntos = await _certificados.SubirAsync(dto.Documentos ?? [], "misalud");
 
             var descansoId = await _repo.CreateDescanso(workerId, dto, userId, adjuntos);
 
@@ -86,6 +74,18 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
             }
 
             return descansoId;
+        }
+
+        public async Task<DescansoCertificadoArchivoDto> GetCertificado(int userId, int adjuntoId)
+        {
+            var workerId = await _repo.ResolverWorkerIdAsync(userId);
+
+            var adjunto = await _repo.GetAdjuntoDelWorkerAsync(adjuntoId, workerId)
+                ?? throw new AbrilException("El certificado solicitado no existe o no te pertenece.", 404);
+
+            return await _certificados.DescargarAsync(
+                    adjunto.DriveId, adjunto.ItemId, adjunto.Url, adjunto.NombreArchivo)
+                ?? throw new AbrilException("No se pudo obtener el certificado desde SharePoint.", 502);
         }
 
         public async Task<List<MiDescansoCorreoConfigDto>> GetCorreoConfigs()

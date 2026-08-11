@@ -64,7 +64,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 where w.AreaScopeId == areaScopeId && w.Estado == "ACTIVO"
                 join p in _context.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join wc in _context.WorkersCategory on w.WorkerCategoryId equals wc.WorkersCategoryId into wcj
+                join wc in _context.Categoria on w.CategoriaId equals wc.CategoriaId into wcj
                 from wc in wcj.DefaultIfEmpty()
                 orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
                 select new AreaScopeWorkerDto
@@ -72,7 +72,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                     WorkerId         = w.Id,
                     FullName         = p != null && p.FullName != null ? p.FullName : w.ApellidoNombre,
                     EmailCorporativo = w.EmailCorporativo,
-                    CategoryName     = wc != null ? wc.Name : null,
+                    CategoryName     = wc != null ? wc.Nombre : null,
                 }
             ).ToListAsync();
         }

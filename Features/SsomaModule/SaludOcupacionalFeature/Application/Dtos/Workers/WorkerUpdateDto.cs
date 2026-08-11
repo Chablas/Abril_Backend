@@ -17,11 +17,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public bool? MostrarEnBoletin { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
-        public string? Categoria { get; set; }
-        public string? Ocupacion { get; set; }
-        public int? OcupacionId { get; set; }
-        /// <summary>Nombre del puesto final (autocompletado de Categoría + Ocupación, editable).</summary>
-        public string? Puesto { get; set; }
+        /// <summary>FK a <c>categoria</c>: el campo de lógica del trabajador.</summary>
+        public int? CategoriaId { get; set; }
+        /// <summary>FK a <c>puesto</c>: el campo de presentación del trabajador.</summary>
+        public int? PuestoId { get; set; }
         /// <summary>
         /// Nodo del árbol de áreas elegido en el formulario (workers.area_scope_id). Cuando viene,
         /// es la fuente de verdad del área: el backend deriva de él los campos legacy

@@ -117,10 +117,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 dto.AreaScopeId = areaScopeId;
             }
 
-            dto.Puestos = await ctx.GthPuesto
+            dto.Puestos = await ctx.Puesto
                 .Where(p => p.State && p.Active)
                 .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
-                .Select(p => new OpcionDto { Id = p.GthPuestoId, Nombre = p.Nombre })
+                .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
                 .ToListAsync();
 
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
@@ -168,7 +168,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var cards = await (
                 from r in ctx.GthRequerimiento
                 where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 where e.Codigo == EstadoReclutamiento.LongListEnviada
@@ -204,7 +204,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       && ctx.GthCandidato.Any(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
                                   && ev.State && ev.GthCandidatoResultadoId != noPasoId))
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 where e.Codigo == EstadoReclutamiento.Entrevistas
@@ -272,7 +272,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
                       && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 select new
@@ -341,7 +341,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
                       && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 select new
@@ -454,7 +454,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var raw = await (
                 from r in ctx.GthRequerimiento
                 where r.State && r.Solicitud!.State
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 join prio in ctx.GthPrioridad on r.GthPrioridadId equals prio.GthPrioridadId into prioJoin
@@ -599,7 +599,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var head = await (
                 from r in ctx.GthRequerimiento
                 where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -942,7 +942,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from c in ctx.GthCandidato
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
@@ -1037,7 +1037,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from c in ctx.GthCandidato
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
@@ -1196,7 +1196,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
                       && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 select new
@@ -1285,7 +1285,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
                       && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 select new
@@ -1578,7 +1578,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var info = await (
                 from r in ctx.GthRequerimiento
                 where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 join tp in ctx.GthTipoProceso on r.GthTipoProcesoId equals tp.GthTipoProcesoId into tpJoin
@@ -1657,8 +1657,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // El puesto del candidato es siempre el del requerimiento (el que registró el
             // solicitante): se guarda como snapshot para que la revisión no dependa del catálogo.
-            var puestoRequerimiento = await ctx.GthPuesto
-                .Where(p => p.GthPuestoId == req.GthPuestoId)
+            var puestoRequerimiento = await ctx.Puesto
+                .Where(p => p.PuestoId == req.PuestoId)
                 .Select(p => p.Nombre)
                 .FirstOrDefaultAsync();
 
@@ -1737,7 +1737,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
                       && r.Solicitud.SolicitanteUserId == userId
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -1811,7 +1811,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             var raw = await (
                 from r in reqs
-                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
@@ -1967,7 +1967,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var tipoIds    = vacantes.Select(v => v.TipoRequerimientoId).Distinct().ToList();
             var projectIds = vacantes.Select(v => v.ProjectId).Distinct().ToList();
 
-            var puestosOk = await ctx.GthPuesto.CountAsync(p => puestoIds.Contains(p.GthPuestoId) && p.State && p.Active);
+            var puestosOk = await ctx.Puesto.CountAsync(p => puestoIds.Contains(p.PuestoId) && p.State && p.Active);
             if (puestosOk != puestoIds.Count)
                 throw new AbrilException("Uno o más puestos seleccionados no son válidos.", 400);
 
@@ -2003,7 +2003,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Codigo                   = codigo,
                     Anio                     = anio,
                     Numero                   = maxNumero,
-                    GthPuestoId              = v.PuestoId,
+                    PuestoId                 = v.PuestoId,
                     GthTipoRequerimientoId   = v.TipoRequerimientoId,
                     ProjectId                = v.ProjectId,
                     FechaRequeridaIngreso    = v.FechaRequeridaIngreso,

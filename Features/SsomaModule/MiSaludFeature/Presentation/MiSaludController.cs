@@ -60,5 +60,22 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en MiSaludController.CreateDescanso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        /// <summary>
+        /// Sirve el certificado de un descanso propio. El archivo vive en la carpeta de SharePoint
+        /// configurada (ss_descanso_carpeta) y lo baja el backend con su token de app, de modo que
+        /// el trabajador lo ve sin tener que estar logueado en Microsoft 365 en el navegador.
+        /// </summary>
+        [HttpGet("descansos/adjuntos/{adjuntoId:int}")]
+        public async Task<IActionResult> GetCertificado(int adjuntoId)
+        {
+            try
+            {
+                var archivo = await _service.GetCertificado(CurrentUserId(), adjuntoId);
+                return File(archivo.Contenido, archivo.ContentType, archivo.NombreArchivo);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en MiSaludController.GetCertificado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

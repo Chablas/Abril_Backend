@@ -6,7 +6,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? ApellidoNombre { get; set; }
         public string? Dni { get; set; }
         public string? EmailCorporativo { get; set; }
-        public string? Ocupacion { get; set; }
+        /// <summary>Nombre del puesto (campo de presentación).</summary>
+        public string? Puesto { get; set; }
+        /// <summary>Nombre de la categoría (campo de lógica).</summary>
         public string? Categoria { get; set; }
         public string? Cargo { get; set; }
         /// <summary>FK a workers_obra_oficina_staff — clasificación de riesgo actual, ya

@@ -3,6 +3,7 @@ using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -154,49 +155,60 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<List<CatCategoria>> GetCategoriasAsync()
+        public async Task<List<Categoria>> GetCategoriasAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.CatCategoria
-                .Where(x => x.Activo)
-                .OrderBy(x => x.Orden)
+            return await ctx.Categoria
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.Nombre)
                 .ToListAsync();
         }
 
-        public async Task<List<CatOcupacion>> GetOcupacionesAsync()
+        public async Task<List<Puesto>> GetPuestosAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.CatOcupacion
-                .Where(x => x.Activo)
-                .OrderBy(x => x.Orden)
+            return await ctx.Puesto
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.Nombre)
                 .ToListAsync();
         }
 
         // ── Categorías CRUD ──────────────────────────────────────────
-        public async Task<List<CatCategoria>> GetCategoriasTodasAsync()
+        public async Task<List<Categoria>> GetCategoriasTodasAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.CatCategoria
-                .OrderBy(x => x.Orden).ThenBy(x => x.Nombre)
+            return await ctx.Categoria
+                .Where(x => x.State)
+                .OrderBy(x => x.Nombre)
                 .ToListAsync();
         }
 
-        public async Task<CatCategoria> CrearCategoriaAsync(string nombre)
+        public async Task<Categoria> CrearCategoriaAsync(string nombre)
         {
             using var ctx = _factory.CreateDbContext();
-            var maxOrden = await ctx.CatCategoria.MaxAsync(x => (int?)x.Orden) ?? 0;
-            var cat = new CatCategoria { Nombre = nombre, Orden = maxOrden + 1, Activo = true, CreatedAt = DateTime.UtcNow };
-            ctx.CatCategoria.Add(cat);
+            var nombreNorm = NormalizarNombre(nombre);
+            if (await ctx.Categoria.AnyAsync(x => x.State && x.Nombre == nombreNorm))
+                throw new AbrilException("Ya existe una categoría con ese nombre.", 400);
+
+            var maxOrden = await ctx.Categoria.MaxAsync(x => (int?)x.Orden) ?? 0;
+            var cat = new Categoria { Nombre = nombreNorm, Orden = maxOrden + 1, CreatedDateTime = DateTime.UtcNow };
+            ctx.Categoria.Add(cat);
             await ctx.SaveChangesAsync();
             return cat;
         }
 
-        public async Task<CatCategoria> ActualizarCategoriaAsync(int id, string nombre)
+        public async Task<Categoria> ActualizarCategoriaAsync(int id, string nombre)
         {
             using var ctx = _factory.CreateDbContext();
-            var cat = await ctx.CatCategoria.FindAsync(id)
+            var cat = await ctx.Categoria.FirstOrDefaultAsync(x => x.CategoriaId == id && x.State)
                 ?? throw new AbrilException("Categoría no encontrada.", 404);
-            cat.Nombre = nombre;
+
+            var nombreNorm = NormalizarNombre(nombre);
+            if (await ctx.Categoria.AnyAsync(x => x.State && x.Nombre == nombreNorm && x.CategoriaId != id))
+                throw new AbrilException("Ya existe una categoría con ese nombre.", 400);
+
+            cat.Nombre = nombreNorm;
+            cat.UpdatedDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
             return cat;
         }
@@ -204,48 +216,81 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task ToggleCategoriaAsync(int id, bool activo)
         {
             using var ctx = _factory.CreateDbContext();
-            var cat = await ctx.CatCategoria.FindAsync(id)
+            var cat = await ctx.Categoria.FirstOrDefaultAsync(x => x.CategoriaId == id && x.State)
                 ?? throw new AbrilException("Categoría no encontrada.", 404);
-            cat.Activo = activo;
+            cat.Active = activo;
+            cat.UpdatedDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
         }
 
-        // ── Ocupaciones CRUD ─────────────────────────────────────────
-        public async Task<List<CatOcupacion>> GetOcupacionesTodasAsync()
+        // ── Puestos CRUD ─────────────────────────────────────────────
+        public async Task<List<Puesto>> GetPuestosTodosAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.CatOcupacion
-                .OrderBy(x => x.Orden).ThenBy(x => x.Nombre)
+            return await ctx.Puesto
+                .Where(x => x.State)
+                .OrderBy(x => x.Nombre)
                 .ToListAsync();
         }
 
-        public async Task<CatOcupacion> CrearOcupacionAsync(string nombre)
+        public async Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId)
         {
             using var ctx = _factory.CreateDbContext();
-            var maxOrden = await ctx.CatOcupacion.MaxAsync(x => (int?)x.Orden) ?? 0;
-            var ocu = new CatOcupacion { Nombre = nombre, Orden = maxOrden + 1, Activo = true, CreatedAt = DateTime.UtcNow };
-            ctx.CatOcupacion.Add(ocu);
+            var nombreNorm = NormalizarNombre(nombre);
+            if (await ctx.Puesto.AnyAsync(x => x.State && x.Nombre == nombreNorm))
+                throw new AbrilException("Ya existe un puesto con ese nombre.", 400);
+            await ValidarCategoriaAsync(ctx, categoriaId);
+
+            var maxOrden = await ctx.Puesto.MaxAsync(x => (int?)x.Orden) ?? 0;
+            var puesto = new Puesto
+            {
+                Nombre = nombreNorm,
+                CategoriaId = categoriaId,
+                Orden = maxOrden + 1,
+                CreatedDateTime = DateTime.UtcNow
+            };
+            ctx.Puesto.Add(puesto);
             await ctx.SaveChangesAsync();
-            return ocu;
+            return puesto;
         }
 
-        public async Task<CatOcupacion> ActualizarOcupacionAsync(int id, string nombre)
+        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ocu = await ctx.CatOcupacion.FindAsync(id)
-                ?? throw new AbrilException("Ocupación no encontrada.", 404);
-            ocu.Nombre = nombre;
+            var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
+                ?? throw new AbrilException("Puesto no encontrado.", 404);
+
+            var nombreNorm = NormalizarNombre(nombre);
+            if (await ctx.Puesto.AnyAsync(x => x.State && x.Nombre == nombreNorm && x.PuestoId != id))
+                throw new AbrilException("Ya existe un puesto con ese nombre.", 400);
+            await ValidarCategoriaAsync(ctx, categoriaId);
+
+            puesto.Nombre = nombreNorm;
+            puesto.CategoriaId = categoriaId;
+            puesto.UpdatedDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
-            return ocu;
+            return puesto;
         }
 
-        public async Task ToggleOcupacionAsync(int id, bool activo)
+        public async Task TogglePuestoAsync(int id, bool activo)
         {
             using var ctx = _factory.CreateDbContext();
-            var ocu = await ctx.CatOcupacion.FindAsync(id)
-                ?? throw new AbrilException("Ocupación no encontrada.", 404);
-            ocu.Activo = activo;
+            var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
+                ?? throw new AbrilException("Puesto no encontrado.", 404);
+            puesto.Active = activo;
+            puesto.UpdatedDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Categorías y puestos se guardan siempre en MAYÚSCULAS.</summary>
+        private static string NormalizarNombre(string nombre) =>
+            nombre.Trim().ToUpperInvariant();
+
+        private static async Task ValidarCategoriaAsync(AppDbContext ctx, int? categoriaId)
+        {
+            if (categoriaId is null) return;
+            if (!await ctx.Categoria.AnyAsync(c => c.CategoriaId == categoriaId && c.State))
+                throw new AbrilException("La categoría indicada no existe.", 400);
         }
     }
 }

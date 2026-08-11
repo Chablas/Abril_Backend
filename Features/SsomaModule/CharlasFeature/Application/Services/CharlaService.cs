@@ -96,7 +96,7 @@ public class CharlaService : ICharlaService
 
         var staffIds = await ctx.Worker
             .Where(w => workerIds.Contains(w.Id)
-                && w.Categoria == "Supervisor"
+                && w.CategoriaCatalogo != null && w.CategoriaCatalogo.Nombre == "SUPERVISOR"
                 && (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                     || w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 && w.Estado == "ACTIVO")
@@ -130,6 +130,8 @@ public class CharlaService : ICharlaService
 
         var staff = await ctx.Worker
             .Include(w => w.Person)
+            .Include(w => w.CategoriaCatalogo)
+            .Include(w => w.PuestoCatalogo)
             .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                 && w.Estado == "ACTIVO"
                 && ctx.WorkerVinculacion.Any(v =>
@@ -139,7 +141,7 @@ public class CharlaService : ICharlaService
             .ToListAsync();
 
         return staff
-            .Select(w => new StaffDto(w.Id, ToTitleCase(w.Person?.FullName), w.Ocupacion ?? string.Empty, w.Categoria))
+            .Select(w => new StaffDto(w.Id, ToTitleCase(w.Person?.FullName), w.PuestoCatalogo?.Nombre ?? string.Empty, w.CategoriaCatalogo?.Nombre))
             .OrderBy(s => s.NombreCompleto)
             .ToList();
     }
@@ -965,6 +967,7 @@ public class CharlaService : ICharlaService
 
         var staff = await ctx.Worker
             .Include(w => w.Person)
+            .Include(w => w.PuestoCatalogo)
             .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
             .ToListAsync();
 
@@ -1028,7 +1031,7 @@ public class CharlaService : ICharlaService
             var charlasTotales = charlasPorDia.Count;
 
             return new DashPersonalItemDto(
-                w.Id, w.Person?.FullName ?? string.Empty, w.Ocupacion ?? string.Empty,
+                w.Id, w.Person?.FullName ?? string.Empty, w.PuestoCatalogo?.Nombre ?? string.Empty,
                 diasWorker, charlasAsistidas, charlasTotales, 0, 0, 0
             );
         }).OrderBy(d => d.Nombre).ToList();

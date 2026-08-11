@@ -1,6 +1,7 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.SsomaModule.Shared;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces
 {
@@ -10,7 +11,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task<int> GetTipoIdPorNombre(string nombre);
         Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter);
         Task<DescansoMedicoDetalleDto> GetById(int id);
-        Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, List<(string Url, string Nombre)> adjuntos);
+        Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, List<DescansoCertificadoSubidoDto> adjuntos);
+        /// <summary>Ubicación del archivo de un adjunto, para servirlo desde el backend. Null si no existe.</summary>
+        Task<DescansoAdjuntoArchivoDto?> GetAdjunto(int adjuntoId);
         Task Update(int id, DescansoMedicoUpdateDto dto);
         Task Aprobar(int id, DescansoAprobarDto dto, int? userId);
         Task Rechazar(int id, DescansoRechazarDto dto, int? userId);

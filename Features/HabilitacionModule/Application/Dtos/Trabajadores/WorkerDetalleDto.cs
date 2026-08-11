@@ -20,9 +20,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }
+        /// <summary>FK a <c>categoria</c> (campo de lógica), para precargar el desplegable.</summary>
+        public int? CategoriaId { get; set; }
         public string? Categoria { get; set; }
-        public string? Ocupacion { get; set; }
-        public int? OcupacionId { get; set; }
+        /// <summary>FK a <c>puesto</c> (campo de presentación), para precargar el desplegable.</summary>
+        public int? PuestoId { get; set; }
         public string? Puesto { get; set; }
         /// <summary>
         /// Nodo del árbol de áreas asignado (workers.area_scope_id). Es lo que el formulario usa

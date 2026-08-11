@@ -66,8 +66,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
 
     public class DescansoAdjuntoDto
     {
+        /// <summary>
+        /// Id del adjunto (ss_descanso_medico_adjunto). El frontend pide el archivo por este id
+        /// al endpoint de descarga en vez de apuntar al link de SharePoint, que solo abre para
+        /// quien ya tiene sesión de Microsoft 365 en el navegador.
+        /// </summary>
+        public int Id { get; set; }
         public string Url { get; set; } = string.Empty;
         public string? Nombre { get; set; }
+    }
+
+    /// <summary>Datos mínimos de un adjunto para servir su contenido desde el backend.</summary>
+    public class DescansoAdjuntoArchivoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string? NombreArchivo { get; set; }
+        public string? DriveId { get; set; }
+        public string? ItemId { get; set; }
     }
 
     public class DarAltaDto

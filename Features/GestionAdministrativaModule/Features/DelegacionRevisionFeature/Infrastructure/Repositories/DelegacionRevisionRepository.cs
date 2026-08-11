@@ -70,7 +70,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby r.OrdenPrioridad, r.AreaRevisoresId
                 select new
@@ -83,7 +83,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                         RevisorWorkerId = r.RevisorId,
                         RevisorFullName = p != null ? p.FullName : null,
                         RevisorEmail = w.EmailCorporativo,
-                        RevisorCategory = c != null ? c.Name : null,
+                        RevisorCategory = c != null ? c.Nombre : null,
                         OrdenPrioridad = r.OrdenPrioridad,
                         Active = r.Active,
                     }

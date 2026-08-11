@@ -19,6 +19,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("nombre_archivo")]
         public string? NombreArchivo { get; set; }
 
+        /// <summary>
+        /// Ubicación estable en SharePoint del archivo (drive + item). Con esto el backend
+        /// lo descarga vía Graph con su propio token, sin depender de que el navegador del
+        /// usuario tenga sesión de Microsoft 365. Null en los adjuntos anteriores a la
+        /// carpeta configurable (Azure Blob o ruta relativa del sitio SSOMAApps), que se
+        /// siguen sirviendo a partir de <see cref="Url"/>.
+        /// </summary>
+        [Column("drive_id")]
+        public string? DriveId { get; set; }
+
+        [Column("item_id")]
+        public string? ItemId { get; set; }
+
         [Column("state")]
         public bool State { get; set; } = true;
 

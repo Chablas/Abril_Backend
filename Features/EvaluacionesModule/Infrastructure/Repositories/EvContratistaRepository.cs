@@ -99,9 +99,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // Subarea del evaluador (para saber qué área evalúa)
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.subarea AS Subarea, w.area AS Area, w.categoria AS Categoria
+                @"SELECT w.subarea AS Subarea, w.area AS Area, c.nombre AS Categoria
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  LEFT JOIN categoria c ON c.categoria_id = w.categoria_id
                   WHERE p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });

@@ -34,7 +34,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private const string EmailDomainCorp = "@abril.pe";
 
         // Categorías que pueden aprobar a un trabajador "regular" (regla C).
-        private static readonly string[] CategoriasWalkUp = { "Jefe", "Sub Gerente", "Coordinador" };
+        private static readonly string[] CategoriasWalkUp = { "JEFE", "SUB GERENTE", "COORDINADOR" };
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -68,12 +68,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 // Sin correo válido → continúa al fallback por jerarquía.
             }
 
-            // Categoría del solicitante leída del catálogo workers_category
-            // (FK worker_category_id), no del texto libre workers.categoria.
-            var userCategoria = user.WorkerCategoryId.HasValue
-                ? await ctx.WorkersCategory
-                    .Where(c => c.WorkersCategoryId == user.WorkerCategoryId.Value)
-                    .Select(c => c.Name)
+            // Categoría del solicitante, leída del catálogo único `categoria`
+            // (FK workers.categoria_id).
+            var userCategoria = user.CategoriaId.HasValue
+                ? await ctx.Categoria
+                    .Where(c => c.CategoriaId == user.CategoriaId.Value)
+                    .Select(c => c.Nombre)
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -107,13 +107,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             {
                 var candidatos = await (
                     from w in ctx.Worker.AsNoTracking()
-                    join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                    join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                     where w.AreaScopeId == scopeId
                           && w.Id != user.Id
-                          && CategoriasWalkUp.Contains(c.Name)
+                          && CategoriasWalkUp.Contains(c.Nombre)
                           && w.EmailCorporativo != null
                           && w.EmailCorporativo.EndsWith(EmailDomainCorp)
-                    select new { w.Id, Categoria = c.Name, w.EmailCorporativo }
+                    select new { w.Id, Categoria = c.Nombre, w.EmailCorporativo }
                 ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
@@ -166,10 +166,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var gerentes = await (
                 from w in ctx.Worker.AsNoTracking()
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 where w.AreaScopeId.HasValue
                       && w.Id != excludeWorkerId
-                      && c.Name == "Gerente"
+                      && c.Nombre == "GERENTE"
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.EndsWith(EmailDomainCorp)
                 select new { w.Id, w.AreaScopeId, w.EmailCorporativo }
@@ -193,9 +193,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         private static int CategoriaPriority(string? categoria) => categoria switch
         {
-            "Jefe"        => 1,
-            "Sub Gerente" => 2,
-            "Coordinador" => 3,
+            "JEFE"        => 1,
+            "SUB GERENTE" => 2,
+            "COORDINADOR" => 3,
             _             => 99,
         };
     }

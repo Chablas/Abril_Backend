@@ -279,7 +279,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Ocupación</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.Ocupacion}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.Puesto}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Modalidad</strong></td>

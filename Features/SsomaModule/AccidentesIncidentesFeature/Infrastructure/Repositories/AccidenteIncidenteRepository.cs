@@ -42,10 +42,13 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT partida_id AS id, partida_description AS nombre FROM partida WHERE active = true ORDER BY partida_description;
             SELECT contributor_id AS id, contributor_name AS razon_social, contributor_ruc AS ruc FROM contributor WHERE active = true AND es_abril = false ORDER BY contributor_name;
             SELECT w.id, p.full_name AS nombre_completo, p.document_identity_code AS documento,
-                   NULLIF(TRIM(COALESCE(w.categoria,'') || CASE WHEN w.categoria IS NOT NULL AND w.ocupacion IS NOT NULL THEN ' / ' ELSE '' END || COALESCE(w.ocupacion,'')), '') AS cargo,
+                   pu.nombre AS cargo,
                    CASE WHEN p.fecha_nacimiento IS NOT NULL THEN DATE_PART('year', AGE(p.fecha_nacimiento))::int ELSE NULL END AS edad,
                    w.anios_experiencia, w.contributor_id
-            FROM workers w JOIN person p ON p.person_id = w.person_id WHERE w.estado = 'ACTIVO' ORDER BY p.full_name;
+            FROM workers w
+            JOIN person p ON p.person_id = w.person_id
+            LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
+            WHERE w.estado = 'ACTIVO' ORDER BY p.full_name;
             SELECT psc.project_id, c.contributor_id
             FROM project_sub_contractor psc JOIN contractor c ON c.contractor_id = psc.contractor_id WHERE c.active = true;
             """;
@@ -822,6 +825,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         const string sql = """
             SELECT DISTINCT w.email_corporativo
             FROM workers w
+            LEFT JOIN categoria c ON c.categoria_id = w.categoria_id
             WHERE w.estado = 'ACTIVO'
               AND w.email_corporativo ILIKE '%@abril.pe'
               AND w.contrata_casa = 'Casa'
@@ -832,11 +836,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                   OR w.subarea  ILIKE '%talento%'
                   OR w.subarea  ILIKE '%humano%'
                   OR w.subarea  ILIKE '%gth%'
-                  OR w.ocupacion ILIKE '%medico%'
-                  OR w.ocupacion ILIKE '%médico%'
-                  OR w.ocupacion ILIKE '%gerente%general%'
+                  -- Antes esto buscaba texto suelto en w.ocupacion ('%medico%',
+                  -- '%gerente%general%', '%gerente%administr%'). Al unificar los catálogos
+                  -- esos tres casos se convirtieron en categorías propias, asignadas a los
+                  -- mismos trabajadores que la búsqueda alcanzaba.
+                  OR c.nombre IN ('MÉDICO', 'GERENTE GENERAL', 'GERENTE DE ADMINISTRACIÓN Y FINANZAS')
                   OR w.jefatura  ILIKE '%gerente%general%'
-                  OR w.ocupacion ILIKE '%gerente%administr%'
                   OR w.jefatura  ILIKE '%gerente%administr%'
               );
             """;

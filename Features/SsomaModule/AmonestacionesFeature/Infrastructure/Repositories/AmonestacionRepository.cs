@@ -224,8 +224,8 @@ public class AmonestacionRepository : IAmonestacionRepository
                 a.worker_id AS workerId,
                 pe.full_name AS workerNombre,
                 pe.document_identity_code AS workerDni,
-                w.categoria AS workerCategoria,
-                w.ocupacion AS workerCargo,
+                wcat.nombre AS workerCategoria,
+                wpue.nombre AS workerCargo,
                 CASE WHEN pe.fecha_nacimiento IS NOT NULL
                      THEN DATE_PART('year', AGE(pe.fecha_nacimiento))::int ELSE NULL END AS workerEdad,
                 c.contributor_id AS empresaId,
@@ -263,6 +263,8 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN project pr ON pr.project_id = a.proyecto_id
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
+            LEFT JOIN categoria wcat ON wcat.categoria_id = w.categoria_id
+            LEFT JOIN puesto wpue ON wpue.puesto_id = w.puesto_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id

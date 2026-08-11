@@ -33,7 +33,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private const int ItemEntregaRecomendaciones = 8;
         private const int ItemTRegistro = 7;
 
-        private const string CategoriaPracticante = "Practicante";
+        // Los nombres del catálogo `categoria` se guardan en MAYÚSCULAS.
+        private const string CategoriaPracticante = "PRACTICANTE";
 
         private const string EmailMedico = "medicinaocupacionalnm@abril.pe";
         private const string EmailGth = "gth@abril.pe";
@@ -110,10 +111,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              // match por substring (","+csv+"," contiene ","+valor+","), y se
                              // normaliza el espacio tras la coma para replicar el TrimEntries.
                              ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
-                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower())) &&
+                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.CategoriaCatalogo == null ? "" : w.CategoriaCatalogo.Nombre) + ",").ToLower())) &&
                                  (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
                                  (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
-                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower()))))
+                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.CategoriaCatalogo == null ? "" : w.CategoriaCatalogo.Nombre) + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
@@ -188,7 +189,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     && (x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                         || x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     && x.Worker.ContrataCasa == "Casa"
-                    && x.Worker.Categoria != "Practicante"
+                    && (x.Worker.CategoriaCatalogo == null || x.Worker.CategoriaCatalogo.Nombre != CategoriaPracticante)
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
@@ -304,8 +305,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ProyectoActualId = vinc?.ProyectoId,
                     ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
                     EstadoHabilitacion = r.EstadoCalc,
-                    Categoria = r.Worker.Categoria,
-                    Ocupacion = r.Worker.Ocupacion,
+                    Categoria = r.Worker.CategoriaCatalogo == null ? null : r.Worker.CategoriaCatalogo.Nombre,
+                    Puesto = r.Worker.PuestoCatalogo == null ? null : r.Worker.PuestoCatalogo.Nombre,
                     ContrataCasa = r.Worker.ContrataCasa,
                     ObraOficinaStaffId = r.Worker.ObraOficinaStaffId,
                     ObraOficina = ObraOficinaStaffIds.Nombre(r.Worker.ObraOficinaStaffId),
@@ -336,13 +337,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+            var worker = await ctx.Worker
+                .Include(w => w.CategoriaCatalogo)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var esCasa = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
             var workerType = esCasa ? "CASA" : "CONTRATISTA";
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+            var categoriaWorker = worker.CategoriaCatalogo?.Nombre;
 
             var items = await ctx.SsItemTrabajador
                 .Where(i => i.Activo && (i.AplicaA == "TODOS" || i.AplicaA == workerType))
@@ -350,10 +354,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             items = items
-                .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
+                .Where(i => CsvContiene(i.AplicaCategoria, categoriaWorker))
                 .Where(i => CsvContiene(i.AplicaObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
                 .Where(i => !CsvExcluye(i.ExcluyeObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
-                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
+                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, categoriaWorker))
                 .ToList();
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
@@ -716,6 +720,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var worker = await ctx.Worker
                 .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo)
                 .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -761,10 +766,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Un cambio de obra puro (mismo puesto, misma empresa, misma clasificación) no
             // altera nada de la aptitud del trabajador — el EMO sigue siendo válido para el
             // mismo puesto en otra obra. Solo estos tres casos exigen revisar el EMO:
-            var currentPuesto = activas.Select(a => a.Puesto).FirstOrDefault();
-            var nuevoPuesto = dto.Puesto?.Trim();
-            var esCambioPuesto = !string.IsNullOrWhiteSpace(nuevoPuesto)
-                && !string.Equals(nuevoPuesto, currentPuesto?.Trim(), StringComparison.OrdinalIgnoreCase);
+            // El puesto vigente es el del trabajador; worker_vinculaciones.puesto guarda además
+            // el nombre congelado en el momento del cambio (snapshot histórico, no un catálogo).
+            var currentPuesto = worker.PuestoCatalogo?.Nombre;
+            var nuevoPuesto = dto.PuestoId.HasValue
+                ? await ctx.Puesto.Where(p => p.PuestoId == dto.PuestoId && p.State)
+                    .Select(p => p.Nombre).FirstOrDefaultAsync()
+                : null;
+            var esCambioPuesto = dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId;
 
             var currentObraOficinaStaffId = worker.ObraOficinaStaffId;
             var nuevoObraOficinaStaffId = dto.ObraOficinaStaffId ?? currentObraOficinaStaffId;
@@ -883,6 +892,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (nuevoObraOficinaStaffId != currentObraOficinaStaffId)
                 worker.ObraOficinaStaffId = nuevoObraOficinaStaffId;
+
+            // El puesto vigente vive en el trabajador; la vinculación solo guarda el nombre
+            // congelado del momento del cambio.
+            if (esCambioPuesto)
+                worker.PuestoId = dto.PuestoId;
 
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
@@ -1497,7 +1511,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+            var worker = await ctx.Worker
+                .Include(w => w.CategoriaCatalogo)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var workerType = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase)
@@ -1509,17 +1525,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+            var categoriaWorker = worker.CategoriaCatalogo?.Nombre;
             var esCasaPracticante = workerType == "CASA"
-                && string.Equals(worker.Categoria?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
+                && string.Equals(categoriaWorker?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
 
             var itemsAplicables = todosItems
                 .Where(i => i.AplicaA == "TODOS" ||
                             (i.AplicaA == "CASA" && workerType == "CASA") ||
                             (i.AplicaA == "CONTRATISTA" && workerType == "CONTRATISTA"))
-                .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
+                .Where(i => CsvContiene(i.AplicaCategoria, categoriaWorker))
                 .Where(i => CsvContiene(i.AplicaObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
                 .Where(i => !CsvExcluye(i.ExcluyeObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
-                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
+                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, categoriaWorker))
                 .Where(i => !(esCasaPracticante && i.Id == HabItemIds.VidaLey))
                 .ToList();
 
@@ -1607,6 +1624,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var w = await ctx.Worker
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
+                .Include(x => x.CategoriaCatalogo)
+                .Include(x => x.PuestoCatalogo)
                 .FirstOrDefaultAsync(x => x.Id == workerId);
             if (w is null) return null;
 
@@ -1628,10 +1647,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var w = await ctx.Worker
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
+                .Include(x => x.CategoriaCatalogo)
+                .Include(x => x.PuestoCatalogo)
                 .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var categoriaAnterior = w.Categoria;
+            var categoriaAnterior = w.CategoriaCatalogo?.Nombre;
+            var categoriaAnteriorId = w.CategoriaId;
             var obraOficinaAnterior = w.ObraOficinaStaffId;
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
@@ -1640,9 +1662,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.FechaNacimiento.HasValue && w.Person is not null) w.Person.FechaNacimiento = dto.FechaNacimiento;
             if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
-            if (dto.Categoria is not null) w.Categoria = dto.Categoria;
-            if (dto.Ocupacion is not null) w.Ocupacion = dto.Ocupacion;
-            if (dto.OcupacionId.HasValue) w.OcupacionId = dto.OcupacionId;
+            if (dto.CategoriaId.HasValue) w.CategoriaId = dto.CategoriaId;
+            if (dto.PuestoId.HasValue) w.PuestoId = dto.PuestoId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
@@ -1662,9 +1683,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             w.UpdatedAt = DateTimeOffset.UtcNow;
 
             var esCasa = string.Equals(w.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+            // La categoría nueva puede no estar cargada todavía en la navegación (se acaba de
+            // asignar el id), así que se resuelve su nombre a mano.
+            var categoriaNueva = w.CategoriaId == categoriaAnteriorId
+                ? categoriaAnterior
+                : await ctx.Categoria.Where(c => c.CategoriaId == w.CategoriaId).Select(c => c.Nombre).FirstOrDefaultAsync();
+
             var eraPracticante = string.Equals(categoriaAnterior?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
-            var siguePracticante = string.Equals(w.Categoria?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
-            var transicionFueraDePracticante = dto.Categoria is not null && esCasa && eraPracticante && !siguePracticante;
+            var siguePracticante = string.Equals(categoriaNueva?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
+            var transicionFueraDePracticante = dto.CategoriaId is not null && esCasa && eraPracticante && !siguePracticante;
 
             var vidaLeyCreada = false;
             if (transicionFueraDePracticante)
@@ -1726,7 +1753,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (vidaLeyCreada)
             {
                 var subject = $"Vida Ley pendiente — Cambio de cargo — {w.Person?.FullName}";
-                var body = BuildBodyVidaLeyCambioCargo(w, categoriaAnterior, w.Categoria);
+                var body = BuildBodyVidaLeyCambioCargo(w, categoriaAnterior, categoriaNueva);
                 await EnviarEmailSilenciosoAsync(new List<string> { EmailAsistentaSocial }, subject, body);
             }
 
@@ -1784,10 +1811,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
-            Categoria = w.Categoria,
-            Ocupacion = w.Ocupacion,
-            OcupacionId = w.OcupacionId,
-            Puesto = w.Puesto,
+            CategoriaId = w.CategoriaId,
+            Categoria = w.CategoriaCatalogo?.Nombre,
+            PuestoId = w.PuestoId,
+            Puesto = w.PuestoCatalogo?.Nombre,
             AreaScopeId = w.AreaScopeId,
             Area = w.Area,
             Subarea = w.Subarea,

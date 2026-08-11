@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.DTOs;
+using Abril_Backend.Shared.Helpers;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -33,6 +34,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         private IDbConnection CreateConnection()
             => new NpgsqlConnection(_configuration["Database:PostgreSQL"]);
+
+        /// <summary>
+        /// El filtro de "Área" elige un nodo del árbol area_scope (p.ej. "Ventas", colgado hoy
+        /// de "Gerencia de Administración"): debe incluir a ese nodo y a todos sus hijos, no
+        /// solo coincidencia exacta. Null si no hay filtro — así el placeholder SQL
+        /// "@AreaScopeIds IS NULL" deja pasar todo.
+        /// </summary>
+        private async Task<int[]?> ResolverAreaScopeIdsAsync(int? areaScopeId)
+        {
+            if (!areaScopeId.HasValue) return null;
+            using var ctx = _factory.CreateDbContext();
+            return (await ctx.ResolveDescendantsAsync(areaScopeId.Value)).ToArray();
+        }
 
         private const string SelectBase = @"
 SELECT
@@ -76,8 +90,7 @@ WHERE ht.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@Area IS NULL OR w.area = @Area)
-  AND (@Subarea IS NULL OR w.subarea = @Subarea)
+  AND (@AreaScopeIds IS NULL OR w.area_scope_id = ANY(@AreaScopeIds))
 
 UNION ALL
 
@@ -126,9 +139,9 @@ WHERE he.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'EMPRESA')
   AND (@Search IS NULL OR ec.contributor_name ILIKE '%' || @Search || '%')
-  -- Entregable a nivel empresa, no de un trabajador puntual: no tiene área/subárea propia,
-  -- así que se excluye del listado en cuanto se filtra por cualquiera de las dos.
-  AND @Area IS NULL AND @Subarea IS NULL
+  -- Entregable a nivel empresa, no de un trabajador puntual: no tiene área propia,
+  -- así que se excluye del listado en cuanto se filtra por área.
+  AND @AreaScopeIds IS NULL
 
 UNION ALL
 
@@ -163,8 +176,8 @@ WHERE heq.estado = 'Enviado'
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
-  -- Entregable de un equipo, no de un trabajador: sin área/subárea propia.
-  AND @Area IS NULL AND @Subarea IS NULL
+  -- Entregable de un equipo, no de un trabajador: sin área propia.
+  AND @AreaScopeIds IS NULL
 
 UNION ALL
 
@@ -199,15 +212,16 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@Area IS NULL OR w.area = @Area)
-  AND (@Subarea IS NULL OR w.subarea = @Subarea)
+  AND (@AreaScopeIds IS NULL OR w.area_scope_id = ANY(@AreaScopeIds))
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, int page, int pageSize,
-            string? area = null, string? subarea = null)
+            int? areaScopeId = null)
         {
+            var areaScopeIds = await ResolverAreaScopeIdsAsync(areaScopeId);
+
             var parametros = new
             {
                 Tipo = tipo,
@@ -215,8 +229,7 @@ WHERE i.estado = 'PROGRAMADA'
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
-                Area = area,
-                Subarea = subarea,
+                AreaScopeIds = areaScopeIds,
                 PageSize = pageSize,
                 Offset = (page - 1) * pageSize
             };
@@ -239,8 +252,9 @@ LIMIT @PageSize OFFSET @Offset";
         public async Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, string? cursor, int pageSize,
-            string? area = null, string? subarea = null)
+            int? areaScopeId = null)
         {
+            var areaScopeIds = await ResolverAreaScopeIdsAsync(areaScopeId);
             DateTime? cursorFecha = null;
             int? cursorId = null;
             if (!string.IsNullOrWhiteSpace(cursor))
@@ -267,8 +281,7 @@ LIMIT @PageSize OFFSET @Offset";
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
-                Area = area,
-                Subarea = subarea,
+                AreaScopeIds = areaScopeIds,
                 CursorFecha = cursorFecha,
                 CursorId = cursorId,
                 PageSize = pageSize + 1
@@ -292,8 +305,7 @@ LIMIT @PageSize";
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
-                Area = area,
-                Subarea = subarea
+                AreaScopeIds = areaScopeIds
             });
 
             var hasMore = rows.Count > pageSize;

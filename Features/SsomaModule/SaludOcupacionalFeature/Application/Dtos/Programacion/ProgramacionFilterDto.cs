@@ -7,8 +7,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string? Estado { get; set; }
         public int? WorkerId { get; set; }
         public int? ClinicaId { get; set; }
-        public string? Area { get; set; }
-        public string? Subarea { get; set; }
+        public int? AreaScopeId { get; set; }
         public string? Search { get; set; }
         public int Page { get; set; } = 1;
         public int PageSize { get; set; } = 50;

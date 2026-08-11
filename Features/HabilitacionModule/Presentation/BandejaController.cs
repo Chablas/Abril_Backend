@@ -41,8 +41,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
             [FromQuery] string? search,
-            [FromQuery] string? area,
-            [FromQuery] string? subarea,
+            [FromQuery] int? areaScopeId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -61,7 +60,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize, area, subarea);
+                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize, areaScopeId);
 
                 var result = new PagedResult<BandejaItemDto>
                 {
@@ -111,8 +110,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
             [FromQuery] string? search,
-            [FromQuery] string? area,
-            [FromQuery] string? subarea,
+            [FromQuery] int? areaScopeId,
             [FromQuery] string? cursor,
             [FromQuery] int pageSize = 20)
         {
@@ -131,7 +129,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize, area, subarea);
+                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize, areaScopeId);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

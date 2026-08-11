@@ -12,6 +12,7 @@ using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Helpers;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -81,10 +82,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
                 if (filter.ClinicaId.HasValue)
                     q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
-                if (!string.IsNullOrWhiteSpace(filter.Area))
-                    q = q.Where(x => x.w.Area == filter.Area);
-                if (!string.IsNullOrWhiteSpace(filter.Subarea))
-                    q = q.Where(x => x.w.Subarea == filter.Subarea);
+                if (filter.AreaScopeId.HasValue)
+                {
+                    var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
+                    q = q.Where(x => x.w.AreaScopeId != null && idsArea.Contains(x.w.AreaScopeId.Value));
+                }
                 if (!string.IsNullOrWhiteSpace(filter.Search))
                 {
                     var term = filter.Search.Trim().ToLower();
@@ -210,10 +212,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
             if (filter.ClinicaId.HasValue)
                 q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
-            if (!string.IsNullOrWhiteSpace(filter.Area))
-                q = q.Where(x => x.p.Worker != null && x.p.Worker.Area == filter.Area);
-            if (!string.IsNullOrWhiteSpace(filter.Subarea))
-                q = q.Where(x => x.p.Worker != null && x.p.Worker.Subarea == filter.Subarea);
+            if (filter.AreaScopeId.HasValue)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
+                q = q.Where(x => x.p.Worker != null && x.p.Worker.AreaScopeId != null && idsArea.Contains(x.p.Worker.AreaScopeId.Value));
+            }
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
                 var term = filter.Search.Trim().ToLower();
@@ -258,7 +261,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // y este tipo de EMO, no crear otra (antes solo el auto-programador validaba esto).
             // Una programación dada de baja (State = false) no bloquea: justamente se da de
             // baja para poder rehacerla.
-            var yaTieneActiva = await ctx.SsProgramacionEmo.AnyAsync(p =>
+            //
+            // Excepción: "En Interconsulta" (InterconsultaRepository.Create la deja en ese
+            // estado mientras se espera el levantamiento — ver ese archivo) puede quedar
+            // atascada semanas si la interconsulta se demora. Acá no se bloquea: se cierra esa
+            // fila vieja como "Cancelado" (con nota) y se sigue con la programación nueva, para
+            // no dejar dos filas "activas" del mismo trabajador/tipo EMO compitiendo entre sí.
+            // La interconsulta original (ss_interconsulta) no se toca — sigue como historial,
+            // solo deja de tener una programación "en curso" que la sostenga.
+            var progBloqueante = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p =>
                 p.State &&
                 p.WorkerId == dto.WorkerId &&
                 p.TipoEmoId == dto.TipoEmoId &&
@@ -266,8 +277,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 p.Estado != "Cancelado" &&
                 p.Estado != "Rechazado por Clínica" &&
                 p.Estado != "No se presentó");
-            if (yaTieneActiva)
+
+            if (progBloqueante != null && progBloqueante.Estado != "En Interconsulta")
                 throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+
+            if (progBloqueante != null && progBloqueante.Estado == "En Interconsulta")
+            {
+                progBloqueante.Estado = "Cancelado";
+                progBloqueante.Motivo = string.IsNullOrWhiteSpace(progBloqueante.Motivo)
+                    ? "Reprogramado: la interconsulta pendiente se demoró demasiado."
+                    : $"{progBloqueante.Motivo} — Reprogramado: la interconsulta pendiente se demoró demasiado.";
+                progBloqueante.UpdatedAt = DateTimeOffset.UtcNow;
+            }
 
             var empresaId = dto.EmpresaId;
             if (empresaId == null)

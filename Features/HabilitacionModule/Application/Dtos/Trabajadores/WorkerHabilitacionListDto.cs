@@ -21,5 +21,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? EstadoProgramacionEmo { get; set; }
         public int? AniosExperiencia { get; set; }
         public string? FechaIngreso { get; set; }
+        /// <summary>"Pendiente" si tiene una interconsulta sin levantar — usado para advertir
+        /// antes de programarle un nuevo EMO (ver ProgramarEmoDialogComponent).</summary>
+        public string? InterconsultaEstado { get; set; }
+        public string? InterconsultaEspecialidad { get; set; }
     }
 }

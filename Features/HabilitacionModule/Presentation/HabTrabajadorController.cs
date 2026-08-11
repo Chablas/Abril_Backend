@@ -35,8 +35,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? proyectoId,
             [FromQuery] string? estadoHabilitacion,
             [FromQuery] string? contratistaCasa,
-            [FromQuery] string? area,
-            [FromQuery] string? subarea,
+            [FromQuery] int? areaScopeId,
             [FromQuery] bool soloRetirados = false,
             [FromQuery] bool soloVerificacion = false,
             [FromQuery] bool soloSinEmo = false,
@@ -94,7 +93,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
                     search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados, soloSinEmo, soloEmoVencido, soloSinVidaLey,
-                    area, subarea);
+                    areaScopeId);
 
                 var result = new PagedResult<WorkerHabilitacionListDto>
                 {

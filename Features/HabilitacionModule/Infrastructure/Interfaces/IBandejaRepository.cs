@@ -10,12 +10,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, int page, int pageSize,
-            string? area = null, string? subarea = null);
+            int? areaScopeId = null);
 
         Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, string? cursor, int pageSize,
-            string? area = null, string? subarea = null);
+            int? areaScopeId = null);
 
         Task<List<string>> GetEmpresasUnicasAsync();
         Task<List<ProyectoSimpleDto>> GetProyectosUnicosAsync();

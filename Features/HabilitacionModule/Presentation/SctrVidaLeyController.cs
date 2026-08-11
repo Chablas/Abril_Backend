@@ -149,13 +149,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] string? estadoSctr,
             [FromQuery] string? estadoVidaLey,
             [FromQuery] string? obraOficina,
-            [FromQuery] string? area,
-            [FromQuery] string? subarea)
+            [FromQuery] int? areaScopeId)
         {
             try
             {
                 var result = await _repo.GetTrabajadoresPorEmpresaAsync(
-                    empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey, obraOficina, area, subarea);
+                    empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey, obraOficina, areaScopeId);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

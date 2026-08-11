@@ -10,6 +10,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
@@ -57,7 +58,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
-            string? area = null, string? subarea = null)
+            int? areaScopeId = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -172,11 +173,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 baseQuery = baseQuery.Where(x => x.Worker.ContrataCasa == cc);
             }
 
-            if (!string.IsNullOrWhiteSpace(area))
-                baseQuery = baseQuery.Where(x => x.Worker.Area == area);
-
-            if (!string.IsNullOrWhiteSpace(subarea))
-                baseQuery = baseQuery.Where(x => x.Worker.Subarea == subarea);
+            if (areaScopeId.HasValue)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+                baseQuery = baseQuery.Where(x => x.Worker.AreaScopeId != null && idsArea.Contains(x.Worker.AreaScopeId.Value));
+            }
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
@@ -285,11 +286,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                          && x.Estado != "Rechazado por Clínica")
                 .ToDictionary(x => x.WorkerId, x => x.Estado);
 
-            var interconsultaWorkerIds = (await ctx.SsInterconsulta
+            // Especialidad de la interconsulta pendiente más reciente por trabajador — se usa
+            // tanto para el badge "Interconsulta" como para la advertencia del modal
+            // "Programar EMO con clínica" (ver ProgramarEmoDialogComponent en el frontend).
+            var interconsultaPendienteMap = await ctx.SsInterconsulta
                 .Where(i => workerIds.Contains(i.WorkerId) && i.Estado == "Pendiente")
-                .Select(i => i.WorkerId)
-                .Distinct()
-                .ToListAsync()).ToHashSet();
+                .GroupBy(i => i.WorkerId)
+                .Select(g => new
+                {
+                    WorkerId = g.Key,
+                    Especialidad = g.OrderByDescending(i => i.FechaDerivacion)
+                                     .Select(i => i.Especialidad)
+                                     .FirstOrDefault()
+                })
+                .ToDictionaryAsync(x => x.WorkerId, x => x.Especialidad);
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -298,8 +308,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
                 emoMap.TryGetValue(r.Worker.Id, out var emoVenc);
                 progMap.TryGetValue(r.Worker.Id, out var progEstado);
+                var tieneInterconsultaPendiente = interconsultaPendienteMap.TryGetValue(r.Worker.Id, out var interconsultaEspecialidad);
                 var estadoProg = progEstado != null
-                    ? (interconsultaWorkerIds.Contains(r.Worker.Id) ? "Interconsulta" : progEstado)
+                    ? (tieneInterconsultaPendiente ? "Interconsulta" : progEstado)
                     : null;
                 return new WorkerHabilitacionListDto
                 {
@@ -323,7 +334,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         : null,
                     EstadoProgramacionEmo = estadoProg,
                     AniosExperiencia = r.Worker.AniosExperiencia,
-                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null
+                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null,
+                    InterconsultaEstado = tieneInterconsultaPendiente ? "Pendiente" : null,
+                    InterconsultaEspecialidad = tieneInterconsultaPendiente ? interconsultaEspecialidad : null
                 };
             }).ToList();
 

@@ -35,6 +35,30 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
         public string? CategoriaNombre { get; set; }
         public int Orden { get; set; }
         public bool Activo { get; set; }
+
+        /// <summary>
+        /// Fichas de <c>workers</c> que apuntan a este puesto. Es lo que decide si el
+        /// puesto se puede eliminar: un puesto en uso solo se puede desactivar.
+        /// Solo lo llenan los endpoints de listado (admin); en las respuestas de
+        /// alta/edición va en 0.
+        /// </summary>
+        public int CantidadTrabajadores { get; set; }
+    }
+
+    /// <summary>
+    /// Fila del detalle "trabajadores de este puesto". Es una ficha de <c>workers</c>, no
+    /// una persona: quien reingresó tiene más de una ficha y puede aparecer dos veces si
+    /// ambas apuntan al mismo puesto — a propósito, para que la lista cuadre con el
+    /// conteo de <see cref="PuestoAdminDto.CantidadTrabajadores"/>, que es el que decide
+    /// si el puesto se puede eliminar.
+    /// </summary>
+    public class PuestoTrabajadorDto
+    {
+        /// <summary>Id de la ficha en <c>workers</c> (no el de <c>person</c>).</summary>
+        public int WorkerId { get; set; }
+        public string NombreCompleto { get; set; } = "";
+        /// <summary>Correo @abril.pe (<c>workers.email_corporativo</c>); null si no tiene.</summary>
+        public string? EmailCorporativo { get; set; }
     }
 
     /// <summary>
@@ -63,5 +87,23 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     public class CatToggleRequest
     {
         public bool Activo { get; set; }
+    }
+
+    /// <summary>Eliminación en bloque de puestos desde la selección de la tabla.</summary>
+    public class PuestosEliminarRequest
+    {
+        public List<int> Ids { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Resultado de la eliminación en bloque. Es tolerante a propósito: si algún puesto
+    /// de la selección quedó en uso entre la carga de la pantalla y el envío, se omite
+    /// ese y se eliminan los demás en vez de fallar el lote entero.
+    /// </summary>
+    public class PuestosEliminarResultDto
+    {
+        public int Eliminados { get; set; }
+        /// <summary>Seleccionados que no se eliminaron por tener trabajadores usándolos.</summary>
+        public int Omitidos { get; set; }
     }
 }

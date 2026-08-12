@@ -39,7 +39,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         /// El filtro de "Área" elige un nodo del árbol area_scope (p.ej. "Ventas", colgado hoy
         /// de "Gerencia de Administración"): debe incluir a ese nodo y a todos sus hijos, no
         /// solo coincidencia exacta. Null si no hay filtro — así el placeholder SQL
-        /// "@AreaScopeIds IS NULL" deja pasar todo.
+        /// "@AreaScopeIds::int[] IS NULL" deja pasar todo.
+        ///
+        /// El cast ::int[] en el SQL no es cosmético: al ser null, Dapper manda DBNull sin tipo
+        /// y Npgsql deja que el servidor lo infiera, pero ni "$n IS NULL" ni "ANY($n)" dan pista
+        /// de tipo → Postgres revienta con 42P08 ("no se pudo determinar el tipo del parámetro").
+        /// Con el cast el tipo queda resuelto. No quitarlo.
         /// </summary>
         private async Task<int[]?> ResolverAreaScopeIdsAsync(int? areaScopeId)
         {
@@ -90,7 +95,7 @@ WHERE ht.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@AreaScopeIds IS NULL OR w.area_scope_id = ANY(@AreaScopeIds))
+  AND (@AreaScopeIds::int[] IS NULL OR w.area_scope_id = ANY(@AreaScopeIds::int[]))
 
 UNION ALL
 
@@ -141,7 +146,7 @@ WHERE he.estado = 'Enviado'
   AND (@Search IS NULL OR ec.contributor_name ILIKE '%' || @Search || '%')
   -- Entregable a nivel empresa, no de un trabajador puntual: no tiene área propia,
   -- así que se excluye del listado en cuanto se filtra por área.
-  AND @AreaScopeIds IS NULL
+  AND @AreaScopeIds::int[] IS NULL
 
 UNION ALL
 
@@ -177,7 +182,7 @@ WHERE heq.estado = 'Enviado'
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
   -- Entregable de un equipo, no de un trabajador: sin área propia.
-  AND @AreaScopeIds IS NULL
+  AND @AreaScopeIds::int[] IS NULL
 
 UNION ALL
 
@@ -212,7 +217,7 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@AreaScopeIds IS NULL OR w.area_scope_id = ANY(@AreaScopeIds))
+  AND (@AreaScopeIds::int[] IS NULL OR w.area_scope_id = ANY(@AreaScopeIds::int[]))
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(

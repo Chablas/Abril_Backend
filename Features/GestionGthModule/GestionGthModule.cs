@@ -20,6 +20,10 @@ namespace Abril_Backend.Features.GestionGthModule
             // Formulario de información del postulante (público por token + revisión de GTH)
             services.AddScoped<IPostulanteFormularioRepository, PostulanteFormularioRepository>();
             services.AddScoped<IPostulanteFormularioService, PostulanteFormularioService>();
+
+            // Aprobación de Gerencia General de la solicitud (público por token)
+            services.AddScoped<IAprobacionGgRepository, AprobacionGgRepository>();
+            services.AddScoped<IAprobacionGgService, AprobacionGgService>();
             return services;
         }
     }

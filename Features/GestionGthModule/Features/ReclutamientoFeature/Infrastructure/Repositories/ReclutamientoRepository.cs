@@ -241,7 +241,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var resumen = new ResumenSolicitantePanelDto
             {
                 TotalRegistradas = misSolicitudes.Count,
-                Pendientes       = misSolicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Nuevo),
+                // "Pendientes · Sin respuesta" = nadie movió todavía el requerimiento. Con el nuevo
+                // flujo eso es APROBACION_GG (esperando a Gerencia General); se sigue contando NUEVO
+                // por los requerimientos anteriores a ese cambio.
+                Pendientes       = misSolicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Nuevo
+                                                             || s.EstadoCodigo == EstadoReclutamiento.AprobacionGg),
                 EnRevisionGth    = misSolicitudes.Count(s =>
                                        EstadoReclutamiento.FasesGth.Contains(s.EstadoCodigo)
                                        && !esperandoAlSolicitante.Contains(s.RequerimientoId)),
@@ -437,19 +441,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId)
-        {
-            using var ctx = _factory.CreateDbContext();
-            return await ProjectRequerimientos(
-                ctx,
-                ctx.GthRequerimiento.Where(r => r.State && r.GthSolicitudId == solicitudId));
-        }
-
         public async Task<BandejaReclutamientoDto> GetBandeja()
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Todos los requerimientos vigentes (de cualquier área), más recientes primero.
+            // Todos los requerimientos vigentes (de cualquier área), más recientes primero, EXCEPTO
+            // los que todavía no le pertenecen a GTH: los que esperan la aprobación de Gerencia
+            // General y los que el GG rechazó (EstadoReclutamiento.FueraDeGth). GTH solo ve lo
+            // aprobado. Como el embudo del pipeline se calcula sobre esta misma lista, la suma de
+            // las etapas sigue siendo el total de la tabla.
             // Left join a gth_prioridad porque la prioridad es opcional (nullable).
             var raw = await (
                 from r in ctx.GthRequerimiento
@@ -457,6 +457,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where !EstadoReclutamiento.FueraDeGth.Contains(e.Codigo)
                 join prio in ctx.GthPrioridad on r.GthPrioridadId equals prio.GthPrioridadId into prioJoin
                 from prio in prioJoin.DefaultIfEmpty()
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
@@ -551,7 +552,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 EvaluacionesProgramadas = evaluacionesProgramadas,
                 ProcesosCerrados        = solicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Cerrado
                                                                  && s.FechaLlegada.Year == anioActual),
-                SolicitudesNuevas       = totalPorFase.GetValueOrDefault(EstadoReclutamiento.Nuevo),
+                // "Solicitudes nuevas" = las que acaban de llegar a GTH. Con el paso de Gerencia
+                // General eso es VALIDACION_GTH; se sigue contando NUEVO por los requerimientos
+                // anteriores a ese cambio, que se quedaron en esa fase.
+                SolicitudesNuevas       = totalPorFase.GetValueOrDefault(EstadoReclutamiento.Nuevo)
+                                          + totalPorFase.GetValueOrDefault(EstadoReclutamiento.ValidacionGth),
             };
 
             return new BandejaReclutamientoDto
@@ -1761,7 +1766,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (head == null) return null;
 
-            // Catálogo de fases del pipeline (todas las vigentes, en orden).
+            // Catálogo de fases del pipeline (las vigentes y activas, en orden). RECHAZADO_GG está
+            // sembrado con active = false justamente para que no aparezca acá: es un estado del
+            // requerimiento, no un paso del pipeline.
             var fases = await ctx.GthEstadoRequerimiento
                 .Where(e => e.State && e.Active)
                 .OrderBy(e => e.Orden)
@@ -1774,14 +1781,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 })
                 .ToListAsync();
 
+            // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
+            // fuera del pipeline) marcaría todas las fases como cumplidas, que es justo lo contrario.
+            var rechazadoGg = head.EstadoCodigo == EstadoReclutamiento.RechazadoGg;
+            var ordenEfectivo = rechazadoGg
+                ? fases.FirstOrDefault(f => f.Codigo == EstadoReclutamiento.AprobacionGg)?.Orden ?? head.EstadoOrden
+                : head.EstadoOrden;
+
             // Estado visual de cada fase respecto a la fase actual del requerimiento.
             foreach (var f in fases)
-                f.Estado = f.Orden < head.EstadoOrden ? "done"
-                         : f.Orden == head.EstadoOrden ? "current"
+                f.Estado = f.Orden < ordenEfectivo ? "done"
+                         : f.Orden == ordenEfectivo ? "current"
                          : "pending";
-
-            // Reemplazo (tipo "Reemplazo") no requiere aprobación de Gerencia General; puesto nuevo sí.
-            var aprobacionGg = !string.Equals(head.Tipo, "Reemplazo", StringComparison.OrdinalIgnoreCase);
 
             return new SeguimientoDto
             {
@@ -1797,11 +1808,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
                 EstadoOrden           = head.EstadoOrden,
-                AprobacionGgRequerida = aprobacionGg,
                 SustentoNombre        = head.SustentoNombre,
                 SustentoUrl           = head.SustentoUrl,
                 Fases                 = fases,
-                SiguientePaso         = fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
+                // Rechazado por el GG no tiene "siguiente paso": el proceso terminó ahí.
+                SiguientePaso         = rechazadoGg
+                    ? "Gerencia General no aprobó esta vacante. Para volver a pedirla hay que registrar una nueva solicitud."
+                    : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
             };
         }
 
@@ -1947,13 +1960,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Estado inicial del pipeline.
-            var estadoNuevoId = await ctx.GthEstadoRequerimiento
-                .Where(e => e.Codigo == EstadoReclutamiento.Nuevo && e.State)
+            // Estado inicial del pipeline: la solicitud nace esperando la aprobación de Gerencia
+            // General (la fase NUEVO — "solicitud registrada" — queda como paso ya cumplido).
+            var estadoInicialId = await ctx.GthEstadoRequerimiento
+                .Where(e => e.Codigo == EstadoReclutamiento.AprobacionGg && e.State)
                 .Select(e => e.GthEstadoRequerimientoId)
                 .FirstOrDefaultAsync();
-            if (estadoNuevoId == 0)
-                throw new AbrilException("No está configurado el estado inicial de reclutamiento (NUEVO).", 500);
+            if (estadoInicialId == 0)
+                throw new AbrilException("No está configurado el estado inicial de reclutamiento (APROBACION_GG).", 500);
 
             // Prioridad por defecto al crear: Media (GTH la ajusta luego desde la bandeja). Puede ser
             // null si el catálogo aún no está sembrado; no es bloqueante.
@@ -2007,7 +2021,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     GthTipoRequerimientoId   = v.TipoRequerimientoId,
                     ProjectId                = v.ProjectId,
                     FechaRequeridaIngreso    = v.FechaRequeridaIngreso,
-                    GthEstadoRequerimientoId = estadoNuevoId,
+                    GthEstadoRequerimientoId = estadoInicialId,
                     GthPrioridadId           = prioridadMediaId,
                     CreatedDateTime          = now,
                     CreatedUserId            = userId,
@@ -2047,6 +2061,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// el seleccionado pasa al proceso de onboarding (funcionalidad aparte).
         /// </summary>
         public const string Cerrado           = "CERRADO";
+
+        /// <summary>
+        /// Estado final: Gerencia General no aprobó la vacante, así que nunca llega a GTH. Está
+        /// sembrado con <c>active = false</c> a propósito: es un estado del requerimiento pero no
+        /// una fase del pipeline, y la línea de tiempo del seguimiento solo lista las fases activas.
+        /// </summary>
+        public const string RechazadoGg       = "RECHAZADO_GG";
+
+        /// <summary>
+        /// Estados en los que el requerimiento todavía NO le pertenece a GTH: sigue en el paso de
+        /// Gerencia General, o el GG lo rechazó. La bandeja de GTH los excluye (solo ve lo aprobado).
+        /// </summary>
+        public static readonly HashSet<string> FueraDeGth = new()
+        {
+            AprobacionGg,
+            RechazadoGg,
+        };
 
         /// <summary>
         /// Fases en las que el siguiente paso le toca a GTH (tarjeta "En revisión · GTH evaluando"

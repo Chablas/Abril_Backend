@@ -6,7 +6,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// </summary>
     public static class CorreoTipoReclutamiento
     {
-        /// <summary>Correo de "nueva solicitud de personal" (va a GTH).</summary>
+        /// <summary>
+        /// Correo de "solicitud de personal por aprobar" (va al Gerente General). Es el primer
+        /// correo del flujo: hasta que el GG no aprueba, GTH no recibe nada.
+        /// </summary>
+        public const string AprobacionGg = "APROBACION_GG";
+
+        /// <summary>
+        /// Correo de "nueva solicitud de personal" (va a GTH). Sale recién cuando Gerencia General
+        /// aprueba, y solo con las vacantes aprobadas.
+        /// </summary>
         public const string Solicitud = "SOLICITUD";
 
         /// <summary>Correo de "long list enviada" (va al solicitante).</summary>
@@ -22,12 +31,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string FinalistaDecision = "FINALISTA_DECISION";
 
         /// <summary>
-        /// Traduce el slug de la URL (<c>solicitud</c> / <c>long-list</c> /
+        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>long-list</c> /
         /// <c>decision-long-list</c> / <c>decision-finalista</c>) al código estable. Devuelve null
         /// si el slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
+            "aprobacion-gg"       => AprobacionGg,
             "solicitud"           => Solicitud,
             "long-list"           => LongList,
             "decision-long-list"  => LongListDecision,

@@ -23,9 +23,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
 
-        /// <summary>Requerimientos de una solicitud concreta (para armar el correo de notificación).</summary>
-        Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId);
-
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
         /// toda la organización (todos los requerimientos vigentes), en 1 roundtrip.

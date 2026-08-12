@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Dtos;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Interfaces;
 using Abril_Backend.Shared.Filters;
@@ -32,8 +32,9 @@ public class RevisionesController : ControllerBase
             var result = await _service.GetRevisiones(proyectoId, soloActivas);
             return Ok(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetCatalogo");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -50,8 +51,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.CreateCatalogo");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -65,8 +67,9 @@ public class RevisionesController : ControllerBase
             if (!eliminado) return NotFound(new { message = "No se encontró la revisión." });
             return Ok(new { message = "Revisión eliminada." });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.DeleteCatalogo");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -94,8 +97,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetObservaciones");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -113,8 +117,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetById");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -127,8 +132,9 @@ public class RevisionesController : ControllerBase
             var result = await _service.GetFiltros();
             return Ok(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetFiltros");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -141,8 +147,9 @@ public class RevisionesController : ControllerBase
             var result = await _service.GetDashboard(desde, hasta, proyectoId);
             return Ok(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetDashboard");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -155,8 +162,9 @@ public class RevisionesController : ControllerBase
             var result = await _service.GetStats(desde, hasta, proyectoId);
             return Ok(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.GetStats");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -175,8 +183,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.CreateObservacion");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -196,8 +205,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.Levantar");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -216,8 +226,9 @@ public class RevisionesController : ControllerBase
         {
             return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error en RevisionesController.Update");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }

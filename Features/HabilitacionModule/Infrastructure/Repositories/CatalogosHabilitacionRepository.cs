@@ -68,20 +68,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!revisores.TryGetValue(nodo.AreaScopeId, out var rev)) continue;
 
-                nodo.RevisorNombre = rev.Area?.Nombre;
-                nodo.RevisorEmail = rev.Area?.Email;
+                nodo.Revisores = rev.Area.Select(MapRevisor).ToList();
                 nodo.RevisoresPorProyecto = rev.PorProyecto
                     .Select(kv => new AreaArbolRevisorProyectoDto
                     {
                         ProyectoId = kv.Key,
-                        RevisorNombre = kv.Value.Nombre,
-                        RevisorEmail = kv.Value.Email,
+                        Revisores = kv.Value.Select(MapRevisor).ToList(),
                     })
                     .ToList();
             }
 
             return nodos;
         }
+
+        private static AreaArbolRevisorDto MapRevisor(JefeRevisorResolution r) => new()
+        {
+            WorkerId = r.WorkerId,
+            PersonId = r.PersonId,
+            Nombre = r.Nombre,
+            Email = r.Email,
+        };
 
         public async Task<List<SsItemTrabajador>> GetItemsTrabajadorAsync()
         {

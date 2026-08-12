@@ -14,10 +14,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>
     /// Aprobación de Gerencia General de la solicitud de personal.
     ///
-    /// Flujo: el solicitante registra la solicitud → UN solo correo al Gerente General con todas
-    /// sus vacantes y tres accesos (aprobar todas / elegir algunas / rechazar todas) → el GG decide
-    /// en una página pública por token (sin login) → recién ahí se le notifica a GTH, y solo las
-    /// vacantes aprobadas.
+    /// Flujo: el solicitante registra la solicitud → UN solo correo al Gerente General y al gerente
+    /// del área del solicitante, con todas sus vacantes y tres accesos (aprobar todas / elegir
+    /// algunas / rechazar todas) → el GG decide en una página pública por token (sin login) →
+    /// recién ahí se le notifica a GTH, y solo las vacantes aprobadas.
     ///
     /// Los tres botones del correo NO ejecutan la decisión: abren la página con la acción
     /// preseleccionada y la decisión se confirma con un click ahí. Es a propósito — los clientes de
@@ -27,7 +27,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class AprobacionGgService : IAprobacionGgService
     {
         private readonly IAprobacionGgRepository   _repo;
-        private readonly IReclutamientoRepository  _reclutamiento;
+        private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IEmailService             _email;
         private readonly INotificacionesService    _notificaciones;
         private readonly IConfiguration            _configuration;
@@ -35,14 +35,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public AprobacionGgService(
             IAprobacionGgRepository repo,
-            IReclutamientoRepository reclutamiento,
+            ICorreoDestinatariosResolver destinatarios,
             IEmailService email,
             INotificacionesService notificaciones,
             IConfiguration configuration,
             ILogger<AprobacionGgService> logger)
         {
             _repo           = repo;
-            _reclutamiento  = reclutamiento;
+            _destinatarios  = destinatarios;
             _email          = email;
             _notificaciones = notificaciones;
             _configuration  = configuration;
@@ -60,18 +60,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Token de acceso público (hex, url-safe). Solo se usa si la aprobación no existía.
                 var nuevoToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
                 var ctx  = await _repo.PrepararEnvio(solicitudId, nuevoToken, userId);
-                var dest = await _reclutamiento.GetCorreoDestinatarios(CorreoTipoReclutamiento.AprobacionGg);
+                // Lo que esté activo en la sección "Aprobación GG" de la Configuración:
+                // Gerente General, gerente del área del solicitante y correos adicionales.
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.AprobacionGg, ctx.AreaScopeId);
 
-                if (dest.Principales.Count == 0)
+                if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios configurados para el correo de aprobación de Gerencia General " +
+                        "No hay destinatarios para el correo de aprobación de Gerencia General " +
                         "(solicitud {SolicitudId}); no se envía. El solicitante puede reintentarlo con «Reenviar a Gerencia General».",
                         solicitudId);
                     return false;
                 }
 
-                await EnviarCorreoAsync(ctx, dest.Principales, dest.Copias, esReenvio: false, userId);
+                await EnviarCorreoAsync(ctx, dest.EmailsPara, dest.EmailsCopias, esReenvio: false, userId);
                 return true;
             }
             catch (Exception ex)
@@ -94,16 +96,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (ctx.Decidida)
                 throw new AbrilException("Gerencia General ya decidió sobre esta solicitud.", 409);
 
-            var dest = await _reclutamiento.GetCorreoDestinatarios(CorreoTipoReclutamiento.AprobacionGg);
-            if (dest.Principales.Count == 0)
+            // Mismos destinatarios que el primer envío.
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.AprobacionGg, ctx.AreaScopeId);
+            if (dest.Para.Count == 0)
                 throw new AbrilException(
-                    "No hay destinatarios configurados para el correo de Gerencia General. " +
-                    "Configúralos con el botón «Configuración» (pestaña «Aprobación GG») e inténtalo de nuevo.", 409);
+                    "No hay destinatarios activos para el correo de Gerencia General. " +
+                    "Revísalos en «Configuración» (sección «Aprobación de Gerencia General») e inténtalo de nuevo.", 409);
+
+            var principales = dest.EmailsPara;
 
             // Reenvío bloqueante: el usuario lo pidió explícitamente, así que si falla debe saberlo.
             try
             {
-                await EnviarCorreoAsync(ctx, dest.Principales, dest.Copias, esReenvio: true, userId);
+                await EnviarCorreoAsync(ctx, principales, dest.EmailsCopias, esReenvio: true, userId);
             }
             catch (Exception ex)
             {
@@ -113,8 +118,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return new AprobacionGgReenvioResultDto
             {
-                Message       = $"Correo reenviado a {string.Join(", ", dest.Principales)}.",
-                Destinatarios = dest.Principales,
+                Message       = $"Correo reenviado a {string.Join(", ", principales)}.",
+                Destinatarios = principales,
             };
         }
 
@@ -317,10 +322,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task NotificarAGthAsync(AprobacionGgDecisionContextoDto ctx)
         {
-            CorreoDestinatariosDto dest;
+            SolicitudDestinatariosDto dest;
             try
             {
-                dest = await _reclutamiento.GetCorreoDestinatarios(CorreoTipoReclutamiento.Solicitud);
+                dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
             }
             catch (Exception ex)
             {
@@ -331,23 +336,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 1) Correo.
             try
             {
-                if (dest.Principales.Count > 0) // sin destinatario principal → no se envía
+                if (dest.Para.Count > 0) // sin destinatario principal → no se envía
                 {
                     var subject = ctx.Aprobadas.Count == 1
                         ? $"[Reclutamiento] Nueva solicitud de personal aprobada — {ctx.Aprobadas[0].Codigo}"
                         : $"[Reclutamiento] Nueva solicitud de personal aprobada — {ctx.Aprobadas.Count} vacantes";
 
                     await _email.SendAsync(
-                        to:      dest.Principales,
+                        to:      dest.EmailsPara,
                         subject: subject,
                         body:    ConstruirCuerpoGth(ctx),
                         isHtml:  true,
-                        cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                        cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
                 }
                 else
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios principales configurados para el correo de nueva solicitud (solicitud {SolicitudId}); no se envía.",
+                        "No hay destinatarios principales activos para el correo de nueva solicitud (solicitud {SolicitudId}); no se envía.",
                         ctx.SolicitudId);
                 }
             }
@@ -369,7 +374,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 await _notificaciones.CrearPorCorreosAsync(
                     NotificacionTipoCodigo.GthSolicitudPersonal,
-                    dest.Principales.Concat(dest.Copias).ToList(),
+                    dest.EmailsPara.Concat(dest.EmailsCopias).ToList(),
                     null, // el evento lo dispara Gerencia General, que no está autenticada
                     items);
             }

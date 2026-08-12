@@ -17,6 +17,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IReclutamientoRepository _repo;
         private readonly IAprobacionGgRepository  _aprobacionGgRepo;
         private readonly IAprobacionGgService     _aprobacionGg;
+        private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IGraphSharePointService  _sharePoint;
         private readonly IEmailService            _email;
         private readonly ILogger<ReclutamientoService> _logger;
@@ -28,6 +29,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             IReclutamientoRepository repo,
             IAprobacionGgRepository aprobacionGgRepo,
             IAprobacionGgService aprobacionGg,
+            ICorreoDestinatariosResolver destinatarios,
             IGraphSharePointService sharePoint,
             IEmailService email,
             ILogger<ReclutamientoService> logger)
@@ -35,12 +37,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _repo             = repo;
             _aprobacionGgRepo = aprobacionGgRepo;
             _aprobacionGg     = aprobacionGg;
+            _destinatarios    = destinatarios;
             _sharePoint       = sharePoint;
             _email            = email;
             _logger           = logger;
         }
 
-        public Task<ReclutamientoFormDataDto> GetFormData(int? userId) => _repo.GetFormData(userId);
+        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
+        {
+            var dto = await _repo.GetFormData(userId);
+
+            // Aviso "a quién le llegará esta solicitud" del modal. Va en la misma petición que los
+            // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
+            // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
+            dto.Destinatarios = await _destinatarios.ResolverAsync(
+                CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
+
+            return dto;
+        }
 
         public Task<SolicitantePanelDto> GetSolicitantePanel(int? userId) =>
             userId.HasValue
@@ -86,11 +100,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongListDecision);
-                if (dest.Principales.Count == 0)
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongListDecision);
+                if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios principales configurados para el correo de decisión de long list ({Codigo}); no se envía.",
+                        "No hay destinatarios principales activos para el correo de decisión de long list ({Codigo}); no se envía.",
                         ctx.Codigo);
                     return;
                 }
@@ -99,11 +113,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var subject = $"[Reclutamiento] Decisión de long list — {ctx.Codigo} · {ctx.Puesto}";
 
                 await _email.SendAsync(
-                    to:      dest.Principales,
+                    to:      dest.EmailsPara,
                     subject: subject,
                     body:    ConstruirCuerpoDecision(ctx),
                     isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
             catch (Exception ex)
             {
@@ -445,11 +459,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.FinalistaDecision);
-                if (dest.Principales.Count == 0)
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaDecision);
+                if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios principales configurados para el correo de decisión de finalista ({Codigo}); no se envía.",
+                        "No hay destinatarios principales activos para el correo de decisión de finalista ({Codigo}); no se envía.",
                         ctx.Codigo);
                     return;
                 }
@@ -459,11 +473,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var subject = $"[Reclutamiento] Decisión de finalista — {ctx.Codigo} · {ctx.Puesto}";
 
                 await _email.SendAsync(
-                    to:      dest.Principales,
+                    to:      dest.EmailsPara,
                     subject: subject,
                     body:    ConstruirCuerpoDecisionFinalista(ctx, accion),
                     isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
             catch (Exception ex)
             {
@@ -551,7 +565,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 2) Destinatarios del correo de long list.
             //    El destinatario PRINCIPAL (Para/To) es SIEMPRE el solicitante que registró la
             //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
-            var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongList);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
 
             // Para = solicitante primero + principales configurados (deduplicado, sin distinguir mayúsculas).
             var principales = new List<string>();
@@ -562,7 +576,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) principales.Add(e);
             }
             AgregarPrincipal(ctx.SolicitanteEmail);
-            foreach (var e in dest.Principales) AgregarPrincipal(e);
+            foreach (var e in dest.EmailsPara) AgregarPrincipal(e);
 
             if (principales.Count == 0)
                 throw new AbrilException(
@@ -571,7 +585,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "un correo registrado o configúralos con el botón «Configuración».", 409);
 
             // CC = copias configuradas que no estén ya en Para.
-            var copias = dest.Copias.Where(e => !vistos.Contains(e.Trim())).ToList();
+            var copias = dest.EmailsCopias.Where(e => !vistos.Contains(e.Trim())).ToList();
 
             // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
             //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.

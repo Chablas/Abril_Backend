@@ -48,6 +48,11 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     public class JefeCandidatoDto
     {
         public int WorkerId { get; set; }
+        /// <summary>
+        /// Persona del candidato, para que el formulario descarte al propio trabajador aunque la
+        /// ficha sea otra (una persona puede tener varias filas en <c>workers</c> por reingreso).
+        /// </summary>
+        public int? PersonId { get; set; }
         public string? FullName { get; set; }
         public string? Email { get; set; }
     }

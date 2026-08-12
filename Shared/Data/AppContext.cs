@@ -1282,9 +1282,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
             // Un correo no puede repetirse entre los destinatarios vigentes del mismo tipo
             // (se guarda en minúsculas). El mismo correo sí puede estar en dos tipos distintos.
+            // Los destinatarios dinámicos (codigo no nulo) quedan fuera: no tienen correo y su
+            // unicidad es por (tipo, codigo) — ese índice vive solo en Migrations_Manual porque
+            // EF no sabe expresar el lower()/upper() del índice real.
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>(e =>
             {
-                e.HasIndex(d => new { d.GthCorreoTipoId, d.Email }).IsUnique().HasFilter("state = true");
+                e.HasIndex(d => new { d.GthCorreoTipoId, d.Email }).IsUnique()
+                 .HasFilter("state = true AND codigo IS NULL AND email IS NOT NULL");
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>()
                  .WithMany()
                  .HasForeignKey(d => d.GthCorreoTipoId)

@@ -133,6 +133,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 AprobacionId      = aprobacion.GthAprobacionGgId,
                 Token             = aprobacion.Token,
                 Area              = solicitud.AreaNombre,
+                AreaScopeId       = solicitud.AreaScopeId,
                 SolicitanteNombre = solicitanteNombre,
                 Justificacion     = solicitud.Justificacion,
                 SustentoNombre    = solicitud.SustentoNombre,

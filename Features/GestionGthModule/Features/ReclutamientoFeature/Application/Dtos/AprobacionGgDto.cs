@@ -92,6 +92,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Token { get; set; } = string.Empty;
 
         public string? Area { get; set; }
+
+        /// <summary>
+        /// <c>area_scope</c> del solicitante (snapshot de la solicitud). Con él se resuelve al
+        /// gerente del área, que recibe el correo junto al Gerente General.
+        /// </summary>
+        public int? AreaScopeId { get; set; }
+
         public string? SolicitanteNombre { get; set; }
         public string? Justificacion { get; set; }
         public string? SustentoNombre { get; set; }

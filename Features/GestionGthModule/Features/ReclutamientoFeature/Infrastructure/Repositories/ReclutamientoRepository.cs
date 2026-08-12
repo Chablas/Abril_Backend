@@ -1862,10 +1862,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             using var ctx = _factory.CreateDbContext();
             var tipoId = await ResolveCorreoTipoId(ctx, tipoCodigo);
 
+            // Solo los correos escritos a mano: los destinatarios dinámicos (codigo no nulo) no
+            // tienen correo guardado y se resuelven al enviar, así que no le corresponden a este
+            // modal — se administran desde la pantalla de Configuración.
             var rows = await ctx.GthCorreoDestinatario
-                .Where(d => d.State && d.Active && d.GthCorreoTipoId == tipoId)
+                .Where(d => d.State && d.Active && d.GthCorreoTipoId == tipoId
+                            && d.Codigo == null && d.Email != null)
                 .OrderBy(d => d.Email)
-                .Select(d => new { d.Email, d.EsCopia })
+                .Select(d => new { Email = d.Email!, d.EsCopia })
                 .ToListAsync();
 
             return new CorreoDestinatariosDto
@@ -1886,11 +1890,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var e in principales) deseado[e] = false;
             foreach (var e in copias)      deseado.TryAdd(e, true);
 
-            // Vigentes (state = true) del tipo — email único entre ellos por el índice parcial (tipo, email).
+            // Vigentes (state = true) del tipo — email único entre ellos por el índice parcial
+            // (tipo, email). Los dinámicos quedan fuera: no tienen correo y este reemplazo masivo
+            // los daría de baja como si el usuario los hubiera quitado.
             var vigentes = await ctx.GthCorreoDestinatario
-                .Where(d => d.State && d.GthCorreoTipoId == tipoId)
+                .Where(d => d.State && d.GthCorreoTipoId == tipoId
+                            && d.Codigo == null && d.Email != null)
                 .ToListAsync();
-            var vigentesByEmail = vigentes.ToDictionary(v => v.Email);
+            var vigentesByEmail = vigentes.ToDictionary(v => v.Email!);
 
             // Alta o actualización en sitio (si cambia el tipo se actualiza es_copia, no se borra+inserta:
             // así nunca hay dos filas vigentes con el mismo correo y no choca con el índice único).
@@ -1924,7 +1931,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Baja (soft delete) de los vigentes que ya no están en el conjunto deseado.
             foreach (var v in vigentes)
             {
-                if (!deseado.ContainsKey(v.Email))
+                if (!deseado.ContainsKey(v.Email!))
                 {
                     v.State = false;
                     v.UpdatedDateTime = now;
@@ -1933,6 +1940,75 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Nombre en <c>categoria</c> de la categoría que identifica a un gerente. Los nombres del
+        /// catálogo se guardan siempre en MAYÚSCULAS.
+        /// </summary>
+        private const string CategoriaGerente = "GERENTE";
+
+        public async Task<GerenteAreaDto?> GetGerenteDeArea(int? areaScopeId)
+        {
+            if (areaScopeId is not > 0) return null;
+
+            using var ctx = _factory.CreateDbContext();
+
+            // 1) Cadena área del solicitante → raíz. Se sube por el árbol porque el gerente casi
+            //    nunca cuelga del área estándar del solicitante ("Tecnología de la Información")
+            //    sino del nodo "Área de Gerencia" del que esa depende ("Gerencia de
+            //    Administración"). El árbol es una tabla chica: se arma en memoria, igual que en
+            //    JefeRevisorResolver.
+            var scopes = await ctx.AreaScope.AsNoTracking()
+                .Where(s => s.State)
+                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
+                .ToListAsync();
+            var parentById = scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId);
+
+            var cadena    = new List<int>();
+            var visitados = new HashSet<int>();
+            int? actual   = areaScopeId;
+            while (actual != null && visitados.Add(actual.Value)) // el HashSet corta ciclos por si el árbol quedó mal
+            {
+                cadena.Add(actual.Value);
+                parentById.TryGetValue(actual.Value, out actual);
+            }
+            if (cadena.Count == 0) return null;
+
+            // 2) Gerentes vigentes de cualquier nodo de la cadena, con el nombre del área para la
+            //    etiqueta del aviso. La categoría se resuelve como subconsulta para no gastar un
+            //    roundtrip extra solo en leer su id.
+            var candidatos = await (
+                from w in ctx.Worker.AsNoTracking()
+                where w.AreaScopeId != null && cadena.Contains(w.AreaScopeId.Value)
+                      && w.Estado == "ACTIVO"
+                      && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
+                      && ctx.Categoria.Any(c => c.CategoriaId == w.CategoriaId
+                                                && c.State && c.Nombre == CategoriaGerente)
+                join s in ctx.AreaScope.AsNoTracking() on w.AreaScopeId equals s.AreaScopeId
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                select new
+                {
+                    w.Id,
+                    AreaScopeId = w.AreaScopeId!.Value,
+                    Email       = w.EmailCorporativo!,
+                    Nombre      = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    AreaNombre  = ai.AreaItemName,
+                }).ToListAsync();
+
+            // Gana el nodo más cercano al solicitante y, dentro de él, el primer trabajador por id.
+            var elegido = candidatos
+                .OrderBy(c => cadena.IndexOf(c.AreaScopeId))
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+
+            return elegido == null ? null : new GerenteAreaDto
+            {
+                WorkerId   = elegido.Id,
+                Email      = elegido.Email.Trim(),
+                Nombre     = elegido.Nombre,
+                AreaNombre = elegido.AreaNombre,
+            };
         }
 
         /// <summary>Resuelve el id del tipo de correo por su código estable (SOLICITUD/LONG_LIST); 500 si no está sembrado.</summary>

@@ -16,5 +16,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter);
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
         Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
+
+        /// <summary>
+        /// Marca como "No se presentó" toda programación en un estado previo a la atención
+        /// (Programado/Confirmado/Aceptado por Clínica/Reprogramado) cuya fecha ya pasó, o es
+        /// hoy y ya se cumplió la hora de corte (13:00 hora Lima). Libera al trabajador para
+        /// poder reprogramarse y evita que el auto-programador la lea como "activa" y genere
+        /// una segunda fila para el mismo trabajador/tipo EMO.
+        /// </summary>
+        Task<int> CerrarInasistenciasVencidasAsync();
     }
 }

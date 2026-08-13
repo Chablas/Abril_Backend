@@ -20,5 +20,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         /// </summary>
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
         Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
+
+        /// <summary>Cierre automático (cron 13:00 hora Lima) de citas vencidas sin asistencia. Ver <see cref="Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces.IProgramacionEmoRepository.CerrarInasistenciasVencidasAsync"/>.</summary>
+        Task<int> CerrarInasistenciasVencidasAsync();
     }
 }

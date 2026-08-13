@@ -1352,6 +1352,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var query = from a in ctx.AcActividad
                         from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                        from p in ctx.Project.Where(x => x.ProjectId == a.ProjectId).DefaultIfEmpty()
                         where a.InicioProgramado != null
                         select new GanttActividadDTO
                         {
@@ -1367,6 +1368,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             InicioEfectivo = a.InicioEfectivo,
                             FinEfectivo = a.FinEfectivo,
                             ProjectId = a.ProjectId,
+                            ProjectNombre = p != null ? p.ProjectDescription : null,
                         };
 
             if (proyectoId.HasValue && proyectoId.Value > 0)

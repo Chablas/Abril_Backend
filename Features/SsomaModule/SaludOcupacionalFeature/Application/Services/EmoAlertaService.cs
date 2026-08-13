@@ -31,7 +31,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _logger = logger;
         }
 
-        public async Task<EmoAlertaResultDto> ProcesarAlertas()
+        public Task<EmoAlertaResultDto> ProcesarAlertas() =>
+            ProcesarVentana(diasCalendarioFijos: null, tipoAlerta: "VENCIMIENTO");
+
+        /// <summary>Ver <see cref="IEmoAlertaService.ProcesarAlertas7DiasCalendario"/>.</summary>
+        public Task<EmoAlertaResultDto> ProcesarAlertas7DiasCalendario() =>
+            ProcesarVentana(diasCalendarioFijos: 7, tipoAlerta: "VENCIMIENTO_7D");
+
+        /// <param name="diasCalendarioFijos">
+        /// Null: usa el criterio original (días HÁBILES configurables, <c>EmoProgramacion:DiasHabilesAntes</c>).
+        /// Con valor: dispara cuando faltan exactamente esa cantidad de días CALENDARIO (sin
+        /// saltar sábados/feriados) — es el aviso fijo de "vence en 7 días" pedido para que
+        /// residentes y administradores lo vean con anticipación previsible, sin que se corra
+        /// por feriados de por medio como sí corre el aviso por días hábiles.
+        /// </param>
+        private async Task<EmoAlertaResultDto> ProcesarVentana(int? diasCalendarioFijos, string tipoAlerta)
         {
             var result = new EmoAlertaResultDto();
             using var ctx = _factory.CreateDbContext();
@@ -74,12 +88,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 }
             ).AsNoTracking().ToListAsync();
 
-            // Disparar alerta solo cuando hoy == fechaVenc - N días hábiles (feriados excluidos)
+            // Disparar alerta cuando hoy == fechaVenc - N días. Con diasCalendarioFijos: N días
+            // calendario exactos (fecha objetivo fija, no se corre por feriados/fin de semana).
+            // Sin él: criterio original de N días HÁBILES antes del vencimiento.
             var candidatos = candidatosRaw
                 .Where(x =>
                 {
                     var fv = (x.Emo.FechaVencimientoCalculada ?? x.Emo.FechaVencimiento)!.Value;
-                    var fechaAlerta = cal.RestarDiasHabiles(fv, diasHabilesAntes, EsCalendarioOficina(x.Worker));
+                    var fechaAlerta = diasCalendarioFijos.HasValue
+                        ? fv.AddDays(-diasCalendarioFijos.Value)
+                        : cal.RestarDiasHabiles(fv, diasHabilesAntes, EsCalendarioOficina(x.Worker));
                     return fechaAlerta == hoy;
                 })
                 .ToList();
@@ -133,34 +151,113 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             var alertasYaEnviadasHoy = await ctx.SsAlertaEmo
                 .AsNoTracking()
-                .Where(a => a.EmoId != null && emoIds.Contains(a.EmoId.Value) && a.FechaAlerta == hoy)
+                .Where(a => a.EmoId != null && emoIds.Contains(a.EmoId.Value) && a.FechaAlerta == hoy && a.TipoAlerta == tipoAlerta)
                 .Select(a => a.EmoId!.Value)
                 .ToListAsync();
             var alertasSet = new HashSet<int>(alertasYaEnviadasHoy);
 
-            foreach (var c in candidatos)
+            // Guard de "ya alertado hoy" — igual que antes, solo que ahora separado del envío
+            // para poder agrupar por proyecto más abajo.
+            result.TotalProcesados += candidatos.Count;
+            foreach (var c in candidatos.Where(c => alertasSet.Contains(c.Emo.Id)))
+                result.Detalles.Add($"EMO {c.Emo.Id} — alerta ya registrada hoy. Omitido.");
+
+            var candidatosNuevos = candidatos.Where(c => !alertasSet.Contains(c.Emo.Id)).ToList();
+
+            // Candidatos ya resueltos con su proyecto/empresa/residente.
+            var resueltos = candidatosNuevos.Select(c =>
             {
-                result.TotalProcesados++;
-
-                if (alertasSet.Contains(c.Emo.Id))
-                {
-                    result.Detalles.Add($"EMO {c.Emo.Id} — alerta ya registrada hoy. Omitido.");
-                    continue;
-                }
-
                 vinculacionPorWorker.TryGetValue(c.Worker.Id, out var vinculacion);
 
                 Project? proyecto = null;
-                if (vinculacion?.ProyectoId.HasValue == true)
+                if (vinculacion?.ProyectoId != null)
                     proyectosDict.TryGetValue(vinculacion.ProyectoId.Value, out proyecto);
 
                 Contributor? empresa = null;
-                if (vinculacion?.EmpresaId.HasValue == true)
+                if (vinculacion?.EmpresaId != null)
                     empresasDict.TryGetValue(vinculacion.EmpresaId.Value, out empresa);
 
                 string? residenteEmail = null;
                 if (proyecto != null) residentePorProyecto.TryGetValue(proyecto.ProjectId, out residenteEmail);
 
+                return new { C = c, Proyecto = proyecto, Empresa = empresa, ResidenteEmail = residenteEmail };
+            }).ToList();
+
+            if (diasCalendarioFijos.HasValue)
+            {
+                // Aviso de "vence en 7 días": UN solo correo por proyecto/residente con TODOS los
+                // trabajadores de ese proyecto que crucen el umbral el mismo día — antes se
+                // mandaba un correo por trabajador y si 5 vencían el mismo día el residente
+                // recibía 5 correos separados en vez de una sola lista.
+                var grupos = resueltos.GroupBy(r => r.Proyecto?.ProjectId ?? 0);
+
+                foreach (var grupo in grupos)
+                {
+                    var proyecto = grupo.First().Proyecto;
+                    var residenteEmail = grupo.First().ResidenteEmail;
+                    var destinatarios = BuildDestinatariosLista(proyecto, residenteEmail);
+
+                    if (destinatarios.Count == 0)
+                    {
+                        foreach (var r in grupo)
+                            result.Detalles.Add($"EMO {r.C.Emo.Id} ({r.C.WorkerNombre}) — sin destinatarios (proyecto {proyecto?.ProjectDescription ?? "sin proyecto"}). Omitido.");
+                        continue;
+                    }
+
+                    var filas = grupo.Select(r => (
+                        Nombre: (string)(r.C.WorkerNombre ?? $"Worker {r.C.Worker.Id}"),
+                        Dni: (string?)r.C.WorkerDni,
+                        Empresa: r.Empresa?.ContributorName ?? "—",
+                        FechaVenc: (r.C.Emo.FechaVencimientoCalculada ?? r.C.Emo.FechaVencimiento)!.Value
+                    )).OrderBy(f => f.FechaVenc).ThenBy(f => f.Nombre).ToList();
+
+                    var subject = $"[Vencen en {diasCalendarioFijos.Value} días] {filas.Count} EMO(s) próximos a vencer — {proyecto?.ProjectDescription ?? "Sin proyecto"}";
+                    var body = BuildBodyLista(proyecto, diasCalendarioFijos.Value, filas);
+
+                    try
+                    {
+                        await _emailService.SendAsync(
+                            to: destinatarios,
+                            subject: subject,
+                            body: body,
+                            isHtml: true,
+                            fromOverride: SaludOcupacionalEmailConstants.Remitente);
+
+                        foreach (var r in grupo)
+                        {
+                            ctx.SsAlertaEmo.Add(new SsAlertaEmo
+                            {
+                                WorkerId = r.C.Worker.Id,
+                                EmoId = r.C.Emo.Id,
+                                TipoAlerta = tipoAlerta,
+                                FechaAlerta = hoy,
+                                EnviadoEmail = true,
+                                FechaEnvio = DateTimeOffset.UtcNow,
+                                Destinatarios = string.Join(",", destinatarios),
+                                CreatedAt = DateTimeOffset.UtcNow
+                            });
+                            result.TotalEnviados++;
+                        }
+                        result.Detalles.Add($"Proyecto {proyecto?.ProjectDescription ?? "sin proyecto"} — 1 correo con {filas.Count} trabajador(es) a {destinatarios.Count} destinatario(s).");
+                    }
+                    catch (Exception ex)
+                    {
+                        result.TotalErrores += grupo.Count();
+                        _logger.LogError(ex, "Error enviando alerta 7 días del proyecto {ProyectoId}", proyecto?.ProjectId);
+                        result.Detalles.Add($"Proyecto {proyecto?.ProjectDescription ?? "sin proyecto"} — error al enviar: {ex.Message}");
+                    }
+                }
+
+                await ctx.SaveChangesAsync();
+                return result;
+            }
+
+            foreach (var r in resueltos)
+            {
+                var c = r.C;
+                var proyecto = r.Proyecto;
+                var empresa = r.Empresa;
+                var residenteEmail = r.ResidenteEmail;
                 var destinatarios = BuildDestinatarios(c.Worker, proyecto, residenteEmail);
                 if (destinatarios.Count == 0)
                 {
@@ -191,7 +288,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     {
                         WorkerId = c.Worker.Id,
                         EmoId = c.Emo.Id,
-                        TipoAlerta = "VENCIMIENTO",
+                        TipoAlerta = tipoAlerta,
                         FechaAlerta = hoy,
                         EnviadoEmail = true,
                         FechaEnvio = DateTimeOffset.UtcNow,
@@ -251,6 +348,65 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(e => e!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        /// <summary>Destinatarios del aviso consolidado de 7 días: solo residente/contactos del proyecto (sin el correo individual del trabajador — es una lista para el proyecto, no un aviso personal).</summary>
+        private static List<string> BuildDestinatariosLista(Project? proyecto, string? residenteEmail)
+        {
+            if (proyecto == null) return new List<string>();
+
+            var raw = new List<string?> { residenteEmail, proyecto.EmailResponsable, proyecto.EmailRrhh, proyecto.EmailCoordSsoma, proyecto.EmailCoordAdmin };
+
+            return raw
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static string BuildBodyLista(
+            Project? proyecto,
+            int dias,
+            List<(string Nombre, string? Dni, string Empresa, DateOnly FechaVenc)> filas)
+        {
+            var filasHtml = string.Join("", filas.Select(f => $@"
+                <tr>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{f.Nombre}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{f.Dni}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{f.Empresa}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px; color: #b00020;'><strong>{f.FechaVenc:dd/MM/yyyy}</strong></td>
+                </tr>"));
+
+            return $@"
+            <p>Estimados,</p>
+
+            <p>
+                Los siguientes trabajadores de <strong>{proyecto?.ProjectDescription ?? "—"}</strong>
+                tienen su <strong>Examen Médico Ocupacional (EMO)</strong> próximo a vencer, dentro de
+                los siguientes <strong>{dias} días</strong>:
+            </p>
+
+            <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px; width: 100%;'>
+                <thead>
+                    <tr>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6; text-align:left;'>Trabajador</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6; text-align:left;'>DNI</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6; text-align:left;'>Empresa</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6; text-align:left;'>Fecha de vencimiento</th>
+                    </tr>
+                </thead>
+                <tbody>{filasHtml}</tbody>
+            </table>
+
+            <p>
+                Por favor coordinar la programación de estos EMOs antes de la fecha de vencimiento
+                para mantener la habilitación de cada trabajador.
+            </p>
+
+            <p style='font-size: 12px; color: #666;'>
+                Este aviso se genera automáticamente, en un solo correo por proyecto, cuando faltan
+                {dias} días calendario para el vencimiento.
+            </p>";
         }
 
         private static string BuildBody(

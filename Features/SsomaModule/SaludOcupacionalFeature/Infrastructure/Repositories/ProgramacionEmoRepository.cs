@@ -143,7 +143,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         MotivoRechazo = x.p.MotivoRechazo,
                         FechaNotificacion = x.p.FechaNotificacion,
                         Puesto = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
-                        Categoria = x.w.Categoria,
+                        Categoria = x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre,
                         TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                             ? "Oficina Central"
                             : x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff

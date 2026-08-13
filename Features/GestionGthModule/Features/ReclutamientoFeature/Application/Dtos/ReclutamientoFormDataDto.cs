@@ -9,8 +9,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
     /// <summary>
     /// Datos que necesita el formulario "Nueva solicitud de personal" en una sola petición:
-    /// el área del solicitante (derivada del usuario, no editable) y los catálogos de los
-    /// desplegables (puestos, tipos de requerimiento y proyectos/obras).
+    /// el área del solicitante (derivada del usuario, no editable), los catálogos de los
+    /// desplegables (puestos, tipos de requerimiento y proyectos/obras) y los destinatarios a
+    /// los que le llegará la solicitud.
     /// </summary>
     public class ReclutamientoFormDataDto
     {
@@ -20,5 +21,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<OpcionDto> Puestos { get; set; } = new();
         public List<OpcionDto> TiposRequerimiento { get; set; } = new();
         public List<OpcionDto> Proyectos { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llegará el correo si se envía la solicitud en este momento. Lo resuelve el
+        /// mismo servicio que hace el envío real, así que el aviso del modal no puede divergir de
+        /// lo que sale. Listas vacías = no hay a quién notificar (hay que configurarlo).
+        /// </summary>
+        public SolicitudDestinatariosDto Destinatarios { get; set; } = new();
     }
 }

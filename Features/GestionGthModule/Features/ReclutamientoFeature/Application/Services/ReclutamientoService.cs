@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
@@ -7,9 +7,6 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Shared.Models;
-using Abril_Backend.Shared.Services.Notificaciones.Dtos;
-using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 
@@ -18,9 +15,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class ReclutamientoService : IReclutamientoService
     {
         private readonly IReclutamientoRepository _repo;
+        private readonly IAprobacionGgRepository  _aprobacionGgRepo;
+        private readonly IAprobacionGgService     _aprobacionGg;
+        private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IGraphSharePointService  _sharePoint;
         private readonly IEmailService            _email;
-        private readonly INotificacionesService   _notificaciones;
         private readonly ILogger<ReclutamientoService> _logger;
 
         private const long MaxSustentoBytes = 10 * 1024 * 1024; // 10 MB
@@ -28,19 +27,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public ReclutamientoService(
             IReclutamientoRepository repo,
+            IAprobacionGgRepository aprobacionGgRepo,
+            IAprobacionGgService aprobacionGg,
+            ICorreoDestinatariosResolver destinatarios,
             IGraphSharePointService sharePoint,
             IEmailService email,
-            INotificacionesService notificaciones,
             ILogger<ReclutamientoService> logger)
         {
-            _repo           = repo;
-            _sharePoint     = sharePoint;
-            _email          = email;
-            _notificaciones = notificaciones;
-            _logger         = logger;
+            _repo             = repo;
+            _aprobacionGgRepo = aprobacionGgRepo;
+            _aprobacionGg     = aprobacionGg;
+            _destinatarios    = destinatarios;
+            _sharePoint       = sharePoint;
+            _email            = email;
+            _logger           = logger;
         }
 
-        public Task<ReclutamientoFormDataDto> GetFormData(int? userId) => _repo.GetFormData(userId);
+        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
+        {
+            var dto = await _repo.GetFormData(userId);
+
+            // Aviso "a quién le llegará esta solicitud" del modal. Va en la misma petición que los
+            // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
+            // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
+            dto.Destinatarios = await _destinatarios.ResolverAsync(
+                CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
+
+            return dto;
+        }
 
         public Task<SolicitantePanelDto> GetSolicitantePanel(int? userId) =>
             userId.HasValue
@@ -86,11 +100,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongListDecision);
-                if (dest.Principales.Count == 0)
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongListDecision);
+                if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios principales configurados para el correo de decisión de long list ({Codigo}); no se envía.",
+                        "No hay destinatarios principales activos para el correo de decisión de long list ({Codigo}); no se envía.",
                         ctx.Codigo);
                     return;
                 }
@@ -99,11 +113,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var subject = $"[Reclutamiento] Decisión de long list — {ctx.Codigo} · {ctx.Puesto}";
 
                 await _email.SendAsync(
-                    to:      dest.Principales,
+                    to:      dest.EmailsPara,
                     subject: subject,
                     body:    ConstruirCuerpoDecision(ctx),
                     isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
             catch (Exception ex)
             {
@@ -445,11 +459,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.FinalistaDecision);
-                if (dest.Principales.Count == 0)
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaDecision);
+                if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
-                        "No hay destinatarios principales configurados para el correo de decisión de finalista ({Codigo}); no se envía.",
+                        "No hay destinatarios principales activos para el correo de decisión de finalista ({Codigo}); no se envía.",
                         ctx.Codigo);
                     return;
                 }
@@ -459,11 +473,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var subject = $"[Reclutamiento] Decisión de finalista — {ctx.Codigo} · {ctx.Puesto}";
 
                 await _email.SendAsync(
-                    to:      dest.Principales,
+                    to:      dest.EmailsPara,
                     subject: subject,
                     body:    ConstruirCuerpoDecisionFinalista(ctx, accion),
                     isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
             catch (Exception ex)
             {
@@ -551,7 +565,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 2) Destinatarios del correo de long list.
             //    El destinatario PRINCIPAL (Para/To) es SIEMPRE el solicitante que registró la
             //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
-            var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongList);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
 
             // Para = solicitante primero + principales configurados (deduplicado, sin distinguir mayúsculas).
             var principales = new List<string>();
@@ -562,7 +576,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) principales.Add(e);
             }
             AgregarPrincipal(ctx.SolicitanteEmail);
-            foreach (var e in dest.Principales) AgregarPrincipal(e);
+            foreach (var e in dest.EmailsPara) AgregarPrincipal(e);
 
             if (principales.Count == 0)
                 throw new AbrilException(
@@ -571,7 +585,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "un correo registrado o configúralos con el botón «Configuración».", 409);
 
             // CC = copias configuradas que no estén ya en Para.
-            var copias = dest.Copias.Where(e => !vistos.Contains(e.Trim())).ToList();
+            var copias = dest.EmailsCopias.Where(e => !vistos.Contains(e.Trim())).ToList();
 
             // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
             //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.
@@ -787,6 +801,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (seguimiento == null)
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
+            // Tarjeta "Aprobación GG" del modal: la consulta vive en el repositorio dueño de
+            // gth_aprobacion_gg. Es una lectura chica e indexada; null en los requerimientos
+            // anteriores a esta funcionalidad (no pasaron por el paso del GG).
+            seguimiento.AprobacionGg = await _aprobacionGgRepo.GetResumenByRequerimiento(requerimientoId);
+
             return seguimiento;
         }
 
@@ -863,127 +882,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var result = await _repo.Create(solicitud, dto.Vacantes, userId);
 
-            // Notifica a los destinatarios configurados. No bloquea la creación: si el
-            // correo falla, la solicitud ya quedó registrada (solo se registra el warning).
-            await EnviarNotificacionAsync(result.SolicitudId, solicitud);
+            // Primer paso del flujo: la solicitud va a Gerencia General, NO a GTH. Un solo correo
+            // con todas las vacantes; GTH se enterará recién cuando el GG apruebe. No bloquea la
+            // creación: si el correo falla, la solicitud ya quedó registrada esperando el reenvío.
+            result.CorreoGerenciaEnviado = await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);
 
             return result;
-        }
-
-        /// <summary>
-        /// Notifica la nueva solicitud a los destinatarios configurados (gth_correo_destinatario):
-        /// correo (To = principales, CC = copias; sin principal no se envía) + notificación in-app
-        /// de la campanita (una por requerimiento, para principales y copias que tengan usuario).
-        /// Ninguna de las dos bloquea la creación: si fallan solo se registra el warning.
-        /// </summary>
-        private async Task EnviarNotificacionAsync(int solicitudId, GthSolicitud solicitud)
-        {
-            CorreoDestinatariosDto dest;
-            List<SolicitudVacanteListItemDto> vacantes;
-            try
-            {
-                dest     = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.Solicitud);
-                vacantes = await _repo.GetRequerimientosBySolicitud(solicitudId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo notificar la solicitud de personal {SolicitudId}", solicitudId);
-                return;
-            }
-
-            // 1) Correo.
-            try
-            {
-                if (dest.Principales.Count > 0) // sin destinatario principal → no se envía
-                {
-                    var subject = vacantes.Count == 1
-                        ? $"[Reclutamiento] Nueva solicitud de personal — {vacantes[0].Codigo}"
-                        : $"[Reclutamiento] Nueva solicitud de personal — {vacantes.Count} vacantes";
-
-                    await _email.SendAsync(
-                        to:     dest.Principales,
-                        subject: subject,
-                        body:    ConstruirCuerpo(solicitud, vacantes),
-                        isHtml:  true,
-                        cc:      dest.Copias.Count > 0 ? dest.Copias : null);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo enviar el correo de la solicitud de personal {SolicitudId}", solicitudId);
-            }
-
-            // 2) Notificación in-app (campanita) — mismos destinatarios (principales + copias).
-            try
-            {
-                var items = vacantes.Select(v => new NuevaNotificacionDto
-                {
-                    Titulo      = "Nuevo requerimiento de personal",
-                    Subtitulo   = string.IsNullOrWhiteSpace(v.Area) ? v.Puesto : $"{v.Puesto} — {v.Area}",
-                    Descripcion = solicitud.Justificacion,
-                    Referencia  = v.Codigo,
-                }).ToList();
-
-                await _notificaciones.CrearPorCorreosAsync(
-                    NotificacionTipoCodigo.GthSolicitudPersonal,
-                    dest.Principales.Concat(dest.Copias).ToList(),
-                    solicitud.SolicitanteUserId,
-                    items);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la solicitud de personal {SolicitudId}", solicitudId);
-            }
-        }
-
-        private static string ConstruirCuerpo(GthSolicitud solicitud, List<SolicitudVacanteListItemDto> vacantes)
-        {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-
-            var filas = new StringBuilder();
-            foreach (var v in vacantes)
-            {
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra) }</td>
-                    </tr>
-                    """);
-            }
-
-            var sustento = string.IsNullOrWhiteSpace(solicitud.SustentoUrl)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Sustento adjunto:</b> <a href="{Esc(solicitud.SustentoUrl)}">{Esc(solicitud.SustentoNombre ?? "ver documento")}</a></p>""";
-
-            var justificacion = string.IsNullOrWhiteSpace(solicitud.Justificacion)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Justificación:</b><br>{Esc(solicitud.Justificacion)}</p>""";
-
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Nueva solicitud de personal</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0"><b>Área solicitante:</b> {Esc(solicitud.AreaNombre) }</p>
-                    <p style="font-size:13px"><b>Vacantes solicitadas:</b> {vacantes.Count}</p>
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Código</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Proyecto / Obra</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    {justificacion}
-                    {sustento}
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
         }
 
         private async Task SubirSustentoAsync(IFormFile sustento, GthSolicitud solicitud)

@@ -250,7 +250,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 return Ok(new CatalogosAdminDto
                 {
                     Categorias = categorias.Select(MapCategoria).ToList(),
-                    Puestos = MapPuestos(puestos, categorias)
+                    Puestos = puestos
                 });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -318,12 +318,26 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var puestos = await _repo.GetPuestosTodosAsync();
-                var categorias = await _repo.GetCategoriasTodasAsync();
-                return Ok(MapPuestos(puestos, categorias));
+                return Ok(await _repo.GetPuestosTodosAsync());
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en GetPuestosAdmin"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Trabajadores que usan el puesto. Es el detalle que abre la fila de la tabla, así
+        /// que se pide bajo demanda (un puesto puede tener cientos de fichas: mandarlas
+        /// todas en la carga inicial de la pantalla sería traer data que casi nunca se abre).
+        /// </summary>
+        [HttpGet("puestos/{id}/trabajadores")]
+        public async Task<IActionResult> GetTrabajadoresDePuesto(int id)
+        {
+            try
+            {
+                return Ok(await _repo.GetTrabajadoresPorPuestoAsync(id));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en GetTrabajadoresDePuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPost("puestos")]
@@ -366,29 +380,43 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en TogglePuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Elimina (soft delete) un puesto. Se rechaza con 400 si hay trabajadores usándolo:
+        /// en ese caso lo que corresponde es desactivarlo.
+        /// </summary>
+        [HttpDelete("puestos/{id}")]
+        public async Task<IActionResult> EliminarPuesto(int id)
+        {
+            try
+            {
+                await _repo.EliminarPuestoAsync(id);
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EliminarPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Elimina (soft delete) los puestos seleccionados en la tabla. Va por POST y no por
+        /// DELETE porque el lote viaja en el cuerpo. Los puestos en uso se omiten y se
+        /// informan en la respuesta en vez de rechazar todo el lote.
+        /// </summary>
+        [HttpPost("puestos/eliminar")]
+        public async Task<IActionResult> EliminarPuestos([FromBody] PuestosEliminarRequest req)
+        {
+            try
+            {
+                return Ok(await _repo.EliminarPuestosAsync(req.Ids.Distinct().ToList()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EliminarPuestos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ── Mapeos compartidos ───────────────────────────────────────
 
         private static CatCategoriaAdminDto MapCategoria(Categoria x) => new()
         {
             Id = x.CategoriaId, Nombre = x.Nombre, Orden = x.Orden, Activo = x.Active
         };
-
-        /// <summary>
-        /// Puestos con el nombre de su categoría resuelto en memoria (evita un join/consulta
-        /// extra: las categorías ya se trajeron para la misma respuesta).
-        /// </summary>
-        private static List<PuestoAdminDto> MapPuestos(List<Puesto> puestos, List<Categoria> categorias)
-        {
-            var nombrePorId = categorias.ToDictionary(c => c.CategoriaId, c => c.Nombre);
-            return puestos.Select(x => new PuestoAdminDto
-            {
-                Id = x.PuestoId,
-                Nombre = x.Nombre,
-                CategoriaId = x.CategoriaId,
-                CategoriaNombre = x.CategoriaId.HasValue && nombrePorId.TryGetValue(x.CategoriaId.Value, out var n) ? n : null,
-                Orden = x.Orden,
-                Activo = x.Active
-            }).ToList();
-        }
     }
 }

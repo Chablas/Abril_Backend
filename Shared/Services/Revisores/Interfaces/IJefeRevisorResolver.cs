@@ -14,6 +14,14 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     ///   3) Fallback: el área de GTH — nodo <c>area_scope</c> del área
     ///      "Gestión del Talento Humano" con <c>email</c> configurado.
     ///
+    /// En los tres pasos rige la misma regla: <b>nadie puede ser su propio jefe</b>. Un candidato
+    /// que es el propio trabajador se descarta y la búsqueda sigue — con el siguiente revisor del
+    /// mismo nodo si lo hay y, si no, subiendo al <c>area_scope</c> padre (normalmente la gerencia
+    /// de la que cuelga su área). Esto es lo normal en los jefes de área: el jefe de SSOMA es el
+    /// revisor de SSOMA, así que su propio jefe es el gerente del que depende esa área. La
+    /// comparación es por PERSONA, no por ficha: un reingreso deja varias filas en
+    /// <c>workers</c> para la misma persona y el revisor puede estar configurado en cualquiera.
+    ///
     /// Servicio compartido: es la ÚNICA fuente de "quién es el jefe de este trabajador".
     /// Lo usan Gestión Administrativa (a quién se le manda a aprobar una solicitud de
     /// salida) y SSOMA · Salud Ocupacional (correos de EMO e interconsultas), y
@@ -36,9 +44,15 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
 
         /// <summary>
         /// Previsualización por ÁREA, sin trabajador: para cada nodo <c>area_scope</c> pedido devuelve
-        /// el revisor que le tocaría a un trabajador ubicado ahí, aplicando los pasos 2 y 3 (revisores
+        /// los revisores que le tocarían a un trabajador ubicado ahí, aplicando los pasos 2 y 3 (revisores
         /// del área subiendo por el árbol, y fallback GTH). No aplica el paso 1 (<c>workers_revisores</c>)
         /// porque no hay trabajador: un trabajador con revisor propio configurado usa ese y no el del área.
+        ///
+        /// Devuelve los candidatos EN ORDEN de resolución en vez de solo el ganador, justamente porque
+        /// no hay trabajador: quien consume esto sí lo conoce y tiene que poder descartarlo para que
+        /// nadie salga como su propio jefe (el formulario de trabajadores muestra el primer candidato
+        /// que no sea el trabajador que se está editando). El árbol se pide una sola vez y sirve para
+        /// cualquier trabajador, sin volver al servidor al cambiar de área.
         ///
         /// La usa el formulario de trabajadores para mostrar, al elegir el área, quién quedaría como su
         /// revisor. Un número FIJO de consultas sea para 1 o para todos los nodos del árbol.
@@ -48,21 +62,31 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     }
 
     /// <summary>
-    /// Revisor que le tocaría a un trabajador de un nodo del árbol de áreas. Se separa el caso sin
-    /// proyecto del caso por proyecto porque hay nodos marcados como "filtrar por proyecto"
-    /// (ga_salidas_area_config): ahí el revisor depende del proyecto del trabajador, así que se
-    /// precalcula uno por proyecto configurado y el consumidor elige según el proyecto del formulario.
+    /// Revisores que le tocarían a un trabajador de un nodo del árbol de áreas, en orden de
+    /// resolución. Se separa el caso sin proyecto del caso por proyecto porque hay nodos marcados
+    /// como "filtrar por proyecto" (ga_salidas_area_config): ahí el revisor depende del proyecto del
+    /// trabajador, así que se precalcula una lista por proyecto configurado y el consumidor elige
+    /// según el proyecto del formulario.
     /// </summary>
-    /// <param name="Area">Revisor a nivel de área (o el fallback GTH). Null si no hay ninguno.</param>
-    /// <param name="PorProyecto">projectId -> revisor, solo para los proyectos con revisor propio en la rama.</param>
+    /// <param name="Area">
+    /// Candidatos a nivel de área en orden (nodo más cercano primero, luego sus ancestros) con el
+    /// fallback GTH al final. Vacía si no hay ninguno.
+    /// </param>
+    /// <param name="PorProyecto">projectId -> candidatos en orden, solo para los proyectos con revisor propio en la rama.</param>
     public record AreaScopeRevisorPreview(
-        JefeRevisorResolution? Area,
-        Dictionary<int, JefeRevisorResolution> PorProyecto);
+        IReadOnlyList<JefeRevisorResolution> Area,
+        Dictionary<int, IReadOnlyList<JefeRevisorResolution>> PorProyecto);
 
     /// <summary>
     /// Jefe/revisor resuelto: un trabajador (WorkerId) o un área (AreaScopeId, el
     /// fallback de GTH) — exactamente uno de los dos — con el correo a usar y el nombre
     /// para mostrar (nombre completo del revisor, o el del área en el fallback).
     /// </summary>
-    public record JefeRevisorResolution(int? WorkerId, int? AreaScopeId, string Email, string? Nombre = null);
+    /// <param name="PersonId">
+    /// Persona del revisor (<c>workers.person_id</c>), null en el fallback de área. Es con lo que se
+    /// aplica "nadie puede ser su propio jefe": la misma persona puede tener varias fichas en
+    /// <c>workers</c> y comparar solo por ficha dejaría pasar el caso.
+    /// </param>
+    public record JefeRevisorResolution(
+        int? WorkerId, int? AreaScopeId, string Email, string? Nombre = null, int? PersonId = null);
 }

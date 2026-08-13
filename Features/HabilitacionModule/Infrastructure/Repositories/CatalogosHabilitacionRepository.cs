@@ -68,20 +68,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!revisores.TryGetValue(nodo.AreaScopeId, out var rev)) continue;
 
-                nodo.RevisorNombre = rev.Area?.Nombre;
-                nodo.RevisorEmail = rev.Area?.Email;
+                nodo.Revisores = rev.Area.Select(MapRevisor).ToList();
                 nodo.RevisoresPorProyecto = rev.PorProyecto
                     .Select(kv => new AreaArbolRevisorProyectoDto
                     {
                         ProyectoId = kv.Key,
-                        RevisorNombre = kv.Value.Nombre,
-                        RevisorEmail = kv.Value.Email,
+                        Revisores = kv.Value.Select(MapRevisor).ToList(),
                     })
                     .ToList();
             }
 
             return nodos;
         }
+
+        private static AreaArbolRevisorDto MapRevisor(JefeRevisorResolution r) => new()
+        {
+            WorkerId = r.WorkerId,
+            PersonId = r.PersonId,
+            Nombre = r.Nombre,
+            Email = r.Email,
+        };
 
         public async Task<List<SsItemTrabajador>> GetItemsTrabajadorAsync()
         {
@@ -224,12 +230,59 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         // ── Puestos CRUD ─────────────────────────────────────────────
-        public async Task<List<Puesto>> GetPuestosTodosAsync()
+
+        /// <summary>
+        /// Puestos vivos con su categoría y el uso real (fichas de <c>workers</c> que
+        /// apuntan al puesto) resueltos en una sola consulta: el conteo va como subconsulta
+        /// correlacionada en vez de un segundo viaje a la base de datos.
+        /// El uso se cuenta sobre TODAS las fichas del trabajador, sin filtrar por estado:
+        /// <c>workers</c> no tiene soft delete, así que cada fila es un uso real del puesto.
+        /// </summary>
+        public async Task<List<PuestoAdminDto>> GetPuestosTodosAsync()
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Puesto
+                .AsNoTracking()
                 .Where(x => x.State)
                 .OrderBy(x => x.Nombre)
+                .Select(x => new PuestoAdminDto
+                {
+                    Id = x.PuestoId,
+                    Nombre = x.Nombre,
+                    CategoriaId = x.CategoriaId,
+                    CategoriaNombre = x.Categoria == null ? null : x.Categoria.Nombre,
+                    Orden = x.Orden,
+                    Activo = x.Active,
+                    CantidadTrabajadores = ctx.Worker.Count(w => w.PuestoId == x.PuestoId)
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Fichas de <c>workers</c> que apuntan al puesto, para el detalle que abre la fila
+        /// de la tabla. Se listan con el mismo criterio con el que
+        /// <see cref="GetPuestosTodosAsync"/> las cuenta (todas las fichas, sin filtrar por
+        /// estado): así la lista siempre cuadra con el número que muestra la fila.
+        ///
+        /// El nombre se lee de <c>person.full_name</c>; se cae a <c>workers.apellido_nombre</c>
+        /// solo si la ficha no tiene persona (la FK es nullable) o la persona no lo tiene.
+        /// El join va por la navegación (LEFT JOIN) justamente para no perder esas fichas y
+        /// desalinear el conteo.
+        /// </summary>
+        public async Task<List<PuestoTrabajadorDto>> GetTrabajadoresPorPuestoAsync(int puestoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Worker
+                .AsNoTracking()
+                .Where(w => w.PuestoId == puestoId)
+                .OrderBy(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .ThenBy(w => w.Id)
+                .Select(w => new PuestoTrabajadorDto
+                {
+                    WorkerId = w.Id,
+                    NombreCompleto = (w.Person!.FullName ?? w.ApellidoNombre) ?? "",
+                    EmailCorporativo = w.EmailCorporativo
+                })
                 .ToListAsync();
         }
 
@@ -280,6 +333,82 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             puesto.Active = activo;
             puesto.UpdatedDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Soft delete del puesto: se marca <c>state = false</c> (y se desactiva, para que
+        /// desaparezca de los desplegables aunque una consulta filtre solo por <c>active</c>).
+        /// La fila se conserva para el histórico y el índice único de nombre solo aplica a
+        /// los vivos, así que el nombre queda libre para volver a usarse.
+        ///
+        /// Un puesto en uso no se puede eliminar: las fichas que lo apuntan seguirían
+        /// mostrándolo pero ya no existiría en el desplegable del formulario de trabajadores,
+        /// y la siguiente edición de esas fichas lo perdería. Para sacarlo de circulación sin
+        /// romper nada está "Desactivar".
+        /// </summary>
+        public async Task EliminarPuestoAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
+                ?? throw new AbrilException("Puesto no encontrado.", 404);
+
+            var enUso = await ctx.Worker.CountAsync(w => w.PuestoId == id);
+            if (enUso > 0)
+                throw new AbrilException(
+                    $"No se puede eliminar: {enUso} trabajador(es) usan este puesto. " +
+                    "Si solo quieres que deje de aparecer en los desplegables, desactívalo.", 400);
+
+            puesto.State = false;
+            puesto.Active = false;
+            puesto.UpdatedDateTime = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Soft delete en bloque de la selección de la tabla, en tres viajes a la base de
+        /// datos para todo el lote (traer los puestos, ver cuáles están en uso, guardar).
+        ///
+        /// A diferencia del borrado de una sola fila, acá los puestos en uso se omiten en
+        /// vez de tumbar el lote entero: la pantalla ya filtró la selección con el conteo
+        /// que trajo, así que un puesto en uso solo puede aparecer si alguien lo asignó
+        /// mientras tanto — y en ese caso lo correcto es eliminar el resto e informarlo.
+        /// </summary>
+        public async Task<PuestosEliminarResultDto> EliminarPuestosAsync(IReadOnlyCollection<int> ids)
+        {
+            if (ids.Count == 0)
+                throw new AbrilException("No se recibió ningún puesto para eliminar.", 400);
+
+            using var ctx = _factory.CreateDbContext();
+            var puestos = await ctx.Puesto
+                .Where(x => ids.Contains(x.PuestoId) && x.State)
+                .ToListAsync();
+            if (puestos.Count == 0)
+                throw new AbrilException("Los puestos seleccionados ya no existen.", 404);
+
+            var enUso = await ctx.Worker
+                .Where(w => w.PuestoId != null && ids.Contains(w.PuestoId.Value))
+                .Select(w => w.PuestoId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var eliminados = 0;
+            foreach (var puesto in puestos)
+            {
+                if (enUso.Contains(puesto.PuestoId)) continue;
+                puesto.State = false;
+                puesto.Active = false;
+                puesto.UpdatedDateTime = now;
+                eliminados++;
+            }
+
+            if (eliminados > 0) await ctx.SaveChangesAsync();
+
+            return new PuestosEliminarResultDto
+            {
+                Eliminados = eliminados,
+                Omitidos = ids.Count - eliminados
+            };
         }
 
         /// <summary>Categorías y puestos se guardan siempre en MAYÚSCULAS.</summary>

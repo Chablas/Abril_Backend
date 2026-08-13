@@ -41,9 +41,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task ToggleCategoriaAsync(int id, bool activo);
 
         // Puestos CRUD
-        Task<List<Puesto>> GetPuestosTodosAsync();
+        /// <summary>
+        /// Puestos vivos para la pantalla de configuración, con su categoría y la cantidad
+        /// de fichas de trabajadores que los usa ya resueltas en la misma consulta.
+        /// </summary>
+        Task<List<PuestoAdminDto>> GetPuestosTodosAsync();
+        /// <summary>
+        /// Fichas de trabajadores que usan el puesto (nombre + correo corporativo), para el
+        /// detalle que abre la fila. Mismo criterio que el conteo de GetPuestosTodosAsync.
+        /// </summary>
+        Task<List<PuestoTrabajadorDto>> GetTrabajadoresPorPuestoAsync(int puestoId);
         Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId);
         Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId);
         Task TogglePuestoAsync(int id, bool activo);
+        /// <summary>Soft delete (state = false). Se rechaza si algún trabajador usa el puesto.</summary>
+        Task EliminarPuestoAsync(int id);
+        /// <summary>
+        /// Soft delete en bloque. Omite (no falla) los puestos que tengan trabajadores
+        /// usándolos y devuelve cuántos se eliminaron y cuántos se omitieron.
+        /// </summary>
+        Task<PuestosEliminarResultDto> EliminarPuestosAsync(IReadOnlyCollection<int> ids);
     }
 }

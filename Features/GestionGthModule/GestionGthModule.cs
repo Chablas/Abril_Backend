@@ -20,6 +20,18 @@ namespace Abril_Backend.Features.GestionGthModule
             // Formulario de información del postulante (público por token + revisión de GTH)
             services.AddScoped<IPostulanteFormularioRepository, PostulanteFormularioRepository>();
             services.AddScoped<IPostulanteFormularioService, PostulanteFormularioService>();
+
+            // Aprobación de Gerencia General de la solicitud (público por token)
+            services.AddScoped<IAprobacionGgRepository, AprobacionGgRepository>();
+            services.AddScoped<IAprobacionGgService, AprobacionGgService>();
+
+            // Configuración de los correos del flujo (pantalla /solicitud-personal/configuracion)
+            services.AddScoped<ICorreoConfigRepository, CorreoConfigRepository>();
+            services.AddScoped<ICorreoConfigService, CorreoConfigService>();
+
+            // Destinatarios efectivos de cada correo: lo comparten el envío real y la
+            // previsualización del modal, así que no puede haber dos versiones.
+            services.AddScoped<ICorreoDestinatariosResolver, CorreoDestinatariosResolver>();
             return services;
         }
     }

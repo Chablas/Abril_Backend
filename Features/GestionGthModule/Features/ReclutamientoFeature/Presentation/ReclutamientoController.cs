@@ -44,7 +44,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Destinatarios configurados de un correo de reclutamiento por tipo (<c>solicitud</c> / <c>long-list</c>).</summary>
+        /// <summary>Destinatarios configurados de un correo de reclutamiento por tipo (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>long-list</c> / …).</summary>
         /// <remarks>Acceso dinámico por feature: los roles con <c>gestion-gth.reclutamiento.configuracion</c> en role_feature.</remarks>
         [HttpGet("config/correo-destinatarios/{tipo}")]
         [RequireFeature("gestion-gth.reclutamiento.configuracion")]
@@ -624,10 +624,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return BadRequest(new { message = "Datos de la solicitud no recibidos." });
 
                 var result = await _service.Create(dto, userId, sustento);
-                var msg = result.Codigos.Count == 1
-                    ? $"Solicitud registrada. Requerimiento generado: {result.Codigos[0]}."
-                    : $"Solicitud registrada. Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
-                return Ok(new { id = result.SolicitudId, codigos = result.Codigos, message = msg });
+                var codigos = result.Codigos.Count == 1
+                    ? $"Requerimiento generado: {result.Codigos[0]}."
+                    : $"Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
+                // El siguiente paso es de Gerencia General, así que el mensaje lo dice explícitamente
+                // (y avisa si el correo no pudo salir, porque entonces hay que reenviarlo).
+                var msg = result.CorreoGerenciaEnviado
+                    ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
+                    : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
+                      "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
+                return Ok(new
+                {
+                    id = result.SolicitudId,
+                    codigos = result.Codigos,
+                    correoGerenciaEnviado = result.CorreoGerenciaEnviado,
+                    message = msg,
+                });
             }
             catch (AbrilException ex)
             {

@@ -24,5 +24,12 @@ namespace Abril_Backend.Shared.Models
     {
         /// <summary>Alguien registró una solicitud de personal (Gestión GTH · Reclutamiento).</summary>
         public const string GthSolicitudPersonal = "GTH_SOLICITUD_PERSONAL";
+
+        /// <summary>
+        /// Hay una solicitud de personal esperando la aprobación de Gerencia General
+        /// (Gestión GTH · Reclutamiento). Va a los destinatarios del correo del GG que además
+        /// sean usuarios del sistema.
+        /// </summary>
+        public const string GthAprobacionGg = "GTH_APROBACION_GG";
     }
 }

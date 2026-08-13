@@ -13,6 +13,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Clave estable usada en código (SOLICITUD, LONG_LIST).</summary>
         public string Codigo { get; set; } = null!;
         public string Nombre { get; set; } = null!;
+        /// <summary>Texto que explica a quién se le manda el correo; lo muestra la pantalla de Configuración.</summary>
+        public string? Descripcion { get; set; }
         public int Orden { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }

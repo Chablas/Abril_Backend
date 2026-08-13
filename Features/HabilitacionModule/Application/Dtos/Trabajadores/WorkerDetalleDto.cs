@@ -4,6 +4,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
     {
         public int Id { get; set; }
         public int? IdTrabajador { get; set; }
+        /// <summary>
+        /// Persona de la ficha (<c>workers.person_id</c>). El formulario la usa para descartar al
+        /// propio trabajador de los candidatos a jefe: la misma persona puede tener varias fichas
+        /// en <c>workers</c> (reingreso), así que comparar solo por ficha dejaría pasar el caso.
+        /// </summary>
+        public int? PersonId { get; set; }
         public string? ApellidoNombre { get; set; }
         public string? Dni { get; set; }
         public string? Ruc { get; set; }

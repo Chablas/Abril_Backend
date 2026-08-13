@@ -8,7 +8,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Crea la solicitud de personal: valida, sube el sustento (opcional) a SharePoint y
-        /// persiste 1 requerimiento por vacante con su código REQ-AAAA-NNNN.
+        /// persiste 1 requerimiento por vacante con su código REQ-AAAA-NNNN, en fase
+        /// APROBACION_GG. Luego manda el correo de aprobación al Gerente General (GTH no se
+        /// entera hasta que él apruebe); el resultado dice si ese correo pudo salir.
         /// </summary>
         Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento);
 

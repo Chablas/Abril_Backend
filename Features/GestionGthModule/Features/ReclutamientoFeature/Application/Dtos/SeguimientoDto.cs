@@ -31,10 +31,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int EstadoOrden { get; set; }
 
         /// <summary>
-        /// ¿Requiere aprobación de Gerencia General? Solo aplica a puestos nuevos
-        /// (tipo "Nuevo"); un reemplazo no la requiere.
+        /// Aprobación de Gerencia General de la solicitud (primer paso del flujo, obligatorio para
+        /// toda vacante). Null en los requerimientos anteriores a esta funcionalidad, que no
+        /// pasaron por ese paso.
         /// </summary>
-        public bool AprobacionGgRequerida { get; set; }
+        public AprobacionGgResumenDto? AprobacionGg { get; set; }
 
         // ── Sustento (adjunto opcional) ──────────────────────────────────
         public string? SustentoNombre { get; set; }

@@ -24,5 +24,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         public int SolicitudId { get; set; }
         public List<string> Codigos { get; set; } = new();
+
+        /// <summary>
+        /// ¿Salió el correo de aprobación a Gerencia General? false cuando no hay destinatarios
+        /// configurados o el envío falló: la solicitud queda registrada esperando un reenvío, así
+        /// que hay que avisárselo al solicitante.
+        /// </summary>
+        public bool CorreoGerenciaEnviado { get; set; }
     }
 }

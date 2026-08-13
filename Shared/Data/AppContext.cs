@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.LearningModule.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
@@ -488,6 +489,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthMotivoCese> GthMotivoCese => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthMotivoCese>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad> GthUniversidad => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito> GthDistrito => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito>();
+        // Aprobación de Gerencia General de la solicitud (público por token) + su catálogo y detalle.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado> GthAprobacionGgEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg> GthAprobacionGg => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle> GthAprobacionGgDetalle => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
         public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
@@ -980,20 +985,38 @@ namespace Abril_Backend.Infrastructure.Data
             // cualquier insert con Kind=Unspecified (el que llega de [FromForm]) rompe con
             // "Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with
             // time zone'". Esto hace que el tipo de columna que EF genera coincida con el real.
+            //
+            // Y con el tipo declarado hace falta la otra mitad: Npgsql tampoco acepta escribir un
+            // DateTime con Kind=Utc en "timestamp without time zone" ("Cannot write DateTime with
+            // Kind=Utc to PostgreSQL type 'timestamp without time zone'"). Los modelos inicializan
+            // CreatedAt con DateTime.UtcNow y LevantarObservacion asigna DateTime.UtcNow a
+            // FechaLevantamiento, así que TODA escritura del módulo de Revisiones tiraba 500 (las
+            // lecturas no: por eso la pantalla cargaba pero no dejaba crear nada). El convertidor
+            // normaliza el Kind al escribir sin tocar el valor del reloj, de modo que se sigue
+            // guardando UTC — arreglarlo acá y no en cada asignación cubre también las que se
+            // agreguen después. Se aplica solo al lado de escritura; al leer, el valor vuelve tal
+            // cual (Kind=Unspecified, que es lo que ya devolvía la columna).
+            var utcSinZona = new ValueConverter<DateTime, DateTime>(
+                v => DateTime.SpecifyKind(v, DateTimeKind.Unspecified),
+                v => v);
+            var utcSinZonaNullable = new ValueConverter<DateTime?, DateTime?>(
+                v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Unspecified) : v,
+                v => v);
+
             modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevision>(entity =>
             {
-                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
             modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacion>(entity =>
             {
-                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone");
-                entity.Property(e => e.PlazoLevantamiento).HasColumnType("timestamp without time zone");
-                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
-                entity.Property(e => e.FechaLevantamiento).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.PlazoLevantamiento).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.FechaLevantamiento).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
             });
             modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacionFoto>(entity =>
             {
-                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
 
             modelBuilder.Entity<ProjectSubContractor>(entity =>
@@ -1262,9 +1285,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
             // Un correo no puede repetirse entre los destinatarios vigentes del mismo tipo
             // (se guarda en minúsculas). El mismo correo sí puede estar en dos tipos distintos.
+            // Los destinatarios dinámicos (codigo no nulo) quedan fuera: no tienen correo y su
+            // unicidad es por (tipo, codigo) — ese índice vive solo en Migrations_Manual porque
+            // EF no sabe expresar el lower()/upper() del índice real.
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>(e =>
             {
-                e.HasIndex(d => new { d.GthCorreoTipoId, d.Email }).IsUnique().HasFilter("state = true");
+                e.HasIndex(d => new { d.GthCorreoTipoId, d.Email }).IsUnique()
+                 .HasFilter("state = true AND codigo IS NULL AND email IS NOT NULL");
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>()
                  .WithMany()
                  .HasForeignKey(d => d.GthCorreoTipoId)
@@ -1447,6 +1474,31 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(f => f.GthGradoAcademicoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthMotivoCese>()
                  .WithMany().HasForeignKey(f => f.GthMotivoCeseId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Aprobación de Gerencia General de la solicitud de personal ──────
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>(e =>
+            {
+                // Una sola aprobación viva por solicitud (1:1) y token único entre las vigentes.
+                e.HasIndex(a => a.GthSolicitudId).IsUnique().HasFilter("state = true");
+                e.HasIndex(a => a.Token).IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud>()
+                 .WithMany().HasForeignKey(a => a.GthSolicitudId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>()
+                 .WithMany().HasForeignKey(a => a.GthAprobacionGgEstadoId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>(e =>
+            {
+                e.HasIndex(d => new { d.GthAprobacionGgId, d.GthRequerimientoId }).IsUnique().HasFilter("state = true");
+                e.HasIndex(d => d.GthRequerimientoId);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>()
+                 .WithMany().HasForeignKey(d => d.GthAprobacionGgId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>()
+                 .WithMany().HasForeignKey(d => d.GthRequerimientoId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Notificaciones in-app (campanita del encabezado) ────────────────

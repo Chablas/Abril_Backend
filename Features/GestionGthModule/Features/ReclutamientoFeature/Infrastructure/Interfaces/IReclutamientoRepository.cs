@@ -23,9 +23,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
 
-        /// <summary>Requerimientos de una solicitud concreta (para armar el correo de notificación).</summary>
-        Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId);
-
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
         /// toda la organización (todos los requerimientos vigentes), en 1 roundtrip.
@@ -185,6 +182,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
+
+        /// <summary>
+        /// Gerente del área de un solicitante: parte de su <c>workers.area_scope_id</c> y sube por
+        /// el árbol de áreas hasta el primer nodo con un trabajador ACTIVO de categoría GERENTE.
+        /// Sube por el árbol porque los gerentes están registrados en el nodo "Área de Gerencia"
+        /// y no en el área estándar de la que cuelga el solicitante. null si no hay ninguno.
+        /// </summary>
+        Task<GerenteAreaDto?> GetGerenteDeArea(int? areaScopeId);
 
         /// <summary>
         /// Reemplaza el conjunto de destinatarios vigentes del tipo indicado por el nuevo

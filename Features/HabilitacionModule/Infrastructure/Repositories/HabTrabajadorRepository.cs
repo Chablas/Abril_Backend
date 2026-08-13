@@ -1820,6 +1820,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             Id = w.Id,
             IdTrabajador = w.IdTrabajador,
+            PersonId = w.PersonId,
             ApellidoNombre = w.Person?.FullName,
             Dni = w.Person?.DocumentIdentityCode,
             Ruc = w.Contributor?.ContributorRuc,

@@ -389,6 +389,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             switch (dto.Accion.Trim())
             {
                 case "Aceptar":
+                    // Corrección de Tipo de EMO antes de aceptar (o al reprogramar, que reusa
+                    // esta misma acción): la clínica a veces programa el tipo equivocado y hoy
+                    // no había forma de arreglarlo sin cancelar y crear de cero.
+                    if (dto.TipoEmoId.HasValue && dto.TipoEmoId.Value > 0 && dto.TipoEmoId.Value != ent.TipoEmoId)
+                    {
+                        var tipoExiste = await ctx.SsEmoTipo.AnyAsync(t => t.Id == dto.TipoEmoId.Value);
+                        if (!tipoExiste)
+                            throw new AbrilException("El tipo de EMO seleccionado no existe.", 400);
+                        ent.TipoEmoId = dto.TipoEmoId.Value;
+                    }
+
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
                     if (dto.HoraNueva.HasValue) ent.HoraProgramada = dto.HoraNueva.Value;
@@ -1059,6 +1070,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             ";
         }
 
+        /// <summary>
+        /// Cierra automáticamente las programaciones vencidas que nadie cerró a mano: si a
+        /// alguien no se le marcó "No asistió" en Agenda, la fila quedaba viva para siempre en
+        /// Programado/Confirmado/Aceptado por Clínica/Reprogramado, bloqueando su reprogramación
+        /// (el Create ya valida "una activa por trabajador/tipo") y —peor— haciendo que el
+        /// auto-programador la re-generara al día siguiente porque su propio chequeo de
+        /// duplicados solo miraba filas con fecha futura. Este cierre corre a las 13:00 (hora
+        /// Lima) vía cron externo y aplica sobre:
+        ///   • cualquier fila de un día anterior a hoy en esos estados (backlog acumulado), y
+        ///   • las de HOY cuya hora ya pasó las 13:00 (o sin hora registrada).
+        /// No toca "En Atención" ni "En Interconsulta": ahí el trabajador sí se presentó.
+        /// </summary>
+        public async Task<int> CerrarInasistenciasVencidasAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ahoraLima = DateTime.UtcNow.AddHours(-5);
+            var hoy = DateOnly.FromDateTime(ahoraLima);
+            var horaCorte = new TimeOnly(13, 0);
+
+            var estadosPreAtencion = new[] { "Programado", "Confirmado", "Aceptado por Clínica", "Reprogramado" };
+
+            var candidatas = await ctx.SsProgramacionEmo
+                .Where(p => p.State && estadosPreAtencion.Contains(p.Estado))
+                .Where(p =>
+                    p.FechaProgramada < hoy ||
+                    (p.FechaProgramada == hoy && (p.HoraProgramada == null || p.HoraProgramada < horaCorte) && TimeOnly.FromDateTime(ahoraLima) >= horaCorte))
+                .ToListAsync();
+
+            foreach (var p in candidatas)
+            {
+                p.Estado = "No se presentó";
+                p.Motivo = string.IsNullOrWhiteSpace(p.Motivo)
+                    ? "Cierre automático: no se registró asistencia hasta la hora de corte (13:00)."
+                    : $"{p.Motivo} — Cierre automático: no se registró asistencia hasta la hora de corte (13:00).";
+                p.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            if (candidatas.Count > 0)
+                await ctx.SaveChangesAsync();
+
+            return candidatas.Count;
+        }
     }
 
 }

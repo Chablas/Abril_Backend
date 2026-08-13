@@ -88,15 +88,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             var workerIds = candidatos.Select(x => x.Emo.WorkerId).Distinct().ToList();
 
+            // Sin filtro de fecha: una programación vieja que quedó colgada en un estado no
+            // terminal (p. ej. "Programado" de una fecha ya pasada porque nadie la cerró) debe
+            // seguir bloqueando al auto-programador igual que una vigente — de lo contrario se
+            // generaba una segunda fila para el mismo trabajador/tipo EMO (bug real reportado).
             var programacionesExistentes = await ctx.SsProgramacionEmo
                 .AsNoTracking()
                 .Where(p =>
                     p.State
                     && workerIds.Contains(p.WorkerId)
-                    && p.FechaProgramada >= hoy
                     && p.Estado != "Completado"
                     && p.Estado != "Cancelado"
-                    && p.Estado != "Rechazado por Clínica")
+                    && p.Estado != "Rechazado por Clínica"
+                    && p.Estado != "No se presentó")
                 .Select(p => new { p.WorkerId, p.TipoEmoId })
                 .ToListAsync();
 
@@ -124,6 +128,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     var fechaDesdeVencimiento = cal.RestarDiasHabiles(fv, diasHabilesAntes, esOficina);
                     var fechaMinima = cal.SumarDiasHabiles(hoy, pisoDiasHabiles, esOficina);
                     var fechaProg = fechaDesdeVencimiento > fechaMinima ? fechaDesdeVencimiento : fechaMinima;
+
+                    // Obreros solo pueden asistir al EMO en sábado. Se ajusta la fecha calculada
+                    // al sábado hábil (no feriado) más cercano, dentro de la ventana [fechaMinima, fv].
+                    // Si el vencimiento cae antes del próximo sábado disponible en esa ventana, se
+                    // deja la fecha calculada por días hábiles como respaldo (mejor programar tarde
+                    // que no programar).
+                    if (c.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Obra)
+                    {
+                        var sabado = MejorSabadoEnRango(fechaProg, fechaMinima, fv, cal);
+                        if (sabado != null) fechaProg = sabado.Value;
+                    }
 
                     var nueva = new SsProgramacionEmo
                     {
@@ -260,6 +275,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         {
             return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
                 && ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
+        }
+
+        /// <summary>
+        /// Sábado no feriado dentro de [minima, maxima] más cercano a <paramref name="objetivo"/>.
+        /// Ante empate en distancia, prefiere el sábado más temprano (deja más margen antes del
+        /// vencimiento). Devuelve null si no hay ningún sábado válido en la ventana.
+        /// </summary>
+        private static DateOnly? MejorSabadoEnRango(DateOnly objetivo, DateOnly minima, DateOnly maxima, CalendarioHabil cal)
+        {
+            if (minima > maxima) return null;
+
+            var diffAlPrimerSabado = ((int)DayOfWeek.Saturday - (int)minima.DayOfWeek + 7) % 7;
+            var sabado = minima.AddDays(diffAlPrimerSabado);
+
+            DateOnly? mejor = null;
+            var mejorDistancia = int.MaxValue;
+
+            while (sabado <= maxima)
+            {
+                if (!cal.EsFeriado(sabado))
+                {
+                    var distancia = Math.Abs(sabado.DayNumber - objetivo.DayNumber);
+                    if (distancia < mejorDistancia)
+                    {
+                        mejor = sabado;
+                        mejorDistancia = distancia;
+                    }
+                }
+                sabado = sabado.AddDays(7);
+            }
+
+            return mejor;
         }
     }
 }

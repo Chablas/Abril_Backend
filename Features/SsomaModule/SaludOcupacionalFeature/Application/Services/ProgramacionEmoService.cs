@@ -75,5 +75,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha)
             => _repo.EnviarInasistencias(fecha);
+
+        public Task<int> CerrarInasistenciasVencidasAsync()
+            => _repo.CerrarInasistenciasVencidasAsync();
     }
 }

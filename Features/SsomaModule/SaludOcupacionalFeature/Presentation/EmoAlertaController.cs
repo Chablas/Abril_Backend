@@ -11,17 +11,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         private readonly IEmoAlertaService _service;
         private readonly IEmoAutoProgramacionService _autoProgramacionService;
         private readonly IEmoResumenDiarioService _resumenDiarioService;
+        private readonly IProgramacionEmoService _programacionService;
         private readonly IConfiguration _configuration;
 
         public EmoAlertaController(
             IEmoAlertaService service,
             IEmoAutoProgramacionService autoProgramacionService,
             IEmoResumenDiarioService resumenDiarioService,
+            IProgramacionEmoService programacionService,
             IConfiguration configuration)
         {
             _service = service;
             _autoProgramacionService = autoProgramacionService;
             _resumenDiarioService = resumenDiarioService;
+            _programacionService = programacionService;
             _configuration = configuration;
         }
 
@@ -47,6 +50,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
         }
 
+        [HttpGet("procesar-7dias")]
+        public async Task<IActionResult> Procesar7Dias()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var result = await _service.ProcesarAlertas7DiasCalendario();
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("auto-programar")]
         public async Task<IActionResult> AutoProgramar()
         {
@@ -58,6 +83,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
                 var result = await _autoProgramacionService.ProcesarAutoProgramacion();
                 return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("cerrar-inasistencias")]
+        public async Task<IActionResult> CerrarInasistencias()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var cerradas = await _programacionService.CerrarInasistenciasVencidasAsync();
+                return Ok(new { cerradas });
             }
             catch (AbrilException ex)
             {

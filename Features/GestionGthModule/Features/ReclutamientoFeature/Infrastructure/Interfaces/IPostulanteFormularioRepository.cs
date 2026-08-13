@@ -16,18 +16,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<PostulanteFormularioPublicoDto?> GetByToken(string token);
 
         /// <summary>
-        /// Guarda las respuestas del postulante (por token) y avanza el formulario a COMPLETADO. Lanza
+        /// Guarda las respuestas del postulante (por token) y avanza el formulario a COMPLETADO. Sirve
+        /// tanto para el primer envío como para la corrección de un formulario RECHAZADO. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el token no existe y
-        /// 409 si el formulario ya fue revisado por GTH (aprobado/rechazado → solo lectura).
+        /// 409 si el formulario ya fue APROBADO por GTH (único estado de solo lectura). Devuelve la
+        /// cabecera del proceso para el correo que le avisa a GTH que ya lo puede revisar.
         /// </summary>
-        Task GuardarRespuestasByToken(string token, PostulanteFormularioRespuestasDto respuestas);
+        Task<FormularioCompletadoContextoDto> GuardarRespuestasByToken(
+            string token, PostulanteFormularioRespuestasDto respuestas);
 
         /// <summary>
         /// Prepara el envío del formulario a un candidato APROBADO: crea (o reactiva) el formulario con
         /// estado ENVIADO usando <paramref name="nuevoToken"/> si aún no existía (si existe se conserva su
-        /// token), y devuelve el contexto para armar el correo. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el candidato no existe,
-        /// 400 si no está aprobado y 409 si su formulario ya fue aprobado.
+        /// token), y devuelve el contexto para armar el correo. El reenvío de un formulario RECHAZADO es
+        /// la excepción: conserva ese estado con sus observaciones y marca el contexto como rechazo, para
+        /// que se repita el correo de correcciones en vez del de invitación. Un formulario ya APROBADO
+        /// también se puede reenviar (si el postulante se equivocó en un dato): vuelve a ENVIADO
+        /// conservando sus respuestas. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el candidato no existe
+        /// y 400 si no está aprobado por el solicitante.
         /// </summary>
         Task<EnviarFormularioContextoDto> PrepararEnvio(int candidatoId, string correo, string nuevoToken, int? userId);
 
@@ -42,8 +49,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Registra la decisión de GTH sobre el formulario completado (aprobar/rechazar), guardando el
         /// revisor (id + nombre snapshot) y la fecha. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe el formulario
-        /// y 409 si aún no está COMPLETADO (o ya fue revisado). Devuelve el resumen para refrescar el modal.
+        /// y 409 si aún no está COMPLETADO (o ya fue revisado). Devuelve el resumen para refrescar el modal
+        /// y, cuando la decisión es un rechazo, el contexto del correo que se le envía al postulante.
         /// </summary>
-        Task<CandidatoFormularioResumenDto> RegistrarDecision(int candidatoId, bool aprobado, string? motivo, int? userId);
+        Task<DecisionFormularioContextoDto> RegistrarDecision(int candidatoId, bool aprobado, string? motivo, int? userId);
     }
 }

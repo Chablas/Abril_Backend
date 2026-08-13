@@ -41,6 +41,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public int GthTipoRequerimientoId { get; set; }
 
+        /// <summary>
+        /// FK a <c>workers</c>: el trabajador al que reemplaza esta vacante. Solo se llena cuando
+        /// el tipo de requerimiento es <c>REEMPLAZO</c>; en las vacantes nuevas queda null.
+        ///
+        /// El solicitante lo elige de los trabajadores de su <c>area_scope</c> o de cualquier área
+        /// hija, y puede elegirse a sí mismo (pedir el reemplazo propio por renuncia o promoción
+        /// es un caso real).
+        /// </summary>
+        public int? ReemplazaWorkerId { get; set; }
+
         /// <summary>FK a <c>project</c> (proyecto/obra destino de la vacante).</summary>
         public int ProjectId { get; set; }
 

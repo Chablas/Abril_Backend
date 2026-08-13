@@ -161,6 +161,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join d in ctx.GthAprobacionGgDetalle.Where(x => x.GthAprobacionGgId == aprobacionId && x.State)
                     on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
                 from d in detalleJoin.DefaultIfEmpty()
+                // Trabajador reemplazado: left join porque solo lo tienen las vacantes de tipo
+                // Reemplazo registradas desde que se pide ese dato.
+                join wr in ctx.Worker on r.ReemplazaWorkerId equals (int?)wr.Id into reemplazaJoin
+                from wr in reemplazaJoin.DefaultIfEmpty()
                 orderby r.GthRequerimientoId
                 select new AprobacionGgVacanteDto
                 {
@@ -168,6 +172,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Codigo                = r.Codigo,
                     Puesto                = p.Nombre,
                     TipoRequerimiento     = t.Nombre,
+                    TrabajadorReemplazado = wr == null ? null
+                        : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                     ProyectoObra          = pr.ProjectDescription,
                     FechaRequeridaIngreso = r.FechaRequeridaIngreso,
                     Aprobado              = d != null ? d.Aprobado : null,

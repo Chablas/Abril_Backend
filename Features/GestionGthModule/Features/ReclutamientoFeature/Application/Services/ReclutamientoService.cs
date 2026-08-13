@@ -247,16 +247,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var ctx = await _repo.GuardarEntrevista(candidatoId, dto.Fecha, hora, dto.LugarId, userId);
 
+            // Destinatarios: el principal (Para) es SIEMPRE el postulante citado; la configuración
+            // del correo de ENTREVISTA solo aporta principales adicionales y copias.
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Entrevista);
+            var (principales, copias) = CombinarDestinatarios(ctx.Resumen.CorreoEnvio, dest);
+
             // El correo es best-effort: la entrevista ya quedó programada, así que un fallo del
             // envío se informa en el mensaje en vez de tumbar la operación.
             var message = $"Invitación enviada a {ctx.Resumen.CorreoEnvio}.";
             try
             {
                 await _email.SendAsync(
-                    to:      new List<string> { ctx.Resumen.CorreoEnvio },
+                    to:      principales,
                     subject: $"Entrevista — {ctx.Puesto} · Abril Grupo Inmobiliario",
                     body:    ConstruirCuerpoEntrevista(ctx),
-                    isHtml:  true);
+                    isHtml:  true,
+                    cc:      copias.Count > 0 ? copias : null);
             }
             catch (Exception ex)
             {
@@ -265,6 +271,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             return new EntrevistaAccionResultDto { Message = message, Entrevista = ctx.Resumen };
+        }
+
+        /// <summary>
+        /// Arma las listas Para/CC de un correo cuyo destinatario principal es fijo (el postulante
+        /// citado, el solicitante de la long list) más lo que aporte la configuración. Deduplica sin
+        /// distinguir mayúsculas y, si un mismo buzón está en ambas listas, se queda solo en Para —
+        /// mismo criterio que la pantalla de configuración.
+        /// </summary>
+        private static (List<string> Para, List<string> Copias) CombinarDestinatarios(
+            string? principalFijo, SolicitudDestinatariosDto configurados)
+        {
+            var para   = new List<string>();
+            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Agregar(string? email)
+            {
+                var e = email?.Trim();
+                if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) para.Add(e);
+            }
+
+            Agregar(principalFijo);
+            foreach (var e in configurados.EmailsPara) Agregar(e);
+
+            var copias = configurados.EmailsCopias
+                .Where(e => !string.IsNullOrWhiteSpace(e) && !vistos.Contains(e.Trim()))
+                .ToList();
+
+            return (para, copias);
         }
 
         /// <summary>Correo genérico de citación a entrevista (fecha, hora y lugar de la cita).</summary>
@@ -574,25 +608,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
             var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
 
-            // Para = solicitante primero + principales configurados (deduplicado, sin distinguir mayúsculas).
-            var principales = new List<string>();
-            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            void AgregarPrincipal(string? email)
-            {
-                var e = email?.Trim();
-                if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) principales.Add(e);
-            }
-            AgregarPrincipal(ctx.SolicitanteEmail);
-            foreach (var e in dest.EmailsPara) AgregarPrincipal(e);
+            // Para = solicitante primero + principales configurados; CC = copias que no estén en Para.
+            var (principales, copias) = CombinarDestinatarios(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
                 throw new AbrilException(
                     "No se pudo determinar el correo del solicitante de la long list y no hay " +
                     "destinatarios principales configurados. Verifica que el solicitante tenga " +
                     "un correo registrado o configúralos con el botón «Configuración».", 409);
-
-            // CC = copias configuradas que no estén ya en Para.
-            var copias = dest.EmailsCopias.Where(e => !vistos.Contains(e.Trim())).ToList();
 
             // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
             //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.

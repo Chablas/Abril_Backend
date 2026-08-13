@@ -50,6 +50,20 @@ namespace Abril_Backend.Shared.Models
         [Column("active")]
         public bool Active { get; set; } = true;
 
+        /// <summary>
+        /// Si la categoría se ofrece en el desplegable de Solicitud de Personal (GTH).
+        /// Esa pantalla contrata planilla de Abril: solo tienen sentido las categorías de
+        /// Staff y Oficina Central, no las de Obra (Operario, Peón, Oficial…), que llegan
+        /// por contratista y solo ensucian el combo.
+        ///
+        /// Es un flag de VISIBILIDAD por pantalla, no un <c>active</c> global: la categoría
+        /// sigue viva y asignable en la ficha del trabajador. Se separó porque el catálogo
+        /// lo comparten tres pantallas y apagar una categoría en el `active` general
+        /// dejaría sin poder clasificar a los 2.036 trabajadores de obra.
+        /// </summary>
+        [Column("visible_solicitud_personal")]
+        public bool VisibleSolicitudPersonal { get; set; }
+
         /// <summary>Soft-delete: false = eliminada (se conserva para histórico).</summary>
         [Column("state")]
         public bool State { get; set; } = true;

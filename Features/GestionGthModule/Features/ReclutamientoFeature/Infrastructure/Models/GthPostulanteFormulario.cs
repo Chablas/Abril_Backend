@@ -8,7 +8,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     ///
     /// Los campos del formulario (páginas 1-4) quedan en null hasta que el postulante lo completa;
     /// los que apuntan a un catálogo (estado civil, tipo de documento, distrito, universidad, grado,
-    /// disponibilidad, motivo de cese, convocatoria) se guardan como FK, no como texto libre.
+    /// disponibilidad, motivo de cese) se guardan como FK, no como texto libre.
+    ///
+    /// La convocatoria no se pregunta ni se guarda acá: es la del proceso al que ya fue invitado el
+    /// postulante y se lee por <c>gth_candidato → gth_requerimiento → puesto</c>.
     /// </summary>
     public class GthPostulanteFormulario
     {
@@ -54,8 +57,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? GthDistritoId { get; set; }
         public string? CorreoElectronico { get; set; }
         public string? NumeroCelular { get; set; }
-        /// <summary>FK a <c>gth_puesto</c>: convocatoria de interés (se reutiliza el catálogo de puestos).</summary>
-        public int? ConvocatoriaPuestoId { get; set; }
         public string? PretensionesSalariales { get; set; }
         public int? GthDisponibilidadId { get; set; }
         public string? Linkedin { get; set; }

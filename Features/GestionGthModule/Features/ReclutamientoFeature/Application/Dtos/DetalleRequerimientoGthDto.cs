@@ -23,6 +23,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Tipo de requerimiento (Nuevo / Reemplazo).</summary>
         public string TipoRequerimiento { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Trabajador al que reemplaza la vacante. Solo lo traen los requerimientos de tipo
+        /// Reemplazo registrados desde que se pide ese dato; null en el resto.
+        /// </summary>
+        public string? TrabajadorReemplazado { get; set; }
+
         /// <summary>Vacantes de este requerimiento (cada vacante genera un requerimiento → 1).</summary>
         public int Vacantes { get; set; } = 1;
 

@@ -173,6 +173,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Línea "Reemplaza a {trabajador}" bajo el tipo, en la celda de la tabla de vacantes. Vacía
+        /// en las vacantes nuevas y en los requerimientos anteriores a que se pidiera ese dato: se
+        /// agrega a la misma celda para no cambiar las columnas de una tabla que ya se lee bien.
+        /// </summary>
+        private static string CeldaReemplazado(AprobacionGgVacanteDto v) =>
+            string.IsNullOrWhiteSpace(v.TrabajadorReemplazado)
+                ? ""
+                : $"""<br><span style="font-size:11px;color:#6b7280">Reemplaza a {System.Net.WebUtility.HtmlEncode(v.TrabajadorReemplazado)}</span>""";
+
+        /// <summary>
         /// Cuerpo del correo al Gerente General: la solicitud completa en una tabla + tres accesos
         /// (aprobar todas / elegir algunas / rechazar todas) que abren la página de decisión.
         /// </summary>
@@ -192,7 +202,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     <tr>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
                     </tr>
@@ -396,7 +406,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     <tr>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
                     </tr>

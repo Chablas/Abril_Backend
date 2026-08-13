@@ -15,6 +15,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Nombre { get; set; } = null!;
         /// <summary>Texto que explica a quién se le manda el correo; lo muestra la pantalla de Configuración.</summary>
         public string? Descripcion { get; set; }
+
+        /// <summary>
+        /// true = el destinatario principal lo pone el backend solo (la long list va SIEMPRE al
+        /// solicitante que registró la solicitud), así que la configuración solo aporta principales
+        /// extra y copias. La pantalla lo usa para no advertir que el correo no le llega a nadie.
+        /// </summary>
+        public bool PrincipalAutomatico { get; set; }
+
         public int Orden { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }

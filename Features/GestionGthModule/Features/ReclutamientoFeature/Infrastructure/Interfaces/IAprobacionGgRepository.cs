@@ -24,15 +24,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Registra los destinatarios y el momento del envío del correo (o del reenvío).</summary>
         Task RegistrarEnvio(int aprobacionId, List<string> principales, List<string> copias, bool esReenvio, int? userId);
 
-        /// <summary>Datos de la página pública por token. Null si el token no corresponde a una aprobación vigente.</summary>
-        Task<AprobacionGgPublicoDto?> GetPublicoByToken(string token);
+        /// <summary>
+        /// Pantalla «Aprobaciones» completa: tarjetas de resumen + todas las solicitudes que
+        /// pasaron por Gerencia General (pendientes e historial), en dos roundtrips.
+        /// </summary>
+        Task<AprobacionGgBandejaDto> GetBandeja();
+
+        /// <summary>Detalle de una aprobación (cabecera + vacantes). Null si no existe o se dio de baja.</summary>
+        Task<AprobacionGgDetalleDto?> GetDetalle(int aprobacionId);
 
         /// <summary>
-        /// Registra la decisión del GG por token: guarda el detalle, mueve cada requerimiento
-        /// (aprobado → VALIDACION_GTH, rechazado → RECHAZADO_GG) y cierra la aprobación.
-        /// Devuelve el contexto con las vacantes aprobadas para el correo a GTH.
+        /// Registra la decisión del GG: guarda el detalle, mueve cada requerimiento
+        /// (aprobado → VALIDACION_GTH, rechazado → RECHAZADO_GG) y cierra la aprobación dejando
+        /// la traza de quién decidió. Devuelve el contexto con las vacantes aprobadas para el
+        /// correo a GTH.
         /// </summary>
-        Task<AprobacionGgDecisionContextoDto> RegistrarDecision(string token, AprobacionGgDecisionDto dto);
+        Task<AprobacionGgDecisionContextoDto> RegistrarDecision(int aprobacionId, AprobacionGgDecisionDto dto, int userId);
 
         /// <summary>
         /// Resumen de la aprobación de un requerimiento para la tarjeta del seguimiento.

@@ -3,6 +3,7 @@ using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -825,7 +826,6 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         const string sql = """
             SELECT DISTINCT w.email_corporativo
             FROM workers w
-            LEFT JOIN categoria c ON c.categoria_id = w.categoria_id
             WHERE w.estado = 'ACTIVO'
               AND w.email_corporativo ILIKE '%@abril.pe'
               AND w.contrata_casa = 'Casa'
@@ -840,14 +840,15 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                   -- '%gerente%general%', '%gerente%administr%'). Al unificar los catálogos
                   -- esos tres casos se convirtieron en categorías propias, asignadas a los
                   -- mismos trabajadores que la búsqueda alcanzaba.
-                  OR c.nombre IN ('MÉDICO', 'GERENTE GENERAL', 'GERENTE DE ADMINISTRACIÓN Y FINANZAS')
+                  OR w.categoria_id = ANY(@categorias)
                   OR w.jefatura  ILIKE '%gerente%general%'
                   OR w.jefatura  ILIKE '%gerente%administr%'
               );
             """;
         await using var conn = Conn();
         await conn.OpenAsync();
-        var rows = await conn.QueryAsync<string>(sql);
+        var rows = await conn.QueryAsync<string>(
+            sql, new { categorias = CategoriaIds.DestinatariosFlashReport });
         return rows.ToList();
     }
 }

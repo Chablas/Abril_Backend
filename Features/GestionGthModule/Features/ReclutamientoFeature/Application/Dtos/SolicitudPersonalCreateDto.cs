@@ -13,7 +13,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
     public class VacanteCreateDto
     {
-        public int PuestoId { get; set; }
+        /// <summary>
+        /// Puesto elegido del catálogo. Null cuando <see cref="PuestoPersonalizado"/> es true: en
+        /// ese caso el puesto lo resuelve el backend a partir de <see cref="PuestoNombre"/>.
+        /// </summary>
+        public int? PuestoId { get; set; }
+
+        /// <summary>
+        /// true = el solicitante marcó "Puesto personalizado": escribió un puesto que no está en el
+        /// desplegable y eligió a mano su categoría. El backend lo da de alta en el catálogo
+        /// <c>puesto</c> (o reutiliza el existente si el nombre ya está) antes de crear la vacante.
+        /// </summary>
+        public bool PuestoPersonalizado { get; set; }
+
+        /// <summary>Nombre del puesto personalizado. Se guarda normalizado en MAYÚSCULAS.</summary>
+        public string? PuestoNombre { get; set; }
+
+        /// <summary>
+        /// Categoría real de la vacante. Obligatoria con <see cref="PuestoPersonalizado"/>: es la
+        /// mitad del par (puesto, categoría) que queda guardado en el requerimiento para cuando el
+        /// seleccionado entre a <c>workers</c>. Ignorada cuando el puesto viene del desplegable.
+        /// </summary>
+        public int? CategoriaId { get; set; }
+
         public int TipoRequerimientoId { get; set; }
         public int ProjectId { get; set; }
         public DateOnly FechaRequeridaIngreso { get; set; }

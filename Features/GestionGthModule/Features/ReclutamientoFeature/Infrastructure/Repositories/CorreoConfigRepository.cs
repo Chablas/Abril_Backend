@@ -19,12 +19,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _factory = factory;
         }
 
-        /// <summary>
-        /// Categoría que identifica al Gerente General, distinta de la genérica "GERENTE" que
-        /// comparten los gerentes de área. Los nombres del catálogo van en MAYÚSCULAS.
-        /// </summary>
-        private const string CategoriaGerenteGeneral = "GERENTE GENERAL";
-
         // ───────────────────────────── Lectura ─────────────────────────────
         public async Task<CorreoConfigDto> GetConfigAsync(IReadOnlyList<string> tipoCodigos)
         {
@@ -167,8 +161,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             return await (
                 from w in ctx.Worker.AsNoTracking()
-                join c in ctx.Categoria.AsNoTracking() on w.CategoriaId equals c.CategoriaId
-                where c.State && c.Nombre.ToUpper() == CategoriaGerenteGeneral
+                where w.CategoriaId == CategoriaIds.GerenteGeneral
                       && w.Estado == "ACTIVO"
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
                 orderby w.Id descending

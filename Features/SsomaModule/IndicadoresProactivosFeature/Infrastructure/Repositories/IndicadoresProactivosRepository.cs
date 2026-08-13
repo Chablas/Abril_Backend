@@ -6,6 +6,7 @@ using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.Shared;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Repositories;
 
@@ -68,16 +69,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     // OCULTAR/MOSTRAR EMPRESAS EN EL SEGUIMIENTO
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Categoría que da el permiso. Ver <c>Migrations_Manual/categoria_puesto_unificados.sql</c>.</summary>
-    private const string CategoriaCoordinadorSsoma = "COORDINADOR SSOMA";
-
     public async Task<bool> EsCoordinadorSsomaAsync(int userId)
     {
         await using var ctx = await _factory.CreateDbContextAsync();
         var datos = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId,
-                  (p, w) => new { w.Id, Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre })
+                  (p, w) => new { w.Id, w.CategoriaId })
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
@@ -86,7 +84,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // sueltos, porque el dato no siempre vivía en el mismo campo. Al unificar los
         // catálogos se creó la categoría COORDINADOR SSOMA con exactamente esos mismos
         // trabajadores.
-        return string.Equals(datos.Categoria, CategoriaCoordinadorSsoma, StringComparison.OrdinalIgnoreCase);
+        return datos.CategoriaId == CategoriaIds.CoordinadorSsoma;
     }
 
     public async Task<HashSet<int>> GetEmpresaExcluidaIdsAsync()

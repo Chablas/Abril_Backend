@@ -21,19 +21,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     ///
     /// Algoritmo (fallback, cuando no hay override):
     ///   • GTH (área "Gestión del Talento Humano" en su cadena)      → ve todo.
-    ///   • Gerente (workers_category "Gerente")                       → su gerencia (raíz Área
+    ///   • Gerente (<see cref="CategoriaIds.Gerente"/>)                → su gerencia (raíz Área
     ///                                                                  de Gerencia) + descendientes.
     ///   • Administración de Obra ("Administración de Obra" en cadena)→ las áreas donde hay
     ///                                                                  personal de Obra o Staff
     ///                                                                  (workers.obra_oficina_staff_id).
-    /// Los nombres de área/categoría se resuelven por texto (el árbol y el catálogo son
-    /// administrables por UI), no por IDs fijos.
+    /// Las áreas se resuelven por texto (el árbol es administrable por UI); la categoría, por
+    /// id, para que renombrarla desde Configuración no apague la regla.
     /// </summary>
     public class SalidaVisibilityResolver : ISalidaVisibilityResolver
     {
         private const string AreaGth          = "Gestión del Talento Humano";
         private const string AreaAdminObra    = "Administración de Obra";
-        private const string CategoriaGerente = "GERENTE";
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -51,9 +50,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == userId
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
-                from c in cj.DefaultIfEmpty()
-                select new { w.Id, w.AreaScopeId, Categoria = c != null ? c.Nombre : null }
+                select new { w.Id, w.AreaScopeId, w.CategoriaId }
             ).ToListAsync();
 
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());
@@ -140,7 +137,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 }
 
                 // Gerente → su gerencia (raíz) + descendientes.
-                if (string.Equals(w.Categoria, CategoriaGerente, StringComparison.OrdinalIgnoreCase) && cadena.Count > 0)
+                if (w.CategoriaId == CategoriaIds.Gerente && cadena.Count > 0)
                 {
                     var root = cadena[^1];
                     visible.Add(root);

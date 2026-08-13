@@ -67,7 +67,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Worker = w,
                     TipoEmo = t,
                     WorkerNombre = w.Person != null ? w.Person.FullName : null,
-                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    // El puesto se resuelve acá porque el correo solo lo muestra: es el
+                    // campo de presentación (workers.puesto_id), no decide nada.
+                    WorkerPuesto = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null
                 }
             ).AsNoTracking().ToListAsync();
 
@@ -173,7 +176,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 var fv = (c.Emo.FechaVencimientoCalculada ?? c.Emo.FechaVencimiento)!.Value;
                 var subject = $"Vencimiento de EMO - {c.WorkerNombre} - {fv:yyyy-MM-dd}";
-                var body = BuildBody(c.Worker, c.WorkerNombre, c.WorkerDni, c.Emo, fv, proyecto, empresa, vigenciaTexto);
+                var body = BuildBody(c.Worker, c.WorkerNombre, c.WorkerDni, c.WorkerPuesto, c.Emo, fv, proyecto, empresa, vigenciaTexto);
 
                 try
                 {
@@ -254,6 +257,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             Worker worker,
             string? workerNombre,
             string? workerDni,
+            string? workerPuesto,
             WorkerEmo emo,
             DateOnly fechaVencimiento,
             Project? proyecto,
@@ -278,8 +282,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     <td style='border: 1px solid #ddd; padding: 8px;'>{workerDni}</td>
                 </tr>
                 <tr>
-                    <td style='border: 1px solid #ddd; padding: 8px;'><strong>Ocupación</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.Puesto}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'><strong>Puesto</strong></td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{workerPuesto ?? "—"}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Modalidad</strong></td>

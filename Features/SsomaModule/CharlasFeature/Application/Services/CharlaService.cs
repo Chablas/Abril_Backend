@@ -96,7 +96,7 @@ public class CharlaService : ICharlaService
 
         var staffIds = await ctx.Worker
             .Where(w => workerIds.Contains(w.Id)
-                && w.CategoriaCatalogo != null && w.CategoriaCatalogo.Nombre == "SUPERVISOR"
+                && w.CategoriaId == CategoriaIds.Supervisor
                 && (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                     || w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 && w.Estado == "ACTIVO")

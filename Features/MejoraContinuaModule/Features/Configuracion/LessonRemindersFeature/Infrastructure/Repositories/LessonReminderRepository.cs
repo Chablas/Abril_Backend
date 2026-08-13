@@ -6,6 +6,7 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonR
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Repositories
@@ -16,11 +17,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         private readonly ILessonJefeResolver _jefeResolver;
 
         // Categorías consideradas "jefatura" para la sección de recordatorios y el
-        // aviso del 4.º día (texto exacto). OJO: es independiente de
-        // LessonJefeResolver, que solo usa "Jefe" para decidir quién PUEDE
-        // aprobar/rechazar lecciones (jerarquía de revisión). Aquí solo definimos
-        // quién aparece/puede activarse en la sección Jefaturas.
-        private static readonly string[] CategoriasJefatura = { "JEFE", "COORDINADOR", "RESIDENTE" };
+        // aviso del 4.º día. OJO: es independiente de LessonJefeResolver, que solo usa
+        // Jefe para decidir quién PUEDE aprobar/rechazar lecciones (jerarquía de
+        // revisión). Aquí solo definimos quién aparece/puede activarse en la sección
+        // Jefaturas.
+        private static readonly int[] CategoriasJefatura = CategoriaIds.Jefaturas;
 
         public LessonReminderRepository(
             IDbContextFactory<AppDbContext> factory,
@@ -639,11 +640,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Todos los workers con categoria 'Jefe' (texto exacto, igual que LessonJefeResolver).
+            // Todos los workers de una categoría de jefatura (Jefe/Coordinador/Residente).
             var jefes = await (
                 from w in ctx.Worker
                 join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
-                where CategoriasJefatura.Contains(c.Nombre)
+                where CategoriasJefatura.Contains(c.CategoriaId)
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 select new
@@ -683,8 +684,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var isJefe = await (
                 from w in ctx.Worker
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
-                where w.Id == workerId && CategoriasJefatura.Contains(c.Nombre)
+                where w.Id == workerId && CategoriasJefatura.Contains(w.CategoriaId ?? 0)
                 select w.Id
             ).AnyAsync();
             if (!isJefe)
@@ -730,7 +730,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where r.State
                       && r.Active
-                      && CategoriasJefatura.Contains(c.Nombre)
+                      && CategoriasJefatura.Contains(c.CategoriaId)
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo != ""
                 select new

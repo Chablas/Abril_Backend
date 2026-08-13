@@ -6,6 +6,7 @@ using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories
@@ -13,7 +14,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
         private const int PageSize = 10;
-        private const string CategoriaGerente = "GERENTE";
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public GestionSalidaRepository(IDbContextFactory<AppDbContext> factory)
@@ -226,13 +226,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 var misWorkers = await (
                     from w in ctx.Worker
                     join p in ctx.Person on w.PersonId equals p.PersonId
-                    join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
-                    from c in cj.DefaultIfEmpty()
                     where p.UserId == uidDec
-                    select new { w.Id, Categoria = c != null ? c.Nombre : null }
+                    select new { w.Id, w.CategoriaId }
                 ).ToListAsync();
                 misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
-                esGerente = misWorkers.Any(x => string.Equals(x.Categoria, CategoriaGerente, StringComparison.OrdinalIgnoreCase));
+                esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
             }
 
             // 5. Armar resultado
@@ -358,8 +356,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>
         /// Regla de negocio: un usuario NO puede aprobar ni rechazar sus propias solicitudes de
-        /// salida. Única excepción: si el usuario es Gerente (workers_category "Gerente"), sí puede
-        /// decidir las suyas (los gerentes salen sin pedir permiso, pero se deja habilitado por si acaso).
+        /// salida. Única excepción: si el usuario es Gerente (<see cref="CategoriaIds.Gerente"/>),
+        /// sí puede decidir las suyas (los gerentes salen sin pedir permiso, pero se deja
+        /// habilitado por si acaso).
         /// </summary>
         private static async Task EnsurePuedeDecidirAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
         {
@@ -367,17 +366,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == reviewerUserId));
             if (!esPropia) return;
 
-            // Categorías de los worker(s) del usuario — se materializan y comparan en memoria
-            // (mismo criterio case-insensitive que SalidaVisibilityResolver).
-            var categorias = await (
+            // Un usuario puede tener más de una ficha de worker (reingreso): basta con que
+            // alguna sea Gerente. Mismo criterio que SalidaVisibilityResolver.
+            var esGerente = await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 where p.UserId == reviewerUserId
-                select c.Nombre
-            ).ToListAsync();
+                select w.CategoriaId
+            ).AnyAsync(id => id == CategoriaIds.Gerente);
 
-            var esGerente = categorias.Any(n => string.Equals(n, CategoriaGerente, StringComparison.OrdinalIgnoreCase));
             if (!esGerente)
                 throw new AbrilException("No puedes aprobar ni rechazar tus propias solicitudes de salida.", 403);
         }

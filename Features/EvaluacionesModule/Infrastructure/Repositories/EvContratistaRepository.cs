@@ -2,6 +2,7 @@ using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -99,16 +100,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // Subarea del evaluador (para saber qué área evalúa)
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.subarea AS Subarea, w.area AS Area, c.nombre AS Categoria
+                @"SELECT w.subarea AS Subarea, w.area AS Area, w.categoria_id AS CategoriaId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
-                  LEFT JOIN categoria c ON c.categoria_id = w.categoria_id
                   WHERE p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });
 
             // Jefes de área ven contratistas de TODOS los proyectos (no solo el suyo propio).
-            bool puedeVerTodos = evaluador?.Categoria?.Contains("JEFE", StringComparison.OrdinalIgnoreCase) == true;
+            bool puedeVerTodos = evaluador?.CategoriaId == CategoriaIds.Jefe;
 
             // Determinar área según subarea del worker
             string? areaMatch = null;
@@ -481,7 +481,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         // ─── Raw helpers ───────────────────────────────────────────────────────
         private record CandidatoRaw(int UserId, string NombreCompleto, string EmailCorporativo, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
-        private record EvaluadorInfo(string? Subarea, string? Area, string? Categoria);
+        private record EvaluadorInfo(string? Subarea, string? Area, int? CategoriaId);
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);
         private record YaEvaluadaRaw(int ContributorId, int ProyectoId, decimal? Nota, bool NoAplica, string? NoAplicaMotivo);
         private record NotaAreaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, string AreaNombre, decimal? Nota);

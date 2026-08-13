@@ -2,6 +2,7 @@ using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -103,12 +104,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
                 @"SELECT oos.name AS ObraOficina, w.area AS Area, w.subarea AS Subarea,
-                         c.nombre      AS Categoria,   w.id AS WorkerId
+                         w.categoria_id AS CategoriaId, w.id AS WorkerId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   LEFT JOIN workers_obra_oficina_staff oos
                          ON oos.workers_obra_oficina_staff_id = w.obra_oficina_staff_id
-                  LEFT JOIN categoria c ON c.categoria_id = w.categoria_id
                   WHERE p.user_id = @EvaluadorUserId
                   LIMIT 1",
                 new { EvaluadorUserId = evaluadorUserId });
@@ -116,10 +116,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             if (evaluador == null) return [];
 
             // REGLA 4: Gerente de Proyectos → no evalúa
-            if (Eq(evaluador.Categoria, "Gerente") && Eq(evaluador.Area, "Proyectos"))
+            if (evaluador.CategoriaId == CategoriaIds.Gerente && Eq(evaluador.Area, "Proyectos"))
                 return [];
 
-            const string selectBase = @"
+            // No es `const` porque interpola el id de la categoría RESIDENTE.
+            string selectBase = $@"
                 SELECT DISTINCT
                     p.full_name            AS NombreCompleto,
                     p.user_id              AS UserId,
@@ -137,7 +138,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ORDER BY wv.fecha_inicio DESC
                     LIMIT 1
                 )
-                WHERE w.categoria_id = (SELECT categoria_id FROM categoria WHERE nombre = 'RESIDENTE' AND state)
+                WHERE w.categoria_id = {CategoriaIds.Residente}
                   AND w.estado   != 'Retirado'
                   AND u.active    = true";
 
@@ -148,7 +149,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // REGLA 1: Oficina Central, Proyectos, subarea general, Jefe/Coordinador → ve todos
             if (esOficinaProyectos && !esSubareaEspecial
-                && (Eq(evaluador.Categoria, "Jefe") || Eq(evaluador.Categoria, "Coordinador")))
+                && (evaluador.CategoriaId == CategoriaIds.Jefe
+                    || evaluador.CategoriaId == CategoriaIds.Coordinador))
             {
                 var todos = (await conn.QueryAsync<ResidenteEvaluableDto>(
                     selectBase + "\nORDER BY p.full_name",
@@ -196,7 +198,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             public string? ObraOficina { get; set; }
             public string? Area { get; set; }
             public string? Subarea { get; set; }
-            public string? Categoria { get; set; }
+            public int? CategoriaId { get; set; }
             public int WorkerId { get; set; }
         }
 

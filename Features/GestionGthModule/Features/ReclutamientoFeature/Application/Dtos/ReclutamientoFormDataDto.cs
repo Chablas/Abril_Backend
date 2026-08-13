@@ -19,6 +19,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? AreaScopeId { get; set; }
         public int MaxVacantes { get; set; } = 10;
         public List<OpcionDto> Puestos { get; set; } = new();
+
+        /// <summary>
+        /// Categorías vigentes para el modo "Puesto personalizado": el solicitante escribe el puesto
+        /// y elige de aquí su categoría (la real del trabajador, ver <c>gth_requerimiento.categoria_id</c>).
+        /// </summary>
+        public List<OpcionDto> Categorias { get; set; } = new();
+
         public List<OpcionDto> TiposRequerimiento { get; set; } = new();
         public List<OpcionDto> Proyectos { get; set; } = new();
 

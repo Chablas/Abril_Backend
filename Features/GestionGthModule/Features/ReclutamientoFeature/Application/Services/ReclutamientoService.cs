@@ -25,6 +25,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private const long MaxSustentoBytes = 10 * 1024 * 1024; // 10 MB
         private static readonly string[] AllowedSustentoExt = { ".pdf", ".doc", ".docx", ".xls", ".xlsx" };
 
+        /// <summary>
+        /// Tope del nombre de un "Puesto personalizado". La columna <c>puesto.nombre</c> es text (sin
+        /// límite), pero el puesto se muestra en tablas, correos y PDFs: el corte evita que alguien
+        /// meta una descripción entera como si fuera un puesto.
+        /// </summary>
+        private const int MaxPuestoNombreLength = 120;
+
         public ReclutamientoService(
             IReclutamientoRepository repo,
             IAprobacionGgRepository aprobacionGgRepo,
@@ -854,7 +861,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var v = dto.Vacantes[i];
                 var pos = i + 1;
-                if (v.PuestoId <= 0)              throw new AbrilException($"Vacante {pos}: debe seleccionar un puesto.", 400);
+
+                // Dos modos excluyentes: puesto del catálogo, o "Puesto personalizado" (nombre libre
+                // + categoría elegida a mano, que el repositorio da de alta en el catálogo).
+                if (v.PuestoPersonalizado)
+                {
+                    if (string.IsNullOrWhiteSpace(v.PuestoNombre))
+                        throw new AbrilException($"Vacante {pos}: debe escribir el nombre del puesto personalizado.", 400);
+                    if (v.PuestoNombre.Trim().Length > MaxPuestoNombreLength)
+                        throw new AbrilException($"Vacante {pos}: el nombre del puesto no puede superar los {MaxPuestoNombreLength} caracteres.", 400);
+                    if (v.CategoriaId is null or <= 0)
+                        throw new AbrilException($"Vacante {pos}: debe seleccionar la categoría del puesto personalizado.", 400);
+                }
+                else if (v.PuestoId is null or <= 0)
+                {
+                    throw new AbrilException($"Vacante {pos}: debe seleccionar un puesto.", 400);
+                }
+
                 if (v.TipoRequerimientoId <= 0)   throw new AbrilException($"Vacante {pos}: debe seleccionar el tipo de requerimiento.", 400);
                 if (v.ProjectId <= 0)             throw new AbrilException($"Vacante {pos}: debe seleccionar un proyecto/obra.", 400);
                 if (v.FechaRequeridaIngreso == default)

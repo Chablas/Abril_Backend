@@ -23,6 +23,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int Numero { get; set; }
 
         public int PuestoId { get; set; }
+
+        /// <summary>
+        /// FK a <c>categoria</c>: la categoría REAL que el solicitante declaró para esta vacante,
+        /// no la de <c>puesto.categoria_id</c> (esa es solo una guía derivada de los datos y no
+        /// tiene por qué coincidir, igual que en <c>workers</c>, donde <c>puesto_id</c> y
+        /// <c>categoria_id</c> son ejes independientes).
+        ///
+        /// Se llena cuando la vacante se registró con "Puesto personalizado" (el solicitante eligió
+        /// la categoría a mano). Null = no se declaró ninguna, y quien contrate al seleccionado
+        /// deberá caer a <c>puesto.categoria_id</c> del puesto del requerimiento.
+        ///
+        /// Es el par (puesto, categoría) que el onboarding copiará a <c>workers</c> si el candidato
+        /// termina siendo seleccionado.
+        /// </summary>
+        public int? CategoriaId { get; set; }
+
         public int GthTipoRequerimientoId { get; set; }
 
         /// <summary>FK a <c>project</c> (proyecto/obra destino de la vacante).</summary>

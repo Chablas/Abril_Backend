@@ -1,5 +1,6 @@
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services
@@ -64,10 +65,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         {
             using var ctx = _factory.CreateDbContext();
 
-            var categoria = await GetCategoriaByUserIdAsync(ctx, reviewerUserId);
+            var categoriaId = await GetCategoriaIdByUserIdAsync(ctx, reviewerUserId);
 
             // Solo el Residente está acotado por proyecto; el resto no tiene restricción.
-            if (!string.Equals(categoria, "Residente", StringComparison.OrdinalIgnoreCase))
+            if (categoriaId != CategoriaIds.Residente)
                 return true;
 
             if (!projectId.HasValue) return false;
@@ -87,8 +88,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         {
             using var ctx = _factory.CreateDbContext();
 
-            var categoria = await GetCategoriaByUserIdAsync(ctx, reviewerUserId);
-            if (!string.Equals(categoria, "Residente", StringComparison.OrdinalIgnoreCase))
+            var categoriaId = await GetCategoriaIdByUserIdAsync(ctx, reviewerUserId);
+            if (categoriaId != CategoriaIds.Residente)
                 return null; // no es Residente → sin restricción de proyecto
 
             return await (
@@ -100,15 +101,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             ).Distinct().ToListAsync();
         }
 
-        /// <summary>Nombre de la categoría (workers_category) del usuario revisor.</summary>
-        private static async Task<string?> GetCategoriaByUserIdAsync(AppDbContext ctx, int userId)
+        /// <summary>Categoría (workers.categoria_id) del usuario revisor.</summary>
+        private static async Task<int?> GetCategoriaIdByUserIdAsync(AppDbContext ctx, int userId)
         {
             return await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
-                where p.UserId == userId
-                select c.Nombre
+                where p.UserId == userId && w.CategoriaId != null
+                select w.CategoriaId
             ).FirstOrDefaultAsync();
         }
     }

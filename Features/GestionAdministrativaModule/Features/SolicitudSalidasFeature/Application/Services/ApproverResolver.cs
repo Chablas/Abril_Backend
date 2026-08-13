@@ -1,6 +1,7 @@
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services
@@ -33,8 +34,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         private const string EmailDomainCorp = "@abril.pe";
 
+
         // Categorías que pueden aprobar a un trabajador "regular" (regla C).
-        private static readonly string[] CategoriasWalkUp = { "JEFE", "SUB GERENTE", "COORDINADOR" };
+        private static readonly int[] CategoriasWalkUp = CategoriaIds.AprobadoresWalkUp;
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -68,17 +70,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 // Sin correo válido → continúa al fallback por jerarquía.
             }
 
-            // Categoría del solicitante, leída del catálogo único `categoria`
-            // (FK workers.categoria_id).
-            var userCategoria = user.CategoriaId.HasValue
-                ? await ctx.Categoria
-                    .Where(c => c.CategoriaId == user.CategoriaId.Value)
-                    .Select(c => c.Nombre)
-                    .FirstOrDefaultAsync()
-                : null;
-
             // Regla A: el Gerente no necesita aprobador
-            if (string.Equals(userCategoria, "Gerente", StringComparison.OrdinalIgnoreCase))
+            if (user.CategoriaId == CategoriaIds.Gerente)
                 return null;
 
             // Si el trabajador no tiene área en el árbol, no se puede resolver por jerarquía
@@ -96,8 +89,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var rootId    = ancestros[^1]; // último = raíz
 
             // Regla B: Jefe / Sub Gerente → salta directo al Gerente del macro-área
-            if (string.Equals(userCategoria, "Jefe", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(userCategoria, "Sub Gerente", StringComparison.OrdinalIgnoreCase))
+            if (user.CategoriaId == CategoriaIds.Jefe ||
+                user.CategoriaId == CategoriaIds.SubGerente)
             {
                 return await FindGerenteByRootAsync(ctx, rootId, user.Id, parentByScope);
             }
@@ -107,19 +100,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             {
                 var candidatos = await (
                     from w in ctx.Worker.AsNoTracking()
-                    join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                     where w.AreaScopeId == scopeId
                           && w.Id != user.Id
-                          && CategoriasWalkUp.Contains(c.Nombre)
+                          && CategoriasWalkUp.Contains(w.CategoriaId ?? 0)
                           && w.EmailCorporativo != null
                           && w.EmailCorporativo.EndsWith(EmailDomainCorp)
-                    select new { w.Id, Categoria = c.Nombre, w.EmailCorporativo }
+                    select new { w.Id, w.CategoriaId, w.EmailCorporativo }
                 ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
 
                 var elegido = candidatos
-                    .OrderBy(c => CategoriaPriority(c.Categoria))
+                    .OrderBy(c => CategoriaPriority(c.CategoriaId))
                     .First();
 
                 return new ApproverResolution(elegido.Id, elegido.EmailCorporativo!.Trim());
@@ -166,10 +158,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var gerentes = await (
                 from w in ctx.Worker.AsNoTracking()
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 where w.AreaScopeId.HasValue
                       && w.Id != excludeWorkerId
-                      && c.Nombre == "GERENTE"
+                      && w.CategoriaId == CategoriaIds.Gerente
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.EndsWith(EmailDomainCorp)
                 select new { w.Id, w.AreaScopeId, w.EmailCorporativo }
@@ -191,12 +182,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return curr;
         }
 
-        private static int CategoriaPriority(string? categoria) => categoria switch
+        /// <summary>
+        /// Prioridad del walk-up: Jefe &gt; Sub Gerente &gt; Coordinador. Se deriva del orden
+        /// de <see cref="CategoriaIds.AprobadoresWalkUp"/>, así que cambiar ese orden cambia
+        /// la prioridad en un solo lugar.
+        /// </summary>
+        private static int CategoriaPriority(int? categoriaId)
         {
-            "JEFE"        => 1,
-            "SUB GERENTE" => 2,
-            "COORDINADOR" => 3,
-            _             => 99,
-        };
+            var i = Array.IndexOf(CategoriasWalkUp, categoriaId ?? 0);
+            return i < 0 ? 99 : i + 1;
+        }
     }
 }

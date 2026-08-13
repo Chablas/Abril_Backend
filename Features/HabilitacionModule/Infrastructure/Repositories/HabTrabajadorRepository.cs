@@ -34,9 +34,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private const int ItemEntregaRecomendaciones = 8;
         private const int ItemTRegistro = 7;
 
-        // Los nombres del catálogo `categoria` se guardan en MAYÚSCULAS.
-        private const string CategoriaPracticante = "PRACTICANTE";
-
         private const string EmailMedico = "medicinaocupacionalnm@abril.pe";
         private const string EmailGth = "gth@abril.pe";
         private const string EmailAsistentaSocial = "pquispe@abril.pe";
@@ -197,7 +194,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     && (x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                         || x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     && x.Worker.ContrataCasa == "Casa"
-                    && (x.Worker.CategoriaCatalogo == null || x.Worker.CategoriaCatalogo.Nombre != CategoriaPracticante)
+                    && (x.Worker.CategoriaId == null || x.Worker.CategoriaId != CategoriaIds.Practicante)
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
@@ -1547,7 +1544,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
             var categoriaWorker = worker.CategoriaCatalogo?.Nombre;
             var esCasaPracticante = workerType == "CASA"
-                && string.Equals(categoriaWorker?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
+                && worker.CategoriaId == CategoriaIds.Practicante;
 
             var itemsAplicables = todosItems
                 .Where(i => i.AplicaA == "TODOS" ||
@@ -1709,8 +1706,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ? categoriaAnterior
                 : await ctx.Categoria.Where(c => c.CategoriaId == w.CategoriaId).Select(c => c.Nombre).FirstOrDefaultAsync();
 
-            var eraPracticante = string.Equals(categoriaAnterior?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
-            var siguePracticante = string.Equals(categoriaNueva?.Trim(), CategoriaPracticante, StringComparison.OrdinalIgnoreCase);
+            var eraPracticante = categoriaAnteriorId == CategoriaIds.Practicante;
+            var siguePracticante = w.CategoriaId == CategoriaIds.Practicante;
             var transicionFueraDePracticante = dto.CategoriaId is not null && esCasa && eraPracticante && !siguePracticante;
 
             var vidaLeyCreada = false;

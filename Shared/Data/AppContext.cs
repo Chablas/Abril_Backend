@@ -1308,6 +1308,12 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(r => r.PuestoId)
                  .OnDelete(DeleteBehavior.Restrict);
+                // Categoría declarada para la vacante (independiente de puesto.categoria_id).
+                e.HasIndex(r => r.CategoriaId);
+                e.HasOne<Categoria>()
+                 .WithMany()
+                 .HasForeignKey(r => r.CategoriaId)
+                 .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
                  .WithMany()
                  .HasForeignKey(r => r.GthTipoRequerimientoId)

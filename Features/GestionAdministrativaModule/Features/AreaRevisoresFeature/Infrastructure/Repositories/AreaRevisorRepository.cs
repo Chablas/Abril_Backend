@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 using AreaRevisoresModel = Abril_Backend.Features.GestionAdministrativa.Shared.Models.AreaRevisores;
 
@@ -24,9 +25,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// fallback de GTH) y el respaldo del resto de su rama.
     ///
     /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven
-    /// todas las áreas y pueden editarlas; un trabajador con categoría (workers_category)
-    /// Jefe, Coordinador o Gerente ve solo el área listada a la que pertenece (subiendo el
-    /// árbol desde su workers.area_scope_id) y sin poder editarla; el resto no ve ninguna.
+    /// todas las áreas y pueden editarlas; un trabajador de las categorías
+    /// <see cref="CategoriaIds.ConVistaDeSuArea"/> (Jefe, Coordinador o Gerente) ve solo el
+    /// área listada a la que pertenece (subiendo el árbol desde su workers.area_scope_id) y
+    /// sin poder editarla; el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
     {
@@ -36,9 +38,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 
         /// <summary>Tipos de área que admiten revisores, en el orden en que se listan.</summary>
         private static readonly string[] TiposConfigurables = { AreaTypeGerencia, AreaTypeEstandar };
-
-        /// <summary>Categorías de workers_category cuyo trabajador puede ver su propia área.</summary>
-        private static readonly string[] CategoriasConVista = { "jefe", "coordinador", "gerente" };
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -320,9 +319,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 
         /// <summary>
         /// area_scope_id (de los nodos elegibles) que el usuario puede ver, o null si
-        /// no puede ver ninguno. Solo ven su área los trabajadores cuya categoría
-        /// (workers_category) es Jefe, Coordinador o Gerente: se parte del
-        /// workers.area_scope_id del trabajador y se sube el árbol hasta el primer
+        /// no puede ver ninguno. Solo ven su área los trabajadores de las categorías
+        /// <see cref="CategoriaIds.ConVistaDeSuArea"/> (Jefe, Coordinador o Gerente): se
+        /// parte del workers.area_scope_id del trabajador y se sube el árbol hasta el primer
         /// nodo listado en la pantalla (un gerente colgado directamente de su gerencia
         /// resuelve a esa gerencia, que ahora es un nodo listado).
         /// </summary>
@@ -332,8 +331,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var areaScopeWorker = await (
                 from w in ctx.Worker
                 where w.Person != null && w.Person.UserId == userId && w.AreaScopeId != null
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
-                where CategoriasConVista.Contains(c.Nombre.ToLower())
+                    && CategoriaIds.ConVistaDeSuArea.Contains(w.CategoriaId ?? 0)
                 select w.AreaScopeId
             ).FirstOrDefaultAsync();
             if (areaScopeWorker == null) return null;

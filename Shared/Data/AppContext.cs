@@ -1274,8 +1274,11 @@ namespace Abril_Backend.Infrastructure.Data
             // Catálogos: solo un registro "vivo" (state = true) por nombre/código.
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>()
                 .HasIndex(p => p.Nombre).IsUnique().HasFilter("state = true");
-            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
-                .HasIndex(t => t.Nombre).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>(e =>
+            {
+                e.HasIndex(t => t.Nombre).IsUnique().HasFilter("state = true");
+                e.HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
+            });
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>()
@@ -1320,6 +1323,12 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
                  .WithMany()
                  .HasForeignKey(r => r.GthTipoRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                // Trabajador reemplazado (solo en las vacantes de tipo REEMPLAZO).
+                e.HasIndex(r => r.ReemplazaWorkerId);
+                e.HasOne<Worker>()
+                 .WithMany()
+                 .HasForeignKey(r => r.ReemplazaWorkerId)
                  .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
                  .WithMany()
@@ -1470,8 +1479,6 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(f => f.GthTipoDocumentoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito>()
                  .WithMany().HasForeignKey(f => f.GthDistritoId).OnDelete(DeleteBehavior.Restrict);
-                e.HasOne<Puesto>()
-                 .WithMany().HasForeignKey(f => f.ConvocatoriaPuestoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDisponibilidad>()
                  .WithMany().HasForeignKey(f => f.GthDisponibilidadId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad>()

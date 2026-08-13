@@ -37,6 +37,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? CategoriaId { get; set; }
 
         public int TipoRequerimientoId { get; set; }
+
+        /// <summary>
+        /// Trabajador al que reemplaza la vacante. Obligatorio cuando el tipo de requerimiento es
+        /// <c>REEMPLAZO</c> (salvo que el solicitante no tenga <c>area_scope_id</c> y por lo tanto
+        /// no haya lista de dónde elegir); ignorado en las vacantes nuevas, donde se guarda null.
+        /// Debe pertenecer al área del solicitante o a un área hija — el backend lo revalida, no se
+        /// confía en lo que mande el cliente.
+        /// </summary>
+        public int? ReemplazaWorkerId { get; set; }
+
         public int ProjectId { get; set; }
         public DateOnly FechaRequeridaIngreso { get; set; }
     }

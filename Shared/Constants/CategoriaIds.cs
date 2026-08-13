@@ -3,8 +3,9 @@ namespace Abril_Backend.Shared.Constants
     /// <summary>
     /// IDs del catálogo <c>categoria</c> (<c>workers.categoria_id</c>) sobre los que hay
     /// lógica de negocio. Los ids son idénticos en dev y prod (verificado el 2026-08-13:
-    /// las 41 categorías coinciden id ↔ nombre en ambas), así que se pueden usar como
-    /// constantes — mismo criterio que <see cref="CategoriaMaestraIds"/>.
+    /// las 41 categorías originales coinciden id ↔ nombre en ambas, y <see cref="Empleado"/>
+    /// se insertó con id explícito), así que se pueden usar como constantes — mismo
+    /// criterio que <see cref="CategoriaMaestraIds"/>.
     ///
     /// Solo están acá las categorías que el código realmente compara. El resto del
     /// catálogo (OPERARIO, PEÓN, ARQUITECTO…) es data pura: se muestra y se filtra desde
@@ -68,6 +69,52 @@ namespace Abril_Backend.Shared.Constants
 
         /// <summary>Desempeño de Supervisores: puede ocultar/mostrar tarjetas y empresas.</summary>
         public const int CoordinadorSsoma = 41;
+
+        /// <summary>
+        /// Personal de planilla que no cae en ninguna categoría específica. Creada en
+        /// <c>Migrations_Manual/2026-08-13_categoria_visible_solicitud_personal.sql</c> con
+        /// id explícito para mantener la paridad dev/prod. Todavía no la mira ninguna regla:
+        /// está acá porque su id es fijo por diseño y porque se espera darle lógica.
+        ///
+        /// No confundir con <see cref="CategoriaMaestraIds.Empleado"/>, que es el tipo de
+        /// vínculo laboral de la Data Maestra de GTH: otro eje, otra tabla.
+        /// </summary>
+        public const int Empleado = 42;
+
+        // ── Categorías de las que depende una regla guardada en DATA ────────────
+        // No aparecen en ninguna comparación de C#: las nombra
+        // `ss_item_trabajador.aplica_categoria` / `.excluye_categoria_contratista`,
+        // que son CSV de NOMBRES editables desde Habilitación → Reglas. Están acá
+        // para que se sepa que no son categorías libres: si se renombran o se sacan
+        // del catálogo, la regla deja de alcanzar a esa gente en silencio y no hay
+        // código que grepear para descubrirlo.
+        //
+        // La normalización pendiente es que esa tabla referencie categoria_id (tabla
+        // puente) en vez de guardar nombres; mientras tanto, esto es documentación
+        // ejecutable — ver `ReglasPorData`.
+
+        /// <summary>Regla "Entrevista con Residente o Producción".</summary>
+        public const int Operador = 21;
+
+        /// <summary>Regla "Entrevista con Residente o Producción".</summary>
+        public const int Rigger = 10;
+
+        /// <summary>Regla "Entrevista con Residente o Producción".</summary>
+        public const int Vigia = 31;
+
+        /// <summary>Reglas "Entrevista con el Jefe Corporativo SSOMA" y "CarnetRetcc".</summary>
+        public const int Prevencionista = 35;
+
+        /// <summary>Regla "Entrevista con el Área de Calidad".</summary>
+        public const int Capataz = 36;
+
+        /// <summary>
+        /// Categorías nombradas por las reglas de entregables de Habilitación (data, no
+        /// código). Súmalas a las que tienen lógica en C# antes de decidir que una
+        /// categoría "no se usa en ningún lado".
+        /// </summary>
+        public static readonly int[] ReglasPorData =
+            { Operador, Rigger, Vigia, Prevencionista, Capataz, Supervisor, Residente };
 
         /// <summary>
         /// Categorías cuyo trabajador puede ver su propia área en Revisores de Áreas.

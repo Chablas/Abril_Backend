@@ -42,7 +42,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatoNombre = head?.Nombre ?? string.Empty,
                 EstadoCodigo    = estado?.Codigo ?? string.Empty,
                 EstadoNombre    = estado?.Nombre ?? string.Empty,
-                SoloLectura     = estado?.Codigo is EstadoFormularioPostulante.Aprobado or EstadoFormularioPostulante.Rechazado,
+                // Solo el APROBADO cierra el formulario. El RECHAZADO se reabre con las respuestas ya
+                // cargadas para que el postulante corrija lo observado y lo vuelva a enviar.
+                SoloLectura     = estado?.Codigo == EstadoFormularioPostulante.Aprobado,
+                Observaciones   = estado?.Codigo == EstadoFormularioPostulante.Rechazado ? f.MotivoRechazo : null,
                 Respuestas      = MapRespuestas(f),
             };
 
@@ -58,15 +61,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(x => new OpcionDto { Id = x.GthDisponibilidadId, Nombre = x.Nombre }).ToListAsync();
             dto.MotivosCese = await ctx.GthMotivoCese.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new OpcionDto { Id = x.GthMotivoCeseId, Nombre = x.Nombre }).ToListAsync();
-            dto.Convocatorias = await ctx.Puesto.Where(x => x.State && x.Active).OrderBy(x => x.Orden).ThenBy(x => x.Nombre)
-                .Select(x => new OpcionDto { Id = x.PuestoId, Nombre = x.Nombre }).ToListAsync();
             dto.Distritos = await ctx.GthDistrito.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new DistritoOpcionDto { Id = x.GthDistritoId, Nombre = x.Nombre, Provincia = x.Provincia }).ToListAsync();
 
             return dto;
         }
 
-        public async Task GuardarRespuestasByToken(string token, PostulanteFormularioRespuestasDto r)
+        public async Task<FormularioCompletadoContextoDto> GuardarRespuestasByToken(
+            string token, PostulanteFormularioRespuestasDto r)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -76,12 +78,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var estados = await ctx.GthPostulanteFormularioEstado.Where(e => e.State).ToListAsync();
             var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);
-            if (actual?.Codigo is EstadoFormularioPostulante.Aprobado or EstadoFormularioPostulante.Rechazado)
-                throw new AbrilException("Este formulario ya fue revisado por la empresa y no admite cambios.", 409);
+            // Un formulario RECHAZADO sí admite cambios: es justamente lo que se le pide al postulante
+            // en el correo de rechazo. El APROBADO es el único que queda cerrado.
+            if (actual?.Codigo == EstadoFormularioPostulante.Aprobado)
+                throw new AbrilException("Este formulario ya fue aprobado por la empresa y no admite cambios.", 409);
 
             var completadoId = estados.FirstOrDefault(e => e.Codigo == EstadoFormularioPostulante.Completado)?.GthPostulanteFormularioEstadoId
                 ?? throw new AbrilException("No está configurado el estado COMPLETADO del formulario del postulante.", 500);
 
+            var esCorreccion = actual?.Codigo == EstadoFormularioPostulante.Rechazado;
             var now = DateTimeOffset.UtcNow;
 
             // Página 1
@@ -93,7 +98,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             f.GthDistritoId           = r.DistritoId;
             f.CorreoElectronico       = Trim(r.CorreoElectronico);
             f.NumeroCelular           = Trim(r.NumeroCelular);
-            f.ConvocatoriaPuestoId = r.ConvocatoriaId;
             f.PretensionesSalariales  = Trim(r.PretensionesSalariales);
             f.GthDisponibilidadId     = r.DisponibilidadId;
             f.Linkedin                = Trim(r.Linkedin);
@@ -125,6 +129,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             f.UpdatedDateTime    = now;
 
             await ctx.SaveChangesAsync();
+
+            // Cabecera del proceso para el aviso a GTH: se lee acá y no en el servicio para no
+            // abrir una segunda conexión por un envío que ya está resuelto.
+            var head = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == f.GthCandidatoId
+                join req in ctx.GthRequerimiento on c.GthRequerimientoId equals req.GthRequerimientoId
+                join p in ctx.Puesto on req.PuestoId equals p.PuestoId
+                join pr in ctx.Project on req.ProjectId equals pr.ProjectId
+                select new
+                {
+                    req.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = req.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    c.Nombre,
+                }).FirstOrDefaultAsync();
+
+            return new FormularioCompletadoContextoDto
+            {
+                Codigo           = head?.Codigo ?? string.Empty,
+                Puesto           = head?.Puesto ?? string.Empty,
+                Area             = head?.Area,
+                ProyectoObra     = head?.ProyectoObra,
+                CandidatoNombre  = f.NombresCompletos ?? head?.Nombre ?? string.Empty,
+                CorreoPostulante = f.CorreoElectronico,
+                NumeroCelular    = f.NumeroCelular,
+                CompletadoEn     = now.ToOffset(PeruOffset).DateTime,
+                EsCorreccion     = esCorreccion,
+            };
         }
 
         // ── GTH (enviar / revisar / decidir) ──────────────────────────────────
@@ -150,26 +184,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var now = DateTimeOffset.UtcNow;
 
+            // Estado en el que queda el formulario tras el envío: ENVIADO salvo cuando se reenvía uno
+            // rechazado, que se queda como está (ver abajo).
+            var destino = enviado;
+            var esRechazo = false;
+
             var f = await ctx.GthPostulanteFormulario.FirstOrDefaultAsync(x => x.GthCandidatoId == candidatoId && x.State);
             if (f != null)
             {
                 var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);
-                if (actual?.Codigo == EstadoFormularioPostulante.Aprobado)
-                    throw new AbrilException("El formulario de este candidato ya fue aprobado; no es necesario reenviarlo.", 409);
 
-                // Reenvío: vuelve a ENVIADO (conserva las respuestas para que el postulante corrija) y
-                // limpia la revisión previa. Conserva el token original del enlace.
-                f.GthPostulanteFormularioEstadoId = enviado.GthPostulanteFormularioEstadoId;
-                f.CorreoEnvio       = correo;
-                f.EnviadoDateTime   = now;
-                f.EnviadoUserId     = userId;
-                f.RevisadoUserId    = null;
-                f.RevisadoNombre    = null;
-                f.RevisadoDateTime  = null;
-                f.MotivoRechazo     = null;
-                f.CompletadoDateTime = null;
-                f.UpdatedDateTime   = now;
-                f.UpdatedUserId     = userId;
+                // Un formulario ya APROBADO también se puede reenviar (el postulante se equivocó en
+                // algún dato): cae en el camino de abajo, que lo devuelve a ENVIADO conservando lo
+                // que declaró y limpiando la aprobación. Deja de contar como aprobado hasta que lo
+                // complete de nuevo y GTH lo vuelva a revisar; la pantalla lo confirma antes.
+
+                // Solo cuenta como "rechazo con observaciones" el de un formulario que el postulante
+                // sí completó. El que se rechazó porque nunca lo llenó (sin CompletadoDateTime) no
+                // tiene nada que corregir: reenviarlo es volver a invitarlo, camino de abajo.
+                esRechazo = actual?.Codigo == EstadoFormularioPostulante.Rechazado
+                            && f.CompletadoDateTime != null;
+
+                if (esRechazo)
+                {
+                    // Reenvío de un formulario observado: se conserva el estado RECHAZADO junto con el
+                    // motivo y la revisión. Si se pasara a ENVIADO se borrarían las observaciones, y el
+                    // postulante recibiría el correo de invitación —como si nunca lo hubieran rechazado—
+                    // y abriría el formulario sin saber qué corregir. Solo se actualiza el rastro del envío.
+                    destino = actual!;
+                    f.CorreoEnvio     = correo;
+                    f.EnviadoDateTime = now;
+                    f.EnviadoUserId   = userId;
+                    f.UpdatedDateTime = now;
+                    f.UpdatedUserId   = userId;
+                }
+                else
+                {
+                    // Reenvío normal: vuelve a ENVIADO (conserva las respuestas para que el postulante
+                    // corrija) y limpia la revisión previa. Conserva el token original del enlace.
+                    f.GthPostulanteFormularioEstadoId = enviado.GthPostulanteFormularioEstadoId;
+                    f.CorreoEnvio       = correo;
+                    f.EnviadoDateTime   = now;
+                    f.EnviadoUserId     = userId;
+                    f.RevisadoUserId    = null;
+                    f.RevisadoNombre    = null;
+                    f.RevisadoDateTime  = null;
+                    f.MotivoRechazo     = null;
+                    f.CompletadoDateTime = null;
+                    f.UpdatedDateTime   = now;
+                    f.UpdatedUserId     = userId;
+                }
             }
             else
             {
@@ -193,16 +257,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return new EnviarFormularioContextoDto
             {
-                Token           = f.Token,
-                Puesto          = cand.Puesto,
-                CandidatoNombre = cand.Nombre,
+                Token  = f.Token,
+                Puesto = cand.Puesto,
+                // El nombre que declaró el propio postulante manda sobre el que registró GTH.
+                CandidatoNombre = Trim(f.NombresCompletos) ?? cand.Nombre,
                 Correo          = correo,
+                EsRechazo       = esRechazo,
+                Motivo          = esRechazo ? f.MotivoRechazo : null,
                 Resumen = new CandidatoFormularioResumenDto
                 {
-                    EstadoCodigo = enviado.Codigo,
-                    EstadoNombre = enviado.Nombre,
+                    EstadoCodigo = destino.Codigo,
+                    EstadoNombre = destino.Nombre,
                     CorreoEnvio  = correo,
                     EnviadoEn    = now.ToOffset(PeruOffset).DateTime,
+                    // Al reenviar un rechazo el formulario sigue completado y revisado: la bandeja debe
+                    // seguir mostrando el badge "Rechazado" y quién lo revisó.
+                    CompletadoEn   = f.CompletadoDateTime?.ToOffset(PeruOffset).DateTime,
+                    RevisadoNombre = f.RevisadoNombre,
+                    RevisadoEn     = f.RevisadoDateTime?.ToOffset(PeruOffset).DateTime,
                 },
             };
         }
@@ -228,8 +300,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from tdoc in tdocJ.DefaultIfEmpty()
                 join dist in ctx.GthDistrito on f.GthDistritoId equals dist.GthDistritoId into distJ
                 from dist in distJ.DefaultIfEmpty()
-                join conv in ctx.Puesto on f.ConvocatoriaPuestoId equals conv.PuestoId into convJ
-                from conv in convJ.DefaultIfEmpty()
                 join disp in ctx.GthDisponibilidad on f.GthDisponibilidadId equals disp.GthDisponibilidadId into dispJ
                 from disp in dispJ.DefaultIfEmpty()
                 join uni in ctx.GthUniversidad on f.GthUniversidadId equals uni.GthUniversidadId into uniJ
@@ -246,7 +316,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoCivil  = ecv != null ? ecv.Nombre : null,
                     TipoDocumento = tdoc != null ? tdoc.Nombre : null,
                     Distrito     = dist != null ? dist.Nombre : null,
-                    Convocatoria = conv != null ? conv.Nombre : null,
                     Disponibilidad = disp != null ? disp.Nombre : null,
                     Universidad  = uni != null ? uni.Nombre : null,
                     GradoAcademico = grad != null ? grad.Nombre : null,
@@ -284,7 +353,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Distrito               = row.Distrito,
                     CorreoElectronico      = f2.CorreoElectronico,
                     NumeroCelular          = f2.NumeroCelular,
-                    Convocatoria           = row.Convocatoria,
                     PretensionesSalariales = f2.PretensionesSalariales,
                     Disponibilidad         = row.Disponibilidad,
                     Linkedin               = f2.Linkedin,
@@ -313,7 +381,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return dto;
         }
 
-        public async Task<CandidatoFormularioResumenDto> RegistrarDecision(int candidatoId, bool aprobado, string? motivo, int? userId)
+        public async Task<DecisionFormularioContextoDto> RegistrarDecision(int candidatoId, bool aprobado, string? motivo, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -323,8 +391,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var estados = await ctx.GthPostulanteFormularioEstado.Where(e => e.State).ToListAsync();
             var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);
-            if (actual?.Codigo != EstadoFormularioPostulante.Completado)
-                throw new AbrilException("Solo puedes aprobar o rechazar un formulario que el postulante ya completó.", 409);
+            var estabaCompletado = actual?.Codigo == EstadoFormularioPostulante.Completado;
+
+            // Aprobar exige que el postulante lo haya completado: no se puede dar por buena
+            // información que nadie declaró. Rechazar también vale sobre un formulario ENVIADO que
+            // nunca llenó — es lo que destraba el paso a entrevistas cuando el postulante no
+            // responde. El token no se toca: si lo completa después, vuelve a caer como COMPLETADO.
+            if (aprobado && !estabaCompletado)
+                throw new AbrilException("Solo puedes aprobar un formulario que el postulante ya completó.", 409);
+            if (!aprobado && !estabaCompletado && actual?.Codigo != EstadoFormularioPostulante.Enviado)
+                throw new AbrilException("Solo puedes rechazar un formulario que ya se le envió al postulante.", 409);
 
             var destinoCodigo = aprobado ? EstadoFormularioPostulante.Aprobado : EstadoFormularioPostulante.Rechazado;
             var destino = estados.FirstOrDefault(e => e.Codigo == destinoCodigo)
@@ -349,16 +425,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await ctx.SaveChangesAsync();
 
-            return new CandidatoFormularioResumenDto
+            var contexto = new DecisionFormularioContextoDto
             {
-                EstadoCodigo   = destino.Codigo,
-                EstadoNombre   = destino.Nombre,
-                CorreoEnvio    = f.CorreoEnvio,
-                EnviadoEn      = f.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
-                CompletadoEn   = f.CompletadoDateTime?.ToOffset(PeruOffset).DateTime,
-                RevisadoNombre = revisorNombre,
-                RevisadoEn     = now.ToOffset(PeruOffset).DateTime,
+                Resumen = new CandidatoFormularioResumenDto
+                {
+                    EstadoCodigo   = destino.Codigo,
+                    EstadoNombre   = destino.Nombre,
+                    CorreoEnvio    = f.CorreoEnvio,
+                    EnviadoEn      = f.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
+                    CompletadoEn   = f.CompletadoDateTime?.ToOffset(PeruOffset).DateTime,
+                    RevisadoNombre = revisorNombre,
+                    RevisadoEn     = now.ToOffset(PeruOffset).DateTime,
+                },
             };
+
+            // Los datos del correo solo hacen falta al rechazar un formulario que el postulante sí
+            // completó, así que la consulta extra se paga únicamente en ese caso.
+            contexto.AvisarAlPostulante = !aprobado && estabaCompletado;
+            if (contexto.AvisarAlPostulante)
+            {
+                var head = await (
+                    from c in ctx.GthCandidato
+                    where c.GthCandidatoId == candidatoId
+                    join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                    join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                    select new { c.Nombre, Puesto = p.Nombre }).FirstOrDefaultAsync();
+
+                contexto.Token  = f.Token;
+                contexto.Correo = f.CorreoEnvio;
+                contexto.Puesto = head?.Puesto ?? string.Empty;
+                // El nombre declarado por el propio postulante manda sobre el que registró GTH.
+                contexto.CandidatoNombre = Trim(f.NombresCompletos) ?? head?.Nombre ?? string.Empty;
+                contexto.Motivo = f.MotivoRechazo;
+            }
+
+            return contexto;
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────
@@ -374,7 +475,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             DistritoId             = f.GthDistritoId,
             CorreoElectronico      = f.CorreoElectronico,
             NumeroCelular          = f.NumeroCelular,
-            ConvocatoriaId         = f.ConvocatoriaPuestoId,
             PretensionesSalariales = f.PretensionesSalariales,
             DisponibilidadId       = f.GthDisponibilidadId,
             Linkedin               = f.Linkedin,

@@ -9,15 +9,19 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Presentation
 {
     /// <summary>
-    /// Configuración de los correos de Solicitud de Personal. Acceso restringido por la feature
+    /// Configuración de los correos de Gestión GTH. Acceso restringido por la feature
     /// "gestion-gth.reclutamiento.configuracion" (la misma que ya habilitaba el botón
-    /// «Configuración» de la pantalla). Expone una sección por correo del flujo, cada una con su
+    /// «Configuración» de las pantallas). Expone una sección por correo, cada una con su
     /// interruptor maestro y sus destinatarios: los dinámicos del catálogo (Gerente General,
     /// gerente del área, área de GTH), que solo se prenden y apagan, y los correos adicionales
     /// escritos a mano, con alta, edición y baja.
+    ///
+    /// El <c>{modulo}</c> de la ruta dice qué pantalla es —<c>solicitud-personal</c> (flujo del
+    /// solicitante) o <c>reclutamiento</c> (los correos que salen desde la bandeja de GTH)— y el
+    /// servicio lo usa para acotar los correos que puede leer y tocar cada una.
     /// </summary>
     [ApiController]
-    [Route("api/v1/gestion-gth/solicitud-personal/configuracion")]
+    [Route("api/v1/gestion-gth/{modulo}/configuracion")]
     [Authorize]
     [RequireFeature("gestion-gth.reclutamiento.configuracion")]
     public class CorreoConfiguracionController : ControllerBase
@@ -36,11 +40,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private int? UserId =>
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 
-        /// <summary>Todos los correos del flujo con sus destinatarios, en una sola petición.</summary>
+        /// <summary>Todos los correos de la pantalla con sus destinatarios, en una sola petición.</summary>
         [HttpGet("correos")]
-        public async Task<IActionResult> GetCorreos()
+        public async Task<IActionResult> GetCorreos(string modulo)
         {
-            try { return Ok(await _service.GetConfig()); }
+            try { return Ok(await _service.GetConfig(modulo)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
@@ -51,11 +55,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Prende o apaga un correo completo (interruptor maestro de la sección).</summary>
         [HttpPut("correos/{tipo}/active")]
-        public async Task<IActionResult> SetCorreoActive(string tipo, [FromBody] CorreoActivePatchDto dto)
+        public async Task<IActionResult> SetCorreoActive(string modulo, string tipo, [FromBody] CorreoActivePatchDto dto)
         {
             try
             {
-                await _service.SetCorreoActive(tipo, dto?.Active ?? false, UserId);
+                await _service.SetCorreoActive(modulo, tipo, dto?.Active ?? false, UserId);
                 return Ok(new
                 {
                     message = (dto?.Active ?? false)
@@ -73,11 +77,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Alta de un correo adicional dentro de la sección de un correo.</summary>
         [HttpPost("correos/destinatarios")]
-        public async Task<IActionResult> CrearAdicional([FromBody] CorreoAdicionalCreateDto dto)
+        public async Task<IActionResult> CrearAdicional(string modulo, [FromBody] CorreoAdicionalCreateDto dto)
         {
             try
             {
-                var id = await _service.CrearAdicional(dto, UserId);
+                var id = await _service.CrearAdicional(modulo, dto, UserId);
                 return Ok(new { id, message = "Destinatario agregado." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -90,11 +94,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Edición de un correo adicional (los dinámicos no se editan).</summary>
         [HttpPut("correos/destinatarios/{id:int}")]
-        public async Task<IActionResult> ActualizarAdicional(int id, [FromBody] CorreoAdicionalUpdateDto dto)
+        public async Task<IActionResult> ActualizarAdicional(string modulo, int id, [FromBody] CorreoAdicionalUpdateDto dto)
         {
             try
             {
-                await _service.ActualizarAdicional(id, dto, UserId);
+                await _service.ActualizarAdicional(modulo, id, dto, UserId);
                 return Ok(new { message = "Destinatario actualizado." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -107,11 +111,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Prende o apaga un destinatario dentro de su correo.</summary>
         [HttpPut("correos/destinatarios/{id:int}/active")]
-        public async Task<IActionResult> SetDestinatarioActive(int id, [FromBody] CorreoActivePatchDto dto)
+        public async Task<IActionResult> SetDestinatarioActive(string modulo, int id, [FromBody] CorreoActivePatchDto dto)
         {
             try
             {
-                await _service.SetDestinatarioActive(id, dto?.Active ?? false, UserId);
+                await _service.SetDestinatarioActive(modulo, id, dto?.Active ?? false, UserId);
                 return Ok(new { message = "Configuración de correo actualizada." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -124,11 +128,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Baja de un correo adicional.</summary>
         [HttpDelete("correos/destinatarios/{id:int}")]
-        public async Task<IActionResult> EliminarAdicional(int id)
+        public async Task<IActionResult> EliminarAdicional(string modulo, int id)
         {
             try
             {
-                await _service.EliminarAdicional(id, UserId);
+                await _service.EliminarAdicional(modulo, id, UserId);
                 return Ok(new { message = "Destinatario eliminado." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

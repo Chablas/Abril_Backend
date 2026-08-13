@@ -66,6 +66,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Interruptor maestro: false = este correo no se envía, sin importar los destinatarios.</summary>
         public bool Active { get; set; }
 
+        /// <summary>
+        /// true = el destinatario principal lo agrega el backend solo (ej. la long list siempre va
+        /// al solicitante), así que la pantalla no debe advertir que falta uno.
+        /// </summary>
+        public bool PrincipalAutomatico { get; set; }
+
         public int Orden { get; set; }
         public List<CorreoDestinatarioFilaDto> Destinatarios { get; set; } = new();
     }

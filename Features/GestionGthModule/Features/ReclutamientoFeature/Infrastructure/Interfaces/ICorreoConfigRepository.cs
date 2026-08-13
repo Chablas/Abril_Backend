@@ -31,16 +31,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Alta de un correo adicional en un correo. Devuelve el id creado.</summary>
         Task<int> CreateAdicionalAsync(string tipoCodigo, string email, string? nombre, bool esCopia, int? userId);
 
-        /// <summary>Edición de un correo adicional (los dinámicos no se editan).</summary>
-        Task UpdateAdicionalAsync(int destinatarioId, string email, string? nombre, bool esCopia, int? userId);
+        /// <summary>
+        /// Edición de un correo adicional (los dinámicos no se editan). <paramref name="tiposPermitidos"/>
+        /// acota la operación a los correos de la pantalla que la pide: un id de otra pantalla se
+        /// rechaza en vez de editarse a ciegas.
+        /// </summary>
+        Task UpdateAdicionalAsync(
+            int destinatarioId, string email, string? nombre, bool esCopia,
+            IReadOnlyList<string> tiposPermitidos, int? userId);
 
-        /// <summary>Prende o apaga un destinatario.</summary>
-        Task SetDestinatarioActiveAsync(int destinatarioId, bool active, int? userId);
+        /// <summary>Prende o apaga un destinatario de alguno de los correos de la pantalla.</summary>
+        Task SetDestinatarioActiveAsync(
+            int destinatarioId, bool active, IReadOnlyList<string> tiposPermitidos, int? userId);
 
         /// <summary>Prende o apaga un correo completo (interruptor maestro).</summary>
         Task SetTipoActiveAsync(string tipoCodigo, bool active, int? userId);
 
         /// <summary>Baja lógica de un correo adicional (los dinámicos no se eliminan, se apagan).</summary>
-        Task DeleteAdicionalAsync(int destinatarioId, int? userId);
+        Task DeleteAdicionalAsync(int destinatarioId, IReadOnlyList<string> tiposPermitidos, int? userId);
     }
 }

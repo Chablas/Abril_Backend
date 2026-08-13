@@ -17,8 +17,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>true si el formulario ya fue revisado por GTH (aprobado/rechazado) → solo lectura.</summary>
+        /// <summary>true si el formulario ya fue APROBADO por GTH → solo lectura.</summary>
         public bool SoloLectura { get; set; }
+
+        /// <summary>
+        /// Observaciones de GTH cuando el formulario fue RECHAZADO: el postulante vuelve a abrir el
+        /// mismo enlace con sus respuestas precargadas, corrige lo observado y lo reenvía. Es null en
+        /// cualquier otro estado (una vez corregido y reenviado ya no se le muestran).
+        /// </summary>
+        public string? Observaciones { get; set; }
 
         // Catálogos de los desplegables del formulario.
         public List<OpcionDto> EstadosCiviles { get; set; } = new();
@@ -28,8 +35,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<OpcionDto> GradosAcademicos { get; set; } = new();
         public List<OpcionDto> Disponibilidades { get; set; } = new();
         public List<OpcionDto> MotivosCese { get; set; } = new();
-        /// <summary>Convocatorias de interés (se reutiliza el catálogo de puestos gth_puesto).</summary>
-        public List<OpcionDto> Convocatorias { get; set; } = new();
 
         /// <summary>Respuestas ya guardadas (ids de catálogo + valores) para precargar el formulario.</summary>
         public PostulanteFormularioRespuestasDto Respuestas { get; set; } = new();
@@ -72,7 +77,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? DistritoId { get; set; }
         public string? CorreoElectronico { get; set; }
         public string? NumeroCelular { get; set; }
-        public int? ConvocatoriaId { get; set; }
         public string? PretensionesSalariales { get; set; }
         public int? DisponibilidadId { get; set; }
         public string? Linkedin { get; set; }
@@ -101,6 +105,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // Página 4 · Consentimiento y veracidad
         public bool? DeclaracionVeracidad { get; set; }
         public bool? ConfirmacionDocumentos { get; set; }
+    }
+
+    /// <summary>
+    /// Contexto que devuelve el repositorio cuando el postulante envía su formulario: lo necesario
+    /// para avisarle a GTH que ya lo completó, sin volver a consultar la base de datos.
+    /// </summary>
+    public class FormularioCompletadoContextoDto
+    {
+        /// <summary>Código del requerimiento (REQ-AAAA-NNNN).</summary>
+        public string Codigo { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
+        public string? Area { get; set; }
+        public string? ProyectoObra { get; set; }
+
+        /// <summary>Nombre del postulante (el que declaró en el formulario; si no, el que registró GTH).</summary>
+        public string CandidatoNombre { get; set; } = string.Empty;
+
+        /// <summary>Correo y celular declarados, para que GTH pueda contactarlo sin abrir el sistema.</summary>
+        public string? CorreoPostulante { get; set; }
+        public string? NumeroCelular { get; set; }
+
+        /// <summary>Momento del envío, ya en hora de Perú.</summary>
+        public DateTime CompletadoEn { get; set; }
+
+        /// <summary>true si es un reenvío tras un rechazo: el postulante corrigió lo observado.</summary>
+        public bool EsCorreccion { get; set; }
     }
 
     // ── GTH (bandeja de reclutamiento: enviar, revisar, aprobar/rechazar) ─────
@@ -159,7 +189,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Distrito { get; set; }
         public string? CorreoElectronico { get; set; }
         public string? NumeroCelular { get; set; }
-        public string? Convocatoria { get; set; }
         public string? PretensionesSalariales { get; set; }
         public string? Disponibilidad { get; set; }
         public string? Linkedin { get; set; }
@@ -211,6 +240,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
+    /// Contexto que devuelve el repositorio al registrar la decisión de GTH: el resumen para
+    /// refrescar el modal más lo necesario para armar el correo de rechazo (token del enlace, puesto,
+    /// nombre y correo del postulante), sin volver a consultar la base de datos. Los datos del correo
+    /// solo se llenan cuando la decisión es un rechazo (al aprobar no se envía nada al postulante).
+    /// </summary>
+    public class DecisionFormularioContextoDto
+    {
+        public CandidatoFormularioResumenDto Resumen { get; set; } = new();
+
+        /// <summary>
+        /// true = hay que avisarle al postulante del rechazo. Solo cuando había completado el
+        /// formulario: si nunca lo llenó, el rechazo es una decisión interna para destrabar el
+        /// proceso y no tiene sentido pedirle que corrija algo que nunca escribió.
+        /// </summary>
+        public bool AvisarAlPostulante { get; set; }
+
+        /// <summary>Token del enlace público (el mismo del envío original: conserva las respuestas ya guardadas).</summary>
+        public string Token { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
+
+        /// <summary>Nombre del postulante para el saludo del correo (el declarado en el formulario si lo hay).</summary>
+        public string CandidatoNombre { get; set; } = string.Empty;
+
+        /// <summary>Correo al que GTH envió el formulario (mismo destinatario del correo de rechazo).</summary>
+        public string Correo { get; set; } = string.Empty;
+
+        /// <summary>Observaciones del rechazo tal como se registraron (null si se aprobó o no se indicó motivo).</summary>
+        public string? Motivo { get; set; }
+    }
+
+    /// <summary>
     /// Contexto que devuelve el repositorio al preparar el envío del formulario: el token de acceso
     /// (nuevo o reutilizado), datos para el correo y el estado resultante para refrescar el modal.
     /// </summary>
@@ -220,6 +280,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Puesto { get; set; } = string.Empty;
         public string CandidatoNombre { get; set; } = string.Empty;
         public string Correo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true si lo que se está reenviando es un formulario RECHAZADO: en ese caso el correo que
+        /// corresponde es el de correcciones (con las observaciones), no el de invitación inicial.
+        /// </summary>
+        public bool EsRechazo { get; set; }
+
+        /// <summary>Observaciones del rechazo, para el correo de correcciones. null si no es un rechazo.</summary>
+        public string? Motivo { get; set; }
+
         public CandidatoFormularioResumenDto Resumen { get; set; } = new();
     }
 }

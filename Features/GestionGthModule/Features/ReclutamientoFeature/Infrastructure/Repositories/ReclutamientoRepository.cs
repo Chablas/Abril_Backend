@@ -4,6 +4,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infr
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
@@ -127,8 +128,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Para el modo "Puesto personalizado": el solicitante escribe el puesto y le asigna una
             // de estas categorías (la real del trabajador, no la que trae el puesto del catálogo).
+            // Solo las marcadas para esta pantalla: acá se contrata planilla de Abril, así que las
+            // categorías de obra (Operario, Peón, Oficial…) solo cargarían el desplegable.
             dto.Categorias = await ctx.Categoria
-                .Where(c => c.State && c.Active)
+                .Where(c => c.State && c.Active && c.VisibleSolicitudPersonal)
                 .OrderBy(c => c.Orden).ThenBy(c => c.Nombre)
                 .Select(c => new OpcionDto { Id = c.CategoriaId, Nombre = c.Nombre })
                 .ToListAsync();
@@ -136,7 +139,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
                 .Where(t => t.State && t.Active)
                 .OrderBy(t => t.Orden)
-                .Select(t => new OpcionDto { Id = t.GthTipoRequerimientoId, Nombre = t.Nombre })
+                .Select(t => new TipoRequerimientoOpcionDto
+                {
+                    Id     = t.GthTipoRequerimientoId,
+                    Nombre = t.Nombre,
+                    Codigo = t.Codigo,
+                })
                 .ToListAsync();
 
             dto.Proyectos = await ctx.Project
@@ -145,7 +153,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(p => new OpcionDto { Id = p.ProjectId, Nombre = p.ProjectDescription })
                 .ToListAsync();
 
+            // Candidatos a "trabajador reemplazado" del tipo Reemplazo. Sin área del solicitante no
+            // hay subárbol que recorrer, así que la lista queda vacía y el campo deja de exigirse.
+            dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId);
+
             return dto;
+        }
+
+        /// <summary>
+        /// Trabajadores del <c>area_scope</c> indicado y de todas sus áreas hijas, ordenados por
+        /// nombre. Alimenta el desplegable "Trabajador al que reemplaza" y es también la lista
+        /// contra la que se valida lo que llega del cliente, así que ambos usan este mismo método:
+        /// lo que no se ofrece tampoco se acepta.
+        ///
+        /// Incluye al solicitante (puede pedir su propio reemplazo) y a los trabajadores retirados
+        /// (lo habitual es pedir el reemplazo de alguien que ya se fue). Una persona con varias
+        /// fichas por reingreso aparece una sola vez, con la vigente — ver
+        /// <c>workers</c> duplicadas por reingreso.
+        /// </summary>
+        private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(AppDbContext ctx, int? areaScopeId)
+        {
+            if (!areaScopeId.HasValue) return new List<OpcionDto>();
+
+            var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+
+            var raw = await ctx.Worker
+                .Where(w => w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))
+                .Select(w => new
+                {
+                    w.Id,
+                    w.PersonId,
+                    Nombre = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    w.FechaIngreso,
+                    w.FechaRetiro,
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return raw
+                .Where(w => !string.IsNullOrWhiteSpace(w.Nombre))
+                // Una ficha por persona: la vigente primero y, entre varias, la de ingreso más
+                // reciente. Las fichas sin person_id no se agrupan (cada una es su propia clave).
+                .GroupBy(w => w.PersonId.HasValue ? $"p{w.PersonId}" : $"w{w.Id}")
+                .Select(g => g
+                    .OrderBy(w => w.FechaRetiro.HasValue)
+                    .ThenByDescending(w => w.FechaIngreso)
+                    .ThenByDescending(w => w.Id)
+                    .First())
+                .Select(w => new OpcionDto { Id = w.Id, Nombre = w.Nombre! })
+                .OrderBy(o => o.Nombre, StringComparer.CurrentCulture)
+                .ToList();
         }
 
         public async Task<(string? AreaNombre, int? AreaScopeId, int? WorkerId)> ResolveSolicitante(int userId)
@@ -618,6 +675,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // Trabajador reemplazado: left join porque solo lo tienen las vacantes de tipo
+                // Reemplazo registradas desde que se pide ese dato.
+                join wr in ctx.Worker on r.ReemplazaWorkerId equals (int?)wr.Id into reemplazaJoin
+                from wr in reemplazaJoin.DefaultIfEmpty()
                 select new
                 {
                     r.GthRequerimientoId,
@@ -626,6 +687,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Tipo         = t.Nombre,
                     Area         = r.Solicitud!.AreaNombre,
                     ProyectoObra = pr.ProjectDescription,
+                    TrabajadorReemplazado = wr == null ? null
+                        : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                     r.FechaRequeridaIngreso,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
@@ -837,6 +900,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Area                  = head.Area,
                 ProyectoObra          = head.ProyectoObra,
                 TipoRequerimiento     = head.Tipo,
+                TrabajadorReemplazado = head.TrabajadorReemplazado,
                 Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
                 FechaRequeridaIngreso = head.FechaRequeridaIngreso,
                 EstadoCodigo          = head.EstadoCodigo,
@@ -2074,71 +2138,131 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (categoriaIds.Count > 0)
             {
-                var categoriasOk = await ctx.Categoria.CountAsync(c => categoriaIds.Contains(c.CategoriaId) && c.State && c.Active);
+                // Mismo filtro que el desplegable: si no se ofrece acá, tampoco se acepta.
+                var categoriasOk = await ctx.Categoria.CountAsync(
+                    c => categoriaIds.Contains(c.CategoriaId) && c.State && c.Active && c.VisibleSolicitudPersonal);
                 if (categoriasOk != categoriaIds.Count)
                     throw new AbrilException("Una o más categorías seleccionadas no son válidas.", 400);
             }
 
-            var tiposOk = await ctx.GthTipoRequerimiento.CountAsync(t => tipoIds.Contains(t.GthTipoRequerimientoId) && t.State && t.Active);
-            if (tiposOk != tipoIds.Count)
+            // Los tipos se traen (y no solo se cuentan) porque su código decide si la vacante es un
+            // reemplazo y, con eso, si hay que exigir el trabajador reemplazado.
+            var tipos = await ctx.GthTipoRequerimiento
+                .Where(t => tipoIds.Contains(t.GthTipoRequerimientoId) && t.State && t.Active)
+                .Select(t => new { t.GthTipoRequerimientoId, t.Codigo })
+                .ToListAsync();
+            if (tipos.Count != tipoIds.Count)
                 throw new AbrilException("Uno o más tipos de requerimiento no son válidos.", 400);
+
+            var tiposReemplazo = tipos
+                .Where(t => t.Codigo == TipoRequerimientoReclutamiento.Reemplazo)
+                .Select(t => t.GthTipoRequerimientoId)
+                .ToHashSet();
 
             var projectsOk = await ctx.Project.CountAsync(p => projectIds.Contains(p.ProjectId) && p.State && p.Active);
             if (projectsOk != projectIds.Count)
                 throw new AbrilException("Uno o más proyectos/obras seleccionados no son válidos.", 400);
 
-            // El alta de los puestos personalizados y la de la solicitud van juntas: si la solicitud
-            // falla, el catálogo no se queda con puestos que nadie pidió.
-            await using var tx = await ctx.Database.BeginTransactionAsync();
-
-            var puestosPersonalizados = await ResolverPuestosPersonalizados(ctx, vacantes, userId);
-
-            // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5).
-            var now = DateTimeOffset.UtcNow;
-            var anio = now.ToOffset(TimeSpan.FromHours(-5)).Year;
-            var maxNumero = await ctx.GthRequerimiento
-                .Where(r => r.Anio == anio)
-                .Select(r => (int?)r.Numero)
-                .MaxAsync() ?? 0;
-
-            solicitud.CreatedDateTime = now;
-            solicitud.CreatedUserId   = userId;
-            solicitud.Active          = true;
-            solicitud.State           = true;
-
-            var codigos = new List<string>(vacantes.Count);
+            // Trabajador reemplazado: solo tiene sentido en las vacantes de tipo Reemplazo, así que
+            // en el resto se descarta lo que haya mandado el cliente.
             foreach (var v in vacantes)
+                if (!tiposReemplazo.Contains(v.TipoRequerimientoId)) v.ReemplazaWorkerId = null;
+
+            if (vacantes.Any(v => tiposReemplazo.Contains(v.TipoRequerimientoId)))
             {
-                maxNumero++;
-                var codigo = $"REQ-{anio}-{maxNumero:D4}";
-                codigos.Add(codigo);
-                solicitud.Requerimientos.Add(new GthRequerimiento
+                // Se revalida contra la MISMA lista que ofrece el formulario (área del solicitante
+                // y áreas hijas): lo que no se ofrece tampoco se acepta. Si el solicitante no tiene
+                // area_scope la lista queda vacía y el campo no se exige — exigir algo que el
+                // formulario no puede ofrecer dejaría bloqueado el registro de la solicitud.
+                var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId))
+                    .Select(t => t.Id).ToHashSet();
+
+                for (int i = 0; i < vacantes.Count; i++)
                 {
-                    Codigo                   = codigo,
-                    Anio                     = anio,
-                    Numero                   = maxNumero,
-                    PuestoId                 = v.PuestoPersonalizado
-                                                   ? puestosPersonalizados[NormalizarPuestoNombre(v.PuestoNombre!)]
-                                                   : v.PuestoId!.Value,
-                    // El par (puesto, categoría) de la vacante: solo se guarda la categoría cuando el
-                    // solicitante la declaró. Con puesto del desplegable queda null y quien contrate
-                    // al seleccionado cae a puesto.categoria_id.
-                    CategoriaId              = v.PuestoPersonalizado ? v.CategoriaId : null,
-                    GthTipoRequerimientoId   = v.TipoRequerimientoId,
-                    ProjectId                = v.ProjectId,
-                    FechaRequeridaIngreso    = v.FechaRequeridaIngreso,
-                    GthEstadoRequerimientoId = estadoInicialId,
-                    GthPrioridadId           = prioridadMediaId,
-                    CreatedDateTime          = now,
-                    CreatedUserId            = userId,
-                    Active                   = true,
-                    State                    = true,
-                });
+                    var v = vacantes[i];
+                    if (!tiposReemplazo.Contains(v.TipoRequerimientoId)) continue;
+
+                    if (v.ReemplazaWorkerId is null or <= 0)
+                    {
+                        if (workerIdsArea.Count == 0) { v.ReemplazaWorkerId = null; continue; }
+                        throw new AbrilException($"Vacante {i + 1}: debe seleccionar el trabajador al que reemplaza.", 400);
+                    }
+
+                    if (!workerIdsArea.Contains(v.ReemplazaWorkerId.Value))
+                        throw new AbrilException(
+                            $"Vacante {i + 1}: el trabajador al que reemplaza no pertenece a tu área ni a un área hija.", 400);
+                }
             }
 
-            ctx.GthSolicitud.Add(solicitud);
-            await ctx.SaveChangesAsync();
-            await tx.CommitAsync();
+            // El alta de los puestos personalizados y la de la solicitud van juntas: si la solicitud
+            // falla, el catálogo no se queda con puestos que nadie pidió. La transacción se abre
+            // dentro de la execution strategy porque el provider corre con EnableRetryOnFailure y
+            // no admite transacciones iniciadas por fuera de ella.
+            var now = DateTimeOffset.UtcNow;
+            var codigos = new List<string>(vacantes.Count);
+
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                // La estrategia puede reintentar el bloque completo, así que se descarta lo que dejó
+                // el intento anterior (entidades trackeadas, requerimientos ya armados y el id que le
+                // hubiera asignado un SaveChanges parcial) para no duplicar nada en el reintento.
+                ctx.ChangeTracker.Clear();
+                solicitud.GthSolicitudId = 0;
+                solicitud.Requerimientos.Clear();
+                codigos.Clear();
+
+                await using var tx = await ctx.Database.BeginTransactionAsync();
+
+                var puestosPersonalizados = await ResolverPuestosPersonalizados(ctx, vacantes, userId);
+
+                // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5).
+                var anio = now.ToOffset(TimeSpan.FromHours(-5)).Year;
+                var maxNumero = await ctx.GthRequerimiento
+                    .Where(r => r.Anio == anio)
+                    .Select(r => (int?)r.Numero)
+                    .MaxAsync() ?? 0;
+
+                solicitud.CreatedDateTime = now;
+                solicitud.CreatedUserId   = userId;
+                solicitud.Active          = true;
+                solicitud.State           = true;
+
+                foreach (var v in vacantes)
+                {
+                    maxNumero++;
+                    var codigo = $"REQ-{anio}-{maxNumero:D4}";
+                    codigos.Add(codigo);
+                    solicitud.Requerimientos.Add(new GthRequerimiento
+                    {
+                        Codigo                   = codigo,
+                        Anio                     = anio,
+                        Numero                   = maxNumero,
+                        PuestoId                 = v.PuestoPersonalizado
+                                                       ? puestosPersonalizados[NormalizarPuestoNombre(v.PuestoNombre!)]
+                                                       : v.PuestoId!.Value,
+                        // El par (puesto, categoría) de la vacante: solo se guarda la categoría cuando el
+                        // solicitante la declaró. Con puesto del desplegable queda null y quien contrate
+                        // al seleccionado cae a puesto.categoria_id.
+                        CategoriaId              = v.PuestoPersonalizado ? v.CategoriaId : null,
+                        GthTipoRequerimientoId   = v.TipoRequerimientoId,
+                        // Ya normalizado arriba: null en todo lo que no sea un reemplazo.
+                        ReemplazaWorkerId        = v.ReemplazaWorkerId,
+                        ProjectId                = v.ProjectId,
+                        FechaRequeridaIngreso    = v.FechaRequeridaIngreso,
+                        GthEstadoRequerimientoId = estadoInicialId,
+                        GthPrioridadId           = prioridadMediaId,
+                        CreatedDateTime          = now,
+                        CreatedUserId            = userId,
+                        Active                   = true,
+                        State                    = true,
+                    });
+                }
+
+                ctx.GthSolicitud.Add(solicitud);
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+            });
 
             return new SolicitudPersonalCreateResultDto
             {
@@ -2212,6 +2336,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private static string NormalizarPuestoNombre(string nombre) =>
             Regex.Replace(nombre.Trim(), @"\s+", " ").ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// Códigos estables del tipo de requerimiento (espejo de <c>gth_tipo_requerimiento.codigo</c>).
+    /// El nombre del catálogo es presentación y puede cambiar; la lógica decide por estos códigos.
+    /// </summary>
+    internal static class TipoRequerimientoReclutamiento
+    {
+        public const string Nuevo     = "NUEVO";
+
+        /// <summary>La vacante cubre a un trabajador que sale: exige decir a quién reemplaza.</summary>
+        public const string Reemplazo = "REEMPLAZO";
     }
 
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>

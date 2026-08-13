@@ -31,17 +31,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string FinalistaDecision = "FINALISTA_DECISION";
 
         /// <summary>
+        /// Correo de "formulario del postulante completado" (va a GTH). Sale solo, sin que nadie lo
+        /// dispare, en cuanto el postulante envía su formulario desde la página pública, para que
+        /// GTH sepa que ya lo puede revisar.
+        /// </summary>
+        public const string FormularioCompletado = "FORMULARIO_COMPLETADO";
+
+        /// <summary>
+        /// Correo de "invitación a la entrevista" (va al postulante citado). El destinatario
+        /// principal es SIEMPRE el postulante; la configuración solo aporta principales adicionales
+        /// y copias, por si GTH quiere quedarse con el registro de cada citación.
+        /// </summary>
+        public const string Entrevista = "ENTREVISTA";
+
+        /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>long-list</c> /
-        /// <c>decision-long-list</c> / <c>decision-finalista</c>) al código estable. Devuelve null
-        /// si el slug no corresponde a un tipo conocido.
+        /// <c>decision-long-list</c> / <c>decision-finalista</c> / <c>formulario-completado</c> /
+        /// <c>entrevista</c>) al código estable. Devuelve null si el slug no corresponde a un tipo
+        /// conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
-            "aprobacion-gg"       => AprobacionGg,
-            "solicitud"           => Solicitud,
-            "long-list"           => LongList,
-            "decision-long-list"  => LongListDecision,
-            "decision-finalista"  => FinalistaDecision,
+            "aprobacion-gg"          => AprobacionGg,
+            "solicitud"              => Solicitud,
+            "long-list"              => LongList,
+            "decision-long-list"     => LongListDecision,
+            "decision-finalista"     => FinalistaDecision,
+            "formulario-completado"  => FormularioCompletado,
+            "entrevista"             => Entrevista,
             _ => null,
         };
     }

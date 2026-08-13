@@ -31,12 +31,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .OrderBy(t => t.Orden).ThenBy(t => t.GthCorreoTipoId)
                 .Select(t => new CorreoConfigEventoDto
                 {
-                    Id          = t.GthCorreoTipoId,
-                    Codigo      = t.Codigo,
-                    Nombre      = t.Nombre,
-                    Descripcion = t.Descripcion,
-                    Active      = t.Active,
-                    Orden       = t.Orden,
+                    Id                  = t.GthCorreoTipoId,
+                    Codigo              = t.Codigo,
+                    Nombre              = t.Nombre,
+                    Descripcion         = t.Descripcion,
+                    Active              = t.Active,
+                    PrincipalAutomatico = t.PrincipalAutomatico,
+                    Orden               = t.Orden,
                 })
                 .ToListAsync();
             if (tipos.Count == 0) return new CorreoConfigDto();
@@ -225,13 +226,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task UpdateAdicionalAsync(
-            int destinatarioId, string email, string? nombre, bool esCopia, int? userId)
+            int destinatarioId, string email, string? nombre, bool esCopia,
+            IReadOnlyList<string> tiposPermitidos, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var dest = await ctx.GthCorreoDestinatario
-                .FirstOrDefaultAsync(d => d.GthCorreoDestinatarioId == destinatarioId && d.State)
-                ?? throw new AbrilException("Destinatario no encontrado.", 404);
+            var dest = await BuscarDestinatarioAsync(ctx, destinatarioId, tiposPermitidos);
 
             if (dest.Codigo != null)
                 throw new AbrilException(
@@ -254,13 +254,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetDestinatarioActiveAsync(int destinatarioId, bool active, int? userId)
+        public async Task SetDestinatarioActiveAsync(
+            int destinatarioId, bool active, IReadOnlyList<string> tiposPermitidos, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var dest = await ctx.GthCorreoDestinatario
-                .FirstOrDefaultAsync(d => d.GthCorreoDestinatarioId == destinatarioId && d.State)
-                ?? throw new AbrilException("Destinatario no encontrado.", 404);
+            var dest = await BuscarDestinatarioAsync(ctx, destinatarioId, tiposPermitidos);
 
             dest.Active          = active;
             dest.UpdatedDateTime = DateTimeOffset.UtcNow;
@@ -282,13 +281,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             await ctx.SaveChangesAsync();
         }
 
-        public async Task DeleteAdicionalAsync(int destinatarioId, int? userId)
+        public async Task DeleteAdicionalAsync(
+            int destinatarioId, IReadOnlyList<string> tiposPermitidos, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var dest = await ctx.GthCorreoDestinatario
-                .FirstOrDefaultAsync(d => d.GthCorreoDestinatarioId == destinatarioId && d.State)
-                ?? throw new AbrilException("Destinatario no encontrado.", 404);
+            var dest = await BuscarDestinatarioAsync(ctx, destinatarioId, tiposPermitidos);
 
             if (dest.Codigo != null)
                 throw new AbrilException(
@@ -299,6 +297,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dest.UpdatedDateTime = DateTimeOffset.UtcNow;
             dest.UpdatedUserId   = userId;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Destinatario vigente que pertenezca a alguno de los correos de la pantalla que lo pide.
+        /// Un id de otra pantalla devuelve 404 igual que uno inexistente: desde Reclutamiento no se
+        /// tocan los destinatarios de Solicitud de Personal ni al revés.
+        /// </summary>
+        private static async Task<GthCorreoDestinatario> BuscarDestinatarioAsync(
+            AppDbContext ctx, int destinatarioId, IReadOnlyList<string> tiposPermitidos)
+        {
+            var codigos = tiposPermitidos.Select(c => c.ToUpperInvariant()).ToList();
+
+            return await (
+                from d in ctx.GthCorreoDestinatario
+                join t in ctx.GthCorreoTipo on d.GthCorreoTipoId equals t.GthCorreoTipoId
+                where d.GthCorreoDestinatarioId == destinatarioId && d.State
+                      && t.State && codigos.Contains(t.Codigo.ToUpper())
+                select d).FirstOrDefaultAsync()
+                ?? throw new AbrilException("Destinatario no encontrado.", 404);
         }
     }
 }

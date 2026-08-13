@@ -25,6 +25,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<ActividadListItemDTO> UpdateActividad(int id, AcActividadUpdateDTO dto);
         Task DeleteActividad(int id);
         Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal();
+        Task<AvanceSemanalSnapshotResultDTO> SnapshotRankingSemanal();
         Task<ArqComercialDashboardDTO>   GetDashboardDataFiltrado(DashboardFiltroDTO filtro);
         Task<List<ActividadAlertaDTO>>   GetActividadesPorAlerta(string tipoAlerta, DashboardFiltroDTO filtro);
         Task                             EnviarAlertasActividades(List<int> actividadIds, string tipoAlerta, List<string> emailsGestores, IEmailService emailService);

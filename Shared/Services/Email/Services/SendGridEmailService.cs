@@ -57,7 +57,17 @@ namespace Abril_Backend.Infrastructure.Services
                 }
             }
 
-            await client.SendEmailAsync(msg);
+            // SendGrid no lanza excepción por un envío rechazado (from no verificado, API key
+            // inválida, etc.) — devuelve un Response con el código de error y ya. Sin este check
+            // el caller (ej. InterconsultaService.EnviarRecordatorios) veía "enviado" sin
+            // excepción y reportaba éxito aunque SendGrid nunca haya entregado nada.
+            var response = await client.SendEmailAsync(msg);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Body.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"SendGrid rechazó el envío (HTTP {(int)response.StatusCode}): {errorBody}");
+            }
         }
 
         public async Task SendAsync(

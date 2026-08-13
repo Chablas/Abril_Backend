@@ -249,7 +249,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     InterconsultaUrlInforme = ctx.SsInterconsulta
                         .Where(ic => ic.WorkerId == x.w.Id)
                         .OrderByDescending(ic => ic.CreatedAt)
-                        .Select(ic => ic.UrlInforme).FirstOrDefault()
+                        .Select(ic => ic.UrlInforme).FirstOrDefault(),
+                    EstadoProgramacionEmo = ctx.SsProgramacionEmo
+                        .Where(pe => pe.WorkerId == x.w.Id && pe.State)
+                        .OrderByDescending(pe => pe.FechaProgramada)
+                        .ThenByDescending(pe => pe.Id)
+                        .Select(pe => (string?)pe.Estado)
+                        .FirstOrDefault()
                 })
                 .ToListAsync();
 

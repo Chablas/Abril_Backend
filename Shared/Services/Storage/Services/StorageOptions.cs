@@ -22,6 +22,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
+        public string TareosContainer { get; set; } = "tareos";
     }
 
     public class LocalStorageOptions
@@ -38,5 +39,6 @@ namespace Abril_Backend.Infrastructure.Services
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
+        public string TareosContainer { get; set; } = "tareos";
     }
 }

@@ -50,5 +50,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? InterconsultaEspecialidad { get; set; }
         public string? InterconsultaEstado { get; set; }
         public string? InterconsultaUrlInforme { get; set; }
+        /// <summary>Estado de la programación de EMO más reciente (Programado, Aceptado por
+        /// Clínica, etc.) — para que Salud vea de un vistazo si la cita ya fue aceptada por la
+        /// clínica, sin entrar a Programaciones.</summary>
+        public string? EstadoProgramacionEmo { get; set; }
     }
 }

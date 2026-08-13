@@ -14,5 +14,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         string GetVecinoPropiedadImagenesContainerName();
         string GetInvoicesContainerName();
         string GetActasReunionContainerName();
+        string GetTareosContainerName();
     }
 }

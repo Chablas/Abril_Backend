@@ -19,5 +19,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         /// en esa clínica. Misma lógica que el envío real; la usa el formulario para avisarlo.
         /// </summary>
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
+        Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
     }
 }

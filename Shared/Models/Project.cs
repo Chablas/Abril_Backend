@@ -80,6 +80,11 @@ namespace Abril_Backend.Shared.Models {
         // Foto
         public string? FotoUrl {get; set;}
 
+        // Geolocalización (geofencing de Tareos)
+        public decimal? Lat {get; set;}
+        public decimal? Lng {get; set;}
+        public decimal RadioGeofenceMetros {get; set;} = 300;
+
         // Auditoría
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

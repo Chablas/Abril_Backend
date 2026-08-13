@@ -15,5 +15,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task UndoCheckInAsync(int id);
         Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter);
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
+        Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
     }
 }

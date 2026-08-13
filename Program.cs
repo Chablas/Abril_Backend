@@ -185,6 +185,7 @@ builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService
 builder.Services.AddScoped<IRoleService, RoleService>();
 // IReniecService se registra vía AddHttpClient abajo para que el HttpClient tenga base URL y token configurados
 builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
+builder.Services.AddScoped<IArquitecturaComercialTareoService, ArquitecturaComercialTareoService>();
 builder.Services.AddScoped<ISharedFiltersService, SharedFiltersService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
@@ -199,6 +200,7 @@ builder.Services.AddScoped<IJWTService, JwtService>();
 builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComercialRepository>();
+builder.Services.AddScoped<IArquitecturaComercialTareoRepository, ArquitecturaComercialTareoRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<MilestoneRepository>();

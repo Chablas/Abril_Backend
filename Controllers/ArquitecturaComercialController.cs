@@ -420,6 +420,7 @@ namespace Abril_Backend.Controllers
             try
             {
                 var result = await _service.SnapshotAvanceSemanal();
+                await _service.SnapshotRankingSemanal();
                 return Ok(result);
             }
             catch (Exception)

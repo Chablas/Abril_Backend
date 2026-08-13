@@ -112,6 +112,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetDestinatarios"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Correo de inasistencias del día — botón de la Agenda de Clínica. Solo la clínica
+        /// (el médico) lo dispara, mismo criterio que InterconsultaController.EnviarCorreos:
+        /// el envío parte de su bandeja, no de SSOMA/Habilitación.
+        /// </summary>
+        [HttpPost("inasistencias/enviar-correos")]
+        [Authorize(Roles = Roles.Clinica)]
+        public async Task<IActionResult> EnviarInasistencias([FromQuery] DateOnly? fecha)
+        {
+            try
+            {
+                var f = fecha ?? DateOnly.FromDateTime(DateTime.Today);
+                return Ok(await _service.EnviarInasistencias(f));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.EnviarInasistencias"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("habilitacion")]
         public async Task<IActionResult> GetHabilitacion(
             [FromQuery] string? estado,

@@ -9,6 +9,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using Abril_Backend.Shared.Constants;
@@ -797,6 +798,265 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             prog.Notificado = notificado;
             prog.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Correo de inasistencias del día (botón de la Agenda de Clínica): a los trabajadores
+        /// con Estado = "No se presentó" en la fecha dada. Mismo criterio de agrupación que
+        /// InterconsultaService.EnviarRecordatorios — Staff/Oficina Central con correo propio
+        /// reciben individual, Obra se agrupa por proyecto en un solo correo al administrador —
+        /// porque es exactamente el mismo problema (avisar a los responsables de gente sin
+        /// correo propio) con otra fuente de datos.
+        /// </summary>
+        public async Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var result = new ProgramacionInasistenciaEnviarCorreoResultDto();
+
+            var raw = await (
+                from p in ctx.SsProgramacionEmo
+                join w in ctx.Worker on p.WorkerId equals w.Id
+                where p.State && p.Estado == "No se presentó" && p.FechaProgramada == fecha
+                select new
+                {
+                    p.Id,
+                    p.WorkerId,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    w.ObraOficinaStaffId,
+                    w.ContrataCasa,
+                    w.Categoria,
+                    w.Ocupacion,
+                    WorkerEmail = w.EmailCorporativo,
+                    ProyAsignada = ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == w.Id && wp.FechaFin == null)
+                        .OrderByDescending(wp => wp.FechaInicio)
+                        .ThenByDescending(wp => wp.Id)
+                        .FirstOrDefault(),
+                    VincActiva = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault()
+                }
+            ).ToListAsync();
+
+            result.TotalSeleccionadas = raw.Count;
+            if (raw.Count == 0) return result;
+
+            var proyectoIds = raw.Select(x => x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId)
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+            var empresaIds = raw.Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+            var proyectoMap = await ctx.Project
+                .Where(pr => proyectoIds.Contains(pr.ProjectId))
+                .ToDictionaryAsync(pr => pr.ProjectId, pr => pr);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c);
+
+            // CC fija: buzón de médico ocupacional + quien tenga hoy el rol Administrador de
+            // Administración (dinámico — si cambia la persona, no hay que tocar código).
+            var ccBase = new List<string> { SaludOcupacionalEmailConstants.Remitente };
+            var emailsAdminAdministracion = await (
+                from ur in ctx.UserRole
+                join u in ctx.User on ur.UserId equals u.UserId
+                where ur.Active && ur.State && ur.RoleId == int.Parse(Roles.AdministradorAdministracion)
+                    && u.Email != null && u.Email != ""
+                select u.Email!
+            ).Distinct().ToListAsync();
+            ccBase.AddRange(emailsAdminAdministracion);
+            ccBase = ccBase.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            var conCorreoPropio = raw
+                .Where(x => !string.IsNullOrWhiteSpace(x.WorkerEmail)
+                         && x.ContrataCasa == "Casa"
+                         && (x.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
+                          || x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral))
+                .ToList();
+            var sinCorreoPropio = raw.Except(conCorreoPropio).ToList();
+
+            foreach (var item in conCorreoPropio)
+            {
+                var proyectoId = item.ProyAsignada?.ProyectoId ?? item.VincActiva?.ProyectoId;
+                var empresaId = item.ProyAsignada?.EmpresaId ?? item.VincActiva?.EmpresaId;
+                Project? proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
+                Contributor? empresa = empresaId.HasValue && empresaMap.TryGetValue(empresaId.Value, out var e) ? e : null;
+
+                var destinatariosRaw = new List<string?>
+                {
+                    item.WorkerEmail, proyecto?.EmailCoordAdmin, empresa?.EmailAdministrador
+                };
+                var destinatarios = destinatariosRaw
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (destinatarios.Count == 0)
+                {
+                    result.TotalErrores++;
+                    result.Detalles.Add($"{item.WorkerNombre} — sin destinatarios. Omitido.");
+                    continue;
+                }
+
+                var infoIndividual = new InasistenciaInfoDto(
+                    item.WorkerNombre, item.WorkerDni,
+                    TipoDisplay(item.ContrataCasa, item.ObraOficinaStaffId),
+                    empresa?.ContributorName, proyecto?.ProjectDescription,
+                    proyecto?.EmailCoordAdmin ?? empresa?.EmailAdministrador,
+                    item.Categoria, item.Ocupacion);
+
+                try
+                {
+                    await _emailService.SendAsync(
+                        to: destinatarios,
+                        subject: $"Inasistencia a EMO programado - {item.WorkerNombre}",
+                        body: BuildBodyInasistenciaIndividual(infoIndividual, fecha),
+                        isHtml: true,
+                        cc: ccBase,
+                        fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    result.TotalEnviados++;
+                    result.Detalles.Add($"{item.WorkerNombre} — enviado a {destinatarios.Count} destinatario(s).");
+                }
+                catch (Exception ex)
+                {
+                    result.TotalErrores++;
+                    result.Detalles.Add($"{item.WorkerNombre} — error al enviar: {ex.Message}");
+                }
+            }
+
+            var grupos = sinCorreoPropio.GroupBy(x => new
+            {
+                ProyectoId = x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId,
+                Admin = (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId) is int pid && proyectoMap.TryGetValue(pid, out var pr) ? pr.EmailCoordAdmin : null
+            });
+
+            foreach (var grupo in grupos)
+            {
+                var proyectoNombre = grupo.Key.ProyectoId.HasValue && proyectoMap.TryGetValue(grupo.Key.ProyectoId.Value, out var pr)
+                    ? pr.ProjectDescription : "Sin proyecto asignado";
+                var admin = grupo.Key.Admin;
+
+                if (string.IsNullOrWhiteSpace(admin))
+                {
+                    result.TotalErrores += grupo.Count();
+                    foreach (var it in grupo)
+                        result.Detalles.Add($"{it.WorkerNombre} — sin administrador encargado en '{proyectoNombre}'. Omitido.");
+                    continue;
+                }
+
+                var infosGrupo = grupo.Select(x =>
+                {
+                    var empresaIdItem = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
+                    var empresaItem = empresaIdItem.HasValue && empresaMap.TryGetValue(empresaIdItem.Value, out var e2) ? e2 : null;
+                    return new InasistenciaInfoDto(
+                        x.WorkerNombre, x.WorkerDni,
+                        TipoDisplay(x.ContrataCasa, x.ObraOficinaStaffId),
+                        empresaItem?.ContributorName, proyectoNombre, admin,
+                        x.Categoria, x.Ocupacion);
+                }).ToList();
+
+                try
+                {
+                    await _emailService.SendAsync(
+                        to: new List<string> { admin.Trim() },
+                        subject: $"Inasistencias a EMO programado - {proyectoNombre}",
+                        body: BuildBodyInasistenciaConsolidado(proyectoNombre, infosGrupo, fecha),
+                        isHtml: true,
+                        cc: ccBase,
+                        fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    result.TotalEnviados += grupo.Count();
+                    result.Detalles.Add($"{proyectoNombre} — enviado a {admin} ({grupo.Count()} trabajador(es)).");
+                }
+                catch (Exception ex)
+                {
+                    result.TotalErrores += grupo.Count();
+                    result.Detalles.Add($"{proyectoNombre} — error al enviar a {admin}: {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>Info del trabajador para el cuerpo del correo — de dónde es, para que el
+        /// destinatario ubique de inmediato a quién le están avisando sin tener que buscarlo.</summary>
+        private record InasistenciaInfoDto(
+            string? Nombre, string? Dni, string Tipo, string? RazonSocial, string? Proyecto,
+            string? Administrador, string? Categoria, string? Ocupacion);
+
+        /// <summary>Obrero / Staff / Oficina Central — mismo criterio que ProgramacionListDto.TipoTrabajador.</summary>
+        private static string TipoDisplay(string? contrataCasa, int? obraOficinaStaffId)
+        {
+            if (contrataCasa != "Casa") return "Contratista";
+            return obraOficinaStaffId switch
+            {
+                ObraOficinaStaffIds.OficinaCentral => "Oficina Central",
+                ObraOficinaStaffIds.Staff => "Staff Obra",
+                _ => "Obrero",
+            };
+        }
+
+        private static string BuildBodyInasistenciaIndividual(InasistenciaInfoDto info, DateOnly fecha)
+        {
+            return $@"
+            <p>Estimados,</p>
+            <p>
+                Se informa que el trabajador <strong>{info.Nombre}</strong> (DNI {info.Dni})
+                tenía un <strong>EMO programado el {fecha:dd/MM/yyyy}</strong> y no se presentó.
+            </p>
+            <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;'>
+                <tr><td style='padding: 4px 8px; color:#666;'>Tipo</td><td style='padding: 4px 8px;'><strong>{info.Tipo}</strong></td></tr>
+                <tr><td style='padding: 4px 8px; color:#666;'>Razón social</td><td style='padding: 4px 8px;'>{info.RazonSocial ?? "—"}</td></tr>
+                <tr><td style='padding: 4px 8px; color:#666;'>Proyecto actual</td><td style='padding: 4px 8px;'>{info.Proyecto ?? "—"}</td></tr>
+                <tr><td style='padding: 4px 8px; color:#666;'>Categoría</td><td style='padding: 4px 8px;'>{info.Categoria ?? "—"}</td></tr>
+                <tr><td style='padding: 4px 8px; color:#666;'>Ocupación</td><td style='padding: 4px 8px;'>{info.Ocupacion ?? "—"}</td></tr>
+                <tr><td style='padding: 4px 8px; color:#666;'>Administrador responsable</td><td style='padding: 4px 8px;'>{info.Administrador ?? "—"}</td></tr>
+            </table>
+            <p>Se agradece coordinar su reprogramación a la brevedad.</p>
+            <p style='font-size: 12px; color: #666; margin-top: 24px;'>
+                Módulo de Programaciones — Salud Ocupacional.
+            </p>
+            ";
+        }
+
+        private static string BuildBodyInasistenciaConsolidado(string proyectoNombre, List<InasistenciaInfoDto> items, DateOnly fecha)
+        {
+            var filas = string.Join("", items.Select(it => $@"
+                <tr>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Nombre}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Dni}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Tipo}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.RazonSocial ?? "—"}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Categoria ?? "—"}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Ocupacion ?? "—"}</td>
+                </tr>"));
+
+            return $@"
+            <p>Estimados,</p>
+            <p>
+                Se informa que los siguientes trabajadores de <strong>{proyectoNombre}</strong>
+                tenían un <strong>EMO programado el {fecha:dd/MM/yyyy}</strong> y no se presentaron.
+                Se agradece coordinar su reprogramación a la brevedad:
+            </p>
+            <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px; width: 100%;'>
+                <thead>
+                    <tr>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Trabajador</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>DNI</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Tipo</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Razón social</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Categoría</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Ocupación</th>
+                    </tr>
+                </thead>
+                <tbody>{filas}</tbody>
+            </table>
+            <p style='font-size: 12px; color: #666; margin-top: 24px;'>
+                Módulo de Programaciones — Salud Ocupacional.
+            </p>
+            ";
         }
 
     }

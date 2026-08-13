@@ -52,6 +52,14 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         /// <summary>true si no tenía nada que vencer ni arrancar esta semana — se muestra aparte,
         /// no participa del IES ni del promedio del equipo.</summary>
         public bool SinCompromisos { get; set; }
+        /// <summary>Componente SPI del IES (35% del puntaje): ritmo real vs. planificado de lo que debía cerrar.</summary>
+        public double CompSpi { get; set; }
+        /// <summary>Componente tasa de cierre del IES (35%): % de lo que debía cerrar esta semana y cerró.</summary>
+        public double CompCierre { get; set; }
+        /// <summary>Componente puntualidad de inicio del IES (20%): % de lo que debía arrancar y arrancó a tiempo.</summary>
+        public double CompInicio { get; set; }
+        /// <summary>Motivos concretos por los que el IES no llegó a 100% (para mostrar en el desglose del ranking).</summary>
+        public List<string> Motivos { get; set; } = new();
     }
 
     /// <summary>Histórico completo de un supervisor (todo el tiempo, no solo la semana en control) —

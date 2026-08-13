@@ -2,7 +2,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Evaluación de la entrevista de un candidato (tabla <c>gth_candidato_evaluacion</c>):
-    /// los cuatro puntajes que registra GTH (entrevista, psicotécnico, técnica y resultado),
     /// los tres comentarios del informe que se comparte con el área solicitante y el
     /// resultado alcanzado.
     ///
@@ -23,12 +22,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>FK a <c>gth_candidato_resultado</c>: PENDIENTE / PASO / NO_PASO.</summary>
         public int GthCandidatoResultadoId { get; set; }
-
-        // ── Puntajes en porcentaje (0-100); null mientras GTH no los registre ──
-        public int? PuntajeEntrevista { get; set; }
-        public int? PuntajePsicotecnico { get; set; }
-        public int? PuntajeTecnica { get; set; }
-        public int? PuntajeResultado { get; set; }
 
         // ── Comentarios del informe de finalista ──────────────────────────────
         /// <summary>Resultado de la entrevista (qué se observó en la entrevista).</summary>

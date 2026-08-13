@@ -1,17 +1,12 @@
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
-    /// Body del PUT que guarda la evaluación de la entrevista de un candidato: los cuatro
-    /// puntajes (0-100, null = sin registrar) y los tres comentarios del informe de finalista.
-    /// El resultado (PASO / NO_PASO) no viaja aquí: lo define el correo de agradecimiento.
+    /// Body del PUT que guarda la evaluación de la entrevista de un candidato: los tres
+    /// comentarios del informe de finalista. El resultado (PASO / NO_PASO) no viaja aquí: lo
+    /// define el correo de agradecimiento.
     /// </summary>
     public class EvaluacionGuardarDto
     {
-        public int? PuntajeEntrevista { get; set; }
-        public int? PuntajePsicotecnico { get; set; }
-        public int? PuntajeTecnica { get; set; }
-        public int? PuntajeResultado { get; set; }
-
         /// <summary>Resultado de la entrevista (qué se observó).</summary>
         public string? ComentarioEntrevista { get; set; }
 
@@ -25,11 +20,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Evaluación de la entrevista de un candidato, como la muestran GTH y el solicitante.</summary>
     public class EvaluacionResumenDto
     {
-        public int? PuntajeEntrevista { get; set; }
-        public int? PuntajePsicotecnico { get; set; }
-        public int? PuntajeTecnica { get; set; }
-        public int? PuntajeResultado { get; set; }
-
         public string? ComentarioEntrevista { get; set; }
         public string? ComentarioPsicotecnico { get; set; }
         public string? ComentarioRecomendacion { get; set; }
@@ -85,7 +75,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>Finalistas ordenados por puntaje de resultado (mejor primero).</summary>
+        /// <summary>Finalistas ordenados alfabéticamente por nombre.</summary>
         public List<FinalistaDto> Finalistas { get; set; } = new();
     }
 
@@ -157,7 +147,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? CvNombre { get; set; }
         public string? CvUrl { get; set; }
 
-        /// <summary>Evaluación registrada por GTH (puntajes + comentarios del informe).</summary>
+        /// <summary>Evaluación registrada por GTH (comentarios del informe).</summary>
         public EvaluacionResumenDto Evaluacion { get; set; } = new();
     }
 }

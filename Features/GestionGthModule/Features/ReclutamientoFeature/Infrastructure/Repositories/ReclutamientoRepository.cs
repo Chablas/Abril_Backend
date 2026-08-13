@@ -49,10 +49,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private sealed class EvaluacionRawRow
         {
             public int GthCandidatoId { get; set; }
-            public int? PuntajeEntrevista { get; set; }
-            public int? PuntajePsicotecnico { get; set; }
-            public int? PuntajeTecnica { get; set; }
-            public int? PuntajeResultado { get; set; }
             public string? ComentarioEntrevista { get; set; }
             public string? ComentarioPsicotecnico { get; set; }
             public string? ComentarioRecomendacion { get; set; }
@@ -75,10 +71,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 select new EvaluacionRawRow
                 {
                     GthCandidatoId          = ev.GthCandidatoId,
-                    PuntajeEntrevista       = ev.PuntajeEntrevista,
-                    PuntajePsicotecnico     = ev.PuntajePsicotecnico,
-                    PuntajeTecnica          = ev.PuntajeTecnica,
-                    PuntajeResultado        = ev.PuntajeResultado,
                     ComentarioEntrevista    = ev.ComentarioEntrevista,
                     ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
                     ComentarioRecomendacion = ev.ComentarioRecomendacion,
@@ -93,10 +85,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Proyecta la fila cruda de la evaluación al DTO (fechas ya en hora de Perú).</summary>
         private static EvaluacionResumenDto MapEvaluacion(EvaluacionRawRow x) => new()
         {
-            PuntajeEntrevista       = x.PuntajeEntrevista,
-            PuntajePsicotecnico     = x.PuntajePsicotecnico,
-            PuntajeTecnica          = x.PuntajeTecnica,
-            PuntajeResultado        = x.PuntajeResultado,
             ComentarioEntrevista    = x.ComentarioEntrevista,
             ComentarioPsicotecnico  = x.ComentarioPsicotecnico,
             ComentarioRecomendacion = x.ComentarioRecomendacion,
@@ -1176,10 +1164,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return new EvaluacionResumenDto
             {
-                PuntajeEntrevista       = e.PuntajeEntrevista,
-                PuntajePsicotecnico     = e.PuntajePsicotecnico,
-                PuntajeTecnica          = e.PuntajeTecnica,
-                PuntajeResultado        = e.PuntajeResultado,
                 ComentarioEntrevista    = e.ComentarioEntrevista,
                 ComentarioPsicotecnico  = e.ComentarioPsicotecnico,
                 ComentarioRecomendacion = e.ComentarioRecomendacion,
@@ -1221,10 +1205,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ?? throw new AbrilException("No está configurado el resultado PASO de la entrevista.", 500);
             }
 
-            evaluacion.PuntajeEntrevista       = dto.PuntajeEntrevista;
-            evaluacion.PuntajePsicotecnico     = dto.PuntajePsicotecnico;
-            evaluacion.PuntajeTecnica          = dto.PuntajeTecnica;
-            evaluacion.PuntajeResultado        = dto.PuntajeResultado;
             evaluacion.ComentarioEntrevista    = Limpiar(dto.ComentarioEntrevista);
             evaluacion.ComentarioPsicotecnico  = Limpiar(dto.ComentarioPsicotecnico);
             evaluacion.ComentarioRecomendacion = Limpiar(dto.ComentarioRecomendacion);
@@ -1313,10 +1293,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Evaluacion = new EvaluacionRawRow
                     {
                         GthCandidatoId          = c.GthCandidatoId,
-                        PuntajeEntrevista       = ev.PuntajeEntrevista,
-                        PuntajePsicotecnico     = ev.PuntajePsicotecnico,
-                        PuntajeTecnica          = ev.PuntajeTecnica,
-                        PuntajeResultado        = ev.PuntajeResultado,
                         ComentarioEntrevista    = ev.ComentarioEntrevista,
                         ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
                         ComentarioRecomendacion = ev.ComentarioRecomendacion,
@@ -1336,10 +1312,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra    = head.ProyectoObra,
                 EstadoCodigo    = head.EstadoCodigo,
                 EstadoNombre    = head.EstadoNombre,
-                // Mejor puntaje de resultado primero; los que aún no lo tienen van al final.
+                // Sin puntajes que los ordenen, los finalistas van alfabéticamente.
                 Finalistas      = candidatos
-                    .OrderByDescending(x => x.Evaluacion.PuntajeResultado ?? -1)
-                    .ThenBy(x => x.Nombre)
+                    .OrderBy(x => x.Nombre)
                     .Select(x => new FinalistaDto
                     {
                         CandidatoId = x.GthCandidatoId,

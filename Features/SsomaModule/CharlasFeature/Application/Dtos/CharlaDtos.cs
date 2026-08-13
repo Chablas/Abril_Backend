@@ -41,6 +41,14 @@ public record NuevaCharlaCreateDto(
     List<int> WorkerIds
 );
 
+// ── NEW: Tab 3 — Editar charla (cabecera + asistencia) ───────────────────────
+public record EditarCharlaDto(
+    string Titulo,
+    string? Tema,
+    DateTime Fecha,
+    List<int> WorkerIds
+);
+
 // ── NEW: Tab 3 — Galería charlas proyecto ────────────────────────────────────
 public record CharlaGaleriaItemDto(
     int Id,

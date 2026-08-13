@@ -260,6 +260,18 @@ public class CharlaController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al crear charla."); return StatusCode(500, new { message = "Error al crear charla." }); }
     }
 
+    [HttpPut("charlas/{charlaId:int}")]
+    public async Task<IActionResult> EditarCharla(int charlaId, [FromQuery] int userId, [FromBody] EditarCharlaDto dto)
+    {
+        try
+        {
+            await _svc.EditarCharlaAsync(charlaId, dto, userId);
+            return NoContent();
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al editar charla."); return StatusCode(500, new { message = "Error al editar charla." }); }
+    }
+
     // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────
 
     [HttpGet("lista")]

@@ -32,6 +32,7 @@ public interface ICharlaService
 
     // NEW: Tab 3 — Crear nueva charla con supervisor + asistentes
     Task<CharlaListItemDto> CrearNuevaCharlaAsync(NuevaCharlaCreateDto dto, int userId);
+    Task EditarCharlaAsync(int charlaId, EditarCharlaDto dto, int userId);
     Task<List<CharlaGaleriaItemDto>> GetCharlasProyectoAsync(int proyectoId, int mes, int anio);
 
     // NEW: Tab 4 — Lista paginada + detalle + aprobación

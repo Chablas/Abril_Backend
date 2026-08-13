@@ -262,12 +262,21 @@ public class CharlaService : ICharlaService
         if (!await ctx.SsCharlas.AnyAsync(c => c.Id == charlaId && c.State))
             throw new AbrilException("Charla no encontrada.", 404);
 
+        await AplicarAsistenciaAsync(ctx, charlaId, dto.WorkerIds, userId);
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Deja como asistentes exactamente a los workers de <paramref name="workerIds"/>. No llama a SaveChanges.
+    /// </summary>
+    private static async Task AplicarAsistenciaAsync(AppDbContext ctx, int charlaId, List<int> workerIds, int userId)
+    {
         // Cargar todos los registros existentes (activos e inactivos) para evitar violar el unique constraint
         var existentes = await ctx.SsCharlaAsistencias
             .Where(a => a.CharlaId == charlaId)
             .ToListAsync();
 
-        var nuevosIds = dto.WorkerIds.Distinct().ToHashSet();
+        var nuevosIds = workerIds.Distinct().ToHashSet();
 
         // Activar/desactivar y actualizar Asistio según la nueva lista
         foreach (var e in existentes)
@@ -291,8 +300,6 @@ public class CharlaService : ICharlaService
                 CreatedAt = DateTime.UtcNow
             });
         }
-
-        await ctx.SaveChangesAsync();
     }
 
     // ── Tab 2: Capacitaciones Staff ───────────────────────────────────────────
@@ -692,32 +699,9 @@ public class CharlaService : ICharlaService
         await using var ctx = await _factory.CreateDbContextAsync();
 
         // auto-create or get programa
-        var mes = dto.Fecha.Month;
-        var anio = dto.Fecha.Year;
-        int programaId = dto.ProgramaId ?? 0;
-
-        if (programaId == 0)
-        {
-            var programa = await ctx.SsCharlaProgramas
-                .FirstOrDefaultAsync(p => p.ProyectoId == dto.ProyectoId && p.Mes == mes && p.Anio == anio && p.State);
-
-            if (programa == null)
-            {
-                programa = new SsCharlaPrograma
-                {
-                    ProyectoId = dto.ProyectoId,
-                    Mes = mes,
-                    Anio = anio,
-                    Nombre = $"Charlas {mes}/{anio}",
-                    Estado = "Activo",
-                    CreadoPorId = userId,
-                    CreatedAt = DateTime.UtcNow
-                };
-                ctx.SsCharlaProgramas.Add(programa);
-                await ctx.SaveChangesAsync();
-            }
-            programaId = programa.Id;
-        }
+        var programaId = dto.ProgramaId is > 0
+            ? dto.ProgramaId.Value
+            : await ResolverProgramaIdAsync(ctx, dto.ProyectoId, dto.Fecha.Month, dto.Fecha.Year, userId);
 
         var charla = new SsCharla
         {
@@ -759,6 +743,70 @@ public class CharlaService : ICharlaService
         }
 
         return new CharlaListItemDto(charla.Id, charla.Titulo, charla.Tema, charla.Fecha, charla.SupervisorId, supNombre, charla.Estado, charla.EvidenciaNombre, dto.WorkerIds.Count);
+    }
+
+    /// <summary>
+    /// Id del programa mensual del proyecto, creándolo si todavía no existe.
+    /// </summary>
+    private static async Task<int> ResolverProgramaIdAsync(AppDbContext ctx, int proyectoId, int mes, int anio, int userId)
+    {
+        var programa = await ctx.SsCharlaProgramas
+            .FirstOrDefaultAsync(p => p.ProyectoId == proyectoId && p.Mes == mes && p.Anio == anio && p.State);
+
+        if (programa == null)
+        {
+            programa = new SsCharlaPrograma
+            {
+                ProyectoId = proyectoId,
+                Mes = mes,
+                Anio = anio,
+                Nombre = $"Charlas {mes}/{anio}",
+                Estado = "Activo",
+                CreadoPorId = userId,
+                CreatedAt = DateTime.UtcNow
+            };
+            ctx.SsCharlaProgramas.Add(programa);
+            await ctx.SaveChangesAsync();
+        }
+
+        return programa.Id;
+    }
+
+    public async Task EditarCharlaAsync(int charlaId, EditarCharlaDto dto, int userId)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Titulo))
+            throw new AbrilException("El título es obligatorio.", 400);
+        if (dto.Fecha == default)
+            throw new AbrilException("La fecha es obligatoria.", 400);
+
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var charla = await ctx.SsCharlas.FirstOrDefaultAsync(c => c.Id == charlaId && c.State)
+            ?? throw new AbrilException("Charla no encontrada.", 404);
+
+        var nuevaFecha = DateTime.SpecifyKind(dto.Fecha.Date, DateTimeKind.Utc);
+
+        // Cada charla cuelga del programa de su mes (el resumen y las charlas del mes se
+        // arman a partir del programa), así que al mover la fecha a otro mes hay que
+        // reubicarla en el programa correspondiente.
+        if (nuevaFecha.Month != charla.Fecha.Month || nuevaFecha.Year != charla.Fecha.Year)
+        {
+            var proyectoId = charla.ProyectoId ?? await ctx.SsCharlaProgramas
+                .Where(p => p.Id == charla.ProgramaId)
+                .Select(p => (int?)p.ProyectoId)
+                .FirstOrDefaultAsync();
+
+            if (proyectoId.HasValue)
+                charla.ProgramaId = await ResolverProgramaIdAsync(ctx, proyectoId.Value, nuevaFecha.Month, nuevaFecha.Year, userId);
+        }
+
+        charla.Titulo = dto.Titulo.Trim();
+        charla.Tema = dto.Tema;
+        charla.Fecha = nuevaFecha;
+        charla.UpdatedAt = DateTime.UtcNow;
+
+        await AplicarAsistenciaAsync(ctx, charlaId, dto.WorkerIds, userId);
+        await ctx.SaveChangesAsync();
     }
 
     public async Task<List<CharlaGaleriaItemDto>> GetCharlasProyectoAsync(int proyectoId, int mes, int anio)

@@ -90,8 +90,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public EntrevistaResumenDto? Entrevista { get; set; }
 
         /// <summary>
-        /// Evaluación de la entrevista (puntajes, comentarios del informe y resultado). Null
-        /// mientras GTH no registre nada ni envíe el correo de agradecimiento.
+        /// Evaluación de la entrevista (comentarios del informe y resultado). Null mientras GTH
+        /// no registre nada ni envíe el correo de agradecimiento.
         /// </summary>
         public EvaluacionResumenDto? Evaluacion { get; set; }
     }

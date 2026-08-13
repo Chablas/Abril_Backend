@@ -344,20 +344,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto == null)
                 throw new AbrilException("Datos de la evaluación no recibidos.", 400);
 
-            ValidarPuntaje(dto.PuntajeEntrevista,   "de la entrevista");
-            ValidarPuntaje(dto.PuntajePsicotecnico, "psicotécnico");
-            ValidarPuntaje(dto.PuntajeTecnica,      "de la evaluación técnica");
-            ValidarPuntaje(dto.PuntajeResultado,    "del resultado");
-
             var resumen = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
             return new EvaluacionAccionResultDto { Message = "Evaluación guardada.", Evaluacion = resumen };
-        }
-
-        /// <summary>Los puntajes son porcentajes: 0-100 o null (aún sin registrar).</summary>
-        private static void ValidarPuntaje(int? valor, string campo)
-        {
-            if (valor is < 0 or > 100)
-                throw new AbrilException($"El puntaje {campo} debe estar entre 0 y 100.", 400);
         }
 
         public async Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId)
@@ -387,8 +375,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Correo genérico de agradecimiento para el candidato que no continúa en el proceso. No
-        /// menciona puntajes ni motivos: solo agradece la participación y deja abierta la puerta a
-        /// futuros procesos.
+        /// menciona motivos: solo agradece la participación y deja abierta la puerta a futuros
+        /// procesos.
         /// </summary>
         private static string ConstruirCuerpoAgradecimiento(AgradecimientoEnvioContextoDto ctx)
         {

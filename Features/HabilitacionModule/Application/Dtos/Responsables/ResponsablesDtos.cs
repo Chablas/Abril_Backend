@@ -25,16 +25,26 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables
         public string? EmailAdministrador { get; set; }
     }
 
-    /// <summary>Un proyecto con su coordinador de administración actual (project.email_coord_admin).</summary>
+    /// <summary>
+    /// Un proyecto con sus correos de notificación (correos de EMOs/interconsultas —
+    /// ver EmoAlertaService.BuildDestinatarios). Los 4 campos se suman todos al "to": no hay
+    /// jerarquía entre ellos, cualquiera con correo cargado recibe el aviso.
+    /// </summary>
     public class ResponsableProyectoDto
     {
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = string.Empty;
+        public string? EmailResponsable { get; set; }
+        public string? EmailRrhh { get; set; }
+        public string? EmailCoordSsoma { get; set; }
         public string? EmailCoordAdmin { get; set; }
     }
 
     public class ResponsableProyectoUpdateDto
     {
+        public string? EmailResponsable { get; set; }
+        public string? EmailRrhh { get; set; }
+        public string? EmailCoordSsoma { get; set; }
         public string? EmailCoordAdmin { get; set; }
     }
 

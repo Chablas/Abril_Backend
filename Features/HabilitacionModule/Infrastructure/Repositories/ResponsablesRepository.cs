@@ -42,6 +42,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     ProjectId = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
+                    EmailResponsable = p.EmailResponsable,
+                    EmailRrhh = p.EmailRrhh,
+                    EmailCoordSsoma = p.EmailCoordSsoma,
                     EmailCoordAdmin = p.EmailCoordAdmin
                 })
                 .ToListAsync();
@@ -93,6 +96,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId)
                 ?? throw new AbrilException("El proyecto no existe.", 404);
 
+            project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable)
+                ? null
+                : dto.EmailResponsable.Trim();
+            project.EmailRrhh = string.IsNullOrWhiteSpace(dto.EmailRrhh)
+                ? null
+                : dto.EmailRrhh.Trim();
+            project.EmailCoordSsoma = string.IsNullOrWhiteSpace(dto.EmailCoordSsoma)
+                ? null
+                : dto.EmailCoordSsoma.Trim();
             project.EmailCoordAdmin = string.IsNullOrWhiteSpace(dto.EmailCoordAdmin)
                 ? null
                 : dto.EmailCoordAdmin.Trim();

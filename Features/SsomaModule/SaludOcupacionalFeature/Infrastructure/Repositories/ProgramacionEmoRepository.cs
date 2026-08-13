@@ -867,18 +867,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c);
 
-            // CC fija: buzón de médico ocupacional + quien tenga hoy el rol Administrador de
-            // Administración (dinámico — si cambia la persona, no hay que tocar código).
+            // CC fija: solo el buzón de médico ocupacional (remitente). Antes también copiaba a
+            // TODOS los usuarios con el rol "Administrador de Administración" sin filtrar por
+            // proyecto/empresa — llegaba a gente sin ninguna relación con el trabajador (ej.
+            // Dayoris en un correo de BOSQUE REAL). El destinatario correcto (administrador del
+            // proyecto/empresa específico) ya va en el "to"; no hace falta copiar a nadie más.
             var ccBase = new List<string> { SaludOcupacionalEmailConstants.Remitente };
-            var emailsAdminAdministracion = await (
-                from ur in ctx.UserRole
-                join u in ctx.User on ur.UserId equals u.UserId
-                where ur.Active && ur.State && ur.RoleId == int.Parse(Roles.AdministradorAdministracion)
-                    && u.Email != null && u.Email != ""
-                select u.Email!
-            ).Distinct().ToListAsync();
-            ccBase.AddRange(emailsAdminAdministracion);
-            ccBase = ccBase.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             var conCorreoPropio = raw
                 .Where(x => !string.IsNullOrWhiteSpace(x.WorkerEmail)

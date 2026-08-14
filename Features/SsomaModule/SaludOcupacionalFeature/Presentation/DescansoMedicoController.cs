@@ -112,6 +112,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Asigna/cambia el diagnóstico CIE-10 — a diferencia de PUT (que exige estado
+        /// Pendiente), el médico puede revisarlo en cualquier estado.</summary>
+        [HttpPatch("descansos/{id:int}/diagnostico-cie10")]
+        public async Task<IActionResult> AsignarDiagnosticoCie10(int id, [FromBody] AsignarCie10Request req)
+        {
+            try
+            {
+                await _service.AsignarDiagnosticoCie10(id, req.Codigo);
+                return Ok(new { message = "Diagnóstico CIE-10 actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.AsignarDiagnosticoCie10"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("descansos/{id:int}/aprobar")]
         public async Task<IActionResult> Aprobar(int id, [FromBody] DescansoAprobarDto dto)
         {
@@ -136,38 +150,104 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpPatch("descansos/{id:int}/alta")]
-        public async Task<IActionResult> DarAlta(int id, [FromBody] DarAltaDto dto)
+        /// <summary>Otros casos abiertos del mismo trabajador — para vincular un descanso que
+        /// llegó suelto (subido por el trabajador desde Mi Salud) a un caso ya en curso.</summary>
+        [HttpGet("descansos/{id:int}/casos-candidatos")]
+        public async Task<IActionResult> GetCasosCandidatos(int id)
         {
             try
             {
-                await _service.DarAlta(id, dto, CurrentUserId());
+                var descanso = await _service.GetById(id);
+                return Ok(await _service.GetCasosCandidatos(descanso.WorkerId, descanso.CasoId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.GetCasosCandidatos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("descansos/{id:int}/vincular-caso")]
+        public async Task<IActionResult> VincularCaso(int id, [FromBody] VincularCasoRequest req)
+        {
+            try
+            {
+                await _service.VincularCaso(id, req.CasoDestinoId);
+                return Ok(new { message = "Descanso vinculado al caso existente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.VincularCaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Detalle completo del caso: descansos, seguimientos, alta — el timeline.</summary>
+        [HttpGet("descansos/casos/{casoId:int}")]
+        public async Task<IActionResult> GetCasoDetalle(int casoId)
+        {
+            try { return Ok(await _service.GetCasoDetalle(casoId)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.GetCasoDetalle"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Da de alta el CASO (cierra todos sus descansos, no uno individual).</summary>
+        [HttpPatch("descansos/casos/{casoId:int}/alta")]
+        public async Task<IActionResult> DarAlta(int casoId, [FromBody] DarAltaDto dto)
+        {
+            try
+            {
+                await _service.DarAlta(casoId, dto, CurrentUserId());
                 return Ok(new { message = "Alta médica registrada. El trabajador ha sido desbloqueado." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpGet("descansos/{id:int}/seguimientos")]
-        public async Task<IActionResult> GetSeguimientos(int id)
+        /// <summary>Reabre un caso cerrado — exige un descanso nuevo antes de poder re-cerrarlo.</summary>
+        [HttpPatch("descansos/casos/{casoId:int}/reabrir")]
+        public async Task<IActionResult> ReabrirCaso(int casoId, [FromBody] ReabrirCasoDto dto)
         {
-            try { return Ok(await _service.GetSeguimientos(id)); }
+            try
+            {
+                await _service.ReabrirCaso(casoId, dto, CurrentUserId());
+                return Ok(new { message = "Caso reabierto. Registra un nuevo descanso médico para continuar." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.ReabrirCaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("descansos/casos/{casoId:int}/seguimientos")]
+        public async Task<IActionResult> GetSeguimientos(int casoId)
+        {
+            try { return Ok(await _service.GetSeguimientosPorCaso(casoId)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpPost("descansos/{id:int}/seguimientos")]
-        public async Task<IActionResult> CreateSeguimiento(int id, [FromBody] DescansoSeguimientoCreateDto dto)
+        [HttpPost("descansos/casos/{casoId:int}/seguimientos")]
+        public async Task<IActionResult> CreateSeguimiento(int casoId, [FromBody] DescansoSeguimientoCreateDto dto)
         {
             try
             {
                 // Etiqueta de "quién registró (por rol)" para mostrar; usa el nombre, no el ID.
                 var rolClaim = User.FindFirst("role_name")?.Value;
-                var seguimientoId = await _service.CreateSeguimiento(id, dto, CurrentUserId(), rolClaim);
+                var seguimientoId = await _service.CreateSeguimiento(casoId, dto, CurrentUserId(), rolClaim);
                 return Ok(new { id = seguimientoId, message = "Seguimiento registrado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("descansos/seguimientos/tipos")]
+        public async Task<IActionResult> GetSeguimientoTipos()
+        {
+            try { return Ok(await _service.GetSeguimientoTipos()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.GetSeguimientoTipos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Búsqueda del catálogo CIE-10 (server-side porque tiene miles de códigos).</summary>
+        [HttpGet("descansos/cie10")]
+        public async Task<IActionResult> BuscarCie10([FromQuery] string? search)
+        {
+            try { return Ok(await _service.BuscarCie10(search)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.BuscarCie10"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpDelete("descansos/{id:int}")]

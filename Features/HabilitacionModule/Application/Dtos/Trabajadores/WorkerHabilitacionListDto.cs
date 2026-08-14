@@ -12,8 +12,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string EstadoHabilitacion { get; set; } = string.Empty;
         /// <summary>Nombre de la categoría (campo de lógica).</summary>
         public string? Categoria { get; set; }
+        /// <summary>FK a <c>categoria</c> — necesaria para filtrar el catálogo de puestos por categoría en "Cambiar obra".</summary>
+        public int? CategoriaId { get; set; }
         /// <summary>Nombre del puesto (campo de presentación).</summary>
         public string? Puesto { get; set; }
+        /// <summary>FK a <c>puesto</c> — necesaria para prellenar el selector de "Cambiar obra".</summary>
+        public int? PuestoId { get; set; }
         public string? ContrataCasa { get; set; }
         public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }

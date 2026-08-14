@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
     public class DescansoMedicoListItemDto
     {
         public int Id { get; set; }
+        public int CasoId { get; set; }
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
@@ -26,6 +27,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
     public class DescansoMedicoDetalleDto
     {
         public int Id { get; set; }
+        public int CasoId { get; set; }
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
@@ -39,7 +41,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public DateOnly FechaFin { get; set; }
         public int Dias { get; set; }
         public string? Diagnostico { get; set; }
+        /// <summary>LEGACY, ver DiagnosticoCie10Codigo.</summary>
         public string? DiagnosticoCie10 { get; set; }
+        /// <summary>FK a cie10_catalogo. Solo el médico lo asigna al revisar.</summary>
+        public string? DiagnosticoCie10Codigo { get; set; }
+        public string? DiagnosticoCie10Descripcion { get; set; }
         public string? UrlCertificado { get; set; }
         public string? UrlDocumento { get; set; }
         /// <summary>Certificados médicos adjuntos (ss_descanso_medico_adjunto).</summary>
@@ -94,23 +100,100 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
     {
         public int Id { get; set; }
         public int DescansoId { get; set; }
+        public int CasoId { get; set; }
         public DateTimeOffset FechaSeguimiento { get; set; }
+        /// <summary>LEGACY, ver TipoId.</summary>
         public string Tipo { get; set; } = string.Empty;
+        public int? TipoId { get; set; }
+        public string? TipoNombre { get; set; }
         public string? RealizadoPorRol { get; set; }
         public int? RealizadoPorId { get; set; }
+        /// <summary>Null si Confidencial=true y quien pide no tiene permiso de ver detalle
+        /// clínico — ver DescansoMedicoRepository.GetSeguimientosPorCaso.</summary>
         public string? Nota { get; set; }
         public DateOnly? ProximaCita { get; set; }
         public string? UrlEvidencia { get; set; }
+        public string? DiagnosticoCie10Codigo { get; set; }
+        public string? DiagnosticoCie10Descripcion { get; set; }
+        public string? PuestoTrabajoSnapshot { get; set; }
+        public bool Confidencial { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
     public class DescansoSeguimientoCreateDto
     {
-        public string Tipo { get; set; } = string.Empty;
+        /// <summary>Sobre cuál descanso puntual del caso se hace la nota — si no se envía, se
+        /// asume el descanso más reciente del caso.</summary>
+        public int? DescansoId { get; set; }
+        /// <summary>Sin uso — el único que registra seguimiento es el médico, así que no hace
+        /// falta clasificar "quién" lo hizo. Se conserva nullable solo por compatibilidad con
+        /// datos históricos (ver SsDescansoSeguimiento.TipoId), no se pide más en el formulario.</summary>
+        public int? TipoId { get; set; }
         public string? Nota { get; set; }
         public DateOnly? ProximaCita { get; set; }
         // UrlEvidencia se asigna en controller tras subir el archivo
         public string? UrlEvidencia { get; set; }
+        public string? DiagnosticoCie10Codigo { get; set; }
+        public bool Confidencial { get; set; } = true;
+    }
+
+    // ── Caso clínico ─────────────────────────────────────────────────────────
+
+    public class CasoDetalleDto
+    {
+        public int Id { get; set; }
+        public int WorkerId { get; set; }
+        public string? WorkerNombre { get; set; }
+        public string? WorkerDni { get; set; }
+        public DateOnly FechaApertura { get; set; }
+        /// <summary>"Abierto" | "Cerrado".</summary>
+        public string Estado { get; set; } = string.Empty;
+        public DateOnly? FechaCierre { get; set; }
+        public int? AltaPorId { get; set; }
+        public string? AltaObservaciones { get; set; }
+        public DateOnly? FechaReapertura { get; set; }
+        public List<DescansoMedicoListItemDto> Descansos { get; set; } = [];
+        public List<DescansoSeguimientoDto> Seguimientos { get; set; } = [];
+    }
+
+    public class ReabrirCasoDto
+    {
+        public string? Observaciones { get; set; }
+    }
+
+    public class SeguimientoTipoDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+    }
+
+    public class Cie10Dto
+    {
+        public string Codigo { get; set; } = string.Empty;
+        public string Descripcion { get; set; } = string.Empty;
+    }
+
+    public class AsignarCie10Request
+    {
+        public string? Codigo { get; set; }
+    }
+
+    /// <summary>Un caso candidato para vincular un descanso suelto (el que crea el trabajador
+    /// al subir desde Mi Salud, que nace como caso propio de un solo descanso).</summary>
+    public class CasoCandidatoDto
+    {
+        public int Id { get; set; }
+        public DateOnly FechaApertura { get; set; }
+        /// <summary>Fechas/tipo del primer descanso del caso, para que el médico reconozca cuál
+        /// es sin tener que abrir cada uno.</summary>
+        public DateOnly PrimerDescansoInicio { get; set; }
+        public DateOnly PrimerDescansoFin { get; set; }
+        public string PrimerDescansoTipo { get; set; } = string.Empty;
+    }
+
+    public class VincularCasoRequest
+    {
+        public int CasoDestinoId { get; set; }
     }
 
     public class DescansoMedicoCreateDto
@@ -121,11 +204,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public string? Diagnostico { get; set; }
+        /// <summary>LEGACY, ver DiagnosticoCie10Codigo.</summary>
         public string? DiagnosticoCie10 { get; set; }
+        /// <summary>FK a cie10_catalogo. No lo llena el trabajador — se asigna al aprobar/revisar.</summary>
+        public string? DiagnosticoCie10Codigo { get; set; }
         public int? AccidenteId { get; set; }
         public bool EsRecaida { get; set; } = false;
         public int? TopicoOrigenId { get; set; }
+        /// <summary>"Añadir más descanso" sobre un caso abierto: id del descanso que se extiende.
+        /// Si se envía, el nuevo descanso hereda el CasoId de ese descanso.</summary>
         public int? ProrrogaDelId { get; set; }
+        /// <summary>Solo para el flujo de reapertura: registrar un descanso nuevo directamente
+        /// sobre un caso ya reabierto (sin que sea "prórroga" de un descanso puntual anterior).</summary>
+        public int? CasoId { get; set; }
         public int? ProyectoId { get; set; }
         public int? EmpresaId { get; set; }
         /// <summary>Certificados médicos. Se suben en el controller y se guardan como adjuntos.</summary>
@@ -138,7 +229,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public string? Diagnostico { get; set; }
+        /// <summary>LEGACY, ver DiagnosticoCie10Codigo.</summary>
         public string? DiagnosticoCie10 { get; set; }
+        /// <summary>FK a cie10_catalogo — lo asigna el médico al revisar el caso.</summary>
+        public string? DiagnosticoCie10Codigo { get; set; }
     }
 
     public class DescansoAprobarDto

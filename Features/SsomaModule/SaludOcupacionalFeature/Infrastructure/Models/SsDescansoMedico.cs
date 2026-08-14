@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 {
@@ -13,6 +14,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 
         [Column("worker_id")]
         public int WorkerId { get; set; }
+
+        /// <summary>Agrupador del caso clínico (ver SsDescansoCaso) — el descanso original y
+        /// cada "más descanso" que lo extiende comparten el mismo CasoId.</summary>
+        [Column("caso_id")]
+        public int CasoId { get; set; }
+
+        [ForeignKey(nameof(CasoId))]
+        public SsDescansoCaso? Caso { get; set; }
 
         // Nota: las columnas legacy `tipo` (texto), `motivo` (texto) y `motivo_id` siguen en la
         // tabla con su valor histórico para auditoría, pero ya no se mapean: el único
@@ -27,8 +36,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("diagnostico")]
         public string? Diagnostico { get; set; }
 
+        /// <summary>LEGACY — texto libre, se conserva solo para histórico. El diagnóstico CIE-10
+        /// real vive en <see cref="DiagnosticoCie10Codigo"/> (FK al catálogo oficial).</summary>
         [Column("diagnostico_cie10")]
         public string? DiagnosticoCie10 { get; set; }
+
+        /// <summary>FK a cie10_catalogo. Solo lo asigna el médico al revisar el caso — el
+        /// trabajador que sube el descanso no lo indica (no tiene por qué saberlo).</summary>
+        [Column("diagnostico_cie10_codigo")]
+        public string? DiagnosticoCie10Codigo { get; set; }
+
+        [ForeignKey(nameof(DiagnosticoCie10Codigo))]
+        public Cie10Catalogo? DiagnosticoCie10Catalogo { get; set; }
 
         [Column("url_certificado")]
         public string? UrlCertificado { get; set; }
@@ -85,12 +104,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("prorroga_del_id")]
         public int? ProrrogaDelId { get; set; }
 
+        /// <summary>LEGACY — el alta ahora cierra el CASO (<see cref="SsDescansoCaso.FechaCierre"/>
+        /// / AltaPorId / AltaObservaciones), no un descanso individual. Estas tres columnas se
+        /// conservan solo por los casos dados de alta antes de que existiera SsDescansoCaso.</summary>
         [Column("fecha_alta")]
         public DateOnly? FechaAlta { get; set; }
 
+        /// <summary>LEGACY — ver comentario de <see cref="FechaAlta"/>.</summary>
         [Column("alta_por_id")]
         public int? AltaPorId { get; set; }
 
+        /// <summary>LEGACY — ver comentario de <see cref="FechaAlta"/>.</summary>
         [Column("alta_observaciones")]
         public string? AltaObservaciones { get; set; }
 

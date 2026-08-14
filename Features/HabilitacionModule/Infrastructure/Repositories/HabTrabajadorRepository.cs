@@ -71,6 +71,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Worker = w,
                     PersonFullName = w.Person != null ? w.Person.FullName : null,
                     PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    // Se proyectan explícitos acá (no se leen luego como w.PuestoCatalogo/
+                    // w.CategoriaCatalogo desde el Worker ya materializado) porque baseQuery no
+                    // tiene .Include() en esas navegaciones — leerlas después de pageRows.ToListAsync()
+                    // siempre devolvía null aunque el trabajador sí tuviera puesto/categoría asignados,
+                    // por eso "Puesto actual" salía en blanco en el modal de Cambiar obra.
+                    CategoriaNombre = w.CategoriaCatalogo != null ? w.CategoriaCatalogo.Nombre : null,
+                    PuestoNombre = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null,
                     // Vinculación activa (FechaFin == null) — usada para vista de activos
                     LatestVincActiva = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
@@ -320,8 +327,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ProyectoActualId = vinc?.ProyectoId,
                     ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
                     EstadoHabilitacion = r.EstadoCalc,
-                    Categoria = r.Worker.CategoriaCatalogo == null ? null : r.Worker.CategoriaCatalogo.Nombre,
-                    Puesto = r.Worker.PuestoCatalogo == null ? null : r.Worker.PuestoCatalogo.Nombre,
+                    Categoria = r.CategoriaNombre,
+                    CategoriaId = r.Worker.CategoriaId,
+                    Puesto = r.PuestoNombre,
+                    PuestoId = r.Worker.PuestoId,
                     ContrataCasa = r.Worker.ContrataCasa,
                     ObraOficinaStaffId = r.Worker.ObraOficinaStaffId,
                     ObraOficina = ObraOficinaStaffIds.Nombre(r.Worker.ObraOficinaStaffId),
@@ -786,14 +795,45 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // El puesto vigente es el del trabajador; worker_vinculaciones.puesto guarda además
             // el nombre congelado en el momento del cambio (snapshot histórico, no un catálogo).
             var currentPuesto = worker.PuestoCatalogo?.Nombre;
-            var nuevoPuesto = dto.PuestoId.HasValue
+            var nuevoPuestoRow = dto.PuestoId.HasValue
                 ? await ctx.Puesto.Where(p => p.PuestoId == dto.PuestoId && p.State)
-                    .Select(p => p.Nombre).FirstOrDefaultAsync()
+                    .Select(p => new { p.Nombre, p.CategoriaId }).FirstOrDefaultAsync()
                 : null;
+            var nuevoPuesto = nuevoPuestoRow?.Nombre;
             var esCambioPuesto = dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId;
+            // El puesto es el campo de PRESENTACIÓN, pero toda regla de negocio (EMO por
+            // categoría, practicantes, etc.) se decide contra CategoriaId — el campo de LÓGICA.
+            // Cambiar de puesto sin resincronizar la categoría dejaría esas reglas evaluando
+            // contra la categoría vieja aunque el puesto (y por tanto el riesgo/rol real) ya
+            // cambió. Cada puesto tiene su categoría derivada en el catálogo; si el puesto nuevo
+            // no tiene una asignada, se conserva la categoría actual en vez de vaciarla.
+            var esCambioCategoriaPorPuesto = esCambioPuesto
+                && nuevoPuestoRow?.CategoriaId.HasValue == true
+                && nuevoPuestoRow.CategoriaId != worker.CategoriaId;
+
+            // Cambio de categoría EXPLÍCITO (checkbox propio en el modal), independiente de si
+            // el puesto también cambia — p.ej. el trabajador sigue con el mismo puesto de
+            // presentación pero pasa a otra categoría de riesgo/EMO. Igual que el puesto, esto
+            // también exige revisar el certificado de aptitud (ver requiereRevisionAptitud).
+            var esCambioCategoriaExplicito = dto.CategoriaId.HasValue && dto.CategoriaId != worker.CategoriaId;
+
+            // Se resuelve acá (antes de calcular la clasificación) porque el proyecto destino
+            // "Oficina Central" determina la clasificación automáticamente — ver más abajo.
+            var proyectoDestino = esCambioProyecto
+                ? await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId)
+                : null;
 
             var currentObraOficinaStaffId = worker.ObraOficinaStaffId;
-            var nuevoObraOficinaStaffId = dto.ObraOficinaStaffId ?? currentObraOficinaStaffId;
+            // El proyecto "Oficina Central" es, por definición, personal de Oficina Central — no
+            // tiene sentido que alguien asignado a ese proyecto quede clasificado como Staff/Obra,
+            // así que este sentido SÍ se puede automatizar sin ambigüedad (a diferencia de salir
+            // de Oficina Central hacia un proyecto real, donde no hay forma de adivinar si la
+            // persona pasa a ser Staff u Obra — eso lo sigue decidiendo el admin a mano).
+            var proyectoDestinoEsOficinaCentral = proyectoDestino != null
+                && string.Equals(proyectoDestino.ProjectDescription?.Trim(), "Oficina Central", StringComparison.OrdinalIgnoreCase);
+            var nuevoObraOficinaStaffId = proyectoDestinoEsOficinaCentral
+                ? ObraOficinaStaffIds.OficinaCentral
+                : (dto.ObraOficinaStaffId ?? currentObraOficinaStaffId);
             var esCambioRiesgoAscendente = ObraOficinaStaffIds.EsCambioRiesgoCritico(
                 currentObraOficinaStaffId, nuevoObraOficinaStaffId);
 
@@ -803,7 +843,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var itemsToReset = new HashSet<int>();
             var itemsToRestore = new HashSet<int>();
             var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
-            Project? proyectoDestino = null;
             // Se hoistea a este scope porque también determina el induccion_completada con el que
             // nace la fila de ss_hab_worker_proyecto del proyecto destino (ver llamada a
             // SincronizarWorkerProyectoCambioAsync más abajo).
@@ -811,9 +850,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioProyecto)
             {
-                proyectoDestino = await ctx.Project
-                    .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId);
-
                 yaIndujoEnNuevoProyecto = await ctx.WorkerProyecto
                     .AnyAsync(wp => wp.WorkerId == workerId
                         && wp.ProyectoId == dto.NuevoProyectoId
@@ -847,12 +883,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             // El certificado de aptitud (EMO) deja de ser válido para el nuevo puesto en
-            // cualquiera de estos tres casos — un cambio de obra puro (misma empresa, mismo
-            // puesto, misma clasificación) no lo toca:
+            // cualquiera de estos cuatro casos — un cambio de obra puro (misma empresa, mismo
+            // puesto, misma categoría, misma clasificación) no lo toca:
             //   1) cambio de razón social,
             //   2) cambio de puesto de trabajo,
-            //   3) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
-            var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioRiesgoAscendente;
+            //   3) cambio de categoría explícito (aunque el puesto no cambie),
+            //   4) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
+            var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioCategoriaExplicito || esCambioRiesgoAscendente;
 
             if (requiereRevisionAptitud)
             {
@@ -892,7 +929,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ? "• Certificado de Aptitud (EMO nuevo obligatorio — sube de riesgo a Staff/Obra)"
                     : esCambioEmpresa
                         ? "• Certificado de Aptitud (Homologación)"
-                        : "• Certificado de Aptitud (revisión por cambio de puesto)";
+                        : esCambioCategoriaExplicito
+                            ? "• Certificado de Aptitud (revisión por cambio de categoría)"
+                            : "• Certificado de Aptitud (revisión por cambio de puesto)";
 
                 pendingEmails.Add((
                     [EmailMedico],
@@ -914,6 +953,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // congelado del momento del cambio.
             if (esCambioPuesto)
                 worker.PuestoId = dto.PuestoId;
+
+            // Sincroniza la categoría (campo de lógica) con el puesto nuevo — ver comentario
+            // de esCambioCategoriaPorPuesto más arriba. El cambio EXPLÍCITO de categoría (checkbox
+            // propio) manda por encima del derivado del puesto, por si el admin marcó ambos a la vez.
+            if (esCambioCategoriaPorPuesto)
+                worker.CategoriaId = nuevoPuestoRow!.CategoriaId;
+            if (esCambioCategoriaExplicito)
+                worker.CategoriaId = dto.CategoriaId;
 
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
@@ -1049,8 +1096,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // le arma al médico la convalidación lista para que decida — la misma mecánica que ya
             // existía para cambio de empresa, ahora extendida a los otros dos disparadores.
             _logger.LogInformation(
-                "[Convalidacion] requiereRevisionAptitud={Requiere} (empresa={Empresa} puesto={Puesto} riesgo={Riesgo}) workerId={WorkerId}",
-                requiereRevisionAptitud, esCambioEmpresa, esCambioPuesto, esCambioRiesgoAscendente, workerId);
+                "[Convalidacion] requiereRevisionAptitud={Requiere} (empresa={Empresa} puesto={Puesto} categoria={Categoria} riesgo={Riesgo}) workerId={WorkerId}",
+                requiereRevisionAptitud, esCambioEmpresa, esCambioPuesto, esCambioCategoriaExplicito, esCambioRiesgoAscendente, workerId);
 
             if (requiereRevisionAptitud)
             {

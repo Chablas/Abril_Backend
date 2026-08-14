@@ -79,6 +79,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     ObraOficinaStaffId = w.ObraOficinaStaffId,
                     EmailCorporativo   = w.EmailCorporativo,
                     ContributorId      = w.ContributorId,
+                    Subarea            = w.Subarea,
                 })
                 .ToListAsync();
             if (workers.Count == 0) return resultado;
@@ -118,6 +119,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         select new ProyectoContexto
                         {
                             ProjectId       = p.ProjectId,
+                            Nombre          = p.ProjectDescription,
                             EmailResidente  = residente != null ? residente.EmailCorporativo : null,
                             EmailCoordAdmin = p.EmailCoordAdmin,
                             EmailCoordSsoma = p.EmailCoordSsoma,
@@ -131,6 +133,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         proyectos.TryGetValue(proyectoId.Value, out var proyecto))
                         w.Proyecto = proyecto;
             }
+
+            // Un trabajador es de Arquitectura Comercial si es staff con esa subárea, o si
+            // es obrero cuyo proyecto actual es, literalmente, el proyecto "Arquitectura
+            // Comercial" — mismo criterio que ArquitecturaComercialRepository.GetSupervisoresAc.
+            // Project.TieneArquitecturaComercial NO sirve para esto: ese flag solo marca qué
+            // proyectos aparecen en Observaciones/Revisiones, no de qué trabajadores son AC
+            // (por eso antes le llegaba este correo a cualquier ingreso de un proyecto con el
+            // flag activado, sin que el trabajador tuviera nada que ver con AC).
+            foreach (var w in workers)
+                w.EsArquitecturaComercial =
+                    string.Equals(w.Subarea, "Arquitectura Comercial", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(w.Proyecto?.Nombre, "Arquitectura Comercial", StringComparison.OrdinalIgnoreCase);
 
             if (codigosActivos.Contains(EmoCorreoDestinatarioCodigo.AdminRazonSocial))
             {
@@ -311,9 +325,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 case EmoCorreoDestinatarioCodigo.Gth:
                     return new[] { ((string?)gthEmail, (string?)regla.Nombre) };
 
+                case EmoCorreoDestinatarioCodigo.ArqComJefe:
+                case EmoCorreoDestinatarioCodigo.ArqComPrevencionista:
+                    // Solo si el propio trabajador es de Arquitectura Comercial (no basta con
+                    // que su proyecto tenga el flag TieneArquitecturaComercial — ver comentario
+                    // en el cálculo de w.EsArquitecturaComercial más arriba).
+                    if (!w.EsArquitecturaComercial)
+                        return Array.Empty<(string?, string?)>();
+
+                    return new[] { ((string?)regla.Email, (string?)regla.Nombre) };
+
                 default:
-                    // Buzones de área con condición: ArqCom y Post Venta solo escriben
-                    // cuando el proyecto del trabajador tiene arquitectura comercial.
+                    // Buzón de área con condición: Post Venta solo escribe cuando el proyecto
+                    // del trabajador tiene arquitectura comercial.
                     if (EmoCorreoDestinatarioCodigo.RequiereArquitecturaComercial(regla.DestinatarioCodigo)
                         && w.Proyecto?.TieneArqCom != true)
                         return Array.Empty<(string?, string?)>();
@@ -330,12 +354,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             public string? EmailCorporativo { get; set; }
             public int? ContributorId { get; set; }
             public string? EmailAdminRazonSocial { get; set; }
+            public string? Subarea { get; set; }
+            public bool EsArquitecturaComercial { get; set; }
             public ProyectoContexto? Proyecto { get; set; }
         }
 
         private sealed class ProyectoContexto
         {
             public int ProjectId { get; set; }
+            public string? Nombre { get; set; }
             public string? EmailResidente { get; set; }
             public string? EmailCoordAdmin { get; set; }
             public string? EmailCoordSsoma { get; set; }

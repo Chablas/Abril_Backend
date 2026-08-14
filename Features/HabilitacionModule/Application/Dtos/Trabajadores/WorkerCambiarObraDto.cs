@@ -11,6 +11,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         /// obra ni de empresa.</summary>
         public int? PuestoId { get; set; }
 
+        /// <summary>FK a <c>categoria</c> — cambio explícito de categoría, independiente del
+        /// puesto (p.ej. el trabajador conserva el mismo puesto de presentación pero cambia de
+        /// categoría de riesgo/EMO). Si no se envía, la categoría solo se resincroniza como
+        /// efecto de <see cref="PuestoId"/> cuando ese sí cambia.</summary>
+        public int? CategoriaId { get; set; }
+
         /// <summary>Nueva clasificación de riesgo (catálogo workers_obra_oficina_staff:
         /// Obra/Staff/Oficina Central). Si no se envía, se conserva la actual.</summary>
         public int? ObraOficinaStaffId { get; set; }

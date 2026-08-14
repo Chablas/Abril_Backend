@@ -22,11 +22,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         /// </summary>
         Task<DescansoCertificadoArchivoDto> GetCertificado(int adjuntoId);
         Task Update(int id, DescansoMedicoUpdateDto dto);
+        Task AsignarDiagnosticoCie10(int id, string? codigo);
         Task Aprobar(int id, DescansoAprobarDto dto, int? userId);
         Task Rechazar(int id, DescansoRechazarDto dto, int? userId);
-        Task DarAlta(int id, DarAltaDto dto, int? userId);
-        Task<List<DescansoSeguimientoDto>> GetSeguimientos(int descansoId);
-        Task<int> CreateSeguimiento(int descansoId, DescansoSeguimientoCreateDto dto, int? userId, string? rolUsuario);
+
+        Task DarAlta(int casoId, DarAltaDto dto, int? userId);
+        Task ReabrirCaso(int casoId, ReabrirCasoDto dto, int? userId);
+        Task<CasoDetalleDto> GetCasoDetalle(int casoId);
+        Task<List<CasoCandidatoDto>> GetCasosCandidatos(int workerId, int excluirCasoId);
+        Task VincularCaso(int descansoId, int casoDestinoId);
+
+        Task<List<DescansoSeguimientoDto>> GetSeguimientosPorCaso(int casoId);
+        Task<int> CreateSeguimiento(int casoId, DescansoSeguimientoCreateDto dto, int? userId, string? rolUsuario);
         Task Delete(int id);
+
+        Task<List<SeguimientoTipoDto>> GetSeguimientoTipos();
+        Task<List<Cie10Dto>> BuscarCie10(string? search);
     }
 }

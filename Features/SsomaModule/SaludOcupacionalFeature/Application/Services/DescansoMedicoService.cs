@@ -100,18 +100,40 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.Rechazar(id, dto, userId);
         }
 
-        public Task DarAlta(int id, DarAltaDto dto, int? userId) =>
-            _repo.DarAlta(id, dto, userId);
+        public Task AsignarDiagnosticoCie10(int id, string? codigo) => _repo.AsignarDiagnosticoCie10(id, codigo);
 
-        public Task<List<DescansoSeguimientoDto>> GetSeguimientos(int descansoId) =>
-            _repo.GetSeguimientos(descansoId);
+        public Task DarAlta(int casoId, DarAltaDto dto, int? userId) =>
+            _repo.DarAlta(casoId, dto, userId);
 
-        public Task<int> CreateSeguimiento(int descansoId, DescansoSeguimientoCreateDto dto, int? userId, string? rolUsuario)
+        public Task ReabrirCaso(int casoId, ReabrirCasoDto dto, int? userId) =>
+            _repo.ReabrirCaso(casoId, dto, userId);
+
+        public Task<CasoDetalleDto> GetCasoDetalle(int casoId) => _repo.GetCasoDetalle(casoId);
+
+        public Task<List<CasoCandidatoDto>> GetCasosCandidatos(int workerId, int excluirCasoId) =>
+            _repo.GetCasosCandidatos(workerId, excluirCasoId);
+
+        public Task VincularCaso(int descansoId, int casoDestinoId) =>
+            _repo.VincularCaso(descansoId, casoDestinoId);
+
+        // "Solo el médico puede hacer seguimiento" queda pendiente de resolver (depende de cómo
+        // inicia sesión el médico en el sistema) — por ahora se pasa true, sin filtrar nada. El
+        // punto de extensión es este mismo parámetro cuando se defina el mecanismo de acceso.
+        public Task<List<DescansoSeguimientoDto>> GetSeguimientosPorCaso(int casoId) =>
+            _repo.GetSeguimientosPorCaso(casoId, puedeVerDetalleClinico: true);
+
+        public Task<int> CreateSeguimiento(int casoId, DescansoSeguimientoCreateDto dto, int? userId, string? rolUsuario)
         {
-            if (string.IsNullOrWhiteSpace(dto.Tipo))
-                throw new AbrilException("El tipo de seguimiento es obligatorio.", 400);
-            return _repo.CreateSeguimiento(descansoId, dto, userId ?? 0, rolUsuario);
+            if (string.IsNullOrWhiteSpace(dto.Nota))
+                throw new AbrilException("La nota es obligatoria.", 400);
+            // TODO: cuando se defina cómo inicia sesión el médico, restringir acá:
+            // if (rolUsuario != "MEDICO") throw new AbrilException("Solo el médico puede registrar seguimiento.", 403);
+            return _repo.CreateSeguimiento(casoId, dto, userId ?? 0, rolUsuario);
         }
+
+        public Task<List<SeguimientoTipoDto>> GetSeguimientoTipos() => _repo.GetSeguimientoTipos();
+
+        public Task<List<Cie10Dto>> BuscarCie10(string? search) => _repo.BuscarCie10(search, limite: 30);
 
         public Task Delete(int id) => _repo.Delete(id);
     }

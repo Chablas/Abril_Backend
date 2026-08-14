@@ -16,6 +16,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int ReunionAcuerdoEstadoId { get; set; }
         public int Orden { get; set; }
 
+        /// <summary>Si true, cada responsable debe aceptar el acuerdo antes de que quede activo (ver ReunionAcuerdoResponsable.EstadoAceptacion).</summary>
+        public bool RequiereAceptacion { get; set; }
+        /// <summary>Si true, no se puede marcar CUMPLIDO sin EvidenciaUrl.</summary>
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

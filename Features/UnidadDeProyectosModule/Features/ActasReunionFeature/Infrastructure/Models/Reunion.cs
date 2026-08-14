@@ -1,16 +1,26 @@
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models
 {
     /// <summary>
-    /// Acta de reunión (SIG-FO-17). Registra una reunión de un proyecto: puede agendarse
-    /// a futuro (estado PROGRAMADA), reprogramarse varias veces (ver ReunionReprogramacion)
+    /// Acta de reunión (SIG-FO-17). Registra una reunión de un proyecto, de un nodo del árbol
+    /// area_scope (gerencia/área/subárea) o de toda la organización (ambos campos null): puede
+    /// agendarse a futuro (estado PROGRAMADA), reprogramarse varias veces (ver ReunionReprogramacion)
     /// y al realizarse concentra participantes, acuerdos y archivos adjuntos.
     /// </summary>
     public class Reunion
     {
         public int ReunionId { get; set; }
-        public int ProjectId { get; set; }
 
-        /// <summary>Correlativo por proyecto (ej. "Comité N°10").</summary>
+        /// <summary>Null si la reunión es de un area_scope o de toda la organización.</summary>
+        public int? ProjectId { get; set; }
+
+        /// <summary>
+        /// Nodo del árbol area_scope (gerencia/área/subárea) al que pertenece la reunión.
+        /// Null si es de proyecto o de toda la organización. Nunca coexiste con ProjectId
+        /// (ver constraint chk_reunion_ambito_unico).
+        /// </summary>
+        public int? AreaScopeId { get; set; }
+
+        /// <summary>Correlativo dentro de su serie: por proyecto, por area_scope, o global si ambos son null.</summary>
         public int Numero { get; set; }
         public string Tema { get; set; } = null!;
         public string? ConvocadoPor { get; set; }

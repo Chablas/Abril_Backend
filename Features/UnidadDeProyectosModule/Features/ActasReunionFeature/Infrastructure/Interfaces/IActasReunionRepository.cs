@@ -8,6 +8,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro);
         Task<ReunionDetalleDto> GetDetalle(int reunionId);
         Task<int> Create(ReunionCreateRequest request, int userId);
+        /// <summary>Trabajadores que calzan con un área/gerencia (con descendencia) y/o una lista de puestos, para convocatoria masiva.</summary>
+        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds);
+        Task<List<CatalogoDto>> GetPuestos();
+        Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
+        Task<CatalogoDto> AgregarTema(string descripcion, int userId);
+        Task<List<CatalogoDto>> GetTemasCatalogo();
+        Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
+        Task GuardarConvocatoriaTema(int reunionTemaId, int? areaScopeId, List<int> puestoIds, int userId);
         Task Update(int reunionId, ReunionUpdateRequest request, int userId);
         Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId);
         Task CambiarEstado(int reunionId, string estado, int userId);

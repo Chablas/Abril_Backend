@@ -1,8 +1,10 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -72,6 +74,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             if (filtro.ProjectId.HasValue)
                 query = query.Where(r => r.ProjectId == filtro.ProjectId.Value);
+            if (filtro.AreaScopeId.HasValue)
+            {
+                var descendientes = await ctx.ResolveDescendantsAsync(filtro.AreaScopeId.Value);
+                query = query.Where(r => r.AreaScopeId.HasValue && descendientes.Contains(r.AreaScopeId.Value));
+            }
             if (filtro.ReunionEstadoId.HasValue)
                 query = query.Where(r => r.ReunionEstadoId == filtro.ReunionEstadoId.Value);
             if (filtro.Desde.HasValue)
@@ -93,9 +100,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 {
                     ReunionId = r.ReunionId,
                     ProjectId = r.ProjectId,
-                    ProjectDescription = ctx.Project
-                        .Where(p => p.ProjectId == r.ProjectId)
+                    ProjectDescription = r.ProjectId == null ? null : ctx.Project
+                        .Where(p => p.ProjectId == r.ProjectId.Value)
                         .Select(p => p.ProjectDescription)
+                        .First(),
+                    AreaScopeId = r.AreaScopeId,
+                    AreaScopeDescripcion = r.AreaScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == r.AreaScopeId.Value)
+                        .Select(s => s.AreaItem!.AreaItemName)
                         .First(),
                     Numero = r.Numero,
                     Tema = r.Tema,
@@ -143,9 +155,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 {
                     ReunionId = r.ReunionId,
                     ProjectId = r.ProjectId,
-                    ProjectDescription = ctx.Project
-                        .Where(p => p.ProjectId == r.ProjectId)
+                    ProjectDescription = r.ProjectId == null ? null : ctx.Project
+                        .Where(p => p.ProjectId == r.ProjectId.Value)
                         .Select(p => p.ProjectDescription)
+                        .First(),
+                    AreaScopeId = r.AreaScopeId,
+                    AreaScopeDescripcion = r.AreaScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == r.AreaScopeId.Value)
+                        .Select(s => s.AreaItem!.AreaItemName)
                         .First(),
                     Numero = r.Numero,
                     Tema = r.Tema,
@@ -192,6 +209,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .Select(p => new ReunionParticipanteDto
                 {
                     ReunionParticipanteId = p.ReunionParticipanteId,
+                    WorkerId = p.WorkerId,
                     Nombre = p.Nombre,
                     Cargo = p.Cargo,
                     Iniciales = p.Iniciales,
@@ -217,6 +235,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         .Select(e => e.Descripcion)
                         .First(),
                     Orden = a.Orden,
+                    RequiereAceptacion = a.RequiereAceptacion,
+                    RequiereEvidencia = a.RequiereEvidencia,
+                    EvidenciaUrl = a.EvidenciaUrl,
                 })
                 .ToListAsync();
 
@@ -224,17 +245,35 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (detalle.Acuerdos.Count > 0)
             {
                 var acuerdoIds = detalle.Acuerdos.Select(a => a.ReunionAcuerdoId).ToList();
-                var responsables = await ctx.ReunionAcuerdoResponsable
-                    .Where(x => acuerdoIds.Contains(x.ReunionAcuerdoId) && x.State)
-                    .Select(x => new { x.ReunionAcuerdoId, x.ReunionParticipanteId })
-                    .ToListAsync();
-                var porAcuerdo = responsables
-                    .GroupBy(x => x.ReunionAcuerdoId)
-                    .ToDictionary(g => g.Key, g => g.Select(x => x.ReunionParticipanteId).ToList());
+                var responsables = await (
+                    from x in ctx.ReunionAcuerdoResponsable
+                    where acuerdoIds.Contains(x.ReunionAcuerdoId) && x.State && x.WorkerId != null
+                    join w in ctx.Worker on x.WorkerId equals w.Id
+                    join per in ctx.Person on w.PersonId equals per.PersonId
+                    select new
+                    {
+                        x.ReunionAcuerdoId,
+                        x.ReunionAcuerdoResponsableId,
+                        WorkerId = x.WorkerId!.Value,
+                        WorkerNombre = per.FullName,
+                        x.EstadoAceptacion,
+                        x.MotivoRechazo,
+                    }
+                ).ToListAsync();
+                var porAcuerdo = responsables.GroupBy(x => x.ReunionAcuerdoId).ToDictionary(
+                    g => g.Key,
+                    g => g.Select(x => new ReunionAcuerdoResponsableDto
+                    {
+                        ReunionAcuerdoResponsableId = x.ReunionAcuerdoResponsableId,
+                        WorkerId = x.WorkerId,
+                        WorkerNombre = x.WorkerNombre,
+                        EstadoAceptacion = x.EstadoAceptacion,
+                        MotivoRechazo = x.MotivoRechazo,
+                    }).ToList());
                 foreach (var acuerdo in detalle.Acuerdos)
-                    acuerdo.ResponsableIds = porAcuerdo.TryGetValue(acuerdo.ReunionAcuerdoId, out var ids)
-                        ? ids
-                        : new List<int>();
+                    acuerdo.Responsables = porAcuerdo.TryGetValue(acuerdo.ReunionAcuerdoId, out var lista)
+                        ? lista
+                        : new List<ReunionAcuerdoResponsableDto>();
             }
 
             detalle.Archivos = await ctx.ReunionArchivo
@@ -288,30 +327,41 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == request.ProjectId && p.State);
-            if (!proyectoExiste)
-                throw new AbrilException("El proyecto seleccionado no existe.", 400);
+            if (request.ProjectId.HasValue)
+            {
+                var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == request.ProjectId.Value && p.State);
+                if (!proyectoExiste)
+                    throw new AbrilException("El proyecto seleccionado no existe.", 400);
+            }
+            if (request.AreaScopeId.HasValue)
+            {
+                var areaScopeExiste = await ctx.AreaScope.AnyAsync(s => s.AreaScopeId == request.AreaScopeId.Value && s.State);
+                if (!areaScopeExiste)
+                    throw new AbrilException("El área/gerencia seleccionada no existe.", 400);
+            }
 
             if (request.ReunionAnteriorId.HasValue)
             {
                 var anteriorValida = await ctx.Reunion.AnyAsync(r =>
                     r.ReunionId == request.ReunionAnteriorId.Value
                     && r.ProjectId == request.ProjectId
+                    && r.AreaScopeId == request.AreaScopeId
                     && r.State);
                 if (!anteriorValida)
-                    throw new AbrilException("La reunión anterior indicada no pertenece al proyecto.", 400);
+                    throw new AbrilException("La reunión anterior indicada no pertenece al mismo ámbito.", 400);
             }
 
             var estadoProgramadaId = await GetEstadoReunionId(ctx, EstadoProgramada);
 
             var numero = (await ctx.Reunion
-                .Where(r => r.ProjectId == request.ProjectId && r.State)
+                .Where(r => r.ProjectId == request.ProjectId && r.AreaScopeId == request.AreaScopeId && r.State)
                 .MaxAsync(r => (int?)r.Numero) ?? 0) + 1;
 
             var now = DateTime.UtcNow;
             var reunion = new Reunion
             {
                 ProjectId = request.ProjectId,
+                AreaScopeId = request.AreaScopeId,
                 Numero = numero,
                 Tema = request.Tema.Trim(),
                 ConvocadoPor = request.ConvocadoPor?.Trim(),
@@ -336,6 +386,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 ctx.ReunionParticipante.Add(new ReunionParticipante
                 {
                     ReunionId = reunion.ReunionId,
+                    WorkerId = p.WorkerId,
                     Nombre = p.Nombre.Trim(),
                     Cargo = p.Cargo?.Trim(),
                     Iniciales = p.Iniciales?.Trim(),
@@ -388,7 +439,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             {
                 var idsEliminados = eliminados.Select(p => p.ReunionParticipanteId).ToList();
                 var responsabilidades = await ctx.ReunionAcuerdoResponsable
-                    .Where(x => idsEliminados.Contains(x.ReunionParticipanteId) && x.State)
+                    .Where(x => x.ReunionParticipanteId != null && idsEliminados.Contains(x.ReunionParticipanteId.Value) && x.State)
                     .ToListAsync();
                 foreach (var resp in responsabilidades)
                 {
@@ -412,6 +463,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     var existente = existentes.FirstOrDefault(p => p.ReunionParticipanteId == input.ReunionParticipanteId.Value);
                     if (existente is null)
                         throw new AbrilException("Uno de los participantes enviados no pertenece a la reunión.", 400);
+                    existente.WorkerId = input.WorkerId;
                     existente.Nombre = input.Nombre.Trim();
                     existente.Cargo = input.Cargo?.Trim();
                     existente.Iniciales = input.Iniciales?.Trim();
@@ -425,6 +477,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ctx.ReunionParticipante.Add(new ReunionParticipante
                     {
                         ReunionId = reunionId,
+                        WorkerId = input.WorkerId,
                         Nombre = input.Nombre.Trim(),
                         Cargo = input.Cargo?.Trim(),
                         Iniciales = input.Iniciales?.Trim(),
@@ -521,7 +574,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             using var ctx = _factory.CreateDbContext();
 
             await GetReunionOrThrow(ctx, reunionId);
-            await ValidarResponsables(ctx, reunionId, request.ResponsableIds);
+            await ValidarResponsables(ctx, request.ResponsableWorkerIds);
 
             var estadoId = request.ReunionAcuerdoEstadoId
                 ?? await GetEstadoAcuerdoId(ctx, AcuerdoPendiente);
@@ -541,6 +594,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 FechaCumplimiento = request.FechaCumplimiento,
                 ReunionAcuerdoEstadoId = estadoId,
                 Orden = orden,
+                RequiereAceptacion = request.RequiereAceptacion,
+                RequiereEvidencia = request.RequiereEvidencia,
+                EvidenciaUrl = request.EvidenciaUrl?.Trim(),
                 CreatedDateTime = now,
                 CreatedUserId = userId,
                 Active = true,
@@ -549,19 +605,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             ctx.ReunionAcuerdo.Add(acuerdo);
             await ctx.SaveChangesAsync();
 
-            foreach (var participanteId in request.ResponsableIds.Distinct())
+            var estadoAceptacionInicial = request.RequiereAceptacion ? "PENDIENTE" : "ACEPTADO";
+            foreach (var workerId in request.ResponsableWorkerIds.Distinct())
             {
                 ctx.ReunionAcuerdoResponsable.Add(new ReunionAcuerdoResponsable
                 {
                     ReunionAcuerdoId = acuerdo.ReunionAcuerdoId,
-                    ReunionParticipanteId = participanteId,
+                    WorkerId = workerId,
+                    EstadoAceptacion = estadoAceptacionInicial,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
                     State = true,
                 });
             }
-            if (request.ResponsableIds.Count > 0)
+            if (request.ResponsableWorkerIds.Count > 0)
                 await ctx.SaveChangesAsync();
 
             return acuerdo.ReunionAcuerdoId;
@@ -576,7 +634,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (acuerdo is null)
                 throw new AbrilException("El acuerdo no existe.", 404);
 
-            await ValidarResponsables(ctx, acuerdo.ReunionId, request.ResponsableIds);
+            await ValidarResponsables(ctx, request.ResponsableWorkerIds);
+
+            if (request.RequiereEvidencia && string.IsNullOrWhiteSpace(request.EvidenciaUrl))
+            {
+                var estadoDestinoId = request.ReunionAcuerdoEstadoId ?? acuerdo.ReunionAcuerdoEstadoId;
+                var estadoDestino = await GetEstadoAcuerdoDescripcion(ctx, estadoDestinoId);
+                if (estadoDestino == AcuerdoCumplido)
+                    throw new AbrilException("Este acuerdo requiere evidencia para poder marcarse como cumplido.", 400);
+            }
 
             var now = DateTime.UtcNow;
             acuerdo.Descripcion = request.Descripcion.Trim();
@@ -584,30 +650,37 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             acuerdo.FechaProgramada = request.FechaProgramada;
             acuerdo.FechaReprogramacion = request.FechaReprogramacion;
             acuerdo.FechaCumplimiento = request.FechaCumplimiento;
+            acuerdo.RequiereAceptacion = request.RequiereAceptacion;
+            acuerdo.RequiereEvidencia = request.RequiereEvidencia;
+            acuerdo.EvidenciaUrl = request.EvidenciaUrl?.Trim();
             if (request.ReunionAcuerdoEstadoId.HasValue)
                 acuerdo.ReunionAcuerdoEstadoId = request.ReunionAcuerdoEstadoId.Value;
             acuerdo.UpdatedDateTime = now;
             acuerdo.UpdatedUserId = userId;
 
-            // Sincroniza responsables: agrega los nuevos y desactiva los quitados.
+            // Sincroniza responsables: agrega los nuevos y desactiva los quitados. Solo se
+            // comparan contra responsables ya basados en worker_id (el legacy por participante
+            // no se toca acá y se desactiva únicamente cuando se quita al participante).
             var actuales = await ctx.ReunionAcuerdoResponsable
-                .Where(x => x.ReunionAcuerdoId == reunionAcuerdoId && x.State)
+                .Where(x => x.ReunionAcuerdoId == reunionAcuerdoId && x.State && x.WorkerId != null)
                 .ToListAsync();
-            var idsNuevos = request.ResponsableIds.Distinct().ToHashSet();
+            var idsNuevos = request.ResponsableWorkerIds.Distinct().ToHashSet();
 
-            foreach (var actual in actuales.Where(x => !idsNuevos.Contains(x.ReunionParticipanteId)))
+            foreach (var actual in actuales.Where(x => !idsNuevos.Contains(x.WorkerId!.Value)))
             {
                 actual.State = false;
                 actual.UpdatedDateTime = now;
                 actual.UpdatedUserId = userId;
             }
-            var idsActuales = actuales.Select(x => x.ReunionParticipanteId).ToHashSet();
-            foreach (var participanteId in idsNuevos.Where(id => !idsActuales.Contains(id)))
+            var idsActuales = actuales.Select(x => x.WorkerId!.Value).ToHashSet();
+            var estadoAceptacionInicial = request.RequiereAceptacion ? "PENDIENTE" : "ACEPTADO";
+            foreach (var workerId in idsNuevos.Where(id => !idsActuales.Contains(id)))
             {
                 ctx.ReunionAcuerdoResponsable.Add(new ReunionAcuerdoResponsable
                 {
                     ReunionAcuerdoId = reunionAcuerdoId,
-                    ReunionParticipanteId = participanteId,
+                    WorkerId = workerId,
+                    EstadoAceptacion = estadoAceptacionInicial,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
@@ -766,7 +839,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return f == null ? null : (f.DriveId, f.FolderId);
         }
 
-        /// <summary>Proyecto y número de la reunión, para nombrar su subcarpeta en SharePoint.</summary>
+        /// <summary>Ámbito (proyecto o área/gerencia) y número de la reunión, para nombrar su subcarpeta en SharePoint.</summary>
         public async Task<(string ProjectDescription, int Numero)> GetDatosCarpetaReunion(int reunionId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -776,9 +849,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .Select(r => new
                 {
                     r.Numero,
-                    ProjectDescription = ctx.Project
-                        .Where(p => p.ProjectId == r.ProjectId)
+                    ProjectDescription = r.ProjectId == null ? null : ctx.Project
+                        .Where(p => p.ProjectId == r.ProjectId.Value)
                         .Select(p => p.ProjectDescription)
+                        .First(),
+                    AreaScopeDescripcion = r.AreaScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == r.AreaScopeId.Value)
+                        .Select(s => s.AreaItem!.AreaItemName)
                         .First(),
                 })
                 .FirstOrDefaultAsync();
@@ -786,7 +863,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (datos is null)
                 throw new AbrilException("El acta de reunión no existe.", 404);
 
-            return (datos.ProjectDescription, datos.Numero);
+            var ambitoDescripcion = datos.ProjectDescription ?? datos.AreaScopeDescripcion ?? "ORGANIZACIÓN";
+            return (ambitoDescripcion, datos.Numero);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
@@ -810,6 +888,188 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     Cargo = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                 }
             ).ToListAsync();
+        }
+
+        /// <summary>
+        /// Trabajadores de Abril que calzan con un área/gerencia (incluye toda su descendencia en
+        /// el árbol area_scope) y/o una lista de puestos elegidos de un checklist (ej. varias
+        /// jefaturas marcadas a la vez). Ambos filtros son opcionales y se combinan con AND;
+        /// null/vacío en un filtro significa "cualquiera". Pensado para la convocatoria masiva de
+        /// participantes (ej. "todas las jefaturas de Proyectos", "todo el área de Arquitectura
+        /// Comercial").
+        /// </summary>
+        public async Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            HashSet<int>? descendientes = null;
+            if (areaScopeId.HasValue)
+                descendientes = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+
+            var query =
+                from w in ctx.Worker
+                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.State
+                select new { w, p };
+
+            if (descendientes != null)
+                query = query.Where(x => x.w.AreaScopeId != null && descendientes.Contains(x.w.AreaScopeId.Value));
+            if (puestoIds != null && puestoIds.Count > 0)
+                query = query.Where(x => x.w.PuestoId != null && puestoIds.Contains(x.w.PuestoId.Value));
+
+            return await query
+                .OrderBy(x => x.p.FullName)
+                .Select(x => new TrabajadorAbrilDto
+                {
+                    WorkerId = x.w.Id,
+                    FullName = x.p.FullName,
+                    Cargo = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Da de alta un tema personalizado en el catálogo reunion_tema, para que quede disponible
+        /// como tema recurrente en próximas reuniones. Si ya existe (comparación insensible a
+        /// mayúsculas), no duplica: devuelve el existente.
+        /// </summary>
+        public async Task<CatalogoDto> AgregarTema(string descripcion, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var normalizado = descripcion.Trim();
+            var existente = await ctx.ReunionTema
+                .Where(t => t.State && t.Descripcion.ToLower() == normalizado.ToLower())
+                .Select(t => new CatalogoDto { Id = t.ReunionTemaId, Descripcion = t.Descripcion })
+                .FirstOrDefaultAsync();
+            if (existente != null) return existente;
+
+            var tema = new ReunionTema
+            {
+                Descripcion = normalizado,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.ReunionTema.Add(tema);
+            await ctx.SaveChangesAsync();
+
+            return new CatalogoDto { Id = tema.ReunionTemaId, Descripcion = tema.Descripcion };
+        }
+
+        /// <summary>Catálogo de temas predefinidos (para la pantalla de configuración de convocatoria por tema).</summary>
+        public async Task<List<CatalogoDto>> GetTemasCatalogo()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await GetTemas(ctx);
+        }
+
+        /// <summary>Convocatoria recurrente configurada para un tema (área + puestos), o vacía si no tiene.</summary>
+        public async Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tema = await ctx.ReunionTema
+                .Where(t => t.ReunionTemaId == reunionTemaId && t.State)
+                .Select(t => new { t.AreaScopeId })
+                .FirstOrDefaultAsync();
+            if (tema is null)
+                throw new AbrilException("El tema no existe.", 404);
+
+            var puestoIds = await ctx.ReunionTemaPuesto
+                .Where(x => x.ReunionTemaId == reunionTemaId && x.State)
+                .Select(x => x.PuestoId)
+                .ToListAsync();
+
+            string? areaScopeDescripcion = null;
+            if (tema.AreaScopeId.HasValue)
+                areaScopeDescripcion = await ctx.AreaScope
+                    .Where(s => s.AreaScopeId == tema.AreaScopeId.Value)
+                    .Select(s => s.AreaItem!.AreaItemName)
+                    .FirstOrDefaultAsync();
+
+            return new TemaConvocatoriaDto
+            {
+                AreaScopeId = tema.AreaScopeId,
+                AreaScopeDescripcion = areaScopeDescripcion,
+                PuestoIds = puestoIds,
+            };
+        }
+
+        /// <summary>Reemplaza por completo la convocatoria recurrente configurada para un tema.</summary>
+        public async Task GuardarConvocatoriaTema(int reunionTemaId, int? areaScopeId, List<int> puestoIds, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tema = await ctx.ReunionTema.FirstOrDefaultAsync(t => t.ReunionTemaId == reunionTemaId && t.State);
+            if (tema is null)
+                throw new AbrilException("El tema no existe.", 404);
+
+            var now = DateTime.UtcNow;
+            tema.AreaScopeId = areaScopeId;
+            tema.UpdatedDateTime = now;
+            tema.UpdatedUserId = userId;
+
+            var actuales = await ctx.ReunionTemaPuesto
+                .Where(x => x.ReunionTemaId == reunionTemaId && x.State)
+                .ToListAsync();
+            foreach (var actual in actuales)
+                actual.State = false;
+
+            foreach (var puestoId in puestoIds.Distinct())
+            {
+                ctx.ReunionTemaPuesto.Add(new ReunionTemaPuesto
+                {
+                    ReunionTemaId = reunionTemaId,
+                    PuestoId = puestoId,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Catálogo de puestos, para el filtro de convocatoria masiva (ej. "Jefaturas", "Coordinador SSOMA").</summary>
+        public async Task<List<CatalogoDto>> GetPuestos()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Puesto
+                .Where(p => p.State && p.Active)
+                .OrderBy(p => p.Nombre)
+                .Select(p => new CatalogoDto { Id = p.PuestoId, Descripcion = p.Nombre })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Puestos que realmente tiene algún trabajador activo dentro de un área/gerencia (con toda
+        /// su descendencia); null = cualquier trabajador de la organización. Evita que el filtro de
+        /// convocatoria masiva muestre puestos ajenos al área elegida (ej. "Abogado" al filtrar por
+        /// Gerencia de Proyectos).
+        /// </summary>
+        public async Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            HashSet<int>? descendientes = null;
+            if (areaScopeId.HasValue)
+                descendientes = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+
+            var query = ctx.Worker.Where(w => w.PuestoId != null && w.Estado == "ACTIVO");
+            if (descendientes != null)
+                query = query.Where(w => w.AreaScopeId != null && descendientes.Contains(w.AreaScopeId.Value));
+
+            var puestoIds = await query.Select(w => w.PuestoId!.Value).Distinct().ToListAsync();
+
+            return await ctx.Puesto
+                .Where(p => p.State && p.Active && puestoIds.Contains(p.PuestoId))
+                .OrderBy(p => p.Nombre)
+                .Select(p => new CatalogoDto { Id = p.PuestoId, Descripcion = p.Nombre })
+                .ToListAsync();
         }
 
         /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
@@ -894,14 +1154,32 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return id.Value;
         }
 
-        private static async Task ValidarResponsables(AppDbContext ctx, int reunionId, List<int> responsableIds)
+        private static async Task<string> GetEstadoAcuerdoDescripcion(AppDbContext ctx, int reunionAcuerdoEstadoId)
         {
-            if (responsableIds.Count == 0) return;
-            var ids = responsableIds.Distinct().ToList();
-            var validos = await ctx.ReunionParticipante
-                .CountAsync(p => ids.Contains(p.ReunionParticipanteId) && p.ReunionId == reunionId && p.State);
+            var descripcion = await ctx.ReunionAcuerdoEstado
+                .Where(e => e.ReunionAcuerdoEstadoId == reunionAcuerdoEstadoId)
+                .Select(e => e.Descripcion)
+                .FirstOrDefaultAsync();
+            return descripcion ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Los responsables ahora son cualquier worker de la organización, sin importar si
+        /// asistió a la reunión: solo se valida que la lista de workers exista y esté vigente.
+        /// </summary>
+        private static async Task ValidarResponsables(AppDbContext ctx, List<int> responsableWorkerIds)
+        {
+            if (responsableWorkerIds.Count == 0) return;
+            var ids = responsableWorkerIds.Distinct().ToList();
+            var validos = await (
+                from w in ctx.Worker
+                where ids.Contains(w.Id)
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.State
+                select w.Id
+            ).CountAsync();
             if (validos != ids.Count)
-                throw new AbrilException("Uno o más responsables no son participantes de la reunión.", 400);
+                throw new AbrilException("Uno o más responsables seleccionados no existen.", 400);
         }
     }
 }

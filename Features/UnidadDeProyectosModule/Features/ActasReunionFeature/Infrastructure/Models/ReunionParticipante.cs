@@ -8,6 +8,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         public int ReunionParticipanteId { get; set; }
         public int ReunionId { get; set; }
+
+        /// <summary>
+        /// Trabajador de Abril si se eligió del desplegable; null si es un invitado externo
+        /// capturado a mano. Permite filtrar/notificar por área/puesto y vincular acuerdos
+        /// con responsables que no necesariamente asistieron a esta reunión puntual.
+        /// </summary>
+        public int? WorkerId { get; set; }
+
         public string Nombre { get; set; } = null!;
         public string? Cargo { get; set; }
         public string? Iniciales { get; set; }

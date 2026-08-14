@@ -57,6 +57,127 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>
+        /// Trabajadores que calzan con un área/gerencia (incluye descendencia) y/o un puesto, para
+        /// convocatoria masiva de participantes (ej. "todas las jefaturas de Proyectos").
+        /// </summary>
+        [HttpGet("trabajadores-por-filtro")]
+        public async Task<IActionResult> BuscarTrabajadoresPorFiltro([FromQuery] int? areaScopeId, [FromQuery] List<int>? puestoIds)
+        {
+            try
+            {
+                return Ok(await _service.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION TRABAJADORES POR FILTRO: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Catálogo de puestos, para el filtro de convocatoria masiva.</summary>
+        [HttpGet("puestos")]
+        public async Task<IActionResult> GetPuestos()
+        {
+            try
+            {
+                return Ok(await _service.GetPuestos());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION PUESTOS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Puestos que realmente existen dentro de un área/gerencia (con descendencia); sin areaScopeId trae todos.</summary>
+        [HttpGet("puestos-por-area")]
+        public async Task<IActionResult> GetPuestosPorArea([FromQuery] int? areaScopeId)
+        {
+            try
+            {
+                return Ok(await _service.GetPuestosPorArea(areaScopeId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION PUESTOS POR AREA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Da de alta un tema personalizado en el catálogo, para reutilizarlo como tema recurrente.</summary>
+        [HttpPost("temas")]
+        public async Task<IActionResult> AgregarTema([FromBody] TemaCreateRequest request)
+        {
+            try
+            {
+                return Ok(await _service.AgregarTema(request.Descripcion, GetUserId()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION AGREGAR TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Catálogo de temas predefinidos, para la pantalla de configuración de convocatoria por tema.</summary>
+        [HttpGet("temas")]
+        public async Task<IActionResult> GetTemasCatalogo()
+        {
+            try
+            {
+                return Ok(await _service.GetTemasCatalogo());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GET TEMAS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Convocatoria recurrente configurada para un tema (área + puestos habituales).</summary>
+        [HttpGet("temas/{reunionTemaId:int}/convocatoria")]
+        public async Task<IActionResult> GetConvocatoriaTema(int reunionTemaId)
+        {
+            try
+            {
+                return Ok(await _service.GetConvocatoriaTema(reunionTemaId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GET CONVOCATORIA TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Configura (reemplaza) la convocatoria recurrente de un tema.</summary>
+        [HttpPut("temas/{reunionTemaId:int}/convocatoria")]
+        public async Task<IActionResult> GuardarConvocatoriaTema(int reunionTemaId, [FromBody] TemaConvocatoriaSaveRequest request)
+        {
+            try
+            {
+                await _service.GuardarConvocatoriaTema(reunionTemaId, request, GetUserId());
+                return Ok(new { message = "Convocatoria del tema guardada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GUARDAR CONVOCATORIA TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Detalle completo del acta: cabecera, participantes, acuerdos, archivos y reprogramaciones.</summary>
         [HttpGet("{reunionId:int}")]
         public async Task<IActionResult> GetDetalle(int reunionId)

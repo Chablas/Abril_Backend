@@ -9,6 +9,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int ReunionTemaId { get; set; }
         public string Descripcion { get; set; } = null!;
 
+        /// <summary>
+        /// Área/gerencia por defecto de la convocatoria recurrente de este tema (ej. "Reunión de
+        /// Jefaturas de Proyectos" siempre convoca a Gerencia de Proyectos). Null = sin convocatoria
+        /// asociada; se combina con los puestos de ReunionTemaPuesto igual que en la convocatoria
+        /// masiva manual.
+        /// </summary>
+        public int? AreaScopeId { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

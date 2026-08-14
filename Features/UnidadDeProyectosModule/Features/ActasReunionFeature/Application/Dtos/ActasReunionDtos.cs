@@ -35,6 +35,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class ReunionFiltroRequest
     {
         public int? ProjectId { get; set; }
+        /// <summary>Nodo del árbol area_scope; incluye descendientes (ver AreaScopeTree.ResolveDescendantsAsync).</summary>
+        public int? AreaScopeId { get; set; }
         public int? ReunionEstadoId { get; set; }
         public DateOnly? Desde { get; set; }
         public DateOnly? Hasta { get; set; }
@@ -45,8 +47,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class ReunionListItemDto
     {
         public int ReunionId { get; set; }
-        public int ProjectId { get; set; }
-        public string ProjectDescription { get; set; } = null!;
+        public int? ProjectId { get; set; }
+        public string? ProjectDescription { get; set; }
+        public int? AreaScopeId { get; set; }
+        public string? AreaScopeDescripcion { get; set; }
         public int Numero { get; set; }
         public string Tema { get; set; } = null!;
         public string? Lugar { get; set; }
@@ -75,8 +79,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class ReunionDetalleDto
     {
         public int ReunionId { get; set; }
-        public int ProjectId { get; set; }
-        public string ProjectDescription { get; set; } = null!;
+        public int? ProjectId { get; set; }
+        public string? ProjectDescription { get; set; }
+        public int? AreaScopeId { get; set; }
+        public string? AreaScopeDescripcion { get; set; }
         public int Numero { get; set; }
         public string Tema { get; set; } = null!;
         public string? ConvocadoPor { get; set; }
@@ -108,11 +114,23 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class ReunionParticipanteDto
     {
         public int ReunionParticipanteId { get; set; }
+        public int? WorkerId { get; set; }
         public string Nombre { get; set; } = null!;
         public string? Cargo { get; set; }
         public string? Iniciales { get; set; }
         public bool Asistio { get; set; }
         public int Orden { get; set; }
+    }
+
+    /// <summary>Responsable de un acuerdo, con su estado de aceptación individual.</summary>
+    public class ReunionAcuerdoResponsableDto
+    {
+        public int ReunionAcuerdoResponsableId { get; set; }
+        public int WorkerId { get; set; }
+        public string WorkerNombre { get; set; } = null!;
+        /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
+        public string EstadoAceptacion { get; set; } = null!;
+        public string? MotivoRechazo { get; set; }
     }
 
     public class ReunionAcuerdoDto
@@ -126,7 +144,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int ReunionAcuerdoEstadoId { get; set; }
         public string ReunionAcuerdoEstado { get; set; } = null!;
         public int Orden { get; set; }
-        public List<int> ResponsableIds { get; set; } = new();
+        public bool RequiereAceptacion { get; set; }
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
+        public List<ReunionAcuerdoResponsableDto> Responsables { get; set; } = new();
     }
 
     public class ReunionArchivoDto
@@ -169,7 +190,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
     public class ReunionCreateRequest
     {
-        public int ProjectId { get; set; }
+        /// <summary>Reunión de proyecto. Exactamente uno de ProjectId/AreaScopeId debe venir informado, o ninguno (reunión de toda la organización).</summary>
+        public int? ProjectId { get; set; }
+        /// <summary>Reunión de un nodo del árbol area_scope (gerencia/área/subárea).</summary>
+        public int? AreaScopeId { get; set; }
         public string Tema { get; set; } = null!;
         public string? ConvocadoPor { get; set; }
         public string? Lugar { get; set; }
@@ -222,6 +246,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string LinkUrl { get; set; } = null!;
     }
 
+    public class TemaCreateRequest
+    {
+        public string Descripcion { get; set; } = null!;
+    }
+
+    /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
+    public class TemaConvocatoriaDto
+    {
+        public int? AreaScopeId { get; set; }
+        public string? AreaScopeDescripcion { get; set; }
+        public List<int> PuestoIds { get; set; } = new();
+    }
+
+    public class TemaConvocatoriaSaveRequest
+    {
+        public int? AreaScopeId { get; set; }
+        public List<int> PuestoIds { get; set; } = new();
+    }
+
     public class ReunionCambiarEstadoRequest
     {
         /// <summary>Descripción del estado destino: PROGRAMADA, REALIZADA o CANCELADA.</summary>
@@ -237,7 +280,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public DateOnly? FechaCumplimiento { get; set; }
         /// <summary>Null al crear: se asigna PENDIENTE.</summary>
         public int? ReunionAcuerdoEstadoId { get; set; }
-        /// <summary>Ids de reunion_participante responsables de ejecutar el acuerdo.</summary>
-        public List<int> ResponsableIds { get; set; } = new();
+        /// <summary>Si true, cada responsable debe aceptar el acuerdo antes de quedar activo.</summary>
+        public bool RequiereAceptacion { get; set; }
+        /// <summary>Si true, no se puede marcar CUMPLIDO sin adjuntar evidencia.</summary>
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
+        /// <summary>Ids de workers (cualquier trabajador de la organización, haya asistido o no) responsables del acuerdo.</summary>
+        public List<int> ResponsableWorkerIds { get; set; } = new();
     }
 }

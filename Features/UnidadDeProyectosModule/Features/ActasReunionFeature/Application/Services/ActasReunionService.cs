@@ -57,11 +57,36 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             if (string.IsNullOrWhiteSpace(request.Tema))
                 throw new AbrilException("El tema de la reunión es obligatorio.", 400);
-            if (request.ProjectId <= 0)
-                throw new AbrilException("Debe seleccionar un proyecto.", 400);
+            if (request.ProjectId.HasValue && request.AreaScopeId.HasValue)
+                throw new AbrilException("Una reunión no puede pertenecer a un proyecto y a un área/gerencia a la vez.", 400);
             ValidarHoras(request.HoraInicio, request.HoraFin);
             return _repository.Create(request, userId);
         }
+
+        public Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds)
+            => _repository.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds);
+
+        public Task<List<CatalogoDto>> GetPuestos()
+            => _repository.GetPuestos();
+
+        public Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId)
+            => _repository.GetPuestosPorArea(areaScopeId);
+
+        public Task<CatalogoDto> AgregarTema(string descripcion, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(descripcion))
+                throw new AbrilException("El tema es obligatorio.", 400);
+            return _repository.AgregarTema(descripcion, userId);
+        }
+
+        public Task<List<CatalogoDto>> GetTemasCatalogo()
+            => _repository.GetTemasCatalogo();
+
+        public Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId)
+            => _repository.GetConvocatoriaTema(reunionTemaId);
+
+        public Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId)
+            => _repository.GuardarConvocatoriaTema(reunionTemaId, request.AreaScopeId, request.PuestoIds, userId);
 
         public Task Update(int reunionId, ReunionUpdateRequest request, int userId)
         {

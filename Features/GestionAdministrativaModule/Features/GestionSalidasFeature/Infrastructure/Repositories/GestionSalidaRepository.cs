@@ -24,7 +24,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>
         /// Tabla ordenada + paginada. Reutiliza <see cref="GetAll"/> (que ya resuelve motivo/origen/
         /// destino/horas y <c>PuedeRendirse</c>) y aplica el orden por columna en memoria. El orden es
-        /// estable: los empates conservan el orden original (pendientes primero, luego más recientes).
+        /// estable: los empates conservan el orden original (fecha de salida descendente, luego las
+        /// registradas más recientemente).
         /// </summary>
         public async Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
         {
@@ -152,8 +153,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
                 from per in perGroup.DefaultIfEmpty()
-                orderby s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente ? 0 : 1,
-                        s.CreatedAt descending
+                // Orden por defecto: por fecha de salida, de la más futura a la más antigua.
+                // Antes se agrupaba primero lo Pendiente y luego el resto, pero ver la lista en
+                // línea de tiempo (lo que viene primero, arriba) es lo que le sirve al revisor.
+                // Empate en la fecha → la registrada más recientemente primero.
+                orderby s.FechaSalida descending, s.CreatedAt descending
                 select new
                 {
                     s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,

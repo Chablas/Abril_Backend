@@ -17,6 +17,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Envía (o reenvía) el formulario al correo del postulante y devuelve el estado resultante.</summary>
         Task<FormularioAccionResultDto> Enviar(int candidatoId, EnviarFormularioDto dto, int? userId);
 
+        /// <summary>
+        /// Envía (o reenvía) el formulario a varios candidatos de una sola vez, con las mismas reglas
+        /// del envío individual. Solo lanza excepción si el lote llega vacío: un candidato con el correo
+        /// mal escrito, no aprobado o cuyo correo no salió se reporta en su propio resultado para no
+        /// cancelar el envío del resto.
+        /// </summary>
+        Task<FormularioEnvioMasivoResultDto> EnviarMasivo(EnviarFormularioMasivoDto dto, int? userId);
+
         /// <summary>Vista de GTH del formulario del candidato (modal "Ver formulario").</summary>
         Task<FormularioRevisionDto> GetRevision(int candidatoId);
 

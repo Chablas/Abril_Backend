@@ -45,6 +45,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Comentario { get; set; }
 
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llegará el correo a GTH al confirmar la decisión (tipo SOLICITUD). Sale del
+        /// mismo resolver que usa el envío, así que el aviso del modal no puede prometer algo
+        /// distinto de lo que se manda. Null en una solicitud ya decidida (no queda nada por
+        /// enviar) o si los destinatarios no se pudieron resolver.
+        /// </summary>
+        public SolicitudDestinatariosDto? Destinatarios { get; set; }
     }
 
     /// <summary>

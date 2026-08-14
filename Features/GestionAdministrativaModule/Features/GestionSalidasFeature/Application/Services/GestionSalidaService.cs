@@ -96,7 +96,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             string[] headers =
             [
-                "#", "Trabajador", "Fecha salida", "Hora salida", "Hora retorno",
+                "#", "Trabajador", "Área", "Revisor", "Fecha salida", "Hora salida", "Hora retorno",
                 "Motivo", "Origen", "Destino", "Aprobación", "Rendición", "Registrada",
             ];
 
@@ -118,15 +118,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
                 ws.Cell(row, 1).Value  = r + 1;
                 ws.Cell(row, 2).Value  = s.Trabajador;
-                ws.Cell(row, 3).Value  = s.FechaSalida.ToString("dd/MM/yyyy");
-                ws.Cell(row, 4).Value  = s.HoraSalida.ToString("HH:mm");
-                ws.Cell(row, 5).Value  = s.HoraRetorno.HasValue ? s.HoraRetorno.Value.ToString("HH:mm") : "—";
-                ws.Cell(row, 6).Value  = s.Motivo;
-                ws.Cell(row, 7).Value  = s.LugarOrigen  ?? "—";
-                ws.Cell(row, 8).Value  = s.LugarDestino ?? "—";
-                ws.Cell(row, 9).Value  = s.EstadoAprobacion;
-                ws.Cell(row, 10).Value = s.EstadoRendicion;
-                ws.Cell(row, 11).Value = s.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+                ws.Cell(row, 3).Value  = s.Area          ?? "—";
+                ws.Cell(row, 4).Value  = s.RevisorNombre ?? "—";
+                ws.Cell(row, 5).Value  = s.FechaSalida.ToString("dd/MM/yyyy");
+                ws.Cell(row, 6).Value  = s.HoraSalida.ToString("HH:mm");
+                ws.Cell(row, 7).Value  = s.HoraRetorno.HasValue ? s.HoraRetorno.Value.ToString("HH:mm") : "—";
+                ws.Cell(row, 8).Value  = s.Motivo;
+                ws.Cell(row, 9).Value  = s.LugarOrigen  ?? "—";
+                ws.Cell(row, 10).Value = s.LugarDestino ?? "—";
+                ws.Cell(row, 11).Value = s.EstadoAprobacion;
+                ws.Cell(row, 12).Value = s.EstadoRendicion;
+                ws.Cell(row, 13).Value = s.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm");
 
                 var rowRange = ws.Range(row, 1, row, headers.Length);
                 rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -136,7 +138,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (r % 2 == 0)
                     rowRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#FAFAFA");
 
-                var aprobacionCell = ws.Cell(row, 9);
+                var aprobacionCell = ws.Cell(row, 11);
                 aprobacionCell.Style.Font.Bold = true;
                 aprobacionCell.Style.Font.FontColor = s.EstadoAprobacion switch
                 {
@@ -145,7 +147,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     _           => XLColor.FromHtml("#92400E"),
                 };
 
-                var rendicionCell = ws.Cell(row, 10);
+                var rendicionCell = ws.Cell(row, 12);
                 rendicionCell.Style.Font.Bold = true;
                 rendicionCell.Style.Font.FontColor = s.EstadoRendicion == "Rendido"
                     ? XLColor.FromHtml("#0086A5")

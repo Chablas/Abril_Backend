@@ -292,6 +292,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var dto = await _repo.GetDetalle(aprobacionId);
             if (dto == null)
                 throw new AbrilException("La solicitud por aprobar no existe o ya no está disponible.", 404);
+
+            // Aviso "a quién le llegará esta decisión" del modal. Son exactamente los destinatarios
+            // que usa NotificarAGthAsync al confirmar: mismo tipo (SOLICITUD) y, como allá, sin
+            // área — el correo a GTH no depende del área del solicitante. Va en la misma petición
+            // que el detalle; en una solicitud ya decidida no queda nada por enviar, así que ni se
+            // consultan.
+            if (!dto.Decidida)
+            {
+                try
+                {
+                    dto.Destinatarios = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
+                }
+                catch (Exception ex)
+                {
+                    // El aviso es informativo: si no se puede resolver, el modal abre sin él. La
+                    // decisión tiene que poder tomarse igual.
+                    _logger.LogWarning(ex,
+                        "No se pudieron resolver los destinatarios de GTH para el detalle de la aprobación {AprobacionId}",
+                        aprobacionId);
+                }
+            }
+
             return dto;
         }
 

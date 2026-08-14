@@ -39,6 +39,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EnviarFormularioContextoDto> PrepararEnvio(int candidatoId, string correo, string nuevoToken, int? userId);
 
         /// <summary>
+        /// Versión por lote de <see cref="PrepararEnvio"/> (envío del formulario a varios candidatos a la
+        /// vez), con las mismas reglas de estado. Resuelve todo el lote con 3 consultas y un único
+        /// guardado, sin importar cuántos candidatos vengan. A diferencia del individual no lanza
+        /// excepción por un candidato inválido: ese envío queda con <c>Error</c> y los demás siguen su
+        /// curso, para que un candidato mal seleccionado no cancele el envío de los otros.
+        /// </summary>
+        Task<List<EnvioMasivoPreparadoDto>> PrepararEnvioMasivo(
+            IReadOnlyList<EnvioMasivoSolicitudDto> solicitudes, int? userId);
+
+        /// <summary>
         /// Vista de GTH del formulario de un candidato (modal "Ver formulario"): estado + trazabilidad +
         /// datos (catálogos resueltos a nombre) si el postulante ya completó. Nunca es null: si GTH aún no
         /// envió el formulario devuelve <c>Existe = false</c>.

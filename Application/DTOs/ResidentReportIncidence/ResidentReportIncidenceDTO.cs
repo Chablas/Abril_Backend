@@ -8,6 +8,7 @@ namespace Abril_Backend.Application.DTOs {
         public string ProjectDescription {get; set;}
         public int StateId {get;set;}
         public string StateDescription { get; set; }
+        public DateTime CreatedDateTime {get; set;}
         public List<ResidentReportIncidenceImageDTO> Images {get;set;}
         public List<ResidentReportResponseDTO> ResidentReportResponseDescriptions { get;set; }
     }

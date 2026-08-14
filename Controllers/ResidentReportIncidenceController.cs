@@ -4,6 +4,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Controllers
 {
@@ -20,7 +21,10 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int? projectId = null,
+            [FromQuery] int? stateId = null)
         {
             try
             {
@@ -30,7 +34,11 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                var result = await _service.GetPaged(page);
+
+                var userId = int.Parse(userIdClaim.Value);
+                var isResidente = User.IsInRole(Roles.Residente);
+
+                var result = await _service.GetPaged(page, userId, isResidente, projectId, stateId);
                 return Ok(result);
             }
             catch (Exception)
@@ -40,6 +48,29 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
+        [HttpGet("assigned-projects")]
+        public async Task<IActionResult> GetAssignedProjects()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var isResidente = User.IsInRole(Roles.Residente);
+
+                var result = await _service.GetAssignedProjects(userId, isResidente);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize(Roles = Roles.AdministradorResidentes)]
         [HttpPost]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateIncidence([FromForm] ResidentReportIncidenceCreateDTO dto)
@@ -66,7 +97,7 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
+        [Authorize(Roles = Roles.Residente)]
         [HttpPost("response")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateResponse(ResidentReportResponseCreateDTO dto)
@@ -85,7 +116,7 @@ namespace Abril_Backend.Controllers
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -93,7 +124,7 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
+        [Authorize(Roles = Roles.AdministradorResidentes)]
         [HttpPatch]
         public async Task<IActionResult> UpdateIncidenceState(UpdateIncidenceDTO incidenceId)
         {

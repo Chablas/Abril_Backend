@@ -21,7 +21,10 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IPostulanteFormularioRepository, PostulanteFormularioRepository>();
             services.AddScoped<IPostulanteFormularioService, PostulanteFormularioService>();
 
-            // Aprobación de Gerencia General de la solicitud (público por token)
+            // Aprobación de la solicitud (gerente del área + Gerencia General). El resolver define
+            // qué solicitudes ve cada usuario y con qué poder decide, según la categoría de su
+            // ficha de trabajador.
+            services.AddScoped<IAprobacionScopeResolver, AprobacionScopeResolver>();
             services.AddScoped<IAprobacionGgRepository, AprobacionGgRepository>();
             services.AddScoped<IAprobacionGgService, AprobacionGgService>();
 

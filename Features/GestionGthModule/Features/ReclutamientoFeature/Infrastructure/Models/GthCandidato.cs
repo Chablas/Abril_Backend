@@ -69,8 +69,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Usuario de GTH que marcó/desmarcó el Multitest.</summary>
         public int? MultitestUserId { get; set; }
 
+        // ── Decisión del solicitante sobre el candidato de la long list ───────
+        /// <summary>
+        /// Momento en que el solicitante aprobó o rechazó a este candidato al revisar la long
+        /// list. Null mientras no lo haya decidido. No se lee de <c>UpdatedDateTime</c> porque
+        /// enviar una long list nueva da de baja la anterior y pisa esa fecha — justo lo que pasa
+        /// cuando el solicitante rechaza a todos, que es el caso que muestra el historial.
+        /// </summary>
+        public DateTimeOffset? DecisionDateTime { get; set; }
+
+        /// <summary>Usuario del área solicitante que decidió sobre el candidato en la long list.</summary>
+        public int? DecisionUserId { get; set; }
+
         /// <summary>Orden del candidato dentro de la long list (posición de carga).</summary>
         public int Orden { get; set; }
+
+        /// <summary>
+        /// A qué long list del requerimiento pertenece el candidato (1 = la primera). Cuando el
+        /// solicitante rechaza a todos, el requerimiento vuelve a LONG_LIST y la siguiente long
+        /// list entra con el número siguiente: las anteriores se conservan como historial, con
+        /// <see cref="State"/> en true y su rechazo registrado en el estado del candidato.
+        ///
+        /// La long list vigente es el mayor número entre las filas vivas del requerimiento
+        /// (ver <c>CandidatosVigentes</c> en el repositorio). No se usa <see cref="State"/> para
+        /// distinguir vueltas: <c>state = false</c> significa eliminado del sistema, y un
+        /// candidato rechazado no está eliminado.
+        /// </summary>
+        public int NumeroLongList { get; set; } = 1;
 
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }

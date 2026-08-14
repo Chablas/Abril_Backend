@@ -2,18 +2,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Body del PUT que guarda la evaluación de la entrevista de un candidato: los tres
-    /// comentarios del informe de finalista. El resultado (PASO / NO_PASO) no viaja aquí: lo
-    /// define el correo de agradecimiento.
+    /// comentarios del informe de finalista, los tres obligatorios. El resultado (PASO / NO_PASO)
+    /// no viaja aquí: lo define el correo de agradecimiento.
     /// </summary>
     public class EvaluacionGuardarDto
     {
-        /// <summary>Resultado de la entrevista (qué se observó).</summary>
+        /// <summary>Resultado de la entrevista (qué se observó). Obligatorio.</summary>
         public string? ComentarioEntrevista { get; set; }
 
-        /// <summary>Informe psicotécnico del candidato.</summary>
+        /// <summary>Informe psicotécnico del candidato. Obligatorio.</summary>
         public string? ComentarioPsicotecnico { get; set; }
 
-        /// <summary>Recomendación de GTH al área solicitante.</summary>
+        /// <summary>Recomendación de GTH al área solicitante. Obligatorio.</summary>
         public string? ComentarioRecomendacion { get; set; }
     }
 
@@ -41,11 +41,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public DateTime? DecididoEn { get; set; }
     }
 
+    /// <summary>
+    /// Evaluación guardada más la fase a la que avanzó el requerimiento, si avanzó. Guardar el
+    /// informe es enviar al finalista, y eso pasa el requerimiento de ENTREVISTAS a
+    /// SELECCION_JEFATURA (la decisión queda del lado del área solicitante).
+    /// </summary>
+    public class EvaluacionGuardadaDto
+    {
+        public EvaluacionResumenDto Evaluacion { get; set; } = new();
+
+        /// <summary>Fase nueva del requerimiento. Null si la fase no se movió.</summary>
+        public string? EstadoCodigo { get; set; }
+        public string? EstadoNombre { get; set; }
+    }
+
     /// <summary>Resultado de guardar la evaluación o de enviar el correo de agradecimiento.</summary>
     public class EvaluacionAccionResultDto
     {
         public string Message { get; set; } = string.Empty;
         public EvaluacionResumenDto Evaluacion { get; set; } = new();
+
+        /// <summary>
+        /// Fase nueva del requerimiento cuando la acción la movió (guardar la evaluación lo pasa a
+        /// SELECCION_JEFATURA). Null si la fase quedó igual — el agradecimiento nunca la mueve.
+        /// </summary>
+        public string? EstadoCodigo { get; set; }
+        public string? EstadoNombre { get; set; }
     }
 
     /// <summary>Datos que necesita el servicio para armar el correo de agradecimiento.</summary>

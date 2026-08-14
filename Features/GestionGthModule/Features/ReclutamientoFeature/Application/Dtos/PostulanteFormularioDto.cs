@@ -119,6 +119,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
 
+        /// <summary>
+        /// Requerimiento y candidato a los que pertenece el formulario: son los que arman el enlace
+        /// del botón del correo, que abre la bandeja de GTH en ese requerimiento y, encima, el modal
+        /// «Ver formulario» de este postulante listo para aprobarlo o rechazarlo.
+        /// </summary>
+        public int RequerimientoId { get; set; }
+        public int CandidatoId { get; set; }
+
         /// <summary>Nombre del postulante (el que declaró en el formulario; si no, el que registró GTH).</summary>
         public string CandidatoNombre { get; set; } = string.Empty;
 

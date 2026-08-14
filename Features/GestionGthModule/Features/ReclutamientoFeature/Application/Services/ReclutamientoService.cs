@@ -177,11 +177,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // El botón lleva siempre al mismo sitio (el detalle del requerimiento), pero se nombra
             // por la acción que a GTH le toca hacer allí, que depende del resultado.
-            var (botonTexto, botonAyuda) = r.TodosRechazados
-                ? ("Preparar nueva long list",
-                   "cargar los CVs de la nueva long list y enviarla de nuevo al solicitante")
-                : ("Continuar el proceso",
-                   "enviarle a cada candidato aprobado el formulario del postulante y seguir con las pruebas psicotécnicas");
+            var botonTexto = r.TodosRechazados ? "Preparar nueva long list" : "Continuar el proceso";
 
             // Mensaje de cierre según el resultado.
             var cierre = r.TodosRechazados
@@ -224,11 +220,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         </td>
                       </tr>
                     </table>
-                    <p style="font-size:12px;color:#555">
-                      El botón abre este requerimiento en <b>Abril One · Gestión GTH · Reclutamiento</b>,
-                      donde puedes {botonAyuda}. Si aún no has iniciado sesión, hazlo y te llevaremos
-                      directo a este requerimiento.
-                    </p>
                     <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
                       <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
                     </p>
@@ -385,8 +376,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto == null)
                 throw new AbrilException("Datos de la evaluación no recibidos.", 400);
 
-            var resumen = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
-            return new EvaluacionAccionResultDto { Message = "Evaluación guardada.", Evaluacion = resumen };
+            // Los tres comentarios son obligatorios: guardar el informe es enviarlo como finalista,
+            // y el área solicitante decide con ese informe completo.
+            if (string.IsNullOrWhiteSpace(dto.ComentarioEntrevista) ||
+                string.IsNullOrWhiteSpace(dto.ComentarioPsicotecnico) ||
+                string.IsNullOrWhiteSpace(dto.ComentarioRecomendacion))
+                throw new AbrilException(
+                    "El resultado de entrevista, el informe psicotécnico y la recomendación GTH son obligatorios.", 400);
+
+            var guardada = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
+            return new EvaluacionAccionResultDto
+            {
+                Message      = "Evaluación guardada.",
+                Evaluacion   = guardada.Evaluacion,
+                EstadoCodigo = guardada.EstadoCodigo,
+                EstadoNombre = guardada.EstadoNombre,
+            };
         }
 
         public async Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId)

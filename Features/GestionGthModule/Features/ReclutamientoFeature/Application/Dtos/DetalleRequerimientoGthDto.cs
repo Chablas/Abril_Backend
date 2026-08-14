@@ -64,6 +64,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// fases anteriores.
         /// </summary>
         public List<CandidatoAprobadoDto> CandidatosAprobados { get; set; } = new();
+
+        /// <summary>
+        /// Candidatos RECHAZADOS a lo largo del proceso, con la etapa del rechazo, incluidos los de
+        /// long lists anteriores. Alimenta la sección «Historial de candidatos rechazados»: cuando
+        /// el solicitante rechaza a todos y el requerimiento vuelve a LONG_LIST, es lo que GTH mira
+        /// para no volver a presentar a los mismos.
+        /// </summary>
+        public List<CandidatoRechazadoDto> CandidatosRechazados { get; set; } = new();
+
+        /// <summary>
+        /// Quién obtuvo el puesto: el candidato que el solicitante aprobó en la decisión final.
+        /// Null mientras el proceso no se haya cerrado con un seleccionado.
+        /// </summary>
+        public SeleccionadoDto? Seleccionado { get; set; }
     }
 
     /// <summary>Candidato aprobado por el solicitante, tal como lo ve GTH en la fase "Long list aprobada".</summary>

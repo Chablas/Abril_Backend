@@ -94,7 +94,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Guarda la evaluación de la entrevista de un candidato: los tres comentarios del informe
-        /// de finalista que verá el área solicitante.
+        /// de finalista que verá el área solicitante. Guardarlo es enviarlo como finalista, así que
+        /// el requerimiento avanza de ENTREVISTAS a SELECCION_JEFATURA; el resultado trae esa fase
+        /// nueva (null si no se movió).
         /// </summary>
         Task<EvaluacionAccionResultDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
 
@@ -115,7 +117,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Registra la decisión final del área solicitante sobre un finalista, avanza el
-        /// requerimiento (CERRADO al aprobar; de vuelta a LONG_LIST si se rechazó a todos) y envía
+        /// requerimiento (CERRADO al aprobar; de vuelta a LONG_LIST si se rechazó a todos; se queda
+        /// en SELECCION_JEFATURA mientras queden finalistas por decidir) y envía
         /// los correos: el de agradecimiento al finalista rechazado y la notificación a GTH
         /// (tipo FINALISTA_DECISION). Ambos envíos son best-effort.
         /// </summary>

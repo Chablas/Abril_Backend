@@ -88,7 +88,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 cc:      copias.Count > 0 ? copias : null);
         }
 
-        private static string ConstruirCuerpoFormularioCompletado(FormularioCompletadoContextoDto ctx)
+        /// <summary>
+        /// Enlace al requerimiento dentro de la bandeja de GTH («Reclutamiento») con el modal
+        /// «Ver formulario» de este postulante ya abierto encima, que es donde se aprueba o rechaza.
+        /// Mismo mecanismo que el resto de correos del módulo: sin sesión, el <c>authGuard</c> del
+        /// frontend manda al login con esta URL como <c>returnUrl</c> y lo devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLinkRevisionFormulario(int requerimientoId, int candidatoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}?formulario={candidatoId}";
+        }
+
+        private string ConstruirCuerpoFormularioCompletado(FormularioCompletadoContextoDto ctx)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
             static string Fila(string etiqueta, string? valor) =>
@@ -109,6 +121,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ? "envió las correcciones de su formulario de información del postulante."
                 : "terminó de llenar su formulario de información del postulante.";
 
+            // El botón abre el formulario de ESTE postulante, así que se nombra por la acción que a
+            // GTH le toca hacer allí. Si por lo que sea no se pudo resolver el requerimiento, se cae
+            // a la indicación de siempre (buscarlo en la bandeja) en vez de mandar un enlace roto.
+            var hayEnlace = ctx.RequerimientoId > 0 && ctx.CandidatoId > 0;
+            var link = hayEnlace ? ConstruirLinkRevisionFormulario(ctx.RequerimientoId, ctx.CandidatoId) : string.Empty;
+
+            var cierre = hayEnlace
+                ? $"""
+                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
+                      <tr>
+                        <td>
+                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar formulario</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="font-size:12px;color:#555">
+                      El botón abre este requerimiento en <b>Abril One · Gestión GTH · Reclutamiento</b>
+                      con el formulario del postulante ya abierto, para que lo revises y lo apruebes o
+                      lo rechaces. Si aún no has iniciado sesión, hazlo y te llevaremos directo a él.
+                    </p>
+                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
+                    </p>
+                    """
+                : """
+                    <p style="font-size:12.5px;color:#555;margin-top:16px">
+                      Ya lo puedes revisar en <b>Gestión GTH → Reclutamiento</b>, en el detalle del
+                      requerimiento, con «Ver formulario», para aprobarlo o rechazarlo.
+                    </p>
+                    """;
+
             return $"""
                 <div style="font-family:Arial,sans-serif;max-width:640px">
                   <div style="background:#005D9D;padding:14px 18px">
@@ -116,9 +159,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                   </div>
                   <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
                     <p style="font-size:13px;margin-top:0">
-                      <b>{Esc(ctx.CandidatoNombre)}</b> {intro} Ya lo puedes revisar en
-                      <b>Gestión GTH → Reclutamiento</b>, en el detalle del requerimiento, con
-                      «Ver formulario», para aprobarlo o rechazarlo.
+                      <b>{Esc(ctx.CandidatoNombre)}</b> {intro}
                     </p>
                     <table style="border-collapse:collapse;margin:14px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
                       {Fila("Requerimiento", ctx.Codigo)}
@@ -130,6 +171,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       {Fila("Celular", ctx.NumeroCelular)}
                       {Fila("Enviado el", ctx.CompletadoEn.ToString("dd/MM/yyyy HH:mm"))}
                     </table>
+                    {cierre}
                     <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>
                 </div>

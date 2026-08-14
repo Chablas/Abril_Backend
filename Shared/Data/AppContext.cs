@@ -493,7 +493,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthMotivoCese> GthMotivoCese => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthMotivoCese>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad> GthUniversidad => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito> GthDistrito => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito>();
-        // Aprobación de Gerencia General de la solicitud (público por token) + su catálogo y detalle.
+        // Aprobación de la solicitud de personal (gerente del área + GG) + su catálogo y detalle.
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado> GthAprobacionGgEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg> GthAprobacionGg => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle> GthAprobacionGgDetalle => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>();
@@ -1493,7 +1493,7 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(f => f.GthMotivoCeseId).OnDelete(DeleteBehavior.Restrict);
             });
 
-            // ── Aprobación de Gerencia General de la solicitud de personal ──────
+            // ── Aprobación de la solicitud de personal (gerente del área + GG) ──
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>()
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
 
@@ -1504,8 +1504,11 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasIndex(a => a.Token).IsUnique().HasFilter("state = true");
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud>()
                  .WithMany().HasForeignKey(a => a.GthSolicitudId).OnDelete(DeleteBehavior.Restrict);
+                // Dos FKs al MISMO catálogo de estados, una por nivel de decisión.
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>()
-                 .WithMany().HasForeignKey(a => a.GthAprobacionGgEstadoId).OnDelete(DeleteBehavior.Restrict);
+                 .WithMany().HasForeignKey(a => a.EstadoGerenteGeneralId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgEstado>()
+                 .WithMany().HasForeignKey(a => a.EstadoGerenteAreaId).OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>(e =>

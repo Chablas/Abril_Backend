@@ -8,11 +8,16 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Presentation
 {
     /// <summary>
-    /// Aprobación de Gerencia General de una solicitud de personal. Dos caras, ambas autenticadas:
+    /// Aprobación de una solicitud de personal. Dos caras, ambas autenticadas:
     ///   • Gerencia: pantalla «Aprobaciones» (bandeja + historial), detalle y decisión.
     ///   • Solicitante: reenviar el correo de su propia solicitud.
     /// Los antiguos endpoints públicos por token ya no existen: el gerente entra desde el correo a
     /// la pantalla y, si no tiene sesión, el login lo devuelve a esa misma URL.
+    ///
+    /// El rol (<c>role_feature</c>) abre la pantalla; qué solicitudes se ven y con qué poder se
+    /// decide lo resuelve el servicio desde la CATEGORÍA de la ficha de trabajador del usuario
+    /// (Gerente General → todas; Gerente → su área hacia abajo; cualquier otra → ninguna). Por eso
+    /// todos los endpoints de gerencia mandan el id del usuario autenticado.
     /// </summary>
     [ApiController]
     [Authorize]
@@ -35,15 +40,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // ── Pantalla «Aprobaciones» (Gerencia) ─────────────────────────────────
 
         /// <summary>
-        /// Pantalla completa en una sola petición: tarjetas de resumen + las solicitudes pendientes
-        /// de decidir y el historial de las ya decididas.
+        /// Pantalla completa en una sola petición: el nivel del usuario, las tarjetas de resumen y
+        /// las solicitudes que alcanza (pendientes de su decisión e historial).
         /// </summary>
         [HttpGet("bandeja")]
         public async Task<IActionResult> GetBandeja()
         {
             try
             {
-                return Ok(await _service.GetBandeja());
+                return Ok(await _service.GetBandeja(UserId));
             }
             catch (AbrilException ex)
             {
@@ -57,15 +62,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Detalle de una solicitud a decidir: cabecera + todas sus vacantes. Si ya fue decidida,
-        /// la respuesta lo indica y el modal se muestra en modo lectura (historial).
+        /// Detalle de una solicitud a decidir: cabecera + todas sus vacantes + las dos casillas de
+        /// decisión. Si el nivel del usuario ya decidió, la respuesta lo indica y el modal se
+        /// muestra en modo lectura (historial). 403 si la solicitud es de otra área.
         /// </summary>
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetDetalle(int id)
         {
             try
             {
-                return Ok(await _service.GetDetalle(id));
+                return Ok(await _service.GetDetalle(id, UserId));
             }
             catch (AbrilException ex)
             {
@@ -79,9 +85,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Registra la decisión de Gerencia General (aprobar todas, algunas o rechazar todas). Las
-        /// vacantes aprobadas pasan a VALIDACION_GTH y se notifican a GTH; las rechazadas quedan en
-        /// RECHAZADO_GG. Se puede decidir una sola vez.
+        /// Registra la decisión del usuario (aprobar todas, algunas o rechazar todas) en la casilla
+        /// de SU nivel — el nivel no viaja en el payload, lo resuelve el backend. Si decide
+        /// Gerencia General, las vacantes aprobadas pasan a VALIDACION_GTH y se notifican a GTH y
+        /// las rechazadas quedan en RECHAZADO_GG; el visto bueno del gerente del área solo queda
+        /// registrado. Cada nivel decide una sola vez.
         /// </summary>
         [HttpPost("{id:int}/decision")]
         public async Task<IActionResult> RegistrarDecision(int id, [FromBody] AprobacionGgDecisionDto dto)

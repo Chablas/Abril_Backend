@@ -140,6 +140,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join pr in ctx.Project on req.ProjectId equals pr.ProjectId
                 select new
                 {
+                    req.GthRequerimientoId,
                     req.Codigo,
                     Puesto       = p.Nombre,
                     Area         = req.Solicitud!.AreaNombre,
@@ -153,6 +154,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto           = head?.Puesto ?? string.Empty,
                 Area             = head?.Area,
                 ProyectoObra     = head?.ProyectoObra,
+                RequerimientoId  = head?.GthRequerimientoId ?? 0,
+                CandidatoId      = f.GthCandidatoId,
                 CandidatoNombre  = f.NombresCompletos ?? head?.Nombre ?? string.Empty,
                 CorreoPostulante = f.CorreoElectronico,
                 NumeroCelular    = f.NumeroCelular,

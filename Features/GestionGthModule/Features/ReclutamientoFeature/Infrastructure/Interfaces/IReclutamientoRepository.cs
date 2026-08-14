@@ -145,11 +145,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Guarda la evaluación de la entrevista de un candidato (comentarios del informe),
         /// creando su única fila vigente en <c>gth_candidato_evaluacion</c> si no
-        /// existía. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si
+        /// existía, y lo deja en PASO: guardar el informe es enviarlo como finalista, así que el
+        /// requerimiento avanza de ENTREVISTAS a SELECCION_JEFATURA (la decisión pasa al área
+        /// solicitante). No mueve la fase desde ninguna otra, para no retroceder un proceso que ya
+        /// cerró o que volvió a long list. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si
         /// el candidato no existe, 400 si aún no se le envió la invitación a la entrevista y 400
         /// si ya no continúa (resultado NO_PASO: su evaluación quedó cerrada).
         /// </summary>
-        Task<EvaluacionResumenDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
+        Task<EvaluacionGuardadaDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
 
         /// <summary>
         /// Marca al candidato como NO_PASO (no continúa) y registra la trazabilidad del correo de
@@ -169,10 +173,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Registra la decisión final del área solicitante sobre un finalista y mueve el
         /// requerimiento: aprobar lo deja en CERRADO (el seleccionado pasa a onboarding); rechazar
-        /// lo deja en ENTREVISTAS mientras queden finalistas por decidir y lo devuelve a LONG_LIST
-        /// cuando ya no queda ninguno (GTH deberá enviar una nueva long list). Al rechazar también
-        /// registra el envío del correo de agradecimiento. Scope: solo el solicitante dueño y solo
-        /// con el requerimiento en ENTREVISTAS. Lanza
+        /// lo deja en SELECCION_JEFATURA mientras queden finalistas por decidir y lo devuelve a
+        /// LONG_LIST cuando ya no queda ninguno (GTH deberá enviar una nueva long list). Al rechazar
+        /// también registra el envío del correo de agradecimiento. Scope: solo el solicitante dueño
+        /// y solo con el requerimiento en SELECCION_JEFATURA. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe o el
         /// candidato no es finalista, y 409 si el proceso ya salió de esa fase o el finalista ya
         /// estaba decidido. Devuelve el contexto para armar los correos.

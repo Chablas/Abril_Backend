@@ -8,10 +8,12 @@ namespace Abril_Backend.Application.Services
     public class ResidentReportIncidenceService : IResidentReportIncidenceService
     {
         private readonly IResidentReportIncidenceRepository _repository;
+        private readonly IProjectResidentRepository _projectResidentRepository;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IFileStorageService _fileStorageService;
         public ResidentReportIncidenceService(
             IResidentReportIncidenceRepository repository,
+            IProjectResidentRepository projectResidentRepository,
             IStorageContainerResolver containerResolver,
             IFileStorageService fileStorageService
             )
@@ -19,10 +21,30 @@ namespace Abril_Backend.Application.Services
             _containerResolver = containerResolver;
             _fileStorageService = fileStorageService;
             _repository = repository;
+            _projectResidentRepository = projectResidentRepository;
         }
-        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page)
+        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int userId, bool isResidente, int? projectId = null, int? stateId = null)
         {
-            return await _repository.GetPaged(page);
+            List<int>? allowedProjectIds = null;
+
+            if (isResidente)
+            {
+                var assignedProjects = await _projectResidentRepository.GetActiveProjectsForResident(userId);
+                allowedProjectIds = assignedProjects.Select(p => p.ProjectId).ToList();
+
+                if (projectId.HasValue && !allowedProjectIds.Contains(projectId.Value))
+                    projectId = null;
+            }
+
+            return await _repository.GetPaged(page, projectId, stateId, allowedProjectIds);
+        }
+
+        public async Task<List<ProjectSimpleDTO>> GetAssignedProjects(int userId, bool isResidente)
+        {
+            if (!isResidente)
+                return new List<ProjectSimpleDTO>();
+
+            return await _projectResidentRepository.GetActiveProjectsForResident(userId);
         }
         public async Task Create(ResidentReportIncidenceCreateDTO dto, int userId)
         {
@@ -69,6 +91,16 @@ namespace Abril_Backend.Application.Services
 
         public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
         {
+            var projectId = await _repository.GetProjectId(dto.ResidentReportIncidenceId);
+
+            if (projectId == null)
+                throw new AbrilException("Incidencia no encontrada.", 404);
+
+            var isAssignedResident = await _projectResidentRepository.IsUserAssignedToProject(userId, projectId.Value);
+
+            if (!isAssignedResident)
+                throw new AbrilException("No estás asignado como residente de este proyecto.", 403);
+
             if (dto.Images == null || !dto.Images.Any())
                 throw new AbrilException("No se pusieron archivos.");
 

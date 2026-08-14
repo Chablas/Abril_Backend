@@ -15,12 +15,23 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page)
+        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int? projectId = null, int? stateId = null, List<int>? allowedProjectIds = null)
         {
             const int pageSize = 10;
 
-            var query = _context.ResidentReportIncidence
-                .Where(r => r.Project.Active && !_context.ProyectoFiltro.Any(f => f.ProjectId == r.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active))
+            var baseQuery = _context.ResidentReportIncidence
+                .Where(r => r.Project.Active && !_context.ProyectoFiltro.Any(f => f.ProjectId == r.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active));
+
+            if (allowedProjectIds != null)
+                baseQuery = baseQuery.Where(r => allowedProjectIds.Contains(r.ProjectId));
+
+            if (projectId.HasValue)
+                baseQuery = baseQuery.Where(r => r.ProjectId == projectId.Value);
+
+            if (stateId.HasValue)
+                baseQuery = baseQuery.Where(r => r.StateId == stateId.Value);
+
+            var query = baseQuery
                 .OrderByDescending(x => x.ResidentReportIncidenceId)
                 .Select(r => new ResidentReportIncidenceDTO
                 {
@@ -31,6 +42,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     ProjectDescription = r.Project.ProjectDescription ?? string.Empty,
                     StateId = r.StateId,
                     StateDescription = r.StateNavigation.StateDescription,
+                    CreatedDateTime = r.CreatedDateTime,
 
                     Images = r.Images
                         .Select(i => new ResidentReportIncidenceImageDTO
@@ -59,6 +71,14 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 Data = data
             };
+        }
+
+        public async Task<int?> GetProjectId(int residentReportIncidenceId)
+        {
+            return await _context.ResidentReportIncidence
+                .Where(r => r.ResidentReportIncidenceId == residentReportIncidenceId)
+                .Select(r => (int?)r.ProjectId)
+                .FirstOrDefaultAsync();
         }
 
         public async Task Create(ResidentReportIncidenceCreateDTO dto, List<string> uploadedUrls, int userId)

@@ -51,7 +51,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             [FromQuery] int pageSize = 200,
             [FromQuery] string? ruc = null,
             [FromQuery] string? razonSocial = null,
-            [FromQuery] string? projectDescription = null)
+            [FromQuery] string? projectDescription = null,
+            [FromQuery] bool? active = null)
         {
             try
             {
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription);
+                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
                 return Ok(result);
             }
             catch (Exception)
@@ -137,6 +138,25 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                     return NotFound(new { message = "Proyecto no encontrado." });
 
                 return Ok(new { message = "Proyecto eliminado exitosamente." });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("responsables")]
+        public async Task<IActionResult> GetResponsables([FromQuery] string tipo)
+        {
+            try
+            {
+                var result = await _service.GetResponsables(tipo);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

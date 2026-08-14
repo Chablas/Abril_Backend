@@ -11,4 +11,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? ContributorDepartment { get; set; }
         public string? LegalEntityRegistryNumber { get; set; }
     }
+
+    public class ResponsableLookupDto
+    {
+        public int Id { get; set; }
+        public string ApellidoNombre { get; set; } = string.Empty;
+    }
 }

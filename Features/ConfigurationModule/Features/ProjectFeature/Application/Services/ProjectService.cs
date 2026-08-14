@@ -18,11 +18,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             _sunatService = sunatService;
         }
 
-        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null)
+        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 200;
-            return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription);
+            return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
         }
 
         public async Task Create(ProjectCreateDto dto, int userId)
@@ -118,6 +118,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)
         {
             return await _repository.ToggleArquitecturaComercial(projectId);
+        }
+
+        public async Task<List<ResponsableLookupDto>> GetResponsables(string tipo)
+        {
+            return await _repository.GetResponsables(tipo);
         }
     }
 }

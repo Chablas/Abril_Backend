@@ -401,8 +401,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Vista de GTH: guarda la evaluación de la entrevista de un candidato (los cuatro puntajes
-        /// y los tres comentarios del informe que verá el área solicitante).
+        /// Vista de GTH: guarda la evaluación de la entrevista de un candidato (los tres
+        /// comentarios del informe que verá el área solicitante).
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPut("candidato/{candidatoId:int}/evaluacion")]
@@ -452,7 +452,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Informe de finalistas de un requerimiento del solicitante (modal "Finalistas enviados por
-        /// GTH"): cabecera + finalistas con sus puntajes, comentarios y CV, en una sola petición.
+        /// GTH"): cabecera + finalistas con sus comentarios y CV, en una sola petición.
         /// </summary>
         [HttpGet("requerimiento/{id:int}/finalistas/revision")]
         public async Task<IActionResult> GetRevisionFinalistas(int id)

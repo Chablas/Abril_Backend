@@ -8,9 +8,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
     /// <summary>
-    /// Aprobación de Gerencia General de la solicitud de personal. Todas las lecturas de la página
-    /// pública se sirven en un solo roundtrip (cabecera + vacantes) porque el GG entra desde el
-    /// correo y no navega por la app.
+    /// Aprobación de Gerencia General de la solicitud de personal. La pantalla «Aprobaciones» se
+    /// sirve en dos roundtrips (cabeceras + vacantes de todas ellas) y el detalle de una
+    /// aprobación en uno solo (cabecera + sus vacantes): el gerente entra desde el correo a
+    /// decidir, no a navegar.
     /// </summary>
     public class AprobacionGgRepository : IAprobacionGgRepository
     {
@@ -131,7 +132,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 SolicitudId       = aprobacion.GthSolicitudId,
                 AprobacionId      = aprobacion.GthAprobacionGgId,
-                Token             = aprobacion.Token,
                 Area              = solicitud.AreaNombre,
                 AreaScopeId       = solicitud.AreaScopeId,
                 SolicitanteNombre = solicitanteNombre,
@@ -201,45 +201,138 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<AprobacionGgPublicoDto?> GetPublicoByToken(string token)
+        public async Task<AprobacionGgBandejaDto> GetBandeja()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // 1) Cabeceras: una fila por solicitud que pasó por Gerencia General. Los nombres del
+            //    solicitante y de quien decidió salen por left join a person (user_id es 1:1 con
+            //    app_user), no por consulta suelta: evita el N+1 de la lista completa.
+            var cabeceras = await (
+                from a in ctx.GthAprobacionGg.AsNoTracking()
+                where a.State
+                join s in ctx.GthSolicitud.AsNoTracking() on a.GthSolicitudId equals s.GthSolicitudId
+                where s.State
+                join e in ctx.GthAprobacionGgEstado.AsNoTracking() on a.GthAprobacionGgEstadoId equals e.GthAprobacionGgEstadoId
+                join ps in ctx.Person.AsNoTracking() on s.SolicitanteUserId equals ps.UserId into solicitanteJoin
+                from ps in solicitanteJoin.DefaultIfEmpty()
+                join pd in ctx.Person.AsNoTracking() on a.DecididoUserId equals pd.UserId into decisorJoin
+                from pd in decisorJoin.DefaultIfEmpty()
+                orderby a.GthAprobacionGgId descending
+                select new
+                {
+                    a.GthAprobacionGgId,
+                    a.DecididoDateTime,
+                    EstadoCodigo      = e.Codigo,
+                    EstadoNombre      = e.Nombre,
+                    s.AreaNombre,
+                    s.Justificacion,
+                    s.CreatedDateTime,
+                    SolicitanteNombre = ps != null ? ps.FullName : null,
+                    DecididoPor       = pd != null ? pd.FullName : null,
+                }).ToListAsync();
+
+            if (cabeceras.Count == 0) return new AprobacionGgBandejaDto();
+
+            // 2) Vacantes de todas esas solicitudes de una sola vez (código + decisión). Se parte de
+            //    gth_requerimiento y el detalle entra por left join —igual que QueryVacantes, para
+            //    que la lista y el modal no puedan contar distinto si a una vacante le falta su
+            //    fila de detalle. La llave del join es el par (aprobación, requerimiento): filtrar
+            //    solo por requerimiento traería el detalle de una aprobación dada de baja.
+            var ids = cabeceras.Select(c => c.GthAprobacionGgId).ToList();
+            var vacantes = await (
+                from a in ctx.GthAprobacionGg.AsNoTracking()
+                where ids.Contains(a.GthAprobacionGgId)
+                join r in ctx.GthRequerimiento.AsNoTracking() on a.GthSolicitudId equals r.GthSolicitudId
+                where r.State
+                join d in ctx.GthAprobacionGgDetalle.AsNoTracking().Where(x => x.State)
+                    on new { A = a.GthAprobacionGgId, R = r.GthRequerimientoId }
+                    equals new { A = d.GthAprobacionGgId, R = d.GthRequerimientoId } into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
+                orderby r.GthRequerimientoId
+                select new
+                {
+                    a.GthAprobacionGgId,
+                    r.Codigo,
+                    Aprobado = d != null ? d.Aprobado : null,
+                }).ToListAsync();
+
+            var porAprobacion = vacantes.ToLookup(v => v.GthAprobacionGgId);
+
+            var items = cabeceras.Select(c =>
+            {
+                var vs = porAprobacion[c.GthAprobacionGgId].ToList();
+                return new AprobacionGgBandejaItemDto
+                {
+                    AprobacionId       = c.GthAprobacionGgId,
+                    Codigos            = string.Join(", ", vs.Select(v => v.Codigo)),
+                    Area               = c.AreaNombre,
+                    SolicitanteNombre  = c.SolicitanteNombre,
+                    Justificacion      = c.Justificacion,
+                    Enviado            = c.CreatedDateTime.ToOffset(PeruOffset).DateTime,
+                    EstadoCodigo       = c.EstadoCodigo,
+                    EstadoNombre       = c.EstadoNombre,
+                    Decidida           = c.EstadoCodigo != AprobacionGgEstadoCodigo.Pendiente,
+                    DecididoEn         = c.DecididoDateTime?.ToOffset(PeruOffset).DateTime,
+                    DecididoPor        = c.DecididoPor,
+                    TotalVacantes      = vs.Count,
+                    VacantesAprobadas  = vs.Count(v => v.Aprobado == true),
+                    VacantesRechazadas = vs.Count(v => v.Aprobado == false),
+                };
+            }).ToList();
+
+            return new AprobacionGgBandejaDto
+            {
+                Resumen = new AprobacionGgBandejaResumenDto
+                {
+                    Pendientes         = items.Count(i => !i.Decidida),
+                    VacantesPendientes = items.Where(i => !i.Decidida).Sum(i => i.TotalVacantes),
+                    // "Aprobadas" incluye las parciales: en ambas hay vacantes que sí continuaron.
+                    Aprobadas          = items.Count(i => i.Decidida && i.VacantesAprobadas > 0),
+                    Rechazadas         = items.Count(i => i.Decidida && i.VacantesAprobadas == 0),
+                },
+                Aprobaciones = items,
+            };
+        }
+
+        public async Task<AprobacionGgDetalleDto?> GetDetalle(int aprobacionId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var head = await (
-                from a in ctx.GthAprobacionGg
-                where a.Token == token && a.State
-                join s in ctx.GthSolicitud on a.GthSolicitudId equals s.GthSolicitudId
+                from a in ctx.GthAprobacionGg.AsNoTracking()
+                where a.GthAprobacionGgId == aprobacionId && a.State
+                join s in ctx.GthSolicitud.AsNoTracking() on a.GthSolicitudId equals s.GthSolicitudId
                 where s.State
-                join e in ctx.GthAprobacionGgEstado on a.GthAprobacionGgEstadoId equals e.GthAprobacionGgEstadoId
+                join e in ctx.GthAprobacionGgEstado.AsNoTracking() on a.GthAprobacionGgEstadoId equals e.GthAprobacionGgEstadoId
+                join ps in ctx.Person.AsNoTracking() on s.SolicitanteUserId equals ps.UserId into solicitanteJoin
+                from ps in solicitanteJoin.DefaultIfEmpty()
+                join pd in ctx.Person.AsNoTracking() on a.DecididoUserId equals pd.UserId into decisorJoin
+                from pd in decisorJoin.DefaultIfEmpty()
                 select new
                 {
                     a.GthAprobacionGgId,
                     a.GthSolicitudId,
                     a.DecididoDateTime,
                     a.Comentario,
-                    EstadoCodigo = e.Codigo,
-                    EstadoNombre = e.Nombre,
+                    EstadoCodigo      = e.Codigo,
+                    EstadoNombre      = e.Nombre,
                     s.AreaNombre,
                     s.Justificacion,
                     s.SustentoNombre,
                     s.SustentoUrl,
-                    s.SolicitanteUserId,
                     s.CreatedDateTime,
+                    SolicitanteNombre = ps != null ? ps.FullName : null,
+                    DecididoPor       = pd != null ? pd.FullName : null,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
 
-            var solicitanteNombre = head.SolicitanteUserId.HasValue
-                ? await ctx.Worker
-                    .Where(w => w.Person != null && w.Person.UserId == head.SolicitanteUserId.Value)
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
-                    .FirstOrDefaultAsync()
-                : null;
-
-            return new AprobacionGgPublicoDto
+            return new AprobacionGgDetalleDto
             {
+                AprobacionId      = head.GthAprobacionGgId,
                 Area              = head.AreaNombre,
-                SolicitanteNombre = solicitanteNombre,
+                SolicitanteNombre = head.SolicitanteNombre,
                 Justificacion     = head.Justificacion,
                 SustentoNombre    = head.SustentoNombre,
                 SustentoUrl       = head.SustentoUrl,
@@ -248,26 +341,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 EstadoNombre      = head.EstadoNombre,
                 Decidida          = head.EstadoCodigo != AprobacionGgEstadoCodigo.Pendiente,
                 DecididoEn        = head.DecididoDateTime?.ToOffset(PeruOffset).DateTime,
+                DecididoPor       = head.DecididoPor,
                 Comentario        = head.Comentario,
                 Vacantes          = await QueryVacantes(ctx, head.GthAprobacionGgId, head.GthSolicitudId),
             };
         }
 
-        public async Task<AprobacionGgDecisionContextoDto> RegistrarDecision(string token, AprobacionGgDecisionDto dto)
+        public async Task<AprobacionGgDecisionContextoDto> RegistrarDecision(
+            int aprobacionId, AprobacionGgDecisionDto dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var aprobacion = await ctx.GthAprobacionGg
-                .FirstOrDefaultAsync(a => a.Token == token && a.State);
+                .FirstOrDefaultAsync(a => a.GthAprobacionGgId == aprobacionId && a.State);
             if (aprobacion == null)
-                throw new AbrilException("El enlace de aprobación no es válido o ya no está disponible.", 404);
+                throw new AbrilException("La solicitud por aprobar ya no está disponible.", 404);
 
             var estadoActual = await ctx.GthAprobacionGgEstado
                 .Where(e => e.GthAprobacionGgEstadoId == aprobacion.GthAprobacionGgEstadoId)
                 .Select(e => e.Codigo)
                 .FirstOrDefaultAsync();
-            // Se decide una sola vez: el enlace puede reenviarse por correo, así que no debe poder
-            // cambiar una decisión ya tomada.
+            // Se decide una sola vez: la pantalla queda como historial y no debe poder cambiar una
+            // decisión ya tomada (dos gerentes pueden abrirla a la vez desde el mismo correo).
             if (estadoActual != AprobacionGgEstadoCodigo.Pendiente)
                 throw new AbrilException("Esta solicitud ya fue decidida por Gerencia General.", 409);
 
@@ -315,9 +410,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 r.GthEstadoRequerimientoId = aprobado
                     ? validacionGth.GthEstadoRequerimientoId
                     : rechazadoGg.GthEstadoRequerimientoId;
-                // Sin UpdatedUserId a propósito: quien decide es el GG desde el enlace del correo,
-                // sin sesión. La traza de quién pudo decidir es gth_aprobacion_gg.correo_envio.
                 r.UpdatedDateTime = now;
+                r.UpdatedUserId   = userId;
 
                 var detalle = detalles.FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId);
                 if (detalle == null)
@@ -329,6 +423,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         Aprobado           = aprobado,
                         DecididoDateTime   = now,
                         CreatedDateTime    = now,
+                        CreatedUserId      = userId,
                         Active             = true,
                         State              = true,
                     });
@@ -338,6 +433,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     detalle.Aprobado         = aprobado;
                     detalle.DecididoDateTime = now;
                     detalle.UpdatedDateTime  = now;
+                    detalle.UpdatedUserId    = userId;
                 }
             }
 
@@ -350,8 +446,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             aprobacion.GthAprobacionGgEstadoId = estadoDestino.GthAprobacionGgEstadoId;
             aprobacion.DecididoDateTime        = now;
+            // Traza de quién decidió, aparte de updated_user_id para que un update posterior
+            // (p. ej. un reenvío) no la pise.
+            aprobacion.DecididoUserId          = userId;
             aprobacion.Comentario              = string.IsNullOrWhiteSpace(dto.Comentario) ? null : dto.Comentario.Trim();
             aprobacion.UpdatedDateTime         = now;
+            aprobacion.UpdatedUserId           = userId;
 
             var solicitanteNombre = solicitud.SolicitanteUserId.HasValue
                 ? await ctx.Worker

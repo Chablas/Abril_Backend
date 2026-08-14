@@ -4,8 +4,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Aprobación de Gerencia General: primer paso del flujo de solicitud de personal. Manda UN
-    /// correo con todas las vacantes de la solicitud, recibe la decisión desde una página pública
-    /// (sin login) y, solo entonces, notifica a GTH las vacantes aprobadas.
+    /// correo con todas las vacantes de la solicitud, recibe la decisión desde la pantalla
+    /// «Aprobaciones» (con sesión iniciada) y, solo entonces, notifica a GTH las aprobadas.
     /// </summary>
     public interface IAprobacionGgService
     {
@@ -24,13 +24,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<AprobacionGgReenvioResultDto> Reenviar(int requerimientoId, int? userId);
 
-        /// <summary>Datos de la página pública de decisión (acceso por token, sin login).</summary>
-        Task<AprobacionGgPublicoDto> GetPublico(string token);
+        /// <summary>
+        /// Pantalla «Aprobaciones»: tarjetas de resumen + las solicitudes pendientes de decidir y
+        /// el historial de las ya decididas, en una sola petición.
+        /// </summary>
+        Task<AprobacionGgBandejaDto> GetBandeja();
+
+        /// <summary>Detalle de una aprobación para el modal de decisión (o de consulta si ya se decidió).</summary>
+        Task<AprobacionGgDetalleDto> GetDetalle(int aprobacionId);
 
         /// <summary>
         /// Registra la decisión del GG (aprobar todas, algunas o rechazar todas) y notifica a GTH
         /// las vacantes aprobadas (correo del tipo SOLICITUD + campanita).
         /// </summary>
-        Task<AprobacionGgDecisionResultDto> RegistrarDecision(string token, AprobacionGgDecisionDto dto);
+        Task<AprobacionGgDecisionResultDto> RegistrarDecision(int aprobacionId, AprobacionGgDecisionDto dto, int? userId);
     }
 }

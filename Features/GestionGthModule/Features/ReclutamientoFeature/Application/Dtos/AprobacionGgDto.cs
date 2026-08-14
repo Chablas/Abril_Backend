@@ -1,12 +1,15 @@
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
-    /// Página pública de decisión de Gerencia General (acceso por token, sin login): cabecera de la
-    /// solicitud + todas sus vacantes, en una sola petición. Si la aprobación ya fue decidida,
-    /// <see cref="Decidida"/> es true y la página se muestra en modo lectura con lo que se registró.
+    /// Detalle de una aprobación para el modal de «Aprobaciones»: cabecera de la solicitud + todas
+    /// sus vacantes, en una sola petición. Si ya fue decidida, <see cref="Decidida"/> es true y el
+    /// modal se muestra en modo lectura con lo que quedó registrado (es también el historial).
     /// </summary>
-    public class AprobacionGgPublicoDto
+    public class AprobacionGgDetalleDto
     {
+        /// <summary>Id de la aprobación (el que viaja en el enlace del correo).</summary>
+        public int AprobacionId { get; set; }
+
         /// <summary>Área solicitante (snapshot al registrar la solicitud).</summary>
         public string? Area { get; set; }
 
@@ -27,15 +30,78 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>true cuando el GG ya decidió: la página no permite volver a decidir.</summary>
+        /// <summary>true cuando el GG ya decidió: la pantalla no permite volver a decidir.</summary>
         public bool Decidida { get; set; }
 
         /// <summary>Momento de la decisión en hora Perú (null si aún está pendiente).</summary>
         public DateTime? DecididoEn { get; set; }
 
+        /// <summary>
+        /// Quién registró la decisión. Null si sigue pendiente o si es una aprobación anterior a
+        /// la pantalla (las decididas por el enlace del correo no dejaban usuario).
+        /// </summary>
+        public string? DecididoPor { get; set; }
+
         public string? Comentario { get; set; }
 
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Pantalla «Aprobaciones» (Gestión GTH) en una sola petición: tarjetas de resumen + la lista
+    /// completa de solicitudes que pasaron por Gerencia General — las pendientes de decidir y el
+    /// historial de las ya decididas.
+    /// </summary>
+    public class AprobacionGgBandejaDto
+    {
+        public AprobacionGgBandejaResumenDto Resumen { get; set; } = new();
+        public List<AprobacionGgBandejaItemDto> Aprobaciones { get; set; } = new();
+    }
+
+    /// <summary>Contadores de las tarjetas de la pantalla «Aprobaciones».</summary>
+    public class AprobacionGgBandejaResumenDto
+    {
+        /// <summary>Solicitudes esperando la decisión de Gerencia General.</summary>
+        public int Pendientes { get; set; }
+
+        /// <summary>Vacantes que suman esas solicitudes pendientes (lo que está realmente en cola).</summary>
+        public int VacantesPendientes { get; set; }
+
+        /// <summary>Solicitudes aprobadas (total o parcialmente) — histórico.</summary>
+        public int Aprobadas { get; set; }
+
+        /// <summary>Solicitudes en las que se rechazaron todas las vacantes — histórico.</summary>
+        public int Rechazadas { get; set; }
+    }
+
+    /// <summary>Una solicitud en la lista de «Aprobaciones» (una fila = una solicitud de personal).</summary>
+    public class AprobacionGgBandejaItemDto
+    {
+        public int AprobacionId { get; set; }
+
+        /// <summary>Códigos de las vacantes de la solicitud, separados por ", " (para buscar y mostrar).</summary>
+        public string Codigos { get; set; } = string.Empty;
+
+        public string? Area { get; set; }
+        public string? SolicitanteNombre { get; set; }
+        public string? Justificacion { get; set; }
+
+        /// <summary>Fecha de registro de la solicitud en hora Perú (UTC-5).</summary>
+        public DateTime Enviado { get; set; }
+
+        /// <summary>PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA.</summary>
+        public string EstadoCodigo { get; set; } = string.Empty;
+        public string EstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>true cuando ya se decidió: la fila es historial y el modal abre en lectura.</summary>
+        public bool Decidida { get; set; }
+
+        public DateTime? DecididoEn { get; set; }
+        public string? DecididoPor { get; set; }
+
+        public int TotalVacantes { get; set; }
+        public int VacantesAprobadas { get; set; }
+        public int VacantesRechazadas { get; set; }
     }
 
     /// <summary>Una vacante de la solicitud como la ve (y decide) Gerencia General.</summary>
@@ -61,7 +127,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public bool? Aprobado { get; set; }
     }
 
-    /// <summary>Decisión que envía Gerencia General desde la página pública.</summary>
+    /// <summary>Decisión que envía Gerencia General desde la pantalla «Aprobaciones».</summary>
     public class AprobacionGgDecisionDto
     {
         public List<VacanteDecisionGgDto> Decisiones { get; set; } = new();
@@ -94,8 +160,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class AprobacionGgEnvioContextoDto
     {
         public int SolicitudId { get; set; }
+
+        /// <summary>Id de la aprobación: es lo que viaja en el enlace del correo a Gerencia.</summary>
         public int AprobacionId { get; set; }
-        public string Token { get; set; } = string.Empty;
 
         public string? Area { get; set; }
 
@@ -118,7 +185,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
     /// <summary>
     /// Contexto de la decisión ya registrada: lo que necesita el servicio para notificar a GTH
-    /// (solo las vacantes aprobadas) y para armar el mensaje de respuesta de la página pública.
+    /// (solo las vacantes aprobadas) y para armar el mensaje de respuesta de la pantalla.
     /// </summary>
     public class AprobacionGgDecisionContextoDto
     {

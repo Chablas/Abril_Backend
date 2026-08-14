@@ -15,14 +15,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// Aprobación de Gerencia General de la solicitud de personal.
     ///
     /// Flujo: el solicitante registra la solicitud → UN solo correo al Gerente General y al gerente
-    /// del área del solicitante, con todas sus vacantes y tres accesos (aprobar todas / elegir
-    /// algunas / rechazar todas) → el GG decide en una página pública por token (sin login) →
-    /// recién ahí se le notifica a GTH, y solo las vacantes aprobadas.
+    /// del área del solicitante, con todas sus vacantes y un enlace a la pantalla «Aprobaciones»
+    /// del módulo Gestión GTH → el gerente decide ahí (con su sesión; si no la tiene, el login lo
+    /// devuelve a esa misma pantalla) → recién ahí se le notifica a GTH, y solo lo aprobado.
     ///
-    /// Los tres botones del correo NO ejecutan la decisión: abren la página con la acción
-    /// preseleccionada y la decisión se confirma con un click ahí. Es a propósito — los clientes de
-    /// correo (Outlook/Safe Links) precargan los enlaces, y un enlace que aprobara al abrirse se
-    /// dispararía solo.
+    /// El enlace del correo NO ejecuta la decisión: abre la solicitud y la decisión se confirma
+    /// dentro de la app. Es a propósito — los clientes de correo (Outlook/Safe Links) precargan
+    /// los enlaces, y un enlace que aprobara al abrirse se dispararía solo.
     /// </summary>
     public class AprobacionGgService : IAprobacionGgService
     {
@@ -57,7 +56,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                // Token de acceso público (hex, url-safe). Solo se usa si la aprobación no existía.
+                // Identificador aleatorio de la fila (columna NOT NULL con índice único). Ya no da
+                // acceso a nada: la decisión se toma dentro de la app, con sesión.
                 var nuevoToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
                 var ctx  = await _repo.PrepararEnvio(solicitudId, nuevoToken, userId);
                 // Lo que esté activo en la sección "Aprobación GG" de la Configuración:
@@ -183,17 +183,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : $"""<br><span style="font-size:11px;color:#6b7280">Reemplaza a {System.Net.WebUtility.HtmlEncode(v.TrabajadorReemplazado)}</span>""";
 
         /// <summary>
-        /// Cuerpo del correo al Gerente General: la solicitud completa en una tabla + tres accesos
-        /// (aprobar todas / elegir algunas / rechazar todas) que abren la página de decisión.
+        /// Cuerpo del correo al Gerente General: la solicitud completa en una tabla + un acceso a
+        /// la pantalla «Aprobaciones», donde se decide vacante por vacante.
         /// </summary>
         private string ConstruirCuerpoGerencia(AprobacionGgEnvioContextoDto ctx, bool esReenvio)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
 
-            var baseUrl = ConstruirLink(ctx.Token, null);
-            var linkAprobar  = ConstruirLink(ctx.Token, "aprobar-todo");
-            var linkRevisar  = ConstruirLink(ctx.Token, "revisar");
-            var linkRechazar = ConstruirLink(ctx.Token, "rechazar-todo");
+            var link = ConstruirLink(ctx.AprobacionId);
 
             var filas = new StringBuilder();
             foreach (var v in ctx.Vacantes)
@@ -225,7 +222,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ? """<p style="font-size:13px;color:#B45309"><b>Recordatorio:</b> esta solicitud sigue pendiente de tu aprobación.</p>"""
                 : "";
 
-            // Un solo botón por acción, en una tabla: los clientes de correo no soportan flex/grid.
+            // El botón va dentro de una tabla: los clientes de correo no soportan flex/grid.
             return $"""
                 <div style="font-family:Arial,sans-serif;max-width:680px">
                   <div style="background:{AzulAbril};padding:12px 16px">
@@ -255,26 +252,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     {justificacion}
                     {sustento}
 
-                    <p style="font-size:13px;margin-top:18px"><b>¿Qué quieres hacer?</b></p>
-                    <table cellpadding="0" cellspacing="0" style="margin:6px 0 14px">
+                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
                       <tr>
-                        <td style="padding:0 8px 8px 0">
-                          <a href="{linkAprobar}" style="background:#15803D;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Aprobar todas</a>
-                        </td>
-                        <td style="padding:0 8px 8px 0">
-                          <a href="{linkRevisar}" style="background:{AzulAbril};color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Aprobar solo algunas</a>
-                        </td>
-                        <td style="padding:0 0 8px 0">
-                          <a href="{linkRechazar}" style="background:#B91C1C;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Rechazar todas</a>
+                        <td>
+                          <a href="{link}" style="background:{AzulAbril};color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar y aprobar</a>
                         </td>
                       </tr>
                     </table>
                     <p style="font-size:12px;color:#555">
-                      Cualquiera de las tres opciones abre la solicitud para que confirmes la decisión
-                      con un click. No necesitas iniciar sesión.
+                      El botón abre esta solicitud en <b>Abril One · Gestión GTH · Aprobaciones</b>, donde
+                      puedes aprobar todas las vacantes, aprobar solo algunas o rechazarlas. Si aún no
+                      has iniciado sesión, hazlo y te llevaremos directo a esta solicitud.
                     </p>
-                    <p style="font-size:12px;color:#555">Si los botones no funcionan, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:{AzulAbril};word-break:break-all">{Esc(baseUrl)}</span>
+                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                      <span style="color:{AzulAbril};word-break:break-all">{Esc(link)}</span>
                     </p>
                     <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>
@@ -282,39 +273,42 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 """;
         }
 
-        /// <summary>Enlace a la página pública de decisión, con la acción preseleccionada (opcional).</summary>
-        private string ConstruirLink(string token, string? accion)
+        /// <summary>
+        /// Enlace a la solicitud dentro de «Aprobaciones». Si el gerente no tiene sesión, el
+        /// <c>authGuard</c> del frontend lo manda al login con esta URL como <c>returnUrl</c> y lo
+        /// devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLink(int aprobacionId)
         {
             var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
-            var link = $"{frontendUrl}/aprobacion-gerencia/solicitud?token={Uri.EscapeDataString(token)}";
-            return accion == null ? link : $"{link}&accion={accion}";
+            return $"{frontendUrl}/gestion-gth/aprobaciones/{aprobacionId}";
         }
 
-        // ── Página pública y decisión ─────────────────────────────────────────
-        public async Task<AprobacionGgPublicoDto> GetPublico(string token)
-        {
-            if (string.IsNullOrWhiteSpace(token))
-                throw new AbrilException("Enlace de aprobación no válido.", 400);
+        // ── Pantalla «Aprobaciones» y decisión ────────────────────────────────
+        public Task<AprobacionGgBandejaDto> GetBandeja() => _repo.GetBandeja();
 
-            var dto = await _repo.GetPublicoByToken(token.Trim());
+        public async Task<AprobacionGgDetalleDto> GetDetalle(int aprobacionId)
+        {
+            var dto = await _repo.GetDetalle(aprobacionId);
             if (dto == null)
-                throw new AbrilException("El enlace de aprobación no es válido o ya no está disponible.", 404);
+                throw new AbrilException("La solicitud por aprobar no existe o ya no está disponible.", 404);
             return dto;
         }
 
-        public async Task<AprobacionGgDecisionResultDto> RegistrarDecision(string token, AprobacionGgDecisionDto dto)
+        public async Task<AprobacionGgDecisionResultDto> RegistrarDecision(
+            int aprobacionId, AprobacionGgDecisionDto dto, int? userId)
         {
-            if (string.IsNullOrWhiteSpace(token))
-                throw new AbrilException("Enlace de aprobación no válido.", 400);
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
             if (dto?.Decisiones == null || dto.Decisiones.Count == 0)
                 throw new AbrilException("Debes aprobar o rechazar las vacantes antes de enviar la decisión.", 400);
 
-            var ctx = await _repo.RegistrarDecision(token.Trim(), dto);
+            var ctx = await _repo.RegistrarDecision(aprobacionId, dto, userId.Value);
             var res = ctx.Resultado;
 
             // Solo las vacantes aprobadas llegan a GTH. Best-effort: la decisión ya quedó registrada.
             if (ctx.Aprobadas.Count > 0)
-                await NotificarAGthAsync(ctx);
+                await NotificarAGthAsync(ctx, userId);
 
             res.Message = res.Aprobados == 0
                 ? "Decisión registrada: rechazaste todas las vacantes. La solicitud no continúa y no se envió a Gestión de Talento Humano."
@@ -330,7 +324,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Es el correo de "nueva solicitud de personal" que antes salía al registrar la solicitud:
         /// ahora espera la aprobación del GG y solo lleva lo aprobado. No bloquea.
         /// </summary>
-        private async Task NotificarAGthAsync(AprobacionGgDecisionContextoDto ctx)
+        private async Task NotificarAGthAsync(AprobacionGgDecisionContextoDto ctx, int? userId)
         {
             SolicitudDestinatariosDto dest;
             try
@@ -385,7 +379,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await _notificaciones.CrearPorCorreosAsync(
                     NotificacionTipoCodigo.GthSolicitudPersonal,
                     dest.EmailsPara.Concat(dest.EmailsCopias).ToList(),
-                    null, // el evento lo dispara Gerencia General, que no está autenticada
+                    userId, // quien aprobó desde «Aprobaciones»
                     items);
             }
             catch (Exception ex)

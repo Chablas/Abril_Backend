@@ -93,8 +93,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EntrevistaAccionResultDto> GuardarEntrevista(int candidatoId, EntrevistaGuardarDto dto, int? userId);
 
         /// <summary>
-        /// Guarda la evaluación de la entrevista de un candidato: los cuatro puntajes (0-100) y los
-        /// tres comentarios del informe de finalista que verá el área solicitante.
+        /// Guarda la evaluación de la entrevista de un candidato: los tres comentarios del informe
+        /// de finalista que verá el área solicitante.
         /// </summary>
         Task<EvaluacionAccionResultDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
 

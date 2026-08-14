@@ -5,11 +5,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// (tabla <c>gth_aprobacion_gg</c>): 1:1 con <see cref="GthSolicitud"/> entre las vigentes.
     ///
     /// Es el primer paso del flujo: al registrar la solicitud se le manda al Gerente General UN
-    /// SOLO correo con todas las vacantes y un enlace con <see cref="Token"/> a una página pública
-    /// (sin login) donde aprueba todas, algunas, o rechaza todas. Solo las aprobadas pasan a GTH.
+    /// SOLO correo con todas las vacantes y un enlace a la pantalla «Aprobaciones» del módulo de
+    /// Gestión GTH, donde aprueba todas, algunas, o rechaza todas. Solo las aprobadas pasan a GTH.
     ///
-    /// El GG no inicia sesión, así que la única traza de quién pudo decidir es el snapshot de los
-    /// correos a los que se envió el enlace (<see cref="CorreoEnvio"/> / <see cref="CorreoCopia"/>).
+    /// La decisión se toma dentro de la aplicación (con sesión iniciada), así que
+    /// <see cref="DecididoUserId"/> guarda quién la tomó. <see cref="CorreoEnvio"/> /
+    /// <see cref="CorreoCopia"/> siguen siendo el snapshot de a quiénes se les avisó.
     /// </summary>
     public class GthAprobacionGg
     {
@@ -18,7 +19,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>FK a la solicitud dueña de la aprobación (1:1 entre las vigentes).</summary>
         public int GthSolicitudId { get; set; }
 
-        /// <summary>Token de acceso público a la página de decisión (va en el enlace del correo).</summary>
+        /// <summary>
+        /// Identificador aleatorio de la aprobación. Nació como token de acceso a la página
+        /// pública de decisión (sin login); esa página ya no existe — hoy el gerente entra a
+        /// «Aprobaciones» con su sesión. Se sigue generando porque la columna es NOT NULL y
+        /// tiene índice único entre las vigentes, pero NO otorga acceso a nada.
+        /// </summary>
         public string Token { get; set; } = null!;
 
         /// <summary>FK a <see cref="GthAprobacionGgEstado"/>: PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA.</summary>
@@ -36,6 +42,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public DateTimeOffset? ReenviadoDateTime { get; set; }
 
         public DateTimeOffset? DecididoDateTime { get; set; }
+
+        /// <summary>
+        /// Usuario que registró la decisión desde «Aprobaciones». Es la traza de quién aprobó o
+        /// rechazó; va aparte de <c>updated_user_id</c> para que un update posterior no la pise.
+        /// Null en las aprobaciones anteriores a la pantalla (se decidían por enlace, sin sesión).
+        /// </summary>
+        public int? DecididoUserId { get; set; }
 
         /// <summary>Comentario opcional que el GG escribe al confirmar su decisión.</summary>
         public string? Comentario { get; set; }

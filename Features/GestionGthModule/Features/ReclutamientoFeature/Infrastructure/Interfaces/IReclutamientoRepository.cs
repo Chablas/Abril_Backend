@@ -143,8 +143,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId);
 
         /// <summary>
-        /// Guarda la evaluación de la entrevista de un candidato (puntajes + comentarios del
-        /// informe), creando su única fila vigente en <c>gth_candidato_evaluacion</c> si no
+        /// Guarda la evaluación de la entrevista de un candidato (comentarios del informe),
+        /// creando su única fila vigente en <c>gth_candidato_evaluacion</c> si no
         /// existía. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si
         /// el candidato no existe, 400 si aún no se le envió la invitación a la entrevista y 400
         /// si ya no continúa (resultado NO_PASO: su evaluación quedó cerrada).
@@ -161,7 +161,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Informe de finalistas de un requerimiento del usuario (cabecera + candidatos evaluados
-        /// que siguen en carrera, con sus puntajes, comentarios y CV), en 1 roundtrip por bloque.
+        /// que siguen en carrera, con sus comentarios y CV), en 1 roundtrip por bloque.
         /// Devuelve null si el requerimiento no existe o no le pertenece al usuario.
         /// </summary>
         Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, int userId);

@@ -8,13 +8,14 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Presentation
 {
     /// <summary>
-    /// Aprobación de Gerencia General de una solicitud de personal. Dos caras:
-    ///   • Pública (Gerente General): GET/POST por token, sin autenticación (<c>[AllowAnonymous]</c>).
-    ///     El GG entra desde el correo y no tiene por qué iniciar sesión.
-    ///   • Solicitante: reenviar el correo de su propia solicitud. Protegida por JWT.
-    /// La clase no lleva <c>[Authorize]</c> a nivel de tipo para permitir los endpoints anónimos.
+    /// Aprobación de Gerencia General de una solicitud de personal. Dos caras, ambas autenticadas:
+    ///   • Gerencia: pantalla «Aprobaciones» (bandeja + historial), detalle y decisión.
+    ///   • Solicitante: reenviar el correo de su propia solicitud.
+    /// Los antiguos endpoints públicos por token ya no existen: el gerente entra desde el correo a
+    /// la pantalla y, si no tiene sesión, el login lo devuelve a esa misma URL.
     /// </summary>
     [ApiController]
+    [Authorize]
     [Route("api/v1/gestion-gth/aprobacion-gerencia")]
     public class AprobacionGgController : ControllerBase
     {
@@ -27,19 +28,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _logger  = logger;
         }
 
-        // ── Público (Gerencia General, acceso por token) ───────────────────────
+        /// <summary>Id del usuario autenticado (claim NameIdentifier del JWT interno).</summary>
+        private int? UserId =>
+            int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : null;
+
+        // ── Pantalla «Aprobaciones» (Gerencia) ─────────────────────────────────
 
         /// <summary>
-        /// Solicitud a decidir por token: cabecera + todas sus vacantes, en una sola petición.
-        /// Si ya fue decidida, la respuesta lo indica y la página se muestra en modo lectura.
+        /// Pantalla completa en una sola petición: tarjetas de resumen + las solicitudes pendientes
+        /// de decidir y el historial de las ya decididas.
         /// </summary>
-        [HttpGet("publico")]
-        [AllowAnonymous]
-        public async Task<IActionResult> GetPublico([FromQuery] string token)
+        [HttpGet("bandeja")]
+        public async Task<IActionResult> GetBandeja()
         {
             try
             {
-                return Ok(await _service.GetPublico(token));
+                return Ok(await _service.GetBandeja());
             }
             catch (AbrilException ex)
             {
@@ -47,7 +51,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en AprobacionGgController.GetPublico");
+                _logger.LogError(ex, "Error en AprobacionGgController.GetBandeja");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Detalle de una solicitud a decidir: cabecera + todas sus vacantes. Si ya fue decidida,
+        /// la respuesta lo indica y el modal se muestra en modo lectura (historial).
+        /// </summary>
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetDetalle(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetDetalle(id));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en AprobacionGgController.GetDetalle");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -57,13 +83,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// vacantes aprobadas pasan a VALIDACION_GTH y se notifican a GTH; las rechazadas quedan en
         /// RECHAZADO_GG. Se puede decidir una sola vez.
         /// </summary>
-        [HttpPost("publico/decision")]
-        [AllowAnonymous]
-        public async Task<IActionResult> RegistrarDecision([FromQuery] string token, [FromBody] AprobacionGgDecisionDto dto)
+        [HttpPost("{id:int}/decision")]
+        public async Task<IActionResult> RegistrarDecision(int id, [FromBody] AprobacionGgDecisionDto dto)
         {
             try
             {
-                return Ok(await _service.RegistrarDecision(token, dto));
+                return Ok(await _service.RegistrarDecision(id, dto, UserId));
             }
             catch (AbrilException ex)
             {
@@ -81,16 +106,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Reenvía el correo de aprobación a Gerencia General (para cuando el primer envío falló o
         /// se corrigieron los destinatarios). Solo el solicitante dueño de la solicitud, y solo
-        /// mientras el GG no haya decidido. El enlace no cambia.
+        /// mientras Gerencia no haya decidido. El enlace no cambia.
         /// </summary>
         [HttpPost("requerimiento/{id:int}/reenviar")]
-        [Authorize]
         public async Task<IActionResult> Reenviar(int id)
         {
             try
             {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
-                return Ok(await _service.Reenviar(id, userId));
+                return Ok(await _service.Reenviar(id, UserId));
             }
             catch (AbrilException ex)
             {

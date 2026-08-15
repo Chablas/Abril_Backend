@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<CargaDiariaDto?> GetCargaDiaria(int projectId, DateOnly fecha)
+        public async Task<CargaDiariaDto?> GetCargaDiaria(int projectId, DateOnly fecha, string categoria)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -77,7 +77,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 .ToListAsync();
 
             var evidencias = await ctx.BimEvidenciaFoto
-                .Where(e => e.ProjectId == projectId && e.Fecha == fecha)
+                .Where(e => e.ProjectId == projectId && e.Fecha == fecha && e.Categoria == categoria)
                 .OrderBy(e => e.CreatedDateTime)
                 .Select(e => new EvidenciaFotoDto { Id = e.Id, Url = e.Url, CreatedDateTime = e.CreatedDateTime })
                 .ToListAsync();
@@ -100,6 +100,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             return new CargaDiariaDto
             {
                 Fecha = fecha,
+                Categoria = categoria,
                 Zonas = zonas,
                 Actividades = actividades,
                 Causas = causas,
@@ -158,7 +159,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<List<EvidenciaFotoDto>> AgregarEvidencias(int projectId, DateOnly fecha, List<string> urls, int userId)
+        public async Task<List<EvidenciaFotoDto>> AgregarEvidencias(int projectId, DateOnly fecha, List<string> urls, int userId, string categoria)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -167,6 +168,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             {
                 ProjectId = projectId,
                 Fecha = fecha,
+                Categoria = categoria,
                 Url = url,
                 CreatedUserId = userId,
                 CreatedDateTime = ahora,

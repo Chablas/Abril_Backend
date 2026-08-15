@@ -27,11 +27,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         }
 
         [HttpGet("{projectId:int}")]
-        public async Task<IActionResult> GetCargaDiaria(int projectId, [FromQuery] DateOnly fecha)
+        public async Task<IActionResult> GetCargaDiaria(int projectId, [FromQuery] DateOnly fecha, [FromQuery] string categoria = "GENERAL")
         {
             try
             {
-                return Ok(await _service.GetCargaDiaria(projectId, fecha));
+                return Ok(await _service.GetCargaDiaria(projectId, fecha, categoria));
             }
             catch (AbrilException ex)
             {
@@ -67,7 +67,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
 
         [HttpPost("{projectId:int}/evidencias")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> SubirEvidencias(int projectId, [FromQuery] DateOnly fecha, [FromForm] IFormFileCollection files)
+        public async Task<IActionResult> SubirEvidencias(int projectId, [FromQuery] DateOnly fecha, [FromForm] IFormFileCollection files, [FromQuery] string categoria = "GENERAL")
         {
             try
             {
@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
                 if (userId == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var evidencias = await _service.SubirEvidencias(projectId, fecha, files, userId.Value);
+                var evidencias = await _service.SubirEvidencias(projectId, fecha, files, userId.Value, categoria);
                 return Ok(evidencias);
             }
             catch (AbrilException ex)

@@ -16,6 +16,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         [Column("fecha")]
         public DateOnly Fecha { get; set; }
 
+        /// <summary>"GENERAL" (Evidencia Fotográfica de Carga Diaria) | "PROCURA".</summary>
+        [Column("categoria")]
+        public string Categoria { get; set; } = "GENERAL";
+
         [Column("url")]
         public string Url { get; set; } = string.Empty;
 

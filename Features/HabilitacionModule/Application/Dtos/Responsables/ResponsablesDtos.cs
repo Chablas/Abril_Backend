@@ -34,6 +34,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables
     {
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = string.Empty;
+        /// <summary>FK a Worker (project.residente_workers_id); el correo se resuelve en vivo, no se guarda copia.</summary>
+        public int? ResidenteWorkersId { get; set; }
+        public string? ResidenteNombre { get; set; }
+        public string? ResidenteEmail { get; set; }
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }
@@ -42,6 +46,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables
 
     public class ResponsableProyectoUpdateDto
     {
+        public int? ResidenteWorkersId { get; set; }
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }

@@ -195,6 +195,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Reunión de un nodo del árbol area_scope (gerencia/área/subárea).</summary>
         public int? AreaScopeId { get; set; }
         public string Tema { get; set; } = null!;
+        /// <summary>Tema del catálogo elegido (null si es personalizado), para heredar su configuración de agenda/recordatorio.</summary>
+        public int? ReunionTemaId { get; set; }
         public string? ConvocadoPor { get; set; }
         public string? Lugar { get; set; }
         public DateOnly Fecha { get; set; }
@@ -257,12 +259,78 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int? AreaScopeId { get; set; }
         public string? AreaScopeDescripcion { get; set; }
         public List<int> PuestoIds { get; set; } = new();
+        public bool RequiereAgenda { get; set; }
+        public bool AgendaFija { get; set; }
+        public string? AgendaTexto { get; set; }
+        public decimal? RecordatorioHorasAntes { get; set; }
     }
 
     public class TemaConvocatoriaSaveRequest
     {
         public int? AreaScopeId { get; set; }
         public List<int> PuestoIds { get; set; } = new();
+        public bool RequiereAgenda { get; set; }
+        public bool AgendaFija { get; set; }
+        public string? AgendaTexto { get; set; }
+        public decimal? RecordatorioHorasAntes { get; set; }
+    }
+
+    // ── Agenda de reunión ────────────────────────────────────────────────────
+    public class ReunionAgendaItemDto
+    {
+        public int ReunionAgendaItemId { get; set; }
+        public int WorkerId { get; set; }
+        public string WorkerNombre { get; set; } = null!;
+        public string Descripcion { get; set; } = null!;
+        public int Orden { get; set; }
+    }
+
+    /// <summary>Agenda de una reunión concreta: fija (texto único) o dinámica (temas por participante).</summary>
+    public class ReunionAgendaDto
+    {
+        public bool RequiereAgenda { get; set; }
+        public bool AgendaFija { get; set; }
+        /// <summary>Texto único cuando AgendaFija es true.</summary>
+        public string? AgendaTexto { get; set; }
+        /// <summary>Temas cargados por cada participante cuando AgendaFija es false.</summary>
+        public List<ReunionAgendaItemDto> Items { get; set; } = new();
+        /// <summary>Participantes convocados (con workerId) que aún no cargaron ningún tema.</summary>
+        public List<string> ParticipantesPendientes { get; set; } = new();
+        /// <summary>WorkerId del usuario autenticado que consulta, si es participante de esta reunión (para saber "mis temas").</summary>
+        public int? WorkerIdActual { get; set; }
+    }
+
+    public class ReunionAgendaItemInput
+    {
+        public string Descripcion { get; set; } = null!;
+    }
+
+    /// <summary>Reemplaza por completo los temas a tratar del worker autenticado para una reunión.</summary>
+    public class GuardarMisTemasRequest
+    {
+        public List<ReunionAgendaItemInput> Temas { get; set; } = new();
+    }
+
+    // ── Recordatorio de agenda (job) ─────────────────────────────────────────
+    /// <summary>Reunión PROGRAMADA con agenda dinámica pendiente de recordatorio.</summary>
+    public class ReunionRecordatorioCandidatoDto
+    {
+        public int ReunionId { get; set; }
+        public int Numero { get; set; }
+        public string Tema { get; set; } = null!;
+        public string AmbitoDescripcion { get; set; } = null!;
+        public DateOnly Fecha { get; set; }
+        public TimeOnly HoraInicio { get; set; }
+        public decimal RecordatorioHorasAntes { get; set; }
+        public List<ReunionRecordatorioDestinatarioDto> Destinatarios { get; set; } = new();
+    }
+
+    public class ReunionRecordatorioDestinatarioDto
+    {
+        public int UserId { get; set; }
+        public int WorkerId { get; set; }
+        public string Nombre { get; set; } = null!;
+        public string Email { get; set; } = null!;
     }
 
     public class ReunionCambiarEstadoRequest

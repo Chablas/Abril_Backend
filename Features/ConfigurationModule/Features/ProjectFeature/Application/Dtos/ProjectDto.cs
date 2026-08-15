@@ -48,6 +48,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         // Flags
         public bool? TieneArquitecturaComercial { get; set; }
 
+        // Geolocalización (geofencing de Tareo — Arquitectura Comercial)
+        public decimal? Lat { get; set; }
+        public decimal? Lng { get; set; }
+        public decimal RadioGeofenceMetros { get; set; }
+
         public bool Active { get; set; }
     }
 }

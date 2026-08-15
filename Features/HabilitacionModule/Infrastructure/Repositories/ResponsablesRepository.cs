@@ -35,18 +35,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 })
                 .ToListAsync();
 
-            var proyectos = await ctx.Project
-                .Where(p => p.State)
-                .OrderBy(p => p.ProjectDescription)
-                .Select(p => new ResponsableProyectoDto
+            var proyectos = await (
+                from p in ctx.Project
+                where p.State
+                join rw in ctx.Worker on p.ResidenteWorkersId equals rw.Id into rwj
+                from residente in rwj.DefaultIfEmpty()
+                orderby p.ProjectDescription
+                select new ResponsableProyectoDto
                 {
                     ProjectId = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
+                    ResidenteWorkersId = p.ResidenteWorkersId,
+                    ResidenteNombre = residente != null ? (residente.Person != null ? residente.Person.FullName : null) : null,
+                    ResidenteEmail = residente != null ? residente.EmailCorporativo : null,
                     EmailResponsable = p.EmailResponsable,
                     EmailRrhh = p.EmailRrhh,
                     EmailCoordSsoma = p.EmailCoordSsoma,
                     EmailCoordAdmin = p.EmailCoordAdmin
                 })
+                .AsNoTracking()
                 .ToListAsync();
 
             // Solo personal Casa: los responsables/coordinadores son siempre personal propio de
@@ -96,6 +103,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId)
                 ?? throw new AbrilException("El proyecto no existe.", 404);
 
+            project.ResidenteWorkersId = dto.ResidenteWorkersId;
             project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable)
                 ? null
                 : dto.EmailResponsable.Trim();

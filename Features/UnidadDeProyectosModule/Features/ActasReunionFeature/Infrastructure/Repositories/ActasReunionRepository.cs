@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models;
@@ -339,6 +340,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 if (!areaScopeExiste)
                     throw new AbrilException("El área/gerencia seleccionada no existe.", 400);
             }
+            if (request.ReunionTemaId.HasValue)
+            {
+                var temaExiste = await ctx.ReunionTema.AnyAsync(t => t.ReunionTemaId == request.ReunionTemaId.Value && t.State);
+                if (!temaExiste)
+                    throw new AbrilException("El tema del catálogo seleccionado no existe.", 400);
+            }
 
             if (request.ReunionAnteriorId.HasValue)
             {
@@ -362,6 +369,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             {
                 ProjectId = request.ProjectId,
                 AreaScopeId = request.AreaScopeId,
+                ReunionTemaId = request.ReunionTemaId,
                 Numero = numero,
                 Tema = request.Tema.Trim(),
                 ConvocadoPor = request.ConvocadoPor?.Trim(),
@@ -898,13 +906,29 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// participantes (ej. "todas las jefaturas de Proyectos", "todo el área de Arquitectura
         /// Comercial").
         /// </summary>
-        public async Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds)
+        public async Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId)
         {
             using var ctx = _factory.CreateDbContext();
 
             HashSet<int>? descendientes = null;
             if (areaScopeId.HasValue)
                 descendientes = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+
+            // Staff asignado a este proyecto vía ss_contratista_usuario (scope POR_PROYECTO):
+            // ids de worker que tienen acceso vigente al proyecto indicado. Los de scope TODOS
+            // (roles de oficina con acceso a todo) no se incluyen aquí: esto es específicamente
+            // "el staff de esta obra", no cualquiera con acceso al sistema.
+            HashSet<int>? workerIdsDeProyecto = null;
+            if (projectId.HasValue)
+            {
+                workerIdsDeProyecto = (await ctx.SsContratistaUsuarios
+                    .Where(u => u.Activo && u.WorkerId != null && u.Scope == "POR_PROYECTO"
+                        && u.Proyectos.Any(pr => pr.ProyectoId == projectId.Value))
+                    .Select(u => u.WorkerId!.Value)
+                    .Distinct()
+                    .ToListAsync())
+                    .ToHashSet();
+            }
 
             var query =
                 from w in ctx.Worker
@@ -917,6 +941,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 query = query.Where(x => x.w.AreaScopeId != null && descendientes.Contains(x.w.AreaScopeId.Value));
             if (puestoIds != null && puestoIds.Count > 0)
                 query = query.Where(x => x.w.PuestoId != null && puestoIds.Contains(x.w.PuestoId.Value));
+            if (workerIdsDeProyecto != null)
+                query = query.Where(x => workerIdsDeProyecto.Contains(x.w.Id));
 
             return await query
                 .OrderBy(x => x.p.FullName)
@@ -973,7 +999,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             var tema = await ctx.ReunionTema
                 .Where(t => t.ReunionTemaId == reunionTemaId && t.State)
-                .Select(t => new { t.AreaScopeId })
+                .Select(t => new { t.AreaScopeId, t.RequiereAgenda, t.AgendaFija, t.AgendaTexto, t.RecordatorioHorasAntes })
                 .FirstOrDefaultAsync();
             if (tema is null)
                 throw new AbrilException("El tema no existe.", 404);
@@ -995,11 +1021,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 AreaScopeId = tema.AreaScopeId,
                 AreaScopeDescripcion = areaScopeDescripcion,
                 PuestoIds = puestoIds,
+                RequiereAgenda = tema.RequiereAgenda,
+                AgendaFija = tema.AgendaFija,
+                AgendaTexto = tema.AgendaTexto,
+                RecordatorioHorasAntes = tema.RecordatorioHorasAntes,
             };
         }
 
-        /// <summary>Reemplaza por completo la convocatoria recurrente configurada para un tema.</summary>
-        public async Task GuardarConvocatoriaTema(int reunionTemaId, int? areaScopeId, List<int> puestoIds, int userId)
+        /// <summary>Reemplaza por completo la convocatoria y configuración de agenda/recordatorio de un tema.</summary>
+        public async Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1008,7 +1038,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 throw new AbrilException("El tema no existe.", 404);
 
             var now = DateTime.UtcNow;
-            tema.AreaScopeId = areaScopeId;
+            tema.AreaScopeId = request.AreaScopeId;
+            tema.RequiereAgenda = request.RequiereAgenda;
+            tema.AgendaFija = request.AgendaFija;
+            tema.AgendaTexto = request.AgendaFija ? request.AgendaTexto?.Trim() : null;
+            tema.RecordatorioHorasAntes = request.RequiereAgenda && !request.AgendaFija ? request.RecordatorioHorasAntes : null;
             tema.UpdatedDateTime = now;
             tema.UpdatedUserId = userId;
 
@@ -1018,7 +1052,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             foreach (var actual in actuales)
                 actual.State = false;
 
-            foreach (var puestoId in puestoIds.Distinct())
+            foreach (var puestoId in request.PuestoIds.Distinct())
             {
                 ctx.ReunionTemaPuesto.Add(new ReunionTemaPuesto
                 {
@@ -1032,6 +1066,208 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        // ── Agenda de reunión ────────────────────────────────────────────────
+        public async Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var reunion = await ctx.Reunion
+                .Where(r => r.ReunionId == reunionId && r.State)
+                .Select(r => new { r.ReunionTemaId })
+                .FirstOrDefaultAsync();
+            if (reunion is null)
+                throw new AbrilException("El acta de reunión no existe.", 404);
+
+            var config = reunion.ReunionTemaId.HasValue
+                ? await ctx.ReunionTema
+                    .Where(t => t.ReunionTemaId == reunion.ReunionTemaId.Value)
+                    .Select(t => new { t.RequiereAgenda, t.AgendaFija, t.AgendaTexto })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var dto = new ReunionAgendaDto
+            {
+                RequiereAgenda = config?.RequiereAgenda ?? false,
+                AgendaFija = config?.AgendaFija ?? false,
+                AgendaTexto = config?.AgendaTexto,
+                WorkerIdActual = await ResolveWorkerId(ctx, userId),
+            };
+
+            if (!dto.RequiereAgenda || dto.AgendaFija)
+                return dto;
+
+            dto.Items = await (
+                from a in ctx.ReunionAgendaItem
+                where a.ReunionId == reunionId && a.State
+                join w in ctx.Worker on a.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                orderby a.Orden
+                select new ReunionAgendaItemDto
+                {
+                    ReunionAgendaItemId = a.ReunionAgendaItemId,
+                    WorkerId = a.WorkerId,
+                    WorkerNombre = p.FullName,
+                    Descripcion = a.Descripcion,
+                    Orden = a.Orden,
+                }
+            ).ToListAsync();
+
+            var participantesConWorker = await ctx.ReunionParticipante
+                .Where(p => p.ReunionId == reunionId && p.State && p.WorkerId != null)
+                .Select(p => new { p.WorkerId, p.Nombre })
+                .ToListAsync();
+            var workerIdsConTemas = dto.Items.Select(i => i.WorkerId).ToHashSet();
+            dto.ParticipantesPendientes = participantesConWorker
+                .Where(p => !workerIdsConTemas.Contains(p.WorkerId!.Value))
+                .Select(p => p.Nombre)
+                .Distinct()
+                .ToList();
+
+            return dto;
+        }
+
+        public async Task GuardarMisTemas(int reunionId, int userId, List<string> temas)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var reunionExiste = await ctx.Reunion.AnyAsync(r => r.ReunionId == reunionId && r.State);
+            if (!reunionExiste)
+                throw new AbrilException("El acta de reunión no existe.", 404);
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+            if (workerId is null)
+                throw new AbrilException("No se encontró un trabajador asociado a este usuario.", 400);
+
+            var esParticipante = await ctx.ReunionParticipante
+                .AnyAsync(p => p.ReunionId == reunionId && p.State && p.WorkerId == workerId.Value);
+            if (!esParticipante)
+                throw new AbrilException("No estás convocado a esta reunión.", 403);
+
+            var now = DateTime.UtcNow;
+            var actuales = await ctx.ReunionAgendaItem
+                .Where(a => a.ReunionId == reunionId && a.WorkerId == workerId.Value && a.State)
+                .ToListAsync();
+            foreach (var actual in actuales)
+            {
+                actual.State = false;
+                actual.UpdatedDateTime = now;
+                actual.UpdatedUserId = userId;
+            }
+
+            var orden = 0;
+            foreach (var descripcion in temas)
+            {
+                ctx.ReunionAgendaItem.Add(new ReunionAgendaItem
+                {
+                    ReunionId = reunionId,
+                    WorkerId = workerId.Value,
+                    Descripcion = descripcion,
+                    Orden = orden++,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        // ── Recordatorio de agenda (job) ───────────────────────────────────────
+        public async Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var estadoProgramadaId = await GetEstadoReunionId(ctx, EstadoProgramada);
+
+            var yaEnviadas = await ctx.ReunionRecordatorioLog.Select(l => l.ReunionId).ToListAsync();
+
+            var candidatas = await (
+                from r in ctx.Reunion
+                where r.State
+                    && r.ReunionEstadoId == estadoProgramadaId
+                    && r.ReunionTemaId != null
+                    && r.HoraInicio != null
+                    && !yaEnviadas.Contains(r.ReunionId)
+                join t in ctx.ReunionTema on r.ReunionTemaId equals t.ReunionTemaId
+                where t.RequiereAgenda && !t.AgendaFija && t.RecordatorioHorasAntes != null
+                select new { r, RecordatorioHorasAntes = t.RecordatorioHorasAntes!.Value }
+            ).ToListAsync();
+
+            var resultado = new List<ReunionRecordatorioCandidatoDto>();
+            foreach (var c in candidatas)
+            {
+                var ambito = c.r.ProjectId != null
+                    ? await ctx.Project.Where(p => p.ProjectId == c.r.ProjectId.Value).Select(p => p.ProjectDescription).FirstOrDefaultAsync()
+                    : c.r.AreaScopeId != null
+                        ? await ctx.AreaScope.Where(s => s.AreaScopeId == c.r.AreaScopeId.Value).Select(s => s.AreaItem!.AreaItemName).FirstOrDefaultAsync()
+                        : "Organización";
+
+                var destinatarios = await (
+                    from part in ctx.ReunionParticipante
+                    where part.ReunionId == c.r.ReunionId && part.State && part.WorkerId != null
+                    join w in ctx.Worker on part.WorkerId equals w.Id
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where p.UserId != null && w.EmailCorporativo != null
+                    select new ReunionRecordatorioDestinatarioDto
+                    {
+                        UserId = p.UserId!.Value,
+                        WorkerId = w.Id,
+                        Nombre = p.FullName,
+                        Email = w.EmailCorporativo!,
+                    }
+                ).Distinct().ToListAsync();
+
+                resultado.Add(new ReunionRecordatorioCandidatoDto
+                {
+                    ReunionId = c.r.ReunionId,
+                    Numero = c.r.Numero,
+                    Tema = c.r.Tema,
+                    AmbitoDescripcion = ambito ?? "Organización",
+                    Fecha = c.r.Fecha,
+                    HoraInicio = c.r.HoraInicio!.Value,
+                    RecordatorioHorasAntes = c.RecordatorioHorasAntes,
+                    Destinatarios = destinatarios,
+                });
+            }
+
+            return resultado;
+        }
+
+        public async Task RegistrarRecordatorioEnviado(int reunionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var yaRegistrado = await ctx.ReunionRecordatorioLog.AnyAsync(l => l.ReunionId == reunionId);
+            if (yaRegistrado) return;
+
+            ctx.ReunionRecordatorioLog.Add(new ReunionRecordatorioLog
+            {
+                ReunionId = reunionId,
+                EnviadoDateTime = DateTime.UtcNow,
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<bool> EsFeriado(DateOnly fecha)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Holiday.AnyAsync(h => h.State && h.Active &&
+                ((h.RecurringYearly && h.HolidayDate.Month == fecha.Month && h.HolidayDate.Day == fecha.Day)
+                 || (!h.RecurringYearly && h.HolidayDate == fecha)));
+        }
+
+        /// <summary>Resuelve el workerId (workers.id) asociado al usuario autenticado, vía person.user_id.</summary>
+        private static async Task<int?> ResolveWorkerId(AppDbContext ctx, int userId)
+        {
+            return await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.UserId == userId
+                select (int?)w.Id
+            ).FirstOrDefaultAsync();
         }
 
         /// <summary>Catálogo de puestos, para el filtro de convocatoria masiva (ej. "Jefaturas", "Coordinador SSOMA").</summary>

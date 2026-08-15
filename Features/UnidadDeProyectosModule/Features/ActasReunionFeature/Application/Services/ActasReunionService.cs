@@ -3,6 +3,9 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeatur
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Notificaciones.Dtos;
+using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Options;
 
@@ -23,19 +26,30 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IGraphSharePointService _sharePointService;
+        private readonly IEmailService _emailService;
+        private readonly INotificacionesService _notificacionesService;
+        private readonly ILogger<ActasReunionService> _logger;
         private readonly string[] _allowedHosts;
+        private readonly string _frontendUrl;
 
         public ActasReunionService(
             IActasReunionRepository repository,
             IFileStorageService fileStorageService,
             IStorageContainerResolver containerResolver,
             IGraphSharePointService sharePointService,
+            IEmailService emailService,
+            INotificacionesService notificacionesService,
+            ILogger<ActasReunionService> logger,
             IConfiguration configuration)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
             _sharePointService = sharePointService;
+            _emailService = emailService;
+            _notificacionesService = notificacionesService;
+            _logger = logger;
+            _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
 
             // Hosts permitidos del tenant, derivados del sitio ya configurado (mismo criterio
             // que la carpeta de facturas de Contabilidad).
@@ -63,8 +77,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.Create(request, userId);
         }
 
-        public Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds)
-            => _repository.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds);
+        public Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId)
+            => _repository.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds, projectId);
 
         public Task<List<CatalogoDto>> GetPuestos()
             => _repository.GetPuestos();
@@ -86,7 +100,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             => _repository.GetConvocatoriaTema(reunionTemaId);
 
         public Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId)
-            => _repository.GuardarConvocatoriaTema(reunionTemaId, request.AreaScopeId, request.PuestoIds, userId);
+            => _repository.GuardarConvocatoriaTema(reunionTemaId, request, userId);
+
+        public Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId)
+            => _repository.GetAgenda(reunionId, userId);
+
+        public Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request)
+        {
+            var temas = request.Temas
+                .Select(t => t.Descripcion?.Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t!)
+                .ToList();
+            return _repository.GuardarMisTemas(reunionId, userId, temas);
+        }
 
         public Task Update(int reunionId, ReunionUpdateRequest request, int userId)
         {
@@ -270,6 +297,122 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             if (inicio.HasValue && fin.HasValue && fin.Value <= inicio.Value)
                 throw new AbrilException("La hora de término debe ser mayor a la hora de inicio.", 400);
+        }
+
+        // ── Recordatorio de agenda (job) ──────────────────────────────────────
+        private static readonly TimeOnly HorarioLaboralInicio = new(7, 0);
+        private static readonly TimeOnly HorarioLaboralFin = new(19, 0);
+
+        public async Task<object> ProcesarRecordatoriosAgenda()
+        {
+            var candidatos = await _repository.GetCandidatosRecordatorioAgenda();
+            // Fecha/HoraInicio de la reunión se ingresan en hora Perú (naive, sin zona horaria).
+            var ahora = DateTime.UtcNow.AddHours(-5);
+
+            var enviados = 0;
+            foreach (var c in candidatos)
+            {
+                if (c.Destinatarios.Count == 0) continue;
+
+                var horaEnvio = await ResolverHoraEnvioRecordatorio(c.Fecha, c.HoraInicio, c.RecordatorioHorasAntes);
+                if (ahora < horaEnvio) continue;
+
+                var link = $"{_frontendUrl}/projects/actas-reunion/{c.ReunionId}/agenda";
+                var emails = c.Destinatarios.Select(d => d.Email).Distinct().ToList();
+
+                try
+                {
+                    await _emailService.SendAsync(
+                        to: emails,
+                        subject: $"Carga tu agenda — Reunión N° {c.Numero}: {c.Tema}",
+                        body: BuildCuerpoRecordatorioAgenda(c, link),
+                        isHtml: true);
+
+                    await _notificacionesService.CrearPorCorreosAsync(
+                        NotificacionTipoCodigo.ActasReunionAgenda,
+                        emails,
+                        null,
+                        new[]
+                        {
+                            new NuevaNotificacionDto
+                            {
+                                Titulo = $"Carga tu agenda: {c.Tema}",
+                                Subtitulo = $"Reunión N° {c.Numero} — {c.AmbitoDescripcion}",
+                                Descripcion = $"Se realiza el {c.Fecha:dd/MM/yyyy} a las {c.HoraInicio:HH:mm}.",
+                                Referencia = link,
+                            },
+                        });
+
+                    await _repository.RegistrarRecordatorioEnviado(c.ReunionId);
+                    enviados++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error enviando recordatorio de agenda de la reunión {ReunionId}", c.ReunionId);
+                }
+            }
+
+            return new { revisados = candidatos.Count, enviados };
+        }
+
+        /// <summary>
+        /// Hora a la que se debe avisar: hora de inicio menos las horas de anticipación
+        /// configuradas, acotada a horario laboral (07:00–19:00) y día hábil. Si el resultado
+        /// crudo cae fuera de esa ventana, se retrocede al cierre (19:00) del día hábil anterior
+        /// — así una reunión a las 8:00am con 15.5h de anticipación avisa a las 16:30 del día hábil
+        /// anterior, sin necesitar una regla aparte para "el día antes".
+        /// </summary>
+        private async Task<DateTime> ResolverHoraEnvioRecordatorio(DateOnly fecha, TimeOnly horaInicio, decimal horasAntes)
+        {
+            var target = fecha.ToDateTime(horaInicio).AddHours(-(double)horasAntes);
+
+            for (var i = 0; i < 30; i++)
+            {
+                var targetDate = DateOnly.FromDateTime(target);
+                var esDiaHabil = target.DayOfWeek != DayOfWeek.Saturday
+                    && target.DayOfWeek != DayOfWeek.Sunday
+                    && !await _repository.EsFeriado(targetDate);
+
+                if (!esDiaHabil)
+                {
+                    target = targetDate.AddDays(-1).ToDateTime(HorarioLaboralFin);
+                    continue;
+                }
+                if (TimeOnly.FromDateTime(target) < HorarioLaboralInicio)
+                {
+                    target = targetDate.AddDays(-1).ToDateTime(HorarioLaboralFin);
+                    continue;
+                }
+                if (TimeOnly.FromDateTime(target) > HorarioLaboralFin)
+                {
+                    target = targetDate.ToDateTime(HorarioLaboralFin);
+                    continue;
+                }
+                break;
+            }
+
+            return target;
+        }
+
+        private static string BuildCuerpoRecordatorioAgenda(ReunionRecordatorioCandidatoDto c, string link)
+        {
+            return $@"
+<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
+  <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
+    <h2 style='color:#fff;margin:0;font-size:18px'>Recordatorio de Agenda — Reunión N° {c.Numero}</h2>
+  </div>
+  <div style='background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px'>
+    <p><strong>{c.Tema}</strong></p>
+    <p>{c.AmbitoDescripcion} — {c.Fecha:dd/MM/yyyy} a las {c.HoraInicio:HH:mm}</p>
+    <p>Antes de la reunión, por favor carga los temas que quieres tratar.</p>
+    <div style='margin:24px 0;text-align:center'>
+      <a href='{link}'
+         style='background:#0F6E56;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold'>
+        Cargar mi agenda
+      </a>
+    </div>
+  </div>
+</div>";
         }
     }
 }

@@ -141,6 +141,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcRankingSemanal> AcRankingSemanal { get; set; }
         public DbSet<AcTareoEnrolamiento> AcTareoEnrolamiento { get; set; }
         public DbSet<AcTareoRegistro> AcTareoRegistro { get; set; }
+        public DbSet<AcTareoAutorizacion> AcTareoAutorizacion { get; set; }
         public DbSet<AcEtapa> AcEtapa { get; set; }
         public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
         public DbSet<AcCategoria> AcCategoria { get; set; }
@@ -384,6 +385,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable> ReunionAcuerdoResponsable => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo> ReunionArchivo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder> ReunionFolder => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAgendaItem> ReunionAgendaItem => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAgendaItem>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionRecordatorioLog> ReunionRecordatorioLog => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionRecordatorioLog>();
 
         // ── Salud Ocupacional: Tópico, Accidentes, Descansos ──────────
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>     SsTopicoAtencion     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>();

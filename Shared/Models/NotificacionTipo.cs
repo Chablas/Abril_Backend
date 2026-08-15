@@ -31,5 +31,8 @@ namespace Abril_Backend.Shared.Models
         /// sean usuarios del sistema.
         /// </summary>
         public const string GthAprobacionGg = "GTH_APROBACION_GG";
+
+        /// <summary>Recordatorio para cargar la agenda (temas a tratar) de una reunión próxima (Actas de Reunión).</summary>
+        public const string ActasReunionAgenda = "ACTAS_REUNION_AGENDA";
     }
 }

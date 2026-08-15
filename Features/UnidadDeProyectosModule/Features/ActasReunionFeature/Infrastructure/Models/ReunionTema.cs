@@ -17,6 +17,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// </summary>
         public int? AreaScopeId { get; set; }
 
+        /// <summary>Si este tema exige que los convocados carguen una agenda antes de la reunión.</summary>
+        public bool RequiereAgenda { get; set; }
+        /// <summary>
+        /// True = agenda fija (siempre el mismo <see cref="AgendaTexto"/>, se edita una sola vez acá).
+        /// False = agenda dinámica (cada participante propone sus temas en cada ocurrencia, ver
+        /// ReunionAgendaItem). Solo aplica si RequiereAgenda es true.
+        /// </summary>
+        public bool AgendaFija { get; set; }
+        public string? AgendaTexto { get; set; }
+        /// <summary>
+        /// Horas de anticipación (admite decimales) para recordar a los convocados que carguen su
+        /// agenda. Solo aplica si RequiereAgenda es true y AgendaFija es false.
+        /// </summary>
+        public decimal? RecordatorioHorasAntes { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

@@ -8,14 +8,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro);
         Task<ReunionDetalleDto> GetDetalle(int reunionId);
         Task<int> Create(ReunionCreateRequest request, int userId);
-        /// <summary>Trabajadores que calzan con un área/gerencia (con descendencia) y/o una lista de puestos, para convocatoria masiva.</summary>
-        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds);
+        /// <summary>
+        /// Trabajadores que calzan con un área/gerencia (con descendencia), una lista de puestos,
+        /// y/o el staff asignado a un proyecto (ss_contratista_usuario con scope POR_PROYECTO),
+        /// para convocatoria masiva.
+        /// </summary>
+        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId);
         Task<List<CatalogoDto>> GetPuestos();
         Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
         Task<CatalogoDto> AgregarTema(string descripcion, int userId);
         Task<List<CatalogoDto>> GetTemasCatalogo();
         Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
-        Task GuardarConvocatoriaTema(int reunionTemaId, int? areaScopeId, List<int> puestoIds, int userId);
+        Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId);
+
+        // ── Agenda de reunión ──────────────────────────────────────────────
+        /// <summary>Agenda de una reunión concreta (fija o temas cargados por participante), vista por el usuario autenticado.</summary>
+        Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
+        /// <summary>Reemplaza los temas a tratar del worker del usuario autenticado para esta reunión.</summary>
+        Task GuardarMisTemas(int reunionId, int userId, List<string> temas);
+
+        /// <summary>Reuniones PROGRAMADA con agenda dinámica cuyo recordatorio aún no se envió.</summary>
+        Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda();
+        /// <summary>Registra que ya se envió el recordatorio de una reunión (idempotencia del job).</summary>
+        Task RegistrarRecordatorioEnviado(int reunionId);
+        /// <summary>True si la fecha es un feriado configurado (fijo o recurrente anual).</summary>
+        Task<bool> EsFeriado(DateOnly fecha);
         Task Update(int reunionId, ReunionUpdateRequest request, int userId);
         Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId);
         Task CambiarEstado(int reunionId, string estado, int userId);

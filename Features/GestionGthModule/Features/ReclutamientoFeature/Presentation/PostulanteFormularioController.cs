@@ -101,6 +101,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
+        /// <summary>
+        /// GTH: envía (o reenvía) el formulario a varios candidatos aprobados de una sola vez (los que
+        /// seleccionó en la bandeja). Responde 200 aunque alguno falle: cada candidato lleva su propio
+        /// resultado en el cuerpo.
+        /// </summary>
+        [HttpPost("enviar-masivo")]
+        [Authorize]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> EnviarMasivo([FromBody] EnviarFormularioMasivoDto dto)
+        {
+            try
+            {
+                var result = await _service.EnviarMasivo(dto, CurrentUserId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en PostulanteFormularioController.EnviarMasivo");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>GTH: formulario del candidato para revisar (modal "Ver formulario").</summary>
         [HttpGet("candidato/{candidatoId:int}")]
         [Authorize]

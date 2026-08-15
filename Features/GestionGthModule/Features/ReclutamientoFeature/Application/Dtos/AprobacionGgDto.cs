@@ -1,9 +1,41 @@
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
-    /// Detalle de una aprobación para el modal de «Aprobaciones»: cabecera de la solicitud + todas
-    /// sus vacantes, en una sola petición. Si ya fue decidida, <see cref="Decidida"/> es true y el
-    /// modal se muestra en modo lectura con lo que quedó registrado (es también el historial).
+    /// Una de las dos casillas de decisión de la solicitud (gerente del área o Gerencia General),
+    /// tal como se muestra en la lista y en el modal. Las dos tienen la misma forma para que la
+    /// pantalla las pinte con el mismo componente.
+    /// </summary>
+    public class AprobacionNivelResumenDto
+    {
+        /// <summary>PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA.</summary>
+        public string EstadoCodigo { get; set; } = string.Empty;
+        public string EstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>true cuando ese nivel ya decidió (deja de admitir cambios de ESE nivel).</summary>
+        public bool Decidida { get; set; }
+
+        /// <summary>Momento de la decisión en hora Perú (null si ese nivel sigue pendiente).</summary>
+        public DateTime? DecididoEn { get; set; }
+
+        /// <summary>
+        /// Quién decidió. Null si sigue pendiente o si es una aprobación anterior a la pantalla
+        /// (las decididas por el enlace del correo no dejaban usuario).
+        /// </summary>
+        public string? DecididoPor { get; set; }
+
+        public string? Comentario { get; set; }
+
+        public int VacantesAprobadas { get; set; }
+        public int VacantesRechazadas { get; set; }
+    }
+
+    /// <summary>
+    /// Detalle de una aprobación para el modal de «Aprobaciones»: cabecera de la solicitud, sus
+    /// vacantes y las DOS casillas de decisión, en una sola petición.
+    ///
+    /// El modal se arma según <see cref="Nivel"/>: el usuario solo puede marcar la casilla que le
+    /// corresponde y ve la otra como información. Si su nivel ya decidió (o no tiene ninguno),
+    /// abre completo en modo lectura.
     /// </summary>
     public class AprobacionGgDetalleDto
     {
@@ -25,52 +57,71 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Fecha de registro de la solicitud en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }
 
-        // ── Estado de la aprobación ──────────────────────────────────────────
-        /// <summary>PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA.</summary>
-        public string EstadoCodigo { get; set; } = string.Empty;
-        public string EstadoNombre { get; set; } = string.Empty;
+        // ── Las dos casillas ─────────────────────────────────────────────────
+        /// <summary>Visto bueno del gerente del área. No condiciona el avance de la solicitud.</summary>
+        public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
 
-        /// <summary>true cuando el GG ya decidió: la pantalla no permite volver a decidir.</summary>
-        public bool Decidida { get; set; }
+        /// <summary>Decisión de Gerencia General: la obligatoria, la que manda las vacantes a GTH.</summary>
+        public AprobacionNivelResumenDto GerenteGeneral { get; set; } = new();
 
-        /// <summary>Momento de la decisión en hora Perú (null si aún está pendiente).</summary>
-        public DateTime? DecididoEn { get; set; }
+        // ── Con qué poder entra el usuario que abrió el modal ────────────────
+        /// <summary>GERENTE_GENERAL / GERENTE_AREA / NINGUNO (ver <c>AprobacionNivel</c>).</summary>
+        public string Nivel { get; set; } = string.Empty;
 
         /// <summary>
-        /// Quién registró la decisión. Null si sigue pendiente o si es una aprobación anterior a
-        /// la pantalla (las decididas por el enlace del correo no dejaban usuario).
+        /// true si este usuario todavía puede registrar SU decisión sobre esta solicitud: tiene
+        /// nivel y ese nivel sigue pendiente. false ⇒ el modal abre en lectura.
         /// </summary>
-        public string? DecididoPor { get; set; }
-
-        public string? Comentario { get; set; }
+        public bool PuedeDecidir { get; set; }
 
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llegará el correo a GTH al confirmar la decisión (tipo SOLICITUD). Sale del
+        /// mismo resolver que usa el envío, así que el aviso del modal no puede prometer algo
+        /// distinto de lo que se manda. Solo se resuelve cuando quien abre el modal es el Gerente
+        /// General y aún no ha decidido: es el único caso en el que ese correo va a salir.
+        /// </summary>
+        public SolicitudDestinatariosDto? Destinatarios { get; set; }
     }
 
     /// <summary>
-    /// Pantalla «Aprobaciones» (Gestión GTH) en una sola petición: tarjetas de resumen + la lista
-    /// completa de solicitudes que pasaron por Gerencia General — las pendientes de decidir y el
-    /// historial de las ya decididas.
+    /// Pantalla «Aprobaciones» (Gestión GTH) en una sola petición: el alcance del usuario, las
+    /// tarjetas de resumen y las solicitudes que puede ver — las pendientes de su decisión y el
+    /// historial.
     /// </summary>
     public class AprobacionGgBandejaDto
     {
+        /// <summary>GERENTE_GENERAL / GERENTE_AREA / NINGUNO (ver <c>AprobacionNivel</c>).</summary>
+        public string Nivel { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Área de la que el usuario es gerente (solo con nivel GERENTE_AREA), para poder explicar
+        /// en pantalla por qué ve lo que ve.
+        /// </summary>
+        public string? AreaAlcance { get; set; }
+
         public AprobacionGgBandejaResumenDto Resumen { get; set; } = new();
         public List<AprobacionGgBandejaItemDto> Aprobaciones { get; set; } = new();
     }
 
-    /// <summary>Contadores de las tarjetas de la pantalla «Aprobaciones».</summary>
+    /// <summary>
+    /// Contadores de las tarjetas. Se calculan SIEMPRE contra la casilla del usuario que consulta:
+    /// "por aprobar" es lo que espera SU decisión, no lo que espera la del otro nivel. Todo en cero
+    /// cuando el nivel es NINGUNO.
+    /// </summary>
     public class AprobacionGgBandejaResumenDto
     {
-        /// <summary>Solicitudes esperando la decisión de Gerencia General.</summary>
+        /// <summary>Solicitudes esperando la decisión de este usuario.</summary>
         public int Pendientes { get; set; }
 
         /// <summary>Vacantes que suman esas solicitudes pendientes (lo que está realmente en cola).</summary>
         public int VacantesPendientes { get; set; }
 
-        /// <summary>Solicitudes aprobadas (total o parcialmente) — histórico.</summary>
+        /// <summary>Solicitudes que este usuario aprobó (total o parcialmente) — histórico.</summary>
         public int Aprobadas { get; set; }
 
-        /// <summary>Solicitudes en las que se rechazaron todas las vacantes — histórico.</summary>
+        /// <summary>Solicitudes en las que este usuario rechazó todas las vacantes — histórico.</summary>
         public int Rechazadas { get; set; }
     }
 
@@ -89,22 +140,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Fecha de registro de la solicitud en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }
 
-        /// <summary>PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA.</summary>
-        public string EstadoCodigo { get; set; } = string.Empty;
-        public string EstadoNombre { get; set; } = string.Empty;
-
-        /// <summary>true cuando ya se decidió: la fila es historial y el modal abre en lectura.</summary>
-        public bool Decidida { get; set; }
-
-        public DateTime? DecididoEn { get; set; }
-        public string? DecididoPor { get; set; }
-
         public int TotalVacantes { get; set; }
-        public int VacantesAprobadas { get; set; }
-        public int VacantesRechazadas { get; set; }
+
+        /// <summary>Visto bueno del gerente del área.</summary>
+        public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
+
+        /// <summary>Decisión de Gerencia General (la que hace avanzar la solicitud).</summary>
+        public AprobacionNivelResumenDto GerenteGeneral { get; set; } = new();
+
+        /// <summary>
+        /// true si esta fila espera la decisión del usuario que consulta. Es lo que decide el orden
+        /// de la lista y el botón de la fila ("Revisar y aprobar" vs "Ver decisión").
+        /// </summary>
+        public bool EsperaMiDecision { get; set; }
     }
 
-    /// <summary>Una vacante de la solicitud como la ve (y decide) Gerencia General.</summary>
+    /// <summary>Una vacante de la solicitud, con la decisión de cada nivel.</summary>
     public class AprobacionGgVacanteDto
     {
         public int RequerimientoId { get; set; }
@@ -123,11 +174,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? ProyectoObra { get; set; }
         public DateOnly FechaRequeridaIngreso { get; set; }
 
-        /// <summary>Decisión registrada: true = aprobada, false = rechazada, null = sin decidir.</summary>
-        public bool? Aprobado { get; set; }
+        /// <summary>Visto bueno del gerente del área: true / false / null = no opinó.</summary>
+        public bool? AprobadoGerenteArea { get; set; }
+
+        /// <summary>Decisión de Gerencia General: true = aprobada, false = rechazada, null = sin decidir.</summary>
+        public bool? AprobadoGerenteGeneral { get; set; }
     }
 
-    /// <summary>Decisión que envía Gerencia General desde la pantalla «Aprobaciones».</summary>
+    /// <summary>
+    /// Decisión que envía un gerente desde la pantalla «Aprobaciones». El nivel con el que se
+    /// registra NO viaja en el payload: lo resuelve el backend desde la categoría del usuario, para
+    /// que nadie pueda pedir que su firma cuente como la del Gerente General.
+    /// </summary>
     public class AprobacionGgDecisionDto
     {
         public List<VacanteDecisionGgDto> Decisiones { get; set; } = new();
@@ -136,17 +194,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Comentario { get; set; }
     }
 
-    /// <summary>Decisión de Gerencia General sobre una vacante concreta.</summary>
+    /// <summary>Decisión sobre una vacante concreta.</summary>
     public class VacanteDecisionGgDto
     {
         public int RequerimientoId { get; set; }
         public bool Aprobado { get; set; }
     }
 
-    /// <summary>Resultado de registrar la decisión de Gerencia General.</summary>
+    /// <summary>Resultado de registrar una decisión.</summary>
     public class AprobacionGgDecisionResultDto
     {
         public string Message { get; set; } = string.Empty;
+
+        /// <summary>Nivel con el que se registró (GERENTE_GENERAL / GERENTE_AREA).</summary>
+        public string Nivel { get; set; } = string.Empty;
+
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
         public int Aprobados { get; set; }
@@ -154,14 +216,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
-    /// Contexto para armar el correo de Gerencia General (y, tras la decisión, el de GTH con las
-    /// vacantes aprobadas). Lo resuelve el repositorio en un solo roundtrip.
+    /// Contexto para armar el correo que va a los gerentes (y, tras la decisión del GG, el de GTH
+    /// con las vacantes aprobadas). Lo resuelve el repositorio en un solo roundtrip.
     /// </summary>
     public class AprobacionGgEnvioContextoDto
     {
         public int SolicitudId { get; set; }
 
-        /// <summary>Id de la aprobación: es lo que viaja en el enlace del correo a Gerencia.</summary>
+        /// <summary>Id de la aprobación: es lo que viaja en el enlace del correo.</summary>
         public int AprobacionId { get; set; }
 
         public string? Area { get; set; }
@@ -177,7 +239,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? SustentoNombre { get; set; }
         public string? SustentoUrl { get; set; }
 
-        /// <summary>true si la aprobación ya fue decidida (no se reenvía el correo en ese caso).</summary>
+        /// <summary>
+        /// true si Gerencia General ya decidió. Es lo que cierra la solicitud: con esto no se
+        /// reenvía el correo (el visto bueno del área pendiente no lo justifica, ya no cambia nada).
+        /// </summary>
         public bool Decidida { get; set; }
 
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
@@ -185,7 +250,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
     /// <summary>
     /// Contexto de la decisión ya registrada: lo que necesita el servicio para notificar a GTH
-    /// (solo las vacantes aprobadas) y para armar el mensaje de respuesta de la pantalla.
+    /// (solo cuando decide el GG, y solo con las vacantes aprobadas) y para armar el mensaje de
+    /// respuesta de la pantalla.
     /// </summary>
     public class AprobacionGgDecisionContextoDto
     {
@@ -199,37 +265,57 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? SustentoUrl { get; set; }
         public string? Comentario { get; set; }
 
-        /// <summary>Vacantes que el GG aprobó: son las únicas que se le mandan a GTH.</summary>
+        /// <summary>
+        /// Visto bueno que el gerente del área dejó registrado, si ya lo hizo. Va en el correo a GTH
+        /// como contexto de la decisión del GG (null si el área nunca opinó).
+        /// </summary>
+        public string? GerenteAreaResumen { get; set; }
+
+        /// <summary>Vacantes aprobadas en esta decisión: son las únicas que se le mandan a GTH.</summary>
         public List<AprobacionGgVacanteDto> Aprobadas { get; set; } = new();
 
-        /// <summary>Vacantes que el GG rechazó (se listan en el correo a GTH como contexto).</summary>
+        /// <summary>Vacantes rechazadas en esta decisión (se listan en el correo a GTH como contexto).</summary>
         public List<AprobacionGgVacanteDto> Rechazadas { get; set; } = new();
     }
 
     /// <summary>
-    /// Resumen de la aprobación de Gerencia General de un requerimiento, para la tarjeta
-    /// "Aprobación GG" del modal de seguimiento. Null en los requerimientos anteriores a esta
-    /// funcionalidad (no pasaron por el paso del GG).
+    /// Resumen de la aprobación de un requerimiento, para la tarjeta "Aprobación" del modal de
+    /// seguimiento del solicitante. Null en los requerimientos anteriores a esta funcionalidad (no
+    /// pasaron por el paso de aprobación).
     /// </summary>
     public class AprobacionGgResumenDto
     {
-        /// <summary>PENDIENTE / APROBADA / APROBADA_PARCIAL / RECHAZADA (estado de la solicitud completa).</summary>
+        /// <summary>Estado de la decisión de Gerencia General sobre la solicitud completa.</summary>
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>Decisión sobre ESTA vacante: true = aprobada, false = rechazada, null = sin decidir.</summary>
+        /// <summary>Decisión del GG sobre ESTA vacante: true / false / null = sin decidir.</summary>
         public bool? Aprobado { get; set; }
 
-        /// <summary>Momento del envío del correo al GG en hora Perú (null si nunca se pudo enviar).</summary>
+        /// <summary>Estado del visto bueno del gerente del área sobre la solicitud completa.</summary>
+        public string GerenteAreaEstadoCodigo { get; set; } = string.Empty;
+        public string GerenteAreaEstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>Visto bueno del gerente del área sobre ESTA vacante: true / false / null = no opinó.</summary>
+        public bool? AprobadoGerenteArea { get; set; }
+
+        /// <summary>Momento del envío del correo a los gerentes en hora Perú (null si nunca se pudo enviar).</summary>
         public DateTime? EnviadoEn { get; set; }
 
-        /// <summary>Momento de la decisión en hora Perú (null si sigue pendiente).</summary>
+        /// <summary>Momento de la decisión del GG en hora Perú (null si sigue pendiente).</summary>
         public DateTime? DecididoEn { get; set; }
 
+        /// <summary>Momento del visto bueno del gerente del área en hora Perú.</summary>
+        public DateTime? GerenteAreaDecididoEn { get; set; }
+
+        /// <summary>Comentario del Gerente General.</summary>
         public string? Comentario { get; set; }
+
+        /// <summary>Comentario del gerente del área.</summary>
+        public string? GerenteAreaComentario { get; set; }
     }
 
-    /// <summary>Resultado de reenviar el correo de aprobación a Gerencia General.</summary>
+    /// <summary>Resultado de reenviar el correo de aprobación a los gerentes.</summary>
     public class AprobacionGgReenvioResultDto
     {
         public string Message { get; set; } = string.Empty;

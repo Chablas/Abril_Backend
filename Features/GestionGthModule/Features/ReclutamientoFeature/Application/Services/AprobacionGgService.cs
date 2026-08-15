@@ -12,12 +12,18 @@ using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
     /// <summary>
-    /// Aprobación de Gerencia General de la solicitud de personal.
+    /// Aprobación de la solicitud de personal, en dos niveles.
     ///
     /// Flujo: el solicitante registra la solicitud → UN solo correo al Gerente General y al gerente
     /// del área del solicitante, con todas sus vacantes y un enlace a la pantalla «Aprobaciones»
-    /// del módulo Gestión GTH → el gerente decide ahí (con su sesión; si no la tiene, el login lo
-    /// devuelve a esa misma pantalla) → recién ahí se le notifica a GTH, y solo lo aprobado.
+    /// del módulo Gestión GTH → cada uno decide ahí (con su sesión; si no la tiene, el login lo
+    /// devuelve a esa misma pantalla) → cuando la decisión es la de <b>Gerencia General</b> recién
+    /// ahí se le notifica a GTH, y solo lo aprobado.
+    ///
+    /// Los dos niveles son independientes y sin orden impuesto. El visto bueno del gerente del área
+    /// es redundante por diseño: queda registrado, se muestra en la pantalla y viaja como contexto
+    /// en el correo a GTH, pero no mueve el pipeline ni dispara correos. La aprobación de Gerencia
+    /// General es la obligatoria para toda solicitud.
     ///
     /// El enlace del correo NO ejecuta la decisión: abre la solicitud y la decisión se confirma
     /// dentro de la app. Es a propósito — los clientes de correo (Outlook/Safe Links) precargan
@@ -26,6 +32,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class AprobacionGgService : IAprobacionGgService
     {
         private readonly IAprobacionGgRepository   _repo;
+        private readonly IAprobacionScopeResolver  _scopes;
         private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IEmailService             _email;
         private readonly INotificacionesService    _notificaciones;
@@ -34,6 +41,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public AprobacionGgService(
             IAprobacionGgRepository repo,
+            IAprobacionScopeResolver scopes,
             ICorreoDestinatariosResolver destinatarios,
             IEmailService email,
             INotificacionesService notificaciones,
@@ -41,6 +49,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             ILogger<AprobacionGgService> logger)
         {
             _repo           = repo;
+            _scopes         = scopes;
             _destinatarios  = destinatarios;
             _email          = email;
             _notificaciones = notificaciones;
@@ -92,7 +101,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var ctx = await _repo.GetEnvioContextoByRequerimiento(requerimientoId, userId.Value);
             if (ctx == null)
-                throw new AbrilException("No se encontró la aprobación de Gerencia General de esta solicitud.", 404);
+                throw new AbrilException("No se encontró la aprobación de esta solicitud.", 404);
+            // Solo cierra la decisión del GG: mientras ella siga pendiente, reenviar tiene sentido
+            // aunque el gerente del área ya haya dado su visto bueno.
             if (ctx.Decidida)
                 throw new AbrilException("Gerencia General ya decidió sobre esta solicitud.", 409);
 
@@ -183,8 +194,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : $"""<br><span style="font-size:11px;color:#6b7280">Reemplaza a {System.Net.WebUtility.HtmlEncode(v.TrabajadorReemplazado)}</span>""";
 
         /// <summary>
-        /// Cuerpo del correo al Gerente General: la solicitud completa en una tabla + un acceso a
-        /// la pantalla «Aprobaciones», donde se decide vacante por vacante.
+        /// Cuerpo del correo a los gerentes: la solicitud completa en una tabla + un acceso a la
+        /// pantalla «Aprobaciones», donde cada uno decide vacante por vacante. Es UN solo correo
+        /// con varios destinatarios (Gerente General y gerente del área), así que el texto no puede
+        /// hablarle a uno solo: dentro de la pantalla cada quien ve su propia casilla.
         /// </summary>
         private string ConstruirCuerpoGerencia(AprobacionGgEnvioContextoDto ctx, bool esReenvio)
         {
@@ -232,7 +245,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     {recordatorio}
                     <p style="font-size:13px;margin-top:0">
                       El área solicitante registró la siguiente solicitud de personal y necesita tu
-                      aprobación antes de que pase a Gestión de Talento Humano.
+                      revisión. La aprobación de <b>Gerencia General</b> es la que la deja pasar a
+                      Gestión de Talento Humano; el <b>gerente del área</b> registra su visto bueno
+                      en la misma pantalla.
                     </p>
                     <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
                     {solicitante}
@@ -285,13 +300,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         // ── Pantalla «Aprobaciones» y decisión ────────────────────────────────
-        public Task<AprobacionGgBandejaDto> GetBandeja() => _repo.GetBandeja();
+        public async Task<AprobacionGgBandejaDto> GetBandeja(int? userId) =>
+            await _repo.GetBandeja(await _scopes.ResolveAsync(userId));
 
-        public async Task<AprobacionGgDetalleDto> GetDetalle(int aprobacionId)
+        public async Task<AprobacionGgDetalleDto> GetDetalle(int aprobacionId, int? userId)
         {
-            var dto = await _repo.GetDetalle(aprobacionId);
+            var scope = await _scopes.ResolveAsync(userId);
+
+            var dto = await _repo.GetDetalle(aprobacionId, scope);
             if (dto == null)
                 throw new AbrilException("La solicitud por aprobar no existe o ya no está disponible.", 404);
+
+            // Aviso "a quién le llegará esta decisión" del modal. Son exactamente los destinatarios
+            // que usa NotificarAGthAsync al confirmar: mismo tipo (SOLICITUD) y, como allá, sin
+            // área — el correo a GTH no depende del área del solicitante. Va en la misma petición
+            // que el detalle.
+            //
+            // Solo se consultan cuando quien abre es Gerencia General y aún no decidió: es el único
+            // caso en el que ese correo va a salir. Al gerente del área no se le promete un envío
+            // que su visto bueno no dispara.
+            if (dto.PuedeDecidir && dto.Nivel == AprobacionNivel.GerenteGeneral)
+            {
+                try
+                {
+                    dto.Destinatarios = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
+                }
+                catch (Exception ex)
+                {
+                    // El aviso es informativo: si no se puede resolver, el modal abre sin él. La
+                    // decisión tiene que poder tomarse igual.
+                    _logger.LogWarning(ex,
+                        "No se pudieron resolver los destinatarios de GTH para el detalle de la aprobación {AprobacionId}",
+                        aprobacionId);
+                }
+            }
+
             return dto;
         }
 
@@ -303,18 +346,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto?.Decisiones == null || dto.Decisiones.Count == 0)
                 throw new AbrilException("Debes aprobar o rechazar las vacantes antes de enviar la decisión.", 400);
 
-            var ctx = await _repo.RegistrarDecision(aprobacionId, dto, userId.Value);
+            // El nivel sale de la categoría del usuario, nunca del payload: así nadie puede pedir
+            // que su firma cuente como la de Gerencia General.
+            var scope = await _scopes.ResolveAsync(userId);
+
+            var ctx = await _repo.RegistrarDecision(aprobacionId, dto, userId.Value, scope);
             var res = ctx.Resultado;
 
-            // Solo las vacantes aprobadas llegan a GTH. Best-effort: la decisión ya quedó registrada.
-            if (ctx.Aprobadas.Count > 0)
-                await NotificarAGthAsync(ctx, userId);
+            if (res.Nivel == AprobacionNivel.GerenteGeneral)
+            {
+                // Solo las vacantes aprobadas por el GG llegan a GTH, y solo si hay alguna.
+                // Best-effort: la decisión ya quedó registrada.
+                if (ctx.Aprobadas.Count > 0)
+                    await NotificarAGthAsync(ctx, userId);
 
-            res.Message = res.Aprobados == 0
-                ? "Decisión registrada: rechazaste todas las vacantes. La solicitud no continúa y no se envió a Gestión de Talento Humano."
-                : res.Rechazados == 0
-                    ? $"Decisión registrada: aprobaste {res.Aprobados} vacante(s). Ya se enviaron a Gestión de Talento Humano para iniciar el reclutamiento."
-                    : $"Decisión registrada: aprobaste {res.Aprobados} vacante(s) y rechazaste {res.Rechazados}. Las aprobadas ya se enviaron a Gestión de Talento Humano.";
+                res.Message = res.Aprobados == 0
+                    ? "Decisión registrada: rechazaste todas las vacantes. La solicitud no continúa y no se envió a Gestión de Talento Humano."
+                    : res.Rechazados == 0
+                        ? $"Decisión registrada: aprobaste {res.Aprobados} vacante(s). Ya se enviaron a Gestión de Talento Humano para iniciar el reclutamiento."
+                        : $"Decisión registrada: aprobaste {res.Aprobados} vacante(s) y rechazaste {res.Rechazados}. Las aprobadas ya se enviaron a Gestión de Talento Humano.";
+            }
+            else
+            {
+                // El visto bueno del área no manda nada a GTH: el mensaje lo dice para que el
+                // gerente no se quede esperando un correo que no sale.
+                res.Message = res.Aprobados == 0
+                    ? "Visto bueno registrado: observaste todas las vacantes. Gerencia General verá tu postura al decidir."
+                    : res.Rechazados == 0
+                        ? $"Visto bueno registrado: aprobaste {res.Aprobados} vacante(s). La solicitud continúa a la espera de la aprobación de Gerencia General."
+                        : $"Visto bueno registrado: aprobaste {res.Aprobados} vacante(s) y observaste {res.Rechazados}. Gerencia General verá tu postura al decidir.";
+            }
 
             return res;
         }
@@ -423,6 +484,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ? ""
                 : $"""<p style="font-size:13px"><b>Comentario de Gerencia General:</b><br>{Esc(ctx.Comentario)}</p>""";
 
+            // El visto bueno del gerente del área no condiciona nada, pero saber que opinó (y qué
+            // opinó) le da contexto a GTH. Vacío si nunca llegó a registrarlo.
+            var vistoBuenoArea = string.IsNullOrWhiteSpace(ctx.GerenteAreaResumen)
+                ? ""
+                : $"""<p style="font-size:13px"><b>Visto bueno del gerente del área:</b> {Esc(ctx.GerenteAreaResumen)}</p>""";
+
             // Las rechazadas se listan solo como contexto: no generan trabajo para GTH.
             var rechazadas = ctx.Rechazadas.Count == 0
                 ? ""
@@ -462,6 +529,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     {rechazadas}
                     {justificacion}
                     {comentario}
+                    {vistoBuenoArea}
                     {sustento}
                     <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>

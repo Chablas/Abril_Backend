@@ -140,6 +140,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join pr in ctx.Project on req.ProjectId equals pr.ProjectId
                 select new
                 {
+                    req.GthRequerimientoId,
                     req.Codigo,
                     Puesto       = p.Nombre,
                     Area         = req.Solicitud!.AreaNombre,
@@ -153,6 +154,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto           = head?.Puesto ?? string.Empty,
                 Area             = head?.Area,
                 ProyectoObra     = head?.ProyectoObra,
+                RequerimientoId  = head?.GthRequerimientoId ?? 0,
+                CandidatoId      = f.GthCandidatoId,
                 CandidatoNombre  = f.NombresCompletos ?? head?.Nombre ?? string.Empty,
                 CorreoPostulante = f.CorreoElectronico,
                 NumeroCelular    = f.NumeroCelular,
@@ -184,12 +187,126 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var now = DateTimeOffset.UtcNow;
 
+            var f = await ctx.GthPostulanteFormulario.FirstOrDefaultAsync(x => x.GthCandidatoId == candidatoId && x.State);
+
+            var contexto = AplicarEnvio(ctx, f, candidatoId, correo, nuevoToken, cand.Nombre, cand.Puesto,
+                                        estados, enviado, userId, now);
+
+            await ctx.SaveChangesAsync();
+            return contexto;
+        }
+
+        public async Task<List<EnvioMasivoPreparadoDto>> PrepararEnvioMasivo(
+            IReadOnlyList<EnvioMasivoSolicitudDto> solicitudes, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El mismo candidato repetido en el lote sería un doble envío y, si aún no tenía formulario,
+            // una segunda fila para el mismo candidato (que rompería el FirstOrDefault del resto de
+            // consultas). Se queda el primero.
+            var solicitudesUnicas = solicitudes
+                .GroupBy(s => s.CandidatoId)
+                .Select(g => g.First())
+                .ToList();
+
+            var ids = solicitudesUnicas.Select(s => s.CandidatoId).ToList();
+
+            // Todo el lote se resuelve con 3 consultas + 1 SaveChanges, sin importar cuántos candidatos
+            // vengan: candidatos con su estado y puesto, catálogo de estados del formulario y los
+            // formularios ya existentes.
+            var candidatos = await (
+                from c in ctx.GthCandidato
+                where ids.Contains(c.GthCandidatoId) && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                select new { c.GthCandidatoId, c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre })
+                .ToListAsync();
+
+            var estados = await ctx.GthPostulanteFormularioEstado.Where(e => e.State).ToListAsync();
+            var enviado = estados.FirstOrDefault(e => e.Codigo == EstadoFormularioPostulante.Enviado)
+                ?? throw new AbrilException("No está configurado el estado ENVIADO del formulario del postulante.", 500);
+
+            var formularios = await ctx.GthPostulanteFormulario
+                .Where(x => ids.Contains(x.GthCandidatoId) && x.State)
+                .ToListAsync();
+
+            // TryAdd y no ToDictionary: una fila repetida por candidato no debería existir, pero si la
+            // hubiera tumbaría el lote entero en vez de resolver el envío con la primera, que es lo que
+            // hace el envío individual (FirstOrDefault).
+            var candidatoPorId = new Dictionary<int, (string Nombre, string EstadoCandidato, string Puesto)>();
+            foreach (var c in candidatos)
+                candidatoPorId.TryAdd(c.GthCandidatoId, (c.Nombre, c.EstadoCandidato, c.Puesto));
+
+            var formularioPorCandidato = new Dictionary<int, GthPostulanteFormulario>();
+            foreach (var f in formularios)
+                formularioPorCandidato.TryAdd(f.GthCandidatoId, f);
+
+            var now = DateTimeOffset.UtcNow;
+            var preparados = new List<EnvioMasivoPreparadoDto>(solicitudesUnicas.Count);
+
+            foreach (var s in solicitudesUnicas)
+            {
+                // Un candidato inválido no tumba el lote: se reporta y los demás siguen su curso.
+                if (!candidatoPorId.TryGetValue(s.CandidatoId, out var cand))
+                {
+                    preparados.Add(new EnvioMasivoPreparadoDto
+                    {
+                        CandidatoId = s.CandidatoId,
+                        Error       = "Candidato no encontrado.",
+                    });
+                    continue;
+                }
+
+                if (cand.EstadoCandidato != EstadoCandidato.Aprobado)
+                {
+                    preparados.Add(new EnvioMasivoPreparadoDto
+                    {
+                        CandidatoId = s.CandidatoId,
+                        Error       = "El formulario solo se envía a candidatos aprobados por el solicitante.",
+                    });
+                    continue;
+                }
+
+                formularioPorCandidato.TryGetValue(s.CandidatoId, out var existente);
+
+                preparados.Add(new EnvioMasivoPreparadoDto
+                {
+                    CandidatoId = s.CandidatoId,
+                    Contexto = AplicarEnvio(ctx, existente, s.CandidatoId, s.Correo, s.NuevoToken,
+                                            cand.Nombre, cand.Puesto, estados, enviado, userId, now),
+                });
+            }
+
+            // Un solo guardado para todo el lote.
+            await ctx.SaveChangesAsync();
+            return preparados;
+        }
+
+        /// <summary>
+        /// Reglas del envío del formulario a un candidato: crea el formulario si no existía o actualiza
+        /// el que ya estaba, y devuelve el contexto del correo. No guarda —el llamador decide cuándo
+        /// hacer el SaveChanges— para que un lote se resuelva en un único guardado. Es el único lugar
+        /// donde viven estas transiciones: lo comparten el envío individual y el masivo.
+        /// </summary>
+        private static EnviarFormularioContextoDto AplicarEnvio(
+            AppDbContext ctx,
+            GthPostulanteFormulario? f,
+            int candidatoId,
+            string correo,
+            string nuevoToken,
+            string candidatoNombre,
+            string puesto,
+            List<GthPostulanteFormularioEstado> estados,
+            GthPostulanteFormularioEstado enviado,
+            int? userId,
+            DateTimeOffset now)
+        {
             // Estado en el que queda el formulario tras el envío: ENVIADO salvo cuando se reenvía uno
             // rechazado, que se queda como está (ver abajo).
             var destino = enviado;
             var esRechazo = false;
 
-            var f = await ctx.GthPostulanteFormulario.FirstOrDefaultAsync(x => x.GthCandidatoId == candidatoId && x.State);
             if (f != null)
             {
                 var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);
@@ -253,14 +370,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ctx.GthPostulanteFormulario.Add(f);
             }
 
-            await ctx.SaveChangesAsync();
-
             return new EnviarFormularioContextoDto
             {
                 Token  = f.Token,
-                Puesto = cand.Puesto,
+                Puesto = puesto,
                 // El nombre que declaró el propio postulante manda sobre el que registró GTH.
-                CandidatoNombre = Trim(f.NombresCompletos) ?? cand.Nombre,
+                CandidatoNombre = Trim(f.NombresCompletos) ?? candidatoNombre,
                 Correo          = correo,
                 EsRechazo       = esRechazo,
                 Motivo          = esRechazo ? f.MotivoRechazo : null,

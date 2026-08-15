@@ -20,6 +20,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IGraphSharePointService  _sharePoint;
         private readonly IEmailService            _email;
+        private readonly IConfiguration           _configuration;
         private readonly ILogger<ReclutamientoService> _logger;
 
         private const long MaxSustentoBytes = 10 * 1024 * 1024; // 10 MB
@@ -39,6 +40,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             ICorreoDestinatariosResolver destinatarios,
             IGraphSharePointService sharePoint,
             IEmailService email,
+            IConfiguration configuration,
             ILogger<ReclutamientoService> logger)
         {
             _repo             = repo;
@@ -47,6 +49,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _destinatarios    = destinatarios;
             _sharePoint       = sharePoint;
             _email            = email;
+            _configuration    = configuration;
             _logger           = logger;
         }
 
@@ -93,7 +96,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // 2) Notificar a GTH por correo (tipo LONG_LIST_DECISION). Best-effort: la decisión ya quedó
             //    registrada; si el correo falla solo se registra el warning (no se revierte el estado).
-            await NotificarDecisionAGthAsync(ctx);
+            await NotificarDecisionAGthAsync(requerimientoId, ctx);
 
             return ctx.Resultado;
         }
@@ -103,7 +106,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// LONG_LIST_DECISION). To = principales configurados, CC = copias. Sin principales no se
         /// envía. No bloquea: cualquier fallo solo se registra como warning.
         /// </summary>
-        private async Task NotificarDecisionAGthAsync(LongListDecisionContextoDto ctx)
+        private async Task NotificarDecisionAGthAsync(int requerimientoId, LongListDecisionContextoDto ctx)
         {
             try
             {
@@ -122,7 +125,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await _email.SendAsync(
                     to:      dest.EmailsPara,
                     subject: subject,
-                    body:    ConstruirCuerpoDecision(ctx),
+                    body:    ConstruirCuerpoDecision(requerimientoId, ctx),
                     isHtml:  true,
                     cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
@@ -132,10 +135,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        private static string ConstruirCuerpoDecision(LongListDecisionContextoDto ctx)
+        /// <summary>
+        /// Enlace al requerimiento dentro de la bandeja de GTH («Reclutamiento»). Abre el modal de
+        /// detalle, que ya se acomoda solo a la fase en la que quedó el requerimiento tras la
+        /// decisión: con candidatos aprobados muestra el envío del formulario del postulante, y si
+        /// el solicitante rechazó a todos, la carga de una nueva long list. Sin sesión, el
+        /// <c>authGuard</c> del frontend manda al login con esta URL como <c>returnUrl</c>.
+        /// </summary>
+        private string ConstruirLinkDetalleRequerimiento(int requerimientoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}";
+        }
+
+        private string ConstruirCuerpoDecision(int requerimientoId, LongListDecisionContextoDto ctx)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
 
+            var link = ConstruirLinkDetalleRequerimiento(requerimientoId);
             var r = ctx.Resultado;
             var filas = new StringBuilder();
             for (int i = 0; i < ctx.Candidatos.Count; i++)
@@ -157,6 +174,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
                 ? ""
                 : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
+
+            // El botón lleva siempre al mismo sitio (el detalle del requerimiento), pero se nombra
+            // por la acción que a GTH le toca hacer allí, que depende del resultado.
+            var botonTexto = r.TodosRechazados ? "Preparar nueva long list" : "Continuar el proceso";
 
             // Mensaje de cierre según el resultado.
             var cierre = r.TodosRechazados
@@ -191,6 +212,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       <tbody>{filas}</tbody>
                     </table>
                     {cierre}
+
+                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
+                      <tr>
+                        <td>
+                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">{botonTexto}</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
+                    </p>
                     <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>
                 </div>
@@ -344,8 +376,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto == null)
                 throw new AbrilException("Datos de la evaluación no recibidos.", 400);
 
-            var resumen = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
-            return new EvaluacionAccionResultDto { Message = "Evaluación guardada.", Evaluacion = resumen };
+            // Los tres comentarios son obligatorios: guardar el informe es enviarlo como finalista,
+            // y el área solicitante decide con ese informe completo.
+            if (string.IsNullOrWhiteSpace(dto.ComentarioEntrevista) ||
+                string.IsNullOrWhiteSpace(dto.ComentarioPsicotecnico) ||
+                string.IsNullOrWhiteSpace(dto.ComentarioRecomendacion))
+                throw new AbrilException(
+                    "El resultado de entrevista, el informe psicotécnico y la recomendación GTH son obligatorios.", 400);
+
+            var guardada = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
+            return new EvaluacionAccionResultDto
+            {
+                Message      = "Evaluación guardada.",
+                Evaluacion   = guardada.Evaluacion,
+                EstadoCodigo = guardada.EstadoCodigo,
+                EstadoNombre = guardada.EstadoNombre,
+            };
         }
 
         public async Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId)
@@ -632,7 +678,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await _email.SendAsync(
                     to:      principales,
                     subject: $"[Reclutamiento] Long list de CVs — {ctx.Codigo} · {ctx.Puesto}",
-                    body:    ConstruirCuerpoLongList(ctx, candidatos),
+                    body:    ConstruirCuerpoLongList(requerimientoId, ctx, candidatos),
                     isHtml:  true,
                     cc:      copias.Count > 0 ? copias : null,
                     attachments: adjuntos);
@@ -751,9 +797,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido (3 GB).", 400);
         }
 
-        private static string ConstruirCuerpoLongList(LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
+        /// <summary>
+        /// Enlace a la revisión de la long list dentro de «Solicitud de personal». Mismo mecanismo
+        /// que el correo de aprobación a Gerencia: si el solicitante no tiene sesión, el
+        /// <c>authGuard</c> del frontend lo manda al login con esta URL como <c>returnUrl</c> y lo
+        /// devuelve acá al entrar. La ruta abre el modal «Revisar long list y CVs» directamente.
+        /// </summary>
+        private string ConstruirLinkRevisionLongList(int requerimientoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/solicitud-personal/long-list/{requerimientoId}";
+        }
+
+        private string ConstruirCuerpoLongList(
+            int requerimientoId, LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var link = ConstruirLinkRevisionLongList(requerimientoId);
 
             var filas = new StringBuilder();
             for (int i = 0; i < candidatos.Count; i++)
@@ -804,6 +865,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       <tbody>{filas}</tbody>
                     </table>
                     <p style="font-size:13px">Total de candidatos en la long list: <b>{candidatos.Count}</b>.</p>
+
+                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
+                      <tr>
+                        <td>
+                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar long list y CVs</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="font-size:12px;color:#555">
+                      El botón abre esta long list en <b>Abril One · Gestión GTH · Solicitud de personal</b>,
+                      donde puedes ver cada CV y aprobar o rechazar candidato por candidato antes de enviarle
+                      tu decisión a GTH. Si aún no has iniciado sesión, hazlo y te llevaremos directo a esta
+                      long list.
+                    </p>
+                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
+                    </p>
                     <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>
                 </div>

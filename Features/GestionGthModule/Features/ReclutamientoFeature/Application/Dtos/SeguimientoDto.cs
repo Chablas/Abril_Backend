@@ -44,6 +44,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Fases del pipeline en orden, con su estado (done/current/pending) ya calculado.</summary>
         public List<FaseSeguimientoDto> Fases { get; set; } = new();
 
+        /// <summary>
+        /// Candidatos rechazados a lo largo del proceso, con la etapa del rechazo (los que rechazó
+        /// el propio solicitante y los que descartó GTH). Incluye los de long lists anteriores, que
+        /// es lo que hay que poder consultar cuando se rechazó a todos y el proceso volvió a
+        /// empezar por la long list.
+        /// </summary>
+        public List<CandidatoRechazadoDto> CandidatosRechazados { get; set; } = new();
+
+        /// <summary>
+        /// Quién obtuvo el puesto: el candidato que el solicitante aprobó en la decisión final,
+        /// con quién y cuándo lo decidió. Null mientras el proceso no se haya cerrado.
+        /// </summary>
+        public SeleccionadoDto? Seleccionado { get; set; }
+
         /// <summary>Descripción de la siguiente fase pendiente (null si el requerimiento ya cerró).</summary>
         public string? SiguientePaso { get; set; }
     }

@@ -13,8 +13,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string AprobacionGg = "APROBACION_GG";
 
         /// <summary>
-        /// Correo de "nueva solicitud de personal" (va a GTH). Sale recién cuando Gerencia General
-        /// aprueba, y solo con las vacantes aprobadas.
+        /// Correo de "aprobación de Gerencia a GTH". Sale recién cuando Gerencia General aprueba, y
+        /// solo con las vacantes aprobadas. Como lo dispara la decisión de Gerencia, se configura
+        /// desde Aprobaciones y no desde Solicitud de Personal.
         /// </summary>
         public const string Solicitud = "SOLICITUD";
 

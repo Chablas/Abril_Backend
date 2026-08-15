@@ -88,7 +88,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 cc:      copias.Count > 0 ? copias : null);
         }
 
-        private static string ConstruirCuerpoFormularioCompletado(FormularioCompletadoContextoDto ctx)
+        /// <summary>
+        /// Enlace al requerimiento dentro de la bandeja de GTH («Reclutamiento») con el modal
+        /// «Ver formulario» de este postulante ya abierto encima, que es donde se aprueba o rechaza.
+        /// Mismo mecanismo que el resto de correos del módulo: sin sesión, el <c>authGuard</c> del
+        /// frontend manda al login con esta URL como <c>returnUrl</c> y lo devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLinkRevisionFormulario(int requerimientoId, int candidatoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}?formulario={candidatoId}";
+        }
+
+        private string ConstruirCuerpoFormularioCompletado(FormularioCompletadoContextoDto ctx)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
             static string Fila(string etiqueta, string? valor) =>
@@ -109,6 +121,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ? "envió las correcciones de su formulario de información del postulante."
                 : "terminó de llenar su formulario de información del postulante.";
 
+            // El botón abre el formulario de ESTE postulante, así que se nombra por la acción que a
+            // GTH le toca hacer allí. Si por lo que sea no se pudo resolver el requerimiento, se cae
+            // a la indicación de siempre (buscarlo en la bandeja) en vez de mandar un enlace roto.
+            var hayEnlace = ctx.RequerimientoId > 0 && ctx.CandidatoId > 0;
+            var link = hayEnlace ? ConstruirLinkRevisionFormulario(ctx.RequerimientoId, ctx.CandidatoId) : string.Empty;
+
+            var cierre = hayEnlace
+                ? $"""
+                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
+                      <tr>
+                        <td>
+                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar formulario</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="font-size:12px;color:#555">
+                      El botón abre este requerimiento en <b>Abril One · Gestión GTH · Reclutamiento</b>
+                      con el formulario del postulante ya abierto, para que lo revises y lo apruebes o
+                      lo rechaces. Si aún no has iniciado sesión, hazlo y te llevaremos directo a él.
+                    </p>
+                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
+                    </p>
+                    """
+                : """
+                    <p style="font-size:12.5px;color:#555;margin-top:16px">
+                      Ya lo puedes revisar en <b>Gestión GTH → Reclutamiento</b>, en el detalle del
+                      requerimiento, con «Ver formulario», para aprobarlo o rechazarlo.
+                    </p>
+                    """;
+
             return $"""
                 <div style="font-family:Arial,sans-serif;max-width:640px">
                   <div style="background:#005D9D;padding:14px 18px">
@@ -116,9 +159,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                   </div>
                   <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
                     <p style="font-size:13px;margin-top:0">
-                      <b>{Esc(ctx.CandidatoNombre)}</b> {intro} Ya lo puedes revisar en
-                      <b>Gestión GTH → Reclutamiento</b>, en el detalle del requerimiento, con
-                      «Ver formulario», para aprobarlo o rechazarlo.
+                      <b>{Esc(ctx.CandidatoNombre)}</b> {intro}
                     </p>
                     <table style="border-collapse:collapse;margin:14px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
                       {Fila("Requerimiento", ctx.Codigo)}
@@ -130,6 +171,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       {Fila("Celular", ctx.NumeroCelular)}
                       {Fila("Enviado el", ctx.CompletadoEn.ToString("dd/MM/yyyy HH:mm"))}
                     </table>
+                    {cierre}
                     <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
                   </div>
                 </div>
@@ -149,21 +191,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Enviar el correo con el enlace del formulario. Bloqueante: si falla, se informa (el
             // formulario ya quedó registrado y GTH puede reintentar el envío).
-            var link = ConstruirLink(ctx.Token);
-
             try
             {
-                // Reenviar un formulario rechazado repite el correo de correcciones —con las
-                // observaciones—, no el de invitación: para el postulante el rechazo sigue vigente.
-                await _email.SendAsync(
-                    to:      new List<string> { ctx.Correo },
-                    subject: ctx.EsRechazo
-                        ? $"Correcciones en tu formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario"
-                        : $"Formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
-                    body:    ctx.EsRechazo
-                        ? ConstruirCuerpoRechazo(ctx.CandidatoNombre, ctx.Puesto, ctx.Motivo, link)
-                        : ConstruirCuerpoEnvio(ctx.CandidatoNombre, ctx.Puesto, link),
-                    isHtml:  true);
+                await EnviarCorreoFormularioAsync(ctx);
             }
             catch (Exception ex)
             {
@@ -179,6 +209,141 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : $"Formulario enviado a {ctx.Correo}.",
                 Formulario = ctx.Resumen,
             };
+        }
+
+        public async Task<FormularioEnvioMasivoResultDto> EnviarMasivo(EnviarFormularioMasivoDto dto, int? userId)
+        {
+            var items = dto?.Candidatos ?? new List<EnviarFormularioMasivoItemDto>();
+            if (items.Count == 0)
+                throw new AbrilException("Selecciona al menos un candidato para enviarle el formulario.", 400);
+
+            // Un candidato con el correo mal escrito no cancela el lote: se reporta como fallido y el
+            // resto se envía igual. Es la diferencia con el envío individual, donde el 400 es la única
+            // respuesta posible porque no hay nadie más a quien enviarle.
+            var orden      = new List<int>();
+            var resultados = new Dictionary<int, FormularioEnvioMasivoResultadoDto>();
+            var solicitudes = new List<EnvioMasivoSolicitudDto>();
+
+            foreach (var item in items)
+            {
+                // El mismo candidato repetido en el lote sería un doble envío: se queda el primero.
+                if (resultados.ContainsKey(item.CandidatoId)) continue;
+                orden.Add(item.CandidatoId);
+
+                var correo = item.Correo?.Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(correo) || !EmailRegex.IsMatch(correo))
+                {
+                    resultados[item.CandidatoId] = new FormularioEnvioMasivoResultadoDto
+                    {
+                        CandidatoId = item.CandidatoId,
+                        Enviado     = false,
+                        Error       = "El correo del postulante no es válido.",
+                    };
+                    continue;
+                }
+
+                // Marca de posición: se reemplaza con el resultado real tras preparar el envío.
+                resultados[item.CandidatoId] = new FormularioEnvioMasivoResultadoDto
+                {
+                    CandidatoId = item.CandidatoId,
+                    Enviado     = false,
+                    Error       = "No se pudo preparar el envío.",
+                };
+
+                solicitudes.Add(new EnvioMasivoSolicitudDto
+                {
+                    CandidatoId = item.CandidatoId,
+                    Correo      = correo,
+                    // Token de acceso público (hex, url-safe). Se usa solo si el formulario aún no existía.
+                    NuevoToken  = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant(),
+                });
+            }
+
+            if (solicitudes.Count > 0)
+            {
+                var preparados = await _repo.PrepararEnvioMasivo(solicitudes, userId);
+
+                // Los correos se envían uno por uno a propósito: el proveedor de correo es externo
+                // (SendGrid / PowerAutomate / SMTP) y dispararlos en paralelo arriesga throttling por un
+                // ahorro de segundos sobre una long list que suele ser de pocos candidatos.
+                foreach (var p in preparados)
+                {
+                    if (p.Contexto == null)
+                    {
+                        resultados[p.CandidatoId] = new FormularioEnvioMasivoResultadoDto
+                        {
+                            CandidatoId = p.CandidatoId,
+                            Enviado     = false,
+                            Error       = p.Error,
+                        };
+                        continue;
+                    }
+
+                    try
+                    {
+                        await EnviarCorreoFormularioAsync(p.Contexto);
+                        resultados[p.CandidatoId] = new FormularioEnvioMasivoResultadoDto
+                        {
+                            CandidatoId = p.CandidatoId,
+                            Enviado     = true,
+                            Formulario  = p.Contexto.Resumen,
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Falló el correo del formulario del postulante en el envío masivo (candidato {CandidatoId})",
+                            p.CandidatoId);
+
+                        // El formulario ya quedó registrado como enviado, así que se devuelve su resumen
+                        // igual: la bandeja debe mostrar el estado real de la base de datos, con el aviso
+                        // de que a ese postulante hay que reintentarle el correo.
+                        resultados[p.CandidatoId] = new FormularioEnvioMasivoResultadoDto
+                        {
+                            CandidatoId = p.CandidatoId,
+                            Enviado     = false,
+                            Error       = "No se pudo enviar el correo al postulante. Reintenta el envío.",
+                            Formulario  = p.Contexto.Resumen,
+                        };
+                    }
+                }
+            }
+
+            var lista     = orden.Select(id => resultados[id]).ToList();
+            var enviados  = lista.Count(r => r.Enviado);
+            var fallidos  = lista.Count - enviados;
+
+            return new FormularioEnvioMasivoResultDto
+            {
+                Enviados   = enviados,
+                Fallidos   = fallidos,
+                Resultados = lista,
+                Message = fallidos == 0
+                    ? $"Formulario enviado a {enviados} postulante(s)."
+                    : enviados == 0
+                        ? "No se pudo enviar el formulario a ningún postulante."
+                        : $"Se envió el formulario a {enviados} de {lista.Count} postulantes.",
+            };
+        }
+
+        /// <summary>
+        /// Envía el correo del formulario para un contexto ya preparado. Reenviar un formulario
+        /// rechazado repite el correo de correcciones —con las observaciones—, no el de invitación:
+        /// para el postulante el rechazo sigue vigente. Lo comparten el envío individual y el masivo.
+        /// </summary>
+        private Task EnviarCorreoFormularioAsync(EnviarFormularioContextoDto ctx)
+        {
+            var link = ConstruirLink(ctx.Token);
+
+            return _email.SendAsync(
+                to:      new List<string> { ctx.Correo },
+                subject: ctx.EsRechazo
+                    ? $"Correcciones en tu formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario"
+                    : $"Formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                body:    ctx.EsRechazo
+                    ? ConstruirCuerpoRechazo(ctx.CandidatoNombre, ctx.Puesto, ctx.Motivo, link)
+                    : ConstruirCuerpoEnvio(ctx.CandidatoNombre, ctx.Puesto, link),
+                isHtml:  true);
         }
 
         public Task<FormularioRevisionDto> GetRevision(int candidatoId) => _repo.GetRevision(candidatoId);

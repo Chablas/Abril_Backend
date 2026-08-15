@@ -119,6 +119,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
 
+        /// <summary>
+        /// Requerimiento y candidato a los que pertenece el formulario: son los que arman el enlace
+        /// del botón del correo, que abre la bandeja de GTH en ese requerimiento y, encima, el modal
+        /// «Ver formulario» de este postulante listo para aprobarlo o rechazarlo.
+        /// </summary>
+        public int RequerimientoId { get; set; }
+        public int CandidatoId { get; set; }
+
         /// <summary>Nombre del postulante (el que declaró en el formulario; si no, el que registró GTH).</summary>
         public string CandidatoNombre { get; set; } = string.Empty;
 
@@ -139,6 +147,81 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class EnviarFormularioDto
     {
         public string Correo { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Body del POST que envía el formulario a varios postulantes de un mismo requerimiento en una
+    /// sola operación (los candidatos que GTH seleccionó en la bandeja).
+    /// </summary>
+    public class EnviarFormularioMasivoDto
+    {
+        public List<EnviarFormularioMasivoItemDto> Candidatos { get; set; } = new();
+    }
+
+    /// <summary>Un candidato del lote con el correo al que se le envía el formulario.</summary>
+    public class EnviarFormularioMasivoItemDto
+    {
+        public int CandidatoId { get; set; }
+        public string Correo { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Resultado del envío masivo. El lote nunca se cae entero por un candidato: cada uno reporta su
+    /// propio resultado para que la pantalla actualice los que sí salieron y muestre qué falló.
+    /// </summary>
+    public class FormularioEnvioMasivoResultDto
+    {
+        public string Message { get; set; } = string.Empty;
+        public int Enviados { get; set; }
+        public int Fallidos { get; set; }
+
+        /// <summary>Un resultado por candidato del lote, en el mismo orden en que llegaron.</summary>
+        public List<FormularioEnvioMasivoResultadoDto> Resultados { get; set; } = new();
+    }
+
+    /// <summary>Resultado del envío del formulario de un candidato dentro del lote.</summary>
+    public class FormularioEnvioMasivoResultadoDto
+    {
+        public int CandidatoId { get; set; }
+
+        /// <summary>true si el correo salió. false si no se pudo preparar el envío o si falló el correo.</summary>
+        public bool Enviado { get; set; }
+
+        /// <summary>Motivo del fallo para mostrarlo junto al candidato. null si se envió bien.</summary>
+        public string? Error { get; set; }
+
+        /// <summary>
+        /// Estado del formulario tras el envío, para refrescar la ficha del candidato. Viene relleno
+        /// incluso cuando el correo falló —el formulario ya quedó registrado en ese punto— y solo es
+        /// null cuando no se llegó a tocar la base de datos (candidato inválido o correo mal escrito).
+        /// </summary>
+        public CandidatoFormularioResumenDto? Formulario { get; set; }
+    }
+
+    /// <summary>
+    /// Un envío del lote tal como lo recibe el repositorio: candidato, correo destino y el token a
+    /// usar si el formulario de ese candidato aún no existía.
+    /// </summary>
+    public class EnvioMasivoSolicitudDto
+    {
+        public int CandidatoId { get; set; }
+        public string Correo { get; set; } = string.Empty;
+        public string NuevoToken { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Lo que devuelve el repositorio por cada envío del lote: el contexto para armar el correo, o el
+    /// motivo por el que ese candidato quedó fuera (los demás del lote sí se preparan igual).
+    /// </summary>
+    public class EnvioMasivoPreparadoDto
+    {
+        public int CandidatoId { get; set; }
+
+        /// <summary>null si el candidato no pasó las validaciones (ver <see cref="Error"/>).</summary>
+        public EnviarFormularioContextoDto? Contexto { get; set; }
+
+        /// <summary>Motivo por el que no se preparó el envío. null si sí se preparó.</summary>
+        public string? Error { get; set; }
     }
 
     /// <summary>Body del POST que registra la decisión de GTH sobre el formulario (aprobar/rechazar).</summary>

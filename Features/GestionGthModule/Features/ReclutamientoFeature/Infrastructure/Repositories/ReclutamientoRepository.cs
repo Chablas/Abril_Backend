@@ -59,6 +59,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public DateTimeOffset? DecisionDateTime { get; set; }
         }
 
+        /// <summary>
+        /// Candidatos de la long list VIGENTE de su requerimiento: los vivos
+        /// (<c>state = true</c>) de la última vuelta.
+        ///
+        /// Un requerimiento puede tener varias long lists: cuando el solicitante rechaza a todos,
+        /// vuelve a LONG_LIST y GTH sube otra con <c>numero_long_list + 1</c>. Las anteriores se
+        /// conservan vivas —un candidato rechazado no está eliminado, su rechazo vive en
+        /// <c>gth_candidato_estado</c>— así que "la long list actual" ya no se puede resolver solo
+        /// con <c>state</c>.
+        ///
+        /// Toda consulta que signifique "los candidatos de este proceso ahora mismo" debe partir
+        /// de acá y no de <c>ctx.GthCandidato</c>: es la única definición de vigencia, para que
+        /// agregar una vuelta no obligue a acordarse de N filtros repartidos por el repositorio.
+        /// El historial de rechazados es la excepción a propósito: lee todas las vueltas.
+        /// </summary>
+        private static IQueryable<GthCandidato> CandidatosVigentes(AppDbContext ctx) =>
+            ctx.GthCandidato.Where(c => c.State && c.NumeroLongList == ctx.GthCandidato
+                .Where(x => x.GthRequerimientoId == c.GthRequerimientoId && x.State)
+                .Max(x => x.NumeroLongList));
+
         /// <summary>Evaluaciones vigentes de los candidatos indicados (vacío si no hay candidatos).</summary>
         private static async Task<List<EvaluacionRawRow>> QueryEvaluaciones(AppDbContext ctx, List<int> candidatoIds)
         {
@@ -80,6 +100,167 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     AgradecimientoDateTime  = ev.AgradecimientoDateTime,
                     DecisionDateTime        = ev.DecisionDateTime,
                 }).ToListAsync();
+        }
+
+        /// <summary>
+        /// Candidatos del requerimiento que quedaron rechazados, con la etapa del rechazo, para el
+        /// «Historial de candidatos rechazados» de GTH y del solicitante.
+        ///
+        /// Lee TODAS las vueltas del requerimiento (no solo la long list vigente), pero siempre
+        /// con <c>state = true</c>: un candidato rechazado no está eliminado del sistema, sigue
+        /// vivo con su rechazo registrado en el estado. Es la única consulta que a propósito no
+        /// parte de <see cref="CandidatosVigentes"/>, porque el historial es justamente lo que
+        /// quedó fuera de la vuelta actual. La etapa sale de cruzar el estado del candidato con el
+        /// resultado de su evaluación:
+        ///
+        ///   • resultado RECHAZADO  → el solicitante rechazó al finalista (decisión final).
+        ///   • resultado NO_PASO    → GTH lo descartó tras la entrevista (agradecimiento).
+        ///   • estado RECHAZADO     → el solicitante lo rechazó al revisar la long list.
+        ///
+        /// Los candidatos que se dieron de baja sin decisión (una long list reemplazada antes de
+        /// que el solicitante la revisara) no son rechazos y quedan fuera.
+        /// </summary>
+        private static async Task<List<CandidatoRechazadoDto>> QueryCandidatosRechazados(
+            AppDbContext ctx, int requerimientoId)
+        {
+            var candidatos = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                select new
+                {
+                    c.GthCandidatoId,
+                    c.Nombre,
+                    c.Puesto,
+                    c.Comentario,
+                    c.CvNombre,
+                    c.CvUrl,
+                    c.NumeroLongList,
+                    EstadoCodigo = est.Codigo,
+                    c.DecisionDateTime,
+                    c.UpdatedDateTime,
+                    c.CreatedDateTime,
+                }).ToListAsync();
+
+            if (candidatos.Count == 0) return new List<CandidatoRechazadoDto>();
+
+            // Segundo roundtrip acotado en vez de un left join encadenado candidato→evaluación→
+            // resultado: ese patrón EF Core no lo materializa bien (ver GetDetalleGth). Se une en
+            // memoria por GthCandidatoId, que es 0..1 evaluación vigente por candidato.
+            var evaluaciones = (await QueryEvaluaciones(ctx, candidatos.Select(c => c.GthCandidatoId).ToList()))
+                .ToDictionary(x => x.GthCandidatoId);
+
+            var historial = new List<CandidatoRechazadoDto>();
+            foreach (var x in candidatos)
+            {
+                var ev = evaluaciones.GetValueOrDefault(x.GthCandidatoId);
+
+                // El resultado de la evaluación manda sobre el estado del candidato: un rechazado
+                // en entrevistas o en la decisión final sigue siendo APROBADO en la long list (ahí
+                // sí pasó), así que mirar solo el estado lo etiquetaría mal.
+                (string Codigo, string Nombre, string PorCodigo, string PorNombre, DateTimeOffset? Fecha) etapa;
+                if (ev?.ResultadoCodigo == ResultadoCandidato.Rechazado)
+                    etapa = (EtapaRechazo.DecisionFinal, "Decisión final",
+                             RechazadoPor.Solicitante, "Área solicitante", ev.DecisionDateTime);
+                else if (ev?.ResultadoCodigo == ResultadoCandidato.NoPaso)
+                    etapa = (EtapaRechazo.Entrevistas, "Entrevistas",
+                             RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime);
+                else if (x.EstadoCodigo == EstadoCandidato.Rechazado)
+                    etapa = (EtapaRechazo.LongList, "Long list",
+                             RechazadoPor.Solicitante, "Área solicitante", x.DecisionDateTime);
+                else
+                    continue; // sigue en carrera, o se dio de baja sin decisión: no es un rechazo
+
+                historial.Add(new CandidatoRechazadoDto
+                {
+                    CandidatoId        = x.GthCandidatoId,
+                    Nombre             = x.Nombre,
+                    Puesto             = x.Puesto,
+                    NumeroLongList     = x.NumeroLongList,
+                    Comentario         = x.Comentario,
+                    CvNombre           = x.CvNombre,
+                    CvUrl              = x.CvUrl,
+                    EtapaCodigo        = etapa.Codigo,
+                    EtapaNombre        = etapa.Nombre,
+                    RechazadoPorCodigo = etapa.PorCodigo,
+                    RechazadoPorNombre = etapa.PorNombre,
+                    // Los candidatos decididos antes de que existiera decision_date_time no tienen
+                    // la fecha exacta: se cae a la de actualización y luego a la de creación para
+                    // que ninguna fila del historial quede sin fecha.
+                    RechazadoEn        = (etapa.Fecha ?? x.UpdatedDateTime ?? x.CreatedDateTime)
+                                            .ToOffset(PeruOffset).DateTime,
+                });
+            }
+
+            // Lo más reciente arriba: el historial se lee de la última vuelta hacia atrás.
+            return historial
+                .OrderByDescending(h => h.RechazadoEn)
+                .ThenByDescending(h => h.CandidatoId)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Quién obtuvo el puesto del requerimiento: el candidato cuya evaluación quedó en
+        /// SELECCIONADO (la decisión final del área solicitante, que es la que cierra el proceso),
+        /// con quién y cuándo lo decidió y qué responsable de GTH llevó la vacante.
+        ///
+        /// Null mientras nadie haya sido seleccionado, así que sirve de bandera para las dos
+        /// pantallas: no hay "puesto cubierto" que mostrar hasta que el proceso cierra.
+        /// </summary>
+        private static async Task<SeleccionadoDto?> QuerySeleccionado(AppDbContext ctx, int requerimientoId)
+        {
+            // Solo puede haber un SELECCIONADO por requerimiento (aprobar cierra el proceso y la
+            // segunda decisión ya no se acepta), así que el First es determinista.
+            var raw = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
+                where ev.State
+                join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                where res.Codigo == ResultadoCandidato.Seleccionado
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                // El responsable del proceso es opcional (puede no haberse asignado nunca).
+                join rp in ctx.GthResponsableProceso
+                    on r.GthResponsableProcesoId equals (int?)rp.GthResponsableProcesoId into rpJoin
+                from rp in rpJoin.DefaultIfEmpty()
+                select new
+                {
+                    c.GthCandidatoId,
+                    c.Nombre,
+                    c.Puesto,
+                    c.CvNombre,
+                    c.CvUrl,
+                    ev.DecisionDateTime,
+                    ev.DecisionUserId,
+                    ResponsableGth = rp == null ? null
+                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : rp.Worker.ApellidoNombre),
+                }).FirstOrDefaultAsync();
+
+            if (raw == null) return null;
+
+            // Nombre de quien tomó la decisión final: segundo roundtrip mínimo y solo en los
+            // procesos ya cerrados (los abiertos salen por el return de arriba sin tocarlo).
+            string? seleccionadoPor = null;
+            if (raw.DecisionUserId.HasValue)
+                seleccionadoPor = await ctx.Worker
+                    .Where(w => w.Person != null && w.Person.UserId == raw.DecisionUserId.Value)
+                    // Una persona puede tener varias fichas por reingreso: la vigente manda.
+                    .OrderBy(w => w.FechaRetiro.HasValue)
+                    .ThenByDescending(w => w.FechaIngreso)
+                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .FirstOrDefaultAsync();
+
+            return new SeleccionadoDto
+            {
+                CandidatoId     = raw.GthCandidatoId,
+                Nombre          = raw.Nombre,
+                Puesto          = raw.Puesto,
+                CvNombre        = raw.CvNombre,
+                CvUrl           = raw.CvUrl,
+                SeleccionadoEn  = raw.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
+                SeleccionadoPor = seleccionadoPor,
+                ResponsableGth  = raw.ResponsableGth,
+            };
         }
 
         /// <summary>Proyecta la fila cruda de la evaluación al DTO (fechas ya en hora de Perú).</summary>
@@ -235,16 +416,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto          = p.Nombre,
                     Area            = r.Solicitud!.AreaNombre,
                     ProyectoObra    = pr.ProjectDescription,
-                    TotalCandidatos = ctx.GthCandidato.Count(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State),
+                    TotalCandidatos = CandidatosVigentes(ctx).Count(c => c.GthRequerimientoId == r.GthRequerimientoId),
                     EstadoCodigo    = e.Codigo,
                     EstadoNombre    = e.Nombre,
                     Tipo            = TipoGestionCandidato.LongList,
                 }).ToListAsync();
 
-            // Tarjetas "Finalistas enviados por GTH": requerimientos del usuario que siguen en la
-            // fase de entrevistas y ya tienen al menos un candidato evaluado que sigue en carrera.
-            // El filtro por ENTREVISTAS es el que hace desaparecer la tarjeta cuando el proceso se
-            // cierra (aprobó a un finalista) o vuelve a LONG_LIST (rechazó a todos).
+            // Tarjetas "Finalistas enviados por GTH": requerimientos del usuario en la fase de
+            // selección de jefatura (ahí los deja GTH al enviar a los finalistas) que todavía tienen
+            // al menos un candidato evaluado en carrera. El filtro por SELECCION_JEFATURA es el que
+            // hace desaparecer la tarjeta cuando el proceso se cierra (aprobó a un finalista) o
+            // vuelve a LONG_LIST (rechazó a todos).
             //
             // El id de NO_PASO se resuelve aparte (consulta mínima al catálogo) para que el conteo
             // por requerimiento sea una subconsulta simple sobre ids en vez de un join anidado.
@@ -256,13 +438,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var finalistas = await (
                 from r in ctx.GthRequerimiento
                 where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
-                      && ctx.GthCandidato.Any(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State
+                      && CandidatosVigentes(ctx).Any(c => c.GthRequerimientoId == r.GthRequerimientoId
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
                                   && ev.State && ev.GthCandidatoResultadoId != noPasoId))
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
-                where e.Codigo == EstadoReclutamiento.Entrevistas
+                where e.Codigo == EstadoReclutamiento.SeleccionJefatura
                 orderby r.UpdatedDateTime descending, r.GthRequerimientoId descending
                 select new GestionCandidatoCardDto
                 {
@@ -271,7 +453,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto          = p.Nombre,
                     Area            = r.Solicitud!.AreaNombre,
                     ProyectoObra    = pr.ProjectDescription,
-                    TotalCandidatos = ctx.GthCandidato.Count(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State
+                    TotalCandidatos = CandidatosVigentes(ctx).Count(c => c.GthRequerimientoId == r.GthRequerimientoId
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
                                   && ev.State && ev.GthCandidatoResultadoId != noPasoId)),
                     EstadoCodigo    = e.Codigo,
@@ -286,9 +468,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // "En revisión · GTH evaluando" = procesos cuyo siguiente paso le toca a GTH, sin contar
             // el primero (NUEVO, que es justamente "Pendientes · Sin respuesta"). Además se descartan
             // los que están esperando una acción del solicitante, que son exactamente los que ya
-            // tienen tarjeta en "Gestión de candidatos": el caso real es ENTREVISTAS con finalistas
-            // ya enviados — GTH terminó su parte y la decisión es del solicitante, así que sería
-            // contradictorio mostrarlo a la vez como "GTH evaluando".
+            // tienen tarjeta en "Gestión de candidatos": sería contradictorio mostrar el mismo
+            // proceso como "GTH evaluando" y a la vez pedirle una decisión al solicitante. Las fases
+            // de esas tarjetas (LONG_LIST_ENVIADA / SELECCION_JEFATURA) ya están fuera de FasesGth,
+            // así que este descarte cubre solo a los requerimientos que se quedaron en una fase
+            // anterior al cambio a SELECCION_JEFATURA con sus finalistas ya enviados.
             var esperandoAlSolicitante = cards.Select(c => c.RequerimientoId).ToHashSet();
 
             var anioActual = DateTimeOffset.UtcNow.ToOffset(PeruOffset).Year;
@@ -357,8 +541,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 return null;
 
             var candidatos = await (
-                from c in ctx.GthCandidato
-                where c.GthRequerimientoId == requerimientoId && c.State
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 orderby c.Orden, c.GthCandidatoId
                 select new CandidatoRevisionDto
@@ -420,8 +604,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (head.EstadoCodigo != EstadoReclutamiento.LongListEnviada)
                 throw new AbrilException("Esta long list ya fue revisada o aún no está disponible para revisión.", 409);
 
-            var candidatos = await ctx.GthCandidato
-                .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
+            var candidatos = await CandidatosVigentes(ctx)
+                .Where(c => c.GthRequerimientoId == requerimientoId)
                 .OrderBy(c => c.Orden).ThenBy(c => c.GthCandidatoId)
                 .ToListAsync();
             if (candidatos.Count == 0)
@@ -447,6 +631,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var aprobado = decisionPorId[c.GthCandidatoId];
                 c.GthCandidatoEstadoId = aprobado ? aprobadoId : rechazadoId;
+                // La fecha de la decisión va en su propia columna: `updated_date_time` la pisa el
+                // envío de la siguiente long list (da de baja la anterior), y el historial de
+                // rechazados necesita justo la fecha en que el solicitante los rechazó.
+                c.DecisionDateTime     = now;
+                c.DecisionUserId       = userId;
                 c.UpdatedDateTime      = now;
                 c.UpdatedUserId        = userId;
                 if (aprobado) aprobados++; else rechazados++;
@@ -559,9 +748,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // candidato queda en PASO / NO_PASO / SELECCIONADO / RECHAZADO deja de estar programada.
             var evaluacionesProgramadas = await (
                 from ent in ctx.GthEntrevista
-                join c in ctx.GthCandidato on ent.GthCandidatoId equals c.GthCandidatoId
+                join c in CandidatosVigentes(ctx) on ent.GthCandidatoId equals c.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                where ent.State && c.State && r.State
+                where ent.State && r.State
                       && !(from ev in ctx.GthCandidatoEvaluacion
                            join res in ctx.GthCandidatoResultado
                                on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
@@ -773,8 +962,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Candidatos aprobados por el solicitante (para la fase "Long list aprobada", imágenes 4/5).
             // Vacío en fases anteriores; los rechazados no se incluyen.
             var candidatosAprobadosRaw = await (
-                from c in ctx.GthCandidato
-                where c.GthRequerimientoId == requerimientoId && c.State
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
                 orderby c.Orden, c.GthCandidatoId
@@ -880,6 +1069,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(l => new OpcionDto { Id = l.GthLugarEntrevistaId, Nombre = l.Nombre })
                 .ToListAsync();
 
+            // Historial de rechazados (incluye los de long lists anteriores). Va en esta misma
+            // petición: es una sección más del modal, no una pantalla aparte.
+            var candidatosRechazados = await QueryCandidatosRechazados(ctx, requerimientoId);
+
+            // Quién obtuvo el puesto (null mientras el proceso no cierre con un seleccionado).
+            var seleccionado = await QuerySeleccionado(ctx, requerimientoId);
+
             return new DetalleRequerimientoGthDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -907,6 +1103,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Canales             = canales,
                 LugaresEntrevista   = lugaresEntrevista,
                 CandidatosAprobados = candidatosAprobados,
+                CandidatosRechazados = candidatosRechazados,
+                Seleccionado         = seleccionado,
             };
         }
 
@@ -959,8 +1157,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Multitest marcado en todos los candidatos aprobados, todos los formularios ya revisados
             // (aprobados o rechazados) y al menos uno aprobado.
             var candidatos = await (
-                from c in ctx.GthCandidato
-                where c.GthRequerimientoId == requerimientoId && c.State
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
                 select new { c.GthCandidatoId, c.MultitestRealizado }).ToListAsync();
@@ -1093,11 +1291,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string.IsNullOrWhiteSpace(texto) ? null : texto.Trim();
 
         /// <summary>
-        /// Cabecera del candidato para evaluarlo: nombre, puesto/código del requerimiento y correo
-        /// de la entrevista programada. Lanza 404 si no existe y 400 si aún no se le envió la
+        /// Cabecera del candidato citado a entrevista. Trae también el requerimiento al que
+        /// pertenece (entidad rastreada por EF) y su fase actual, porque enviar al finalista mueve
+        /// esa fase: así el avance del pipeline no cuesta un roundtrip extra.
+        /// </summary>
+        private sealed record CandidatoEntrevistado(
+            string Nombre,
+            string Puesto,
+            string Codigo,
+            string Correo,
+            GthRequerimiento Requerimiento,
+            string EstadoCodigo);
+
+        /// <summary>
+        /// Cabecera del candidato para evaluarlo: nombre, puesto/código y fase del requerimiento, y
+        /// correo de la entrevista programada. Lanza 404 si no existe y 400 si aún no se le envió la
         /// invitación (solo se evalúa a quien ya fue citado).
         /// </summary>
-        private static async Task<(string Nombre, string Puesto, string Codigo, string Correo)> GetCandidatoEntrevistado(
+        private static async Task<CandidatoEntrevistado> GetCandidatoEntrevistado(
             AppDbContext ctx, int candidatoId)
         {
             var cand = await (
@@ -1105,7 +1316,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, Req = r, EstadoCodigo = e.Codigo })
+                .FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
 
@@ -1116,7 +1329,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (string.IsNullOrWhiteSpace(correo))
                 throw new AbrilException("Primero envía la invitación a la entrevista de este candidato.", 400);
 
-            return (cand.Nombre, cand.Puesto, cand.Codigo, correo);
+            return new CandidatoEntrevistado(
+                cand.Nombre, cand.Puesto, cand.Codigo, correo, cand.Req, cand.EstadoCodigo);
         }
 
         /// <summary>
@@ -1174,11 +1388,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task<EvaluacionResumenDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId)
+        public async Task<EvaluacionGuardadaDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            await GetCandidatoEntrevistado(ctx, candidatoId);
+            var cand = await GetCandidatoEntrevistado(ctx, candidatoId);
 
             var now = DateTimeOffset.UtcNow;
             var evaluacion = await GetOrCreateEvaluacion(ctx, candidatoId, userId, now);
@@ -1209,8 +1423,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             evaluacion.ComentarioPsicotecnico  = Limpiar(dto.ComentarioPsicotecnico);
             evaluacion.ComentarioRecomendacion = Limpiar(dto.ComentarioRecomendacion);
 
+            // Enviar al finalista también mueve el requerimiento a SELECCION_JEFATURA: GTH terminó
+            // su parte y la decisión pasa al área solicitante. Solo avanza desde ENTREVISTAS —
+            // editar el informe de otro finalista cuando el proceso ya cerró (alguien más obtuvo el
+            // puesto) o volvió a LONG_LIST no debe retroceder la fase.
+            GthEstadoRequerimiento? avanzoA = null;
+            if (cand.EstadoCodigo == EstadoReclutamiento.Entrevistas)
+            {
+                avanzoA = await ctx.GthEstadoRequerimiento
+                    .FirstOrDefaultAsync(e => e.Codigo == EstadoReclutamiento.SeleccionJefatura && e.State)
+                    ?? throw new AbrilException("No está configurado el estado SELECCION_JEFATURA de reclutamiento.", 500);
+
+                cand.Requerimiento.GthEstadoRequerimientoId = avanzoA.GthEstadoRequerimientoId;
+                cand.Requerimiento.UpdatedDateTime          = now;
+                cand.Requerimiento.UpdatedUserId            = userId;
+            }
+
             await ctx.SaveChangesAsync();
-            return await BuildEvaluacionResumen(ctx, evaluacion);
+
+            return new EvaluacionGuardadaDto
+            {
+                Evaluacion   = await BuildEvaluacionResumen(ctx, evaluacion),
+                EstadoCodigo = avanzoA?.Codigo,
+                EstadoNombre = avanzoA?.Nombre,
+            };
         }
 
         public async Task<AgradecimientoEnvioContextoDto> RegistrarAgradecimiento(int candidatoId, int? userId)
@@ -1275,8 +1511,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Los que no continúan (resultado NO_PASO, con su correo de agradecimiento ya enviado)
             // no se muestran al solicitante.
             var candidatos = await (
-                from c in ctx.GthCandidato
-                where c.GthRequerimientoId == requerimientoId && c.State
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
                 join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
@@ -1355,15 +1591,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (head == null)
                 throw new AbrilException("No se encontró el informe de finalistas del requerimiento.", 404);
 
-            // La decisión final solo se toma mientras el requerimiento está en la fase de entrevistas
-            // (después ya quedó cerrado o volvió a long list).
-            if (head.EstadoCodigo != EstadoReclutamiento.Entrevistas)
+            // La decisión final solo se toma mientras el requerimiento está en SELECCION_JEFATURA,
+            // la fase en la que lo deja GTH al enviar a los finalistas (después ya quedó cerrado o
+            // volvió a long list).
+            if (head.EstadoCodigo != EstadoReclutamiento.SeleccionJefatura)
                 throw new AbrilException("Este proceso ya no está en la fase de decisión de finalistas.", 409);
 
             // Finalistas del requerimiento: candidatos con evaluación vigente que GTH no descartó.
             var finalistas = await (
-                from c in ctx.GthCandidato
-                where c.GthRequerimientoId == requerimientoId && c.State
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
                 join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
                 where ev.State
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
@@ -1410,6 +1647,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Aprobar cierra el proceso de reclutamiento (el seleccionado pasa a onboarding).
             // Rechazar al último finalista en carrera devuelve el requerimiento a LONG_LIST para que
             // GTH prepare y envíe una nueva long list; los rechazados quedan grabados como historial.
+            // Si aún quedan finalistas por decidir, se queda en SELECCION_JEFATURA.
             var quedanEnCarrera = finalistas.Any(f =>
                 f.GthCandidatoId != candidatoId
                 && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado));
@@ -1417,7 +1655,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var codigoEstado = aprobado ? EstadoReclutamiento.Cerrado
                              : todosRechazados ? EstadoReclutamiento.LongList
-                             : EstadoReclutamiento.Entrevistas;
+                             : EstadoReclutamiento.SeleccionJefatura;
             var estadoDestino = await ctx.GthEstadoRequerimiento
                 .FirstOrDefaultAsync(e => e.Codigo == codigoEstado && e.State)
                 ?? throw new AbrilException($"No está configurado el estado {codigoEstado} de reclutamiento.", 500);
@@ -1718,16 +1956,39 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var now = DateTimeOffset.UtcNow;
 
-            // Reemplazo: se da de baja (soft delete) la long list vigente y se inserta la nueva.
-            // Permite reenviar la long list corrigiendo/actualizando los candidatos.
+            // Qué hacer con la long list anterior depende de si el solicitante llegó a decidirla:
+            //
+            //   • Ya decidida  → esto es una VUELTA NUEVA (rechazó a todos y el requerimiento
+            //     volvió a LONG_LIST). La anterior se conserva viva: sus rechazados son el
+            //     historial que el sistema muestra, y `state = false` significa "eliminado del
+            //     sistema, no mostrar nunca", que no es el caso de un rechazado.
+            //   • Sin decidir  → esto es una CORRECCIÓN del mismo envío. Ahí las filas anteriores
+            //     sí se eliminan (state = false): se reemplazan, no son historial de nada.
+            //
+            // No pueden convivir ambas cosas en una misma vuelta: la decisión de la long list se
+            // registra para todos los candidatos de una sola vez.
             var vigentes = await ctx.GthCandidato
                 .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
                 .ToListAsync();
-            foreach (var v in vigentes)
+
+            var vueltaAnterior = vigentes.Count == 0 ? 0 : vigentes.Max(c => c.NumeroLongList);
+            var ultimaVuelta   = vigentes.Where(c => c.NumeroLongList == vueltaAnterior).ToList();
+            var yaDecidida     = ultimaVuelta.Any(c => c.GthCandidatoEstadoId != estadoPendienteId);
+
+            int numeroLongList;
+            if (yaDecidida)
             {
-                v.State           = false;
-                v.UpdatedDateTime = now;
-                v.UpdatedUserId   = userId;
+                numeroLongList = vueltaAnterior + 1;
+            }
+            else
+            {
+                numeroLongList = Math.Max(vueltaAnterior, 1);
+                foreach (var v in ultimaVuelta)
+                {
+                    v.State           = false;
+                    v.UpdatedDateTime = now;
+                    v.UpdatedUserId   = userId;
+                }
             }
 
             var orden = 1;
@@ -1749,6 +2010,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     InformeDriveId       = c.InformeDriveId,
                     GthCandidatoEstadoId = estadoPendienteId,
                     Orden                = orden,
+                    NumeroLongList       = numeroLongList,
                     CreatedDateTime      = now,
                     CreatedUserId        = userId,
                     Active               = true,
@@ -1843,6 +2105,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                          : f.Orden == ordenEfectivo ? "current"
                          : "pending";
 
+            // Historial de rechazados del requerimiento: el solicitante lo ve acá, que es su
+            // pantalla de historial (incluye lo que rechazó él y lo que descartó GTH).
+            var candidatosRechazados = await QueryCandidatosRechazados(ctx, requerimientoId);
+
+            // Quién obtuvo el puesto (null mientras el proceso no cierre con un seleccionado).
+            var seleccionado = await QuerySeleccionado(ctx, requerimientoId);
+
             return new SeguimientoDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -1860,6 +2129,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SustentoNombre        = head.SustentoNombre,
                 SustentoUrl           = head.SustentoUrl,
                 Fases                 = fases,
+                CandidatosRechazados  = candidatosRechazados,
+                Seleccionado          = seleccionado,
                 // Rechazado por el GG no tiene "siguiente paso": el proceso terminó ahí.
                 SiguientePaso         = rechazadoGg
                     ? "Gerencia General no aprobó esta vacante. Para volver a pedirla hay que registrar una nueva solicitud."
@@ -2336,9 +2607,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string LongListEnviada   = "LONG_LIST_ENVIADA";
         public const string LongListAprobada  = "LONG_LIST_APROBADA";
         public const string Entrevistas       = "ENTREVISTAS";
-        public const string Evaluacion        = "EVALUACION";
+
+        /// <summary>
+        /// GTH ya envió al menos un finalista con su informe: la decisión pasa al área solicitante,
+        /// que elige a quién le da el puesto. Última fase antes del cierre.
+        /// </summary>
         public const string SeleccionJefatura = "SELECCION_JEFATURA";
-        public const string OfertaCierre      = "OFERTA_CIERRE";
 
         /// <summary>
         /// Estado final: el solicitante aprobó al finalista, el proceso de reclutamiento termina y
@@ -2371,7 +2645,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///   "Pendientes · Sin respuesta"; contarlo en ambas tarjetas duplicaría el mismo proceso.</description></item>
         ///   <item><description><see cref="AprobacionGg"/>: el paso es de Gerencia General, no de GTH.</description></item>
         ///   <item><description><see cref="LongListEnviada"/> y <see cref="SeleccionJefatura"/>:
-        ///   la pelota está del lado del solicitante.</description></item>
+        ///   la pelota está del lado del solicitante (revisar la long list / decidir al finalista).</description></item>
         ///   <item><description><see cref="Cerrado"/>: el proceso ya terminó.</description></item>
         /// </list>
         /// </summary>
@@ -2382,21 +2656,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             LongList,
             LongListAprobada,
             Entrevistas,
-            Evaluacion,
-            OfertaCierre,
         };
     }
 
     /// <summary>
     /// Etapas del embudo "Pipeline de reclutamiento" (vista de GTH), en el orden en que se muestran.
-    /// El catálogo tiene 12 fases y el embudo las agrupa en 7 etapas legibles; cada fase pertenece a
+    /// El catálogo tiene 10 fases y el embudo las agrupa en 6 etapas legibles; cada fase pertenece a
     /// exactamente una etapa, de modo que la suma de las etapas es siempre el total de requerimientos
     /// vigentes y ninguno se pierde del embudo.
     ///
-    /// El orden sigue el <c>orden</c> del catálogo (por eso Entrevistas va antes que Evaluación),
-    /// que es el mismo que ve el solicitante en el seguimiento vertical del requerimiento.
-    /// <c>SELECCION_JEFATURA</c> es una fase heredada que el flujo implementado no usa (su función
-    /// la cubren LONG_LIST_ENVIADA/LONG_LIST_APROBADA); se agrupa en Revisión por lo que describe.
+    /// El orden sigue el <c>orden</c> del catálogo, que es el mismo que ve el solicitante en el
+    /// seguimiento vertical del requerimiento.
     /// </summary>
     internal sealed record EtapaPipeline(string Codigo, string Nombre, string[] Fases)
     {
@@ -2408,11 +2678,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             new("PUBLICADO",   "Publicado",   new[] { EstadoReclutamiento.Publicacion }),
             new("REVISION",    "Revisión",    new[] { EstadoReclutamiento.LongList,
                                                       EstadoReclutamiento.LongListEnviada,
-                                                      EstadoReclutamiento.LongListAprobada,
-                                                      EstadoReclutamiento.SeleccionJefatura }),
+                                                      EstadoReclutamiento.LongListAprobada }),
             new("ENTREVISTAS", "Entrevistas", new[] { EstadoReclutamiento.Entrevistas }),
-            new("EVALUACION",  "Evaluación",  new[] { EstadoReclutamiento.Evaluacion }),
-            new("OFERTA",      "Oferta",      new[] { EstadoReclutamiento.OfertaCierre }),
+            new("SELECCION",   "Selección",   new[] { EstadoReclutamiento.SeleccionJefatura }),
             new("CIERRE",      "Cierre",      new[] { EstadoReclutamiento.Cerrado }),
         };
 
@@ -2450,5 +2718,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string NoPaso       = "NO_PASO";
         public const string Seleccionado = "SELECCIONADO";
         public const string Rechazado    = "RECHAZADO";
+    }
+
+    /// <summary>
+    /// Etapas en las que un candidato puede quedar rechazado, para el historial de rechazados.
+    /// No son un catálogo de la base: se derivan de <c>gth_candidato_estado</c> y
+    /// <c>gth_candidato_resultado</c> al leer, así que no pueden desincronizarse de la decisión
+    /// real. El frontend colorea la etiqueta por estos códigos.
+    /// </summary>
+    internal static class EtapaRechazo
+    {
+        /// <summary>El solicitante lo rechazó al revisar la long list de CVs.</summary>
+        public const string LongList      = "LONG_LIST";
+
+        /// <summary>GTH lo descartó tras la entrevista (resultado NO_PASO + agradecimiento).</summary>
+        public const string Entrevistas   = "ENTREVISTAS";
+
+        /// <summary>El solicitante rechazó al finalista en la decisión final del proceso.</summary>
+        public const string DecisionFinal = "DECISION_FINAL";
+    }
+
+    /// <summary>Quién tomó el rechazo en el historial: el área usuaria o GTH.</summary>
+    internal static class RechazadoPor
+    {
+        public const string Solicitante = "SOLICITANTE";
+        public const string Gth         = "GTH";
     }
 }

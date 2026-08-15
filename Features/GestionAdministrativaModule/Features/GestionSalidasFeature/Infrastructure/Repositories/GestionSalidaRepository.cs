@@ -7,6 +7,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories
@@ -15,16 +16,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     {
         private const int PageSize = 10;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IJefeRevisorResolver _jefeResolver;
 
-        public GestionSalidaRepository(IDbContextFactory<AppDbContext> factory)
+        public GestionSalidaRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IJefeRevisorResolver jefeResolver)
         {
             _factory = factory;
+            _jefeResolver = jefeResolver;
         }
 
         /// <summary>
         /// Tabla ordenada + paginada. Reutiliza <see cref="GetAll"/> (que ya resuelve motivo/origen/
         /// destino/horas y <c>PuedeRendirse</c>) y aplica el orden por columna en memoria. El orden es
-        /// estable: los empates conservan el orden original (pendientes primero, luego más recientes).
+        /// estable: los empates conservan el orden original (fecha de salida descendente, luego las
+        /// registradas más recientemente).
         /// </summary>
         public async Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
         {
@@ -66,6 +72,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             IEnumerable<GestionSalidaListItemDto>? ordered = filters.SortBy.Trim().ToLowerInvariant() switch
             {
                 "trabajador"       => OrderText(s => s.Trabajador),
+                "area"             => OrderText(s => s.Area),
+                "revisornombre"    => OrderText(s => s.RevisorNombre),
                 "motivo"           => OrderText(s => s.Motivo),
                 "lugarorigen"      => OrderText(s => s.LugarOrigen),
                 "lugardestino"     => OrderText(s => s.LugarDestino),
@@ -152,11 +160,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
                 from per in perGroup.DefaultIfEmpty()
-                orderby s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente ? 0 : 1,
-                        s.CreatedAt descending
+                // Orden por defecto: por fecha de salida, de la más futura a la más antigua.
+                // Antes se agrupaba primero lo Pendiente y luego el resto, pero ver la lista en
+                // línea de tiempo (lo que viene primero, arriba) es lo que le sirve al revisor.
+                // Empate en la fecha → la registrada más recientemente primero.
+                orderby s.FechaSalida descending, s.CreatedAt descending
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea, w.AreaScopeId,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
                     s.HoraSalidaReal, s.HoraRetornoReal
@@ -233,6 +244,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
             }
 
+            // 4.c. Área del trabajador (nodo de workers.area_scope_id, el más bajo del árbol) y
+            //       jefe/revisor de cada solicitante. El revisor se resuelve en UN lote para todos
+            //       los trabajadores de la lista con la misma fuente que decide a quién se le manda
+            //       la solicitud a aprobar (IJefeRevisorResolver).
+            var arbolAreas = await CargarArbolAreasAsync(ctx);
+            var revisorPorWorker = await _jefeResolver.ResolveManyAsync(
+                solicitudes.Select(s => s.WorkerInternalId).Distinct().ToList());
+
             // 5. Armar resultado
             var result = new List<GestionSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
@@ -252,11 +271,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
                 var puedeRendir = trList.Count > 0 && trList.All(t => trayectoCubierto(t));
 
+                revisorPorWorker.TryGetValue(s.WorkerInternalId, out var revisor);
+
                 result.Add(new GestionSalidaListItemDto
                 {
                     Id               = s.Id,
                     WorkerId         = s.WorkerInternalId,
                     Trabajador       = s.Trabajador,
+                    Area             = AreaMasBaja(s.AreaScopeId, arbolAreas),
+                    RevisorNombre    = revisor?.Nombre,
                     FechaSalida      = s.FechaSalida,
                     HoraSalida       = first?.HoraSalida ?? default,
                     HoraRetorno      = last?.HoraRetorno,
@@ -601,7 +624,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == id
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, WorkerInternalId = w.Id, w.Subarea, w.AreaScopeId,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt, s.MotivoRechazo,
                     Rendicion = r == null ? null : new GestionSalidaRendicionDto
@@ -729,11 +752,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 raw.Dto.MontoTotal = sumCapturas > 0 ? sumCapturas : (raw.Dto.MontoCatalogo ?? 0m);
             }
 
+            // Área: aquí sí va la ruta completa (la tabla muestra solo el último nodo) y el
+            // jefe/revisor con su correo — el mismo que recibió la solicitud para aprobar.
+            var arbolAreas = await CargarArbolAreasAsync(ctx);
+            var revisor    = await _jefeResolver.ResolveAsync(head.WorkerInternalId);
+
             return new GestionSalidaDetalleDto
             {
                 Id               = head.Id,
                 WorkerId         = head.WorkerInternalId,
                 Trabajador       = head.Trabajador,
+                Area             = AreaMasBaja(head.AreaScopeId, arbolAreas),
+                AreaRuta         = RutaArea(head.AreaScopeId, arbolAreas),
+                RevisorNombre    = revisor?.Nombre,
+                RevisorEmail     = revisor?.Email,
                 FechaSalida      = head.FechaSalida,
                 EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(head.EstadoAprobacionId),
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(head.EstadoRendicionId),
@@ -933,6 +965,53 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 resultado[workerId] = nombre;
             }
             return resultado;
+        }
+
+        /// <summary>
+        /// Topología del árbol de áreas indexada por <c>area_scope_id</c>: nombre del nodo y su
+        /// padre. Es una tabla chica (decenas de filas), se trae completa y se camina en memoria.
+        /// No se filtra por <c>state</c> a propósito: un trabajador que quedó en un nodo dado de
+        /// baja igual tiene que mostrar su área en vez de una celda vacía.
+        /// </summary>
+        private static async Task<Dictionary<int, (int? Padre, string Nombre)>> CargarArbolAreasAsync(AppDbContext ctx)
+        {
+            return await (
+                from sc in ctx.AreaScope
+                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                select new { sc.AreaScopeId, sc.AreaScopeParentId, Nombre = it.AreaItemName }
+            ).ToDictionaryAsync(
+                x => x.AreaScopeId,
+                x => (Padre: x.AreaScopeParentId, Nombre: x.Nombre));
+        }
+
+        /// <summary>
+        /// El área más baja a la que pertenece el trabajador: el nodo al que apunta directamente
+        /// <c>workers.area_scope_id</c> (el último de <see cref="RutaArea"/>). Es lo único que se
+        /// muestra en la tabla; el detalle muestra además la ruta completa.
+        /// </summary>
+        private static string? AreaMasBaja(
+            int? areaScopeId,
+            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
+            => areaScopeId.HasValue && arbol.TryGetValue(areaScopeId.Value, out var nodo) ? nodo.Nombre : null;
+
+        /// <summary>
+        /// Ruta del área desde la raíz hasta <paramref name="areaScopeId"/> (el nodo del propio
+        /// trabajador), para el detalle. Vacía si el trabajador no tiene área. Si el árbol tuviera
+        /// un ciclo (no debería) se corta solo.
+        /// </summary>
+        private static List<string> RutaArea(
+            int? areaScopeId,
+            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
+        {
+            var ruta   = new List<string>();
+            var vistos = new HashSet<int>();
+            var actual = areaScopeId;
+            while (actual.HasValue && vistos.Add(actual.Value) && arbol.TryGetValue(actual.Value, out var nodo))
+            {
+                ruta.Insert(0, nodo.Nombre);
+                actual = nodo.Padre;
+            }
+            return ruta;
         }
 
         /// <summary>

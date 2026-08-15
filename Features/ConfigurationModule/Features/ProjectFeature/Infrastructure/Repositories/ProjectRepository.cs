@@ -22,9 +22,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         }
 
         public async Task<PagedResult<ProjectDto>> GetPaged(
-            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null)
+            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null)
         {
             var query = _context.Project.Where(p => p.State);
+
+            if (active.HasValue)
+                query = query.Where(p => p.Active == active.Value);
 
             if (!string.IsNullOrWhiteSpace(ruc))
                 query = query.Where(p => p.Contributor != null && p.Contributor.ContributorRuc.Contains(ruc));
@@ -75,6 +78,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
                     ResponsableArqCom   = p.ResponsableArqCom,
                     ResponsableArqComId = p.ResponsableArqComId,
+                    ResponsableUdp      = p.ResponsableUdp,
+                    ResponsableUdpId    = p.ResponsableUdpId,
 
                     FechaInicio = p.FechaInicio,
                     FechaFin    = p.FechaFin,
@@ -283,6 +288,26 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await _context.SaveChangesAsync();
         }
 
+        public async Task<List<ResponsableLookupDto>> GetResponsables(string tipo)
+        {
+            var subarea = tipo switch
+            {
+                "ARQ_COMERCIAL" => "Arquitectura Comercial",
+                "UDP"           => "Unidad de Proyectos",
+                _ => throw new AbrilException("Tipo de responsable inválido. Use ARQ_COMERCIAL o UDP.", 400)
+            };
+
+            return await _context.Worker
+                .Where(w => w.Estado == "ACTIVO" && w.Subarea == subarea)
+                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
+                .Select(w => new ResponsableLookupDto
+                {
+                    Id             = w.Id,
+                    ApellidoNombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty
+                })
+                .ToListAsync();
+        }
+
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)
         {
             var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
@@ -342,6 +367,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
             project.ResponsableArqComId  = dto.ResponsableArqComId;
+            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId     = dto.ResponsableUdpId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;
@@ -381,6 +408,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
             project.ResponsableArqComId  = dto.ResponsableArqComId;
+            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId     = dto.ResponsableUdpId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;

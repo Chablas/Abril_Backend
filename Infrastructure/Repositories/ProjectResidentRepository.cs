@@ -44,5 +44,31 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 };
             return await registros.ToListAsync();
         }
+
+        public async Task<bool> IsUserAssignedToProject(int userId, int projectId)
+        {
+            return await _context.ProjectResident.AnyAsync(pr =>
+                pr.UserId == userId
+                && pr.ProjectId == projectId
+                && pr.Active
+                && pr.State);
+        }
+
+        public async Task<List<ProjectSimpleDTO>> GetActiveProjectsForResident(int userId)
+        {
+            var registros = from pj in _context.Project
+                join pr in _context.ProjectResident on pj.ProjectId equals pr.ProjectId
+                where pr.UserId == userId
+                && pr.Active
+                && pr.State
+                && pj.Active
+                && !_context.ProyectoFiltro.Any(f => f.ProjectId == pj.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
+                select new ProjectSimpleDTO
+                {
+                    ProjectId = pj.ProjectId,
+                    ProjectDescription = pj.ProjectDescription ?? string.Empty,
+                };
+            return await registros.ToListAsync();
+        }
     }
 }

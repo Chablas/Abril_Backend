@@ -5,6 +5,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public int Id { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
+        /// <summary>
+        /// Área del trabajador: el nombre del nodo al que apunta <c>workers.area_scope_id</c>, es
+        /// decir el área más baja a la que pertenece (una persona puede colgar de Gerencia de
+        /// Proyectos › Unidad de Proyectos › Unidad de Proyectos y aquí va solo la última). El
+        /// detalle sí devuelve la ruta completa en <see cref="GestionSalidaDetalleDto.AreaRuta"/>.
+        /// </summary>
+        public string? Area { get; set; }
+        /// <summary>
+        /// Nombre completo del jefe/revisor del solicitante — el mismo que recibe el correo de
+        /// aprobación al crear la solicitud (<c>IJefeRevisorResolver</c>). Cuando la resolución
+        /// cae al fallback de GTH no hay persona: ahí va el nombre del área.
+        /// </summary>
+        public string? RevisorNombre { get; set; }
         public DateOnly FechaSalida { get; set; }
         /// <summary>Hora de salida del primer trayecto.</summary>
         public TimeOnly HoraSalida { get; set; }
@@ -188,6 +201,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public int Id { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
+        /// <summary>Área más baja del trabajador (el nodo de <c>workers.area_scope_id</c>).</summary>
+        public string? Area { get; set; }
+        /// <summary>
+        /// Ruta completa del área en el árbol <c>area_scope</c>, de la raíz al nodo del trabajador
+        /// (ej. ["Gerencia de Proyectos", "Unidad de Proyectos", "Unidad de Proyectos"]). Vacía si
+        /// el trabajador no tiene área asignada.
+        /// </summary>
+        public List<string> AreaRuta { get; set; } = new();
+        /// <summary>Nombre completo del jefe/revisor del solicitante (o el área en el fallback GTH).</summary>
+        public string? RevisorNombre { get; set; }
+        /// <summary>Correo al que se le notificó la solicitud: el email corporativo del revisor.</summary>
+        public string? RevisorEmail { get; set; }
         public DateOnly FechaSalida { get; set; }
         public string EstadoAprobacion { get; set; } = string.Empty;
         public string EstadoRendicion { get; set; } = "No rendido";

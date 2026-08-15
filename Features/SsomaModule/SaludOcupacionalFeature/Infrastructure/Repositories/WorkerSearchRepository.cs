@@ -429,6 +429,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // encima MUTABA la vinculación vigente en vez de cerrarla y abrir una nueva,
             // corrompiendo el historial. Esos cinco campos ahora son de solo lectura en el
             // formulario de edición; el único camino soportado es CambiarObraAsync.
+            //
+            // ÚNICA excepción: ASIGNAR la clasificación a una ficha que no tiene ninguna. No es
+            // un cambio de clasificación — no hay origen del que salir, así que no hay aptitud
+            // que revisar (EsCambioRiesgoCritico(null, x) es siempre false porque RiesgoEmo(null)
+            // es null) ni vinculación que cerrar. Sin esto, las fichas con la columna en NULL
+            // (miles, heredadas de antes de normalizar el catálogo) quedaban sin salida: el
+            // formulario decide qué campos mostrar a partir de la clasificación, así que sin ella
+            // no ofrece ni área ni jefe, y "Cambiar obra" exige un proyecto destino. Cambiar una
+            // clasificación YA asignada sigue siendo exclusivo de CambiarObraAsync.
+            if (worker.ObraOficinaStaffId is null && dto.ObraOficinaStaffId.HasValue)
+                worker.ObraOficinaStaffId = dto.ObraOficinaStaffId;
+
             var areaResuelta = await ResolverAreaAsync(
                 dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
             worker.AreaScopeId = areaResuelta.AreaScopeId;

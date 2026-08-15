@@ -30,7 +30,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }
-        /// <summary>FK a <c>workers_obra_oficina_staff</c> (Obra / Staff / Oficina Central).</summary>
+        /// <summary>
+        /// FK a <c>workers_obra_oficina_staff</c> (Obra / Staff / Oficina Central). En la
+        /// actualización solo se aplica cuando la ficha todavía no tiene ninguna: cambiar una ya
+        /// asignada es exclusivo de "Cambiar obra / puesto de trabajo" (CambiarObraAsync). Ver el
+        /// detalle en <c>WorkerSearchRepository.Update</c>.
+        /// </summary>
         public int? ObraOficinaStaffId { get; set; }
         public string? Jefatura { get; set; }
         public string? Ruc { get; set; }
@@ -46,7 +51,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         /// true = el formulario gestiona el jefe del trabajador y <see cref="JefePersonalizadoWorkerId"/>
         /// manda: se guarda ese jefe personalizado o, si viene null, se quita el que tuviera para que
         /// vuelva a depender del revisor de su área. false (por defecto) = el formulario no muestra el
-        /// campo (obreros y contratistas) y no se toca lo que ya estuviera guardado.
+        /// campo (contratistas) y no se toca lo que ya estuviera guardado.
+        ///
+        /// Lo mandan las tres clasificaciones de personal de casa: Staff y Oficina Central detrás
+        /// del checkbox "Jefe personalizado" (el campo muestra por defecto el revisor de su área), y
+        /// Obra con un desplegable opcional suelto — un obrero no tiene área en el árbol, así que sin
+        /// jefe elegido a mano cae directo al fallback de GTH (ver JefeRevisorResolver).
         /// </summary>
         public bool GestionaJefe { get; set; } = false;
         /// <summary>Jefe elegido a mano (workers.id), que se sobrepone al revisor del área.</summary>

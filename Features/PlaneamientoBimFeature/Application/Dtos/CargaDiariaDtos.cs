@@ -5,6 +5,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
     public class CargaDiariaDto
     {
         public DateOnly Fecha { get; set; }
+        /// <summary>Categoría de "Evidencias" en esta respuesta ("GENERAL" | "PROCURA") — el resto
+        /// del payload (grid, catálogos, bloqueos) no está scoped por categoría, es siempre el mismo.</summary>
+        public string Categoria { get; set; } = "GENERAL";
         public bool EsEditable { get; set; }
         public List<ZonaDto> Zonas { get; set; } = new();
         public List<ActividadCatalogoDto> Actividades { get; set; } = new();

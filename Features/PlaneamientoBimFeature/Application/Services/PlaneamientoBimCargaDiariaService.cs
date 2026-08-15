@@ -18,6 +18,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             ".jpg", ".jpeg", ".png", ".webp",
         };
 
+        private static readonly string[] CategoriasValidas = { "GENERAL", "PROCURA" };
+
         private readonly IPlaneamientoBimCargaDiariaRepository _repository;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
@@ -32,9 +34,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             _containerResolver = containerResolver;
         }
 
-        public async Task<CargaDiariaDto> GetCargaDiaria(int projectId, DateOnly fecha)
+        public async Task<CargaDiariaDto> GetCargaDiaria(int projectId, DateOnly fecha, string categoria = "GENERAL")
         {
-            var dto = await _repository.GetCargaDiaria(projectId, fecha);
+            ValidarCategoria(categoria);
+
+            var dto = await _repository.GetCargaDiaria(projectId, fecha, categoria);
             if (dto == null)
                 throw new AbrilException("El proyecto no existe.", 404);
 
@@ -52,8 +56,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             await _repository.GuardarCargaDiaria(projectId, fecha, dto, userId);
         }
 
-        public async Task<List<EvidenciaFotoDto>> SubirEvidencias(int projectId, DateOnly fecha, IFormFileCollection files, int userId)
+        public async Task<List<EvidenciaFotoDto>> SubirEvidencias(int projectId, DateOnly fecha, IFormFileCollection files, int userId, string categoria = "GENERAL")
         {
+            ValidarCategoria(categoria);
             ValidarVentanaDeEdicion(fecha);
 
             if (files is null || files.Count == 0)
@@ -86,7 +91,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                 }
 
                 var urls = await _fileStorageService.UploadFilesAsync(toUpload, container);
-                return await _repository.AgregarEvidencias(projectId, fecha, urls, userId);
+                return await _repository.AgregarEvidencias(projectId, fecha, urls, userId, categoria);
             }
             finally
             {
@@ -113,6 +118,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                 throw new AbrilException("No se puede cargar información de una fecha futura.", 400);
             if (!EsFechaEditable(fecha))
                 throw new AbrilException($"La fecha está fuera de la ventana de edición (últimos {VentanaDiasEdicion} días).", 409);
+        }
+
+        private static void ValidarCategoria(string categoria)
+        {
+            if (!CategoriasValidas.Contains(categoria))
+                throw new AbrilException($"Categoría inválida. Use {string.Join(" o ", CategoriasValidas)}.", 400);
         }
     }
 }

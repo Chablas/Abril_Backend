@@ -517,6 +517,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
         public DbSet<BimEvidenciaFoto> BimEvidenciaFoto => Set<BimEvidenciaFoto>();
         public DbSet<BimBloqueo> BimBloqueo => Set<BimBloqueo>();
+        public DbSet<BimMetaSemanal> BimMetaSemanal => Set<BimMetaSemanal>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1673,6 +1674,22 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<BimMetaSemanal>(e =>
+            {
+                e.HasIndex(x => new { x.ProjectId, x.MacroActividadId, x.FechaInicioSemana })
+                 .IsUnique()
+                 .HasDatabaseName("ix_bim_meta_semanal_unico");
+                e.HasIndex(x => x.MacroActividadId);
+                e.HasOne(x => x.Project)
+                 .WithMany()
+                 .HasForeignKey(x => x.ProjectId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(x => x.MacroActividad)
+                 .WithMany()
+                 .HasForeignKey(x => x.MacroActividadId)
+                 .OnDelete(DeleteBehavior.Restrict);
             });
 
         }

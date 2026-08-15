@@ -5690,3 +5690,47 @@ confirmado por SQL contra `worker_eventos`/`ss_hab_trabajador`/`worker_vinculaci
 - Repasar workers cuyo cambio de obra/empresa/puesto pasó por el bug del lápiz antes de este
   fix — no hay forma 100% confiable de detectarlos retroactivamente (la vinculación se mutó
   in-place, se perdió el historial de esos cambios puntuales).
+
+## Sesión 2026-08-14 — Merge victor-backend→master, Planeamiento BIM Fase 2a/2b/3 (Avance, PPC, Plan Maestro, Procura, Portafolio, export PDF)
+
+Rama: `victor-backend` (con un tramo de la sesión trabajado directo en `master`, ver abajo). Sesión larga retomando el diagnóstico del 404 en `/api/v1/planeamiento-bim/carga-diaria` de la sesión anterior (2026-08-07).
+
+### 1) Merge de victor-backend a master
+`victor-backend` estaba 44 commits detrás de `origin/master`. Se actualizó `master` local (fast-forward), se mergeó `victor-backend` (`--no-ff`, commit `f7d53aea`) con un solo conflicto real en `CONTEXT.md` (resuelto conservando ambas entradas de sesión), y se hizo push directo a `master` (regla P5). El resto de la sesión (Fase 2a en adelante) se trabajó directo sobre `master` por error de continuidad — corregido al final moviendo todo a `victor-backend` (ver sección 5).
+
+Nota: el push reportó `Bypassed rule violations for refs/heads/master` — hay una regla de protección de rama en GitHub que este push saltó (permisos de admin). Vale la pena que el usuario la revise si no debía aplicar a este caso.
+
+### 2) Fix bug real: 500 en `dashboard/{projectId}/avance`
+`PlaneamientoBimDashboardRepository.GetAvance` armaba diccionarios de nombres con `.ToDictionary()` **dentro** de un `.Select()` de EF Core — no traducible a SQL (`InvalidOperationException`), fallaba para cualquier proyecto (no solo los sin configurar, como se creía al reportarlo). Fix: materializar las zonas con `.Include()` primero, armar los diccionarios después en memoria.
+
+### 3) Fase 2a — Avance, PPC histórico, Plan Maestro semanal
+- Tabla nueva `bim_meta_semanal` (project_id, macro_actividad_id, fecha_inicio/fin_semana, meta_avance decimal 0-100 = % acumulado tipo curva S). Confirmado con SQL real contra prod: `bim_macro_actividad` tiene 3 filas (Estructura Sótanos, Estructura Torre, Losa contraterreno), sin columna de metrado — se decidió medir la meta en % de avance (mismo criterio que `MetaPpc`), no en cantidad.
+- Nuevo `PlaneamientoBimDashboardController` (`api/v1/planeamiento-bim/dashboard`): `GET avance`, `GET ppc`, `GET/PUT metas-semanales`, `GET plan-maestro`, `GET causas-pareto`. Todo agregación sobre `bim_registro_diario`/`bim_bloqueo` ya existentes, sin tocar los 3 controllers de Fase 1.
+
+### 4) Procura simplificado (Fase 2b) — se descartó el módulo completo
+Decisión de negocio: Procura es solo una categoría de evidencia fotográfica, no un módulo de OT/compras. Se agregó `bim_evidencia_foto.categoria` (`GENERAL`|`PROCURA`, CHECK constraint) en vez de tabla nueva — reutiliza el `GET`/`POST evidencias` de Carga Diaria ya existentes con un parámetro `categoria` opcional (default `GENERAL`, compatible con el frontend actual). Confirmado con el usuario: Procura comparte la misma ventana de edición de 5 días, sin excepción.
+
+### 5) Fase 3 — Dashboard de Portafolio + export PDF
+Dos decisiones de negocio confirmadas con el usuario antes de implementar (ninguna estaba en el código):
+- **Rol de acceso**: no existe rol "Gerencia/Dirección" en la tabla `role` de prod (43 filas revisadas) → se gateó con `AdministradorSistema` + `AdministradorUdp` únicamente (sin `UsuarioUdp`, más restrictivo que el resto del feature).
+- **Alcance del portafolio**: "proyecto con Planeamiento BIM asignado" = al menos 1 fila en `bim_proyecto_zona` (configuración real), no solo `bim_proyecto_fase` (se auto-crea con solo abrir la pantalla una vez — de 7 proyectos que la tienen, solo 2 —Kaurí, Torre Abril— tienen zonas reales).
+
+Nuevo `PlaneamientoBimPortafolioController` (`api/v1/planeamiento-bim/portafolio`): `GET kpis` (PPC promedio últimos 7 días, proyectos por fase actual, proyectos con bloqueos >3 días abiertos, Pareto de causas del mes — todo cross-proyecto), `GET proyectos` (semáforo ≥90% verde / 70-89% amarillo / <70% rojo / sin registros gris), `POST {projectId}/export-pdf` (QuestPDF, ya instalado y licenciado en `Program.cs` — sin dependencia nueva; reutiliza `GetCargaDiaria`/`GetPpcHistorico` en vez de reconsultar).
+
+### 6) Reordenamiento de rama al cierre
+Todo el trabajo de la sesión 2)-5) se hizo por error directo sobre `master` (sin commitear). Al pedir "guardar rama", se detectó el error, se hizo `git stash`, `checkout victor-backend` (confirmado ancestro directo de `master`, sin commits propios divergentes — fast-forward seguro), `merge master --ff-only`, y `stash pop` — todo el trabajo quedó en `victor-backend` sin tocar `master` de nuevo ni perder historial.
+
+### SQL aplicado en prod (túnel SSH, ambos entornos comparten la misma BD — ver nota en sesión 2026-08-07)
+- `Migrations/Manual/20260814_AddBimMetaSemanal.sql`
+- `Migrations/Manual/20260814_AddCategoriaBimEvidenciaFoto.sql`
+
+Ambos idempotentes, aplicados directo con psql. Las migraciones EF correspondientes se generaron después solo para mantener el snapshot del modelo sincronizado (no se corrió `dotnet ef database update`).
+
+### Verificado
+- Build: 0 errores, 239 warnings (baseline estable en toda la sesión, sin warnings nuevos).
+- Smoke tests en vivo contra el backend local (bypass temporal de `[Authorize]`, revertido en cada caso) para cada endpoint nuevo/tocado, incluyendo casos borde (proyecto inexistente, sin datos, categoría inválida) y una subida real de evidencia PROCURA a Azure Blob (borrada después de verificar).
+
+### Pendiente
+- Frontend de Fase 2a/2b/3 — no se tocó en esta sesión (era solo backend).
+- Revisar si el push a `master` debía saltar la regla de protección de rama de GitHub (ver punto 1).
+- Decidir si el rol "Gerencia/Dirección" del spec original amerita crearse en `role` a futuro, o si `AdministradorSistema`+`AdministradorUdp` queda como gate definitivo del Portafolio.

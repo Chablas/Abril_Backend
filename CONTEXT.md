@@ -5734,3 +5734,14 @@ Ambos idempotentes, aplicados directo con psql. Las migraciones EF correspondien
 - Frontend de Fase 2a/2b/3 — no se tocó en esta sesión (era solo backend).
 - Revisar si el push a `master` debía saltar la regla de protección de rama de GitHub (ver punto 1).
 - Decidir si el rol "Gerencia/Dirección" del spec original amerita crearse en `role` a futuro, o si `AdministradorSistema`+`AdministradorUdp` queda como gate definitivo del Portafolio.
+
+## Sesión 2026-08-17
+
+Sesión corta: se actualizó `victor-backend` con lo último de `master` (44 archivos de GTH: Onboarding, Reclutamiento con doble aprobación GG, Actas de Reunión con agenda/recordatorios, Tareo de Arquitectura Comercial — todo de otras sesiones/ramas, fast-forward sin conflictos, build 0 errores) y se agregó el seed de la Fase 3 del Portafolio BIM.
+
+- Nuevo `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql`: siembra `feature.feature_key = 'planeamiento-bim.portafolio'` y su `role_feature` para `AdministradorSistema` (role_id 1) + `AdministradorUdp` (role_id 2), sin `UsuarioUdp` — coincide con el gate ya implementado en `PlaneamientoBimPortafolioController` (ver sesión anterior, punto 5).
+- El pedido de frontend (Fase 3 + Procura simplificado, `DESIGN-VICTOR.md`) se redirigió a la sesión de `Abril-Frontend` — este repo es solo backend.
+
+### Pendiente
+- **El seed `20260817_PlaneamientoBimPortafolioFeatureSeed.sql` NO se corrió contra producción todavía.** Se revisó contra los checks D2/D3 pedidos: D3 (SELECT de `feature_id`, sin ID hardcodeado) OK; D2 usa `NOT EXISTS` en vez de `ON CONFLICT DO NOTHING` — funcionalmente idempotente igual, pero no es el patrón literal pedido (posible razón: `ON CONFLICT` exige una constraint UNIQUE que puede no existir en `feature_key`/`role_feature`). Quedó pendiente de confirmación del usuario antes de ejecutar por el túnel SSH.
+- Frontend de Fase 3 (Dashboard de Portafolio + export PDF) y Procura simplificado — pendiente en `Abril-Frontend`.

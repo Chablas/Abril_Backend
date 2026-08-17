@@ -928,6 +928,54 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         hab.Estado = "Falta";
                         break;
                     }
+
+                    // Si después de la fecha de este EMO el trabajador tuvo un cambio de empresa,
+                    // puesto o clasificación (CambiarObraAsync) y ese cambio nunca generó una
+                    // convalidación (p.ej. porque el EMO todavía no estaba Activo en ese momento —
+                    // caso Reyes Carbajal), no corresponde aprobar el certificado directo: hay que
+                    // armarle al médico la convalidación pendiente, igual que si el cambio de obra
+                    // hubiera ocurrido con el EMO ya activo.
+                    var fechaEmoDt = emo.FechaEmo.ToDateTime(TimeOnly.MinValue);
+                    var tieneCambioSinConvalidar = await ctx.WorkerEvento.AnyAsync(ev =>
+                        ev.WorkerId == emo.WorkerId
+                        && ev.CreatedAt > fechaEmoDt
+                        && (ev.TipoEvento == WorkerTipoEvento.CambioEmpresa
+                            || ev.TipoEvento == WorkerTipoEvento.CambioPuesto
+                            || ev.TipoEvento == WorkerTipoEvento.CambioRiesgo));
+
+                    if (tieneCambioSinConvalidar)
+                    {
+                        var yaConvalidado = await ctx.WorkerEmoConvalidacion
+                            .AnyAsync(cv => cv.EmoId == emo.Id);
+
+                        if (!yaConvalidado)
+                        {
+                            var vinculacionActual = await ctx.WorkerVinculacion
+                                .Where(v => v.WorkerId == emo.WorkerId && v.FechaFin == null)
+                                .OrderByDescending(v => v.FechaInicio)
+                                .FirstOrDefaultAsync();
+
+                            ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                            {
+                                EmoId = emo.Id,
+                                EmpresaDestinoId = vinculacionActual?.EmpresaId ?? emo.EmpresaOrigenId,
+                                FechaConvalidacion = DateOnly.FromDateTime(DateTime.UtcNow),
+                                Resultado = "Pendiente",
+                                PuestoOrigen = emo.Worker?.PuestoCatalogo?.Nombre,
+                                PuestoDestino = vinculacionActual?.Puesto ?? worker.PuestoCatalogo?.Nombre,
+                                ObraOficinaStaffOrigenId = worker.ObraOficinaStaffId,
+                                ObraOficinaStaffDestinoId = vinculacionActual?.ObraOficinaStaffId ?? worker.ObraOficinaStaffId,
+                                CambioRiesgo = false,
+                                CreatedAt = DateTimeOffset.UtcNow,
+                                UpdatedAt = DateTimeOffset.UtcNow
+                            });
+
+                            emo.Estado = "Pendiente";
+                            hab.Estado = "Pendiente";
+                            break;
+                        }
+                    }
+
                     hab.Estado = "Aprobado";
                     var fv = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
                     if (fv.HasValue)

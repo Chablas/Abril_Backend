@@ -1249,6 +1249,30 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "INHABILITADO_SSOMA")
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
+            // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
+            // workerId — es ciega a que exista otro worker_id distinto para la misma persona
+            // (mismo DNI) ya activo. Ese es el chequeo que sí hace WorkerSearchRepository.Create
+            // al dar de alta un trabajador nuevo, pero que un reingreso nunca replicaba: se podía
+            // reactivar un worker mientras otro registro duplicado de la misma persona seguía
+            // "ACTIVO" en otra empresa (caso Díaz Guivar, dos filas en Trabajadores a la vez).
+            var dniReingreso = worker.Person?.DocumentIdentityCode;
+            if (!string.IsNullOrWhiteSpace(dniReingreso))
+            {
+                var otroActivo = await ctx.Worker
+                    .Where(w => w.Id != workerId
+                             && w.Estado == "ACTIVO"
+                             && w.Person != null
+                             && w.Person.DocumentIdentityCode != null
+                             && w.Person.DocumentIdentityCode.ToUpper() == dniReingreso.ToUpper())
+                    .Select(w => w.Id)
+                    .FirstOrDefaultAsync();
+
+                if (otroActivo != 0)
+                    throw new AbrilException(
+                        $"Ya existe otro registro activo (worker_id {otroActivo}) para este DNI. " +
+                        "Debe retirarlo antes de poder reingresar este.", 409);
+            }
+
             // Solo valida conflicto de empresa cuando el usuario realmente elige una nueva
             // razón social. Si el campo viene null (quiere mantener la actual), no hay
             // cambio real y por tanto no puede haber conflicto contra sí misma.

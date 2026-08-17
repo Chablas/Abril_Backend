@@ -27,7 +27,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         }
 
         // ── Listado ──────────────────────────────────────────────────────────
-        public async Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro)
+        public async Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -51,7 +51,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             var temas = await GetTemas(ctx);
 
-            var reuniones = await GetReunionesInterno(ctx, filtro);
+            var reuniones = await GetReunionesInterno(ctx, filtro, userId);
 
             return new ReunionPaginaInicialDto
             {
@@ -63,15 +63,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             };
         }
 
-        public async Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro)
+        public async Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await GetReunionesInterno(ctx, filtro);
+            return await GetReunionesInterno(ctx, filtro, userId);
         }
 
-        private static async Task<PagedResultDto<ReunionListItemDto>> GetReunionesInterno(AppDbContext ctx, ReunionFiltroRequest filtro)
+        /// <summary>Excepción temporal de pruebas: este usuario sigue viendo todas las reuniones de
+        /// la organización en vez de solo las suyas, mientras se prueba el resto del módulo con
+        /// datos de otros convocados. Quitar esta constante cuando ya no haga falta.</summary>
+        private const int UserIdSinFiltroDeConvocatoria = 20;
+
+        private static async Task<PagedResultDto<ReunionListItemDto>> GetReunionesInterno(AppDbContext ctx, ReunionFiltroRequest filtro, int userId)
         {
             var query = ctx.Reunion.Where(r => r.State);
+
+            if (userId != UserIdSinFiltroDeConvocatoria)
+            {
+                // Solo se ven las reuniones propias: las que uno organizó (creó) o a las que fue
+                // convocado como participante. El resto de la organización no debe aparecer.
+                var workerId = await ResolveWorkerId(ctx, userId);
+                query = query.Where(r =>
+                    r.CreatedUserId == userId
+                    || (workerId != null && ctx.ReunionParticipante.Any(p =>
+                        p.ReunionId == r.ReunionId && p.State && p.WorkerId == workerId.Value)));
+            }
 
             if (filtro.ProjectId.HasValue)
                 query = query.Where(r => r.ProjectId == filtro.ProjectId.Value);

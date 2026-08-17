@@ -35,7 +35,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             try
             {
-                return Ok(await _service.GetPaginaInicial(filtro));
+                return Ok(await _service.GetPaginaInicial(filtro, GetUserId()));
             }
             catch (Exception ex)
             {
@@ -50,7 +50,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             try
             {
-                return Ok(await _service.GetReuniones(filtro));
+                return Ok(await _service.GetReuniones(filtro, GetUserId()));
             }
             catch (Exception ex)
             {

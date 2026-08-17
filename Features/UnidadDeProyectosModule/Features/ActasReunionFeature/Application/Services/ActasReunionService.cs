@@ -58,11 +58,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             _allowedHosts = new[] { $"{tenant}.sharepoint.com", $"{tenant}-my.sharepoint.com" };
         }
 
-        public Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro)
-            => _repository.GetPaginaInicial(filtro);
+        public Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId)
+            => _repository.GetPaginaInicial(filtro, userId);
 
-        public Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro)
-            => _repository.GetReuniones(filtro);
+        public Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId)
+            => _repository.GetReuniones(filtro, userId);
 
         public Task<ReunionDetalleDto> GetDetalle(int reunionId)
             => _repository.GetDetalle(reunionId);
@@ -109,7 +109,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             await _emailService.SendAsync(
                 to: emails,
-                subject: $"[PRUEBA] Convocatoria — Reunión N° {info.Numero}: {info.Tema}",
+                subject: $"Convocatoria — Reunión N° {info.Numero}: {info.Tema}",
                 body: BuildCuerpoConvocatoria(info, link),
                 isHtml: true);
         }
@@ -376,7 +376,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 {
                     await _emailService.SendAsync(
                         to: emails,
-                        subject: $"[PRUEBA] Carga tu agenda — Reunión N° {c.Numero}: {c.Tema}",
+                        subject: $"Carga tu agenda — Reunión N° {c.Numero}: {c.Tema}",
                         body: BuildCuerpoRecordatorioAgenda(c, link),
                         isHtml: true);
 
@@ -446,25 +446,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return target;
         }
 
-        /// <summary>
-        /// Banner "correo de prueba": el módulo de actas de reunión todavía está en validación, así
-        /// que hasta que se confirme con el negocio, todo correo saliente lo deja bien claro arriba
-        /// para que nadie lo tome como una convocatoria real y arme confusión.
-        /// </summary>
-        private const string BannerPrueba = @"
-  <div style='background:#fff3cd;border:1px solid #ffe69c;border-radius:6px;padding:10px 16px;margin-bottom:16px;text-align:center'>
-    <p style='margin:0;color:#664d03;font-size:12px;font-weight:bold'>
-      🧪 CORREO DE PRUEBA — El módulo de Actas de Reunión está en validación. Este mensaje es parte de una prueba interna, no una convocatoria real.
-    </p>
-  </div>";
-
         private static string BuildCuerpoConvocatoria(ReunionConvocatoriaInfoDto c, string link)
         {
             var hora = c.HoraInicio.HasValue ? c.HoraInicio.Value.ToString("HH:mm") : "por confirmar";
             var lugarHtml = string.IsNullOrWhiteSpace(c.Lugar) ? "" : $"<p>Lugar: {c.Lugar}</p>";
             return $@"
 <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
-  {BannerPrueba}
   <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
     <h2 style='color:#fff;margin:0;font-size:18px'>Convocatoria — Reunión N° {c.Numero}</h2>
   </div>
@@ -487,7 +474,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             return $@"
 <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
-  {BannerPrueba}
   <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
     <h2 style='color:#fff;margin:0;font-size:18px'>Recordatorio de Agenda — Reunión N° {c.Numero}</h2>
   </div>

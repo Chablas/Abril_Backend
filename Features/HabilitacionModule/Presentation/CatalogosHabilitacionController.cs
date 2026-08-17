@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -233,6 +234,74 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetPuestos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // ── Tipos de equipo ──────────────────────────────────────────
+
+        [HttpGet("tipos-equipo")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetTiposEquipo()
+        {
+            try
+            {
+                var items = await _repo.GetTiposEquipoAsync();
+                var result = items.Select(x => new TipoEquipoDto { Id = x.Id, Nombre = x.Nombre }).ToList();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en GetTiposEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("tipos-equipo/admin")]
+        public async Task<IActionResult> GetTiposEquipoAdmin()
+        {
+            try
+            {
+                var items = await _repo.GetTiposEquipoTodosAsync();
+                return Ok(items.Select(MapTipoEquipo).ToList());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en GetTiposEquipoAdmin"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("tipos-equipo")]
+        public async Task<IActionResult> CrearTipoEquipo([FromBody] CatNombreRequest req)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.Nombre))
+                    return BadRequest(new { message = "El nombre es requerido." });
+                var tipo = await _repo.CrearTipoEquipoAsync(req.Nombre.Trim());
+                return Ok(MapTipoEquipo(tipo));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CrearTipoEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("tipos-equipo/{id:int}")]
+        public async Task<IActionResult> ActualizarTipoEquipo(int id, [FromBody] CatNombreRequest req)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.Nombre))
+                    return BadRequest(new { message = "El nombre es requerido." });
+                var tipo = await _repo.ActualizarTipoEquipoAsync(id, req.Nombre.Trim());
+                return Ok(MapTipoEquipo(tipo));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ActualizarTipoEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("tipos-equipo/{id:int}/toggle")]
+        public async Task<IActionResult> ToggleTipoEquipo(int id, [FromBody] CatToggleRequest req)
+        {
+            try
+            {
+                await _repo.ToggleTipoEquipoAsync(id, req.Activo);
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ToggleTipoEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ── Configuración → Categorías y Puestos ─────────────────────
 
         /// <summary>
@@ -417,6 +486,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         private static CatCategoriaAdminDto MapCategoria(Categoria x) => new()
         {
             Id = x.CategoriaId, Nombre = x.Nombre, Orden = x.Orden, Activo = x.Active
+        };
+
+        private static TipoEquipoAdminDto MapTipoEquipo(SsTipoEquipo x) => new()
+        {
+            Id = x.Id, Nombre = x.Nombre, Orden = x.Orden, Activo = x.Activo
         };
     }
 }

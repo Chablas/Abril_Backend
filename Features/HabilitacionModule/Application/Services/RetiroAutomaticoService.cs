@@ -234,7 +234,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                     h.Vigencia,
                     EmpresaId = h.Equipo != null ? h.Equipo.PropietarioEmpresaId : null,
                     NombreEquipo = h.Equipo != null
-                        ? (h.Equipo.Tipo + (h.Equipo.Marca != null ? " " + h.Equipo.Marca : "") + (h.Equipo.Modelo != null ? " " + h.Equipo.Modelo : "")).Trim()
+                        ? ((h.Equipo.TipoEquipo != null ? h.Equipo.TipoEquipo.Nombre : "") + (h.Equipo.Marca != null ? " " + h.Equipo.Marca : "") + (h.Equipo.Modelo != null ? " " + h.Equipo.Modelo : "")).Trim()
                         : "Equipo desconocido",
                     ItemNombre = h.Item != null ? h.Item.Nombre : "Documento desconocido"
                 })

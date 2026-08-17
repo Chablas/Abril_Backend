@@ -229,6 +229,74 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        // ── Tipos de equipo CRUD ─────────────────────────────────────
+
+        public async Task<List<SsTipoEquipo>> GetTiposEquipoAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsTipoEquipo
+                .Where(x => x.Activo)
+                .OrderBy(x => x.Orden)
+                .ThenBy(x => x.Nombre)
+                .ToListAsync();
+        }
+
+        public async Task<List<SsTipoEquipo>> GetTiposEquipoTodosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsTipoEquipo
+                .OrderBy(x => x.Orden)
+                .ThenBy(x => x.Nombre)
+                .ToListAsync();
+        }
+
+        public async Task<SsTipoEquipo> CrearTipoEquipoAsync(string nombre)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var nombreNorm = nombre.Trim();
+            if (await ctx.SsTipoEquipo.AnyAsync(x => x.Nombre == nombreNorm))
+                throw new AbrilException("Ya existe un tipo de equipo con ese nombre.", 400);
+
+            var maxOrden = await ctx.SsTipoEquipo.MaxAsync(x => (int?)x.Orden) ?? 0;
+            var tipo = new SsTipoEquipo
+            {
+                Nombre = nombreNorm,
+                Orden = maxOrden + 1,
+                Activo = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.SsTipoEquipo.Add(tipo);
+            await ctx.SaveChangesAsync();
+            return tipo;
+        }
+
+        public async Task<SsTipoEquipo> ActualizarTipoEquipoAsync(int id, string nombre)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var tipo = await ctx.SsTipoEquipo.FirstOrDefaultAsync(x => x.Id == id)
+                ?? throw new AbrilException("Tipo de equipo no encontrado.", 404);
+
+            var nombreNorm = nombre.Trim();
+            if (await ctx.SsTipoEquipo.AnyAsync(x => x.Nombre == nombreNorm && x.Id != id))
+                throw new AbrilException("Ya existe un tipo de equipo con ese nombre.", 400);
+
+            tipo.Nombre = nombreNorm;
+            tipo.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+            return tipo;
+        }
+
+        public async Task ToggleTipoEquipoAsync(int id, bool activo)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var tipo = await ctx.SsTipoEquipo.FirstOrDefaultAsync(x => x.Id == id)
+                ?? throw new AbrilException("Tipo de equipo no encontrado.", 404);
+            tipo.Activo = activo;
+            tipo.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
         // ── Puestos CRUD ─────────────────────────────────────────────
 
         /// <summary>

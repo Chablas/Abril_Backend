@@ -49,6 +49,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
         /// <summary>Colaboradores parados en esta fase.</summary>
         public int Total { get; set; }
+
+        /// <summary>
+        /// Checklist operativo de la fase (catálogo, igual para todos los colaboradores). Viaja con
+        /// la bandeja porque es lo que dibuja el modal de detalle y de donde salen sus contadores de
+        /// avance: pedirlo aparte al abrir cada detalle sería una petición extra por fila.
+        /// </summary>
+        public List<ActividadOnboardingDto> Actividades { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Una actividad obligatoria del checklist (espejo de <c>gth_onboarding_actividad</c>). El
+    /// avance del onboarding se mide en actividades, no en fases.
+    /// </summary>
+    public class ActividadOnboardingDto
+    {
+        public int ActividadId { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        public int Orden { get; set; }
+
+        /// <summary>true = la cumple el sistema solo, sin acción de GTH (avisos preventivos).</summary>
+        public bool Automatica { get; set; }
     }
 
     /// <summary>Una fila de la tabla «Colaboradores ingresados».</summary>
@@ -86,8 +109,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>Avance del onboarding en % (fase actual sobre el total de fases del catálogo).</summary>
+        /// <summary>
+        /// Avance del onboarding en % — se mide en ACTIVIDADES del checklist, no en fases
+        /// (RF-ONB-27): una fase puede tener una sola actividad y otra ocho.
+        /// </summary>
         public int AvancePorcentaje { get; set; }
+
+        /// <summary>
+        /// Códigos de las actividades del checklist ya cumplidas por este colaborador. Es el único
+        /// origen del avance y de los checks del detalle: la pantalla no vuelve a deducir nada.
+        /// </summary>
+        public List<string> ActividadesHechas { get; set; } = new();
 
         // ── Carta oferta ──────────────────────────────────────────────────────
         public string? CartaOfertaNombre { get; set; }
@@ -96,8 +128,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// <summary>Fecha de envío de la carta oferta, ya en hora de Perú.</summary>
         public DateTime? CartaOfertaEnviadaEn { get; set; }
 
+        // ── Carta oferta firmada (la que devuelve el colaborador) ─────────────
+        public string? CartaFirmadaNombre { get; set; }
+        public string? CartaFirmadaUrl { get; set; }
+
+        /// <summary>Fecha en que se adjuntó la carta firmada, ya en hora de Perú.</summary>
+        public DateTime? CartaFirmadaSubidaEn { get; set; }
+
+        /// <summary>
+        /// Fecha en que GTH aprobó la carta firmada, ya en hora de Perú. Null = todavía pendiente de
+        /// revisión, que es la actividad que bloquea el avance de la primera fase.
+        /// </summary>
+        public DateTime? CartaFirmadaAprobadaEn { get; set; }
+
+        /// <summary>Carpeta de SharePoint donde vive el file digital del colaborador.</summary>
+        public string? FileDigitalCarpeta { get; set; }
+
+        /// <summary>Observación interna que dejó GTH al abrir el onboarding.</summary>
+        public string? Observacion { get; set; }
+
         /// <summary>Fecha en que se abrió el onboarding, ya en hora de Perú.</summary>
         public DateTime? IniciadoEn { get; set; }
+    }
+
+    /// <summary>Resultado de subir o aprobar la carta oferta firmada, o de avanzar de fase.</summary>
+    public class OnboardingAccionResultDto
+    {
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>La fila ya actualizada, para refrescar tabla y modal sin recargar la bandeja.</summary>
+        public OnboardingListItemDto? Colaborador { get; set; }
     }
 
     /// <summary>
@@ -187,5 +247,47 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         public string? Url { get; set; }
         public string? ItemId { get; set; }
         public string? DriveId { get; set; }
+    }
+
+    /// <summary>
+    /// Biblioteca de SharePoint donde Onboarding guarda las cartas oferta
+    /// (<c>gth_carta_oferta_folder</c>): el link con el que se resuelve y su nombre legible, que es
+    /// el que se muestra como primer tramo de la ruta del file digital.
+    /// </summary>
+    public class CartaOfertaFolderDto
+    {
+        public string LinkUrl { get; set; } = string.Empty;
+        public string? FolderName { get; set; }
+    }
+
+    /// <summary>
+    /// Carpeta de SharePoint que hace de file digital del colaborador. Se resuelve una vez (al
+    /// enviar la carta oferta) y se persiste en el onboarding: los documentos siguientes se suben
+    /// ahí sin volver a derivarla del nombre del colaborador.
+    /// </summary>
+    public class FileDigitalCarpetaDto
+    {
+        public string DriveId { get; set; } = string.Empty;
+        public string ItemId { get; set; } = string.Empty;
+
+        /// <summary>Ruta legible («Cartas ofertas / Onboarding REQ-2026-0001 - Diego Herrera»).</summary>
+        public string? Ruta { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que el servicio necesita para subir un documento al file digital de un onboarding ya
+    /// abierto: dónde está su carpeta y con qué identificarlo. Lo resuelve el repositorio en un solo
+    /// roundtrip, antes de tocar SharePoint.
+    /// </summary>
+    public class OnboardingDocumentoContextoDto
+    {
+        public int OnboardingId { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Carpeta ya persistida. Null en onboardings anteriores a que se guardara.</summary>
+        public FileDigitalCarpetaDto? Carpeta { get; set; }
+
+        public string FaseCodigo { get; set; } = string.Empty;
     }
 }

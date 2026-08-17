@@ -509,6 +509,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
         public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
@@ -1556,6 +1557,15 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(f => f.Codigo).IsUnique().HasFilter("state = true");
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+
+            // Checklist operativo: las actividades obligatorias de cada fase.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>(e =>
+            {
+                e.HasIndex(a => a.Codigo).IsUnique().HasFilter("state = true");
+                e.HasIndex(a => a.GthOnboardingFaseId);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>()
+                 .WithMany().HasForeignKey(a => a.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
+            });
 
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>(e =>
             {

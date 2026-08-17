@@ -71,7 +71,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             //    no está configurada o no se puede resolver, esto corta acá: lo contrario sería
             //    mandarle la carta al colaborador para después fallar al guardarla y no dejar
             //    onboarding registrado, obligando a reenviarla.
-            var carpeta = await ResolverCarpetaOnboardingAsync(ctx.Codigo, ctx.Nombre);
+            var carpeta = await ResolverFileDigitalAsync(ctx.Codigo, ctx.Nombre);
 
             // 3) Enviar la carta oferta. Va antes de persistir a propósito: mientras la carta no
             //    salga, el colaborador no está en onboarding y GTH puede reintentar sin arrastrar una
@@ -102,10 +102,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             }
 
             // 4) Carta enviada: guardarla en SharePoint (queda en el file del colaborador) y recién
-            //    ahí registrar el onboarding.
-            var carta = await SubirCartaOfertaAsync(carpeta, ctx, cartaFileName, cartaContent, cartaContentType);
+            //    ahí registrar el onboarding, con la carpeta que le sirve de file digital.
+            var nombreArchivo = $"carta_oferta_{SanitizeFilename(ctx.Codigo)}_{Sello()}{Path.GetExtension(cartaFileName)}";
+            var carta = await SubirAlFileDigitalAsync(
+                carpeta, nombreArchivo, cartaContent, cartaContentType, "la carta oferta");
 
-            var colaborador = await _repo.Crear(ctx, carta, dto.Observacion, userId);
+            var colaborador = await _repo.Crear(ctx, carta, carpeta, dto.Observacion, userId);
 
             return new OnboardingCreateResultDto
             {
@@ -115,34 +117,83 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             };
         }
 
-        /// <summary>
-        /// Sube la carta oferta a la <paramref name="carpeta"/> ya resuelta (la subcarpeta del
-        /// colaborador dentro de la biblioteca de cartas oferta), para que quede armado su file
-        /// digital. La fila del onboarding se queda con el driveId/itemId/webUrl de ESTA subida: si
-        /// mañana se cambia la biblioteca configurada, esta carta se sigue abriendo desde acá.
-        /// </summary>
-        private async Task<CartaOfertaPersistDto> SubirCartaOfertaAsync(
-            ShareLinkResolveDto carpeta,
-            OnboardingContextoDto ctx, string origFileName, byte[] content, string contentType)
-        {
-            var ext      = Path.GetExtension(origFileName);
-            var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var filename = $"carta_oferta_{SanitizeFilename(ctx.Codigo)}_{stamp}{ext}";
+        // ── Carta oferta firmada ───────────────────────────────────────────────
 
+        public async Task<OnboardingAccionResultDto> SubirCartaFirmada(
+            int onboardingId, string fileName, string contentType, byte[] content, int? userId)
+        {
+            if (content == null || content.Length == 0)
+                throw new AbrilException("Adjunta la carta oferta firmada.", 400);
+
+            var ext = Path.GetExtension(fileName);
+            if (!AllowedCartaExt.Contains(ext))
+                throw new AbrilException("La carta oferta firmada tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
+            if (content.Length > MaxCartaBytes)
+                throw new AbrilException("La carta oferta firmada supera el tamaño máximo permitido (15 MB).", 400);
+
+            var ctx = await _repo.PrepararDocumento(onboardingId);
+
+            // La carta firmada va a la MISMA carpeta que la enviada. Normalmente ya está guardada en
+            // el onboarding; los abiertos antes de que se persistiera se resuelven por nombre, que es
+            // exactamente como se resolvió la primera vez (EnsureChildFolder devuelve la existente).
+            var carpeta = ctx.Carpeta ?? await ResolverFileDigitalAsync(ctx.Codigo, ctx.Nombre);
+
+            var nombreArchivo = $"carta_oferta_firmada_{SanitizeFilename(ctx.Codigo)}_{Sello()}{ext}";
+            var carta = await SubirAlFileDigitalAsync(
+                carpeta, nombreArchivo, content, contentType, "la carta oferta firmada");
+
+            var colaborador = await _repo.GuardarCartaFirmada(onboardingId, carta, carpeta, userId);
+
+            return new OnboardingAccionResultDto
+            {
+                Colaborador = colaborador,
+                Message     = "Carta oferta firmada adjuntada al file digital. Queda pendiente de tu aprobación.",
+            };
+        }
+
+        public async Task<OnboardingAccionResultDto> AprobarCartaFirmada(int onboardingId, int? userId)
+        {
+            var colaborador = await _repo.AprobarCartaFirmada(onboardingId, userId);
+            return new OnboardingAccionResultDto
+            {
+                Colaborador = colaborador,
+                Message     = "Carta oferta firmada aprobada.",
+            };
+        }
+
+        public async Task<OnboardingAccionResultDto> Avanzar(int onboardingId, int? userId)
+        {
+            var colaborador = await _repo.Avanzar(onboardingId, userId);
+            return new OnboardingAccionResultDto
+            {
+                Colaborador = colaborador,
+                Message     = $"Onboarding avanzado a la fase «{colaborador.FaseNombre}».",
+            };
+        }
+
+        /// <summary>
+        /// Sube un documento al file digital del colaborador (la <paramref name="carpeta"/> ya
+        /// resuelta). La fila del onboarding se queda con el driveId/itemId/webUrl de ESTA subida: si
+        /// mañana se cambia la biblioteca configurada, el documento se sigue abriendo desde acá.
+        /// <paramref name="queEs"/> solo arma el mensaje de error ("la carta oferta firmada").
+        /// </summary>
+        private async Task<CartaOfertaPersistDto> SubirAlFileDigitalAsync(
+            FileDigitalCarpetaDto carpeta, string fileName, byte[] content, string contentType, string queEs)
+        {
             try
             {
                 using var stream = new MemoryStream(content);
                 var result = await _sharePoint.UploadToOneDriveFolderAsync(
-                    carpeta.DriveId, carpeta.ItemId, filename,
+                    carpeta.DriveId, carpeta.ItemId, fileName,
                     stream, string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
                     autoRenameOnLock: true);
 
                 if (result?.WebUrl == null)
-                    throw new AbrilException("No se pudo subir la carta oferta a SharePoint.", 502);
+                    throw new AbrilException($"No se pudo subir {queEs} a SharePoint.", 502);
 
                 return new CartaOfertaPersistDto
                 {
-                    Nombre  = result.FileName ?? filename,
+                    Nombre  = result.FileName ?? fileName,
                     Url     = result.WebUrl,
                     ItemId  = result.ItemId,
                     DriveId = carpeta.DriveId,
@@ -151,45 +202,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló la subida de la carta oferta del requerimiento {Codigo}", ctx.Codigo);
-                throw new AbrilException("Error al subir la carta oferta a SharePoint.", 502);
+                _logger.LogError(ex, "Falló la subida de {QueEs} al archivo {FileName}", queEs, fileName);
+                throw new AbrilException($"Error al subir {queEs} a SharePoint.", 502);
             }
         }
 
         /// <summary>
         /// Resuelve la biblioteca de cartas oferta (link en <c>gth_carta_oferta_folder</c>) y, dentro,
-        /// la subcarpeta del colaborador. Si no se puede crear la subcarpeta se cae a la raíz: el
-        /// nombre del archivo ya lleva el código del requerimiento, así que no colisiona.
+        /// la subcarpeta del colaborador: esa subcarpeta es su file digital. Si no se puede crear se
+        /// cae a la raíz: el nombre del archivo ya lleva el código del requerimiento, así que no
+        /// colisiona.
         ///
         /// El link se lee de la BD en cada envío, así que cambiar esa fila redirige las cartas nuevas
-        /// sin redeploy y sin tocar las anteriores.
+        /// sin redeploy y sin tocar las anteriores. Para un onboarding ya abierto no se vuelve a
+        /// llamar: su carpeta queda persistida en la fila.
         /// </summary>
-        private async Task<ShareLinkResolveDto> ResolverCarpetaOnboardingAsync(string codigo, string nombre)
+        private async Task<FileDigitalCarpetaDto> ResolverFileDigitalAsync(string codigo, string nombre)
         {
-            var folderUrl = await _repo.GetCartaOfertaFolderUrl();
-            if (string.IsNullOrWhiteSpace(folderUrl))
+            var folder = await _repo.GetCartaOfertaFolder();
+            if (folder == null || string.IsNullOrWhiteSpace(folder.LinkUrl))
                 throw new AbrilException(
                     "No está configurada la carpeta de SharePoint donde se guardan las cartas oferta.", 500);
 
-            var raiz = await _sharePoint.ResolveSharePointFolderUrlAsync(folderUrl);
+            var raiz = await _sharePoint.ResolveSharePointFolderUrlAsync(folder.LinkUrl);
             if (raiz == null || !raiz.IsFolder)
                 throw new AbrilException(
                     "No se pudo resolver en SharePoint la carpeta configurada para las cartas oferta. Revisa que el link apunte a una carpeta existente y accesible.", 502);
 
+            var biblioteca = string.IsNullOrWhiteSpace(folder.FolderName) ? raiz.Name : folder.FolderName;
+            var subcarpeta = $"Onboarding {SanitizeFilename(codigo)} - {SanitizeFilename(nombre)}";
+
             try
             {
-                var subItemId = await _sharePoint.EnsureChildFolderAsync(
-                    raiz.DriveId, raiz.ItemId,
-                    $"Onboarding {SanitizeFilename(codigo)} - {SanitizeFilename(nombre)}");
-                return new ShareLinkResolveDto { DriveId = raiz.DriveId, ItemId = subItemId, IsFolder = true };
+                var subItemId = await _sharePoint.EnsureChildFolderAsync(raiz.DriveId, raiz.ItemId, subcarpeta);
+                return new FileDigitalCarpetaDto
+                {
+                    DriveId = raiz.DriveId,
+                    ItemId  = subItemId,
+                    Ruta    = $"{biblioteca} / {subcarpeta}",
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
                     "No se pudo crear la subcarpeta de onboarding de {Codigo}; se usa la carpeta raíz", codigo);
-                return raiz;
+                return new FileDigitalCarpetaDto { DriveId = raiz.DriveId, ItemId = raiz.ItemId, Ruta = biblioteca };
             }
         }
+
+        /// <summary>Sello de tiempo del nombre de archivo: evita pisar una versión anterior.</summary>
+        private static string Sello() => DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
 
         /// <summary>
         /// Correo de la carta oferta al nuevo colaborador. La carta va adjunta; el cuerpo resume la

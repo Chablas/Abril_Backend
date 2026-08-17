@@ -77,10 +77,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
 
         /// <summary>
-        /// A quién le llegará el correo a GTH al confirmar la decisión (tipo SOLICITUD). Sale del
-        /// mismo resolver que usa el envío, así que el aviso del modal no puede prometer algo
-        /// distinto de lo que se manda. Solo se resuelve cuando quien abre el modal es el Gerente
-        /// General y aún no ha decidido: es el único caso en el que ese correo va a salir.
+        /// A quién le llegarán los correos que dispara la decisión: el de GTH (tipo SOLICITUD) y el
+        /// de TI (tipo TI_VACANTES), fusionados en una sola lista. Salen del mismo resolver que usa
+        /// el envío, así que el aviso del modal no puede prometer algo distinto de lo que se manda.
+        /// Solo se resuelve cuando quien abre el modal es el Gerente General y aún no ha decidido:
+        /// es el único caso en el que esos correos van a salir.
         /// </summary>
         public SolicitudDestinatariosDto? Destinatarios { get; set; }
     }

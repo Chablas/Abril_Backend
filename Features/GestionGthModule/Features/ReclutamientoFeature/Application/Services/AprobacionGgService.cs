@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// del área del solicitante, con todas sus vacantes y un enlace a la pantalla «Aprobaciones»
     /// del módulo Gestión GTH → cada uno decide ahí (con su sesión; si no la tiene, el login lo
     /// devuelve a esa misma pantalla) → cuando la decisión es la de <b>Gerencia General</b> recién
-    /// ahí se le notifica a GTH, y solo lo aprobado.
+    /// ahí se le notifica a GTH y a TI, y solo lo aprobado.
     ///
     /// Los dos niveles son independientes y sin orden impuesto. El visto bueno del gerente del área
     /// es redundante por diseño: queda registrado, se muestra en la pantalla y viaja como contexto
@@ -312,30 +312,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("La solicitud por aprobar no existe o ya no está disponible.", 404);
 
             // Aviso "a quién le llegará esta decisión" del modal. Son exactamente los destinatarios
-            // que usa NotificarAGthAsync al confirmar: mismo tipo (SOLICITUD) y, como allá, sin
-            // área — el correo a GTH no depende del área del solicitante. Va en la misma petición
-            // que el detalle.
+            // que usan al confirmar NotificarAGthAsync (tipo SOLICITUD) y NotificarATiAsync (tipo
+            // TI_VACANTES) y, como allá, sin área — ninguno de los dos depende del área del
+            // solicitante. Va en la misma petición que el detalle.
+            //
+            // Los dos correos se muestran juntos: al gerente le importa a quién le llega su
+            // decisión, no cuántos correos salen por detrás.
             //
             // Solo se consultan cuando quien abre es Gerencia General y aún no decidió: es el único
-            // caso en el que ese correo va a salir. Al gerente del área no se le promete un envío
+            // caso en el que esos correos van a salir. Al gerente del área no se le promete un envío
             // que su visto bueno no dispara.
             if (dto.PuedeDecidir && dto.Nivel == AprobacionNivel.GerenteGeneral)
             {
                 try
                 {
-                    dto.Destinatarios = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
+                    dto.Destinatarios = Fusionar(
+                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud),
+                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
                 }
                 catch (Exception ex)
                 {
                     // El aviso es informativo: si no se puede resolver, el modal abre sin él. La
                     // decisión tiene que poder tomarse igual.
                     _logger.LogWarning(ex,
-                        "No se pudieron resolver los destinatarios de GTH para el detalle de la aprobación {AprobacionId}",
+                        "No se pudieron resolver los destinatarios de la decisión para el detalle de la aprobación {AprobacionId}",
                         aprobacionId);
                 }
             }
 
             return dto;
+        }
+
+        /// <summary>
+        /// Une los destinatarios de los correos que dispara una misma decisión en una sola lista
+        /// para el aviso del modal. Un buzón configurado en los dos correos aparece una sola vez, y
+        /// si está como principal en uno y en copia en otro gana "Para" — el mismo criterio que usa
+        /// el resolver dentro de cada correo.
+        /// </summary>
+        private static SolicitudDestinatariosDto Fusionar(params SolicitudDestinatariosDto[] fuentes)
+        {
+            var fusion = new SolicitudDestinatariosDto();
+            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Los principales primero, para que ganen sobre las copias.
+            foreach (var d in fuentes.SelectMany(f => f.Para))
+                if (vistos.Add(d.Email)) fusion.Para.Add(d);
+
+            foreach (var d in fuentes.SelectMany(f => f.Copias))
+                if (vistos.Add(d.Email)) fusion.Copias.Add(d);
+
+            return fusion;
         }
 
         public async Task<AprobacionGgDecisionResultDto> RegistrarDecision(
@@ -355,11 +381,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (res.Nivel == AprobacionNivel.GerenteGeneral)
             {
-                // Solo las vacantes aprobadas por el GG llegan a GTH, y solo si hay alguna.
-                // Best-effort: la decisión ya quedó registrada.
+                // Solo las vacantes aprobadas por el GG salen, y solo si hay alguna.
+                // Best-effort los dos: la decisión ya quedó registrada.
                 if (ctx.Aprobadas.Count > 0)
+                {
                     await NotificarAGthAsync(ctx, userId);
+                    await NotificarATiAsync(ctx);
+                }
 
+                // El mensaje habla del correo a GTH y no del de TI a propósito: lo que le importa
+                // al gerente es si la solicitud continúa. El aviso a TI es interno del proceso.
                 res.Message = res.Aprobados == 0
                     ? "Decisión registrada: rechazaste todas las vacantes. La solicitud no continúa y no se envió a Gestión de Talento Humano."
                     : res.Rechazados == 0
@@ -447,6 +478,116 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la solicitud de personal {SolicitudId}", ctx.SolicitudId);
             }
+        }
+
+        /// <summary>
+        /// Correo a TI con las vacantes que Gerencia General aprobó (tipo TI_VACANTES). Sale en la
+        /// misma decisión que el de GTH pero es otro correo y otra configuración: TI no participa
+        /// del reclutamiento, lo que necesita es la anticipación para alistar equipo, usuario y
+        /// accesos de cada ingreso.
+        ///
+        /// El buzón no está cableado acá: sale del destinatario dinámico TI_AREA, que lee
+        /// <c>area_scope.email</c> del área de Tecnología de la Información. No bloquea ni lanza —
+        /// la decisión ya quedó registrada y no se revierte porque un correo falle.
+        /// </summary>
+        private async Task NotificarATiAsync(AprobacionGgDecisionContextoDto ctx)
+        {
+            try
+            {
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti);
+                if (dest.Para.Count == 0)
+                {
+                    // También entra acá cuando el correo está apagado con su interruptor maestro:
+                    // en ese caso es una decisión de la Configuración, no una falla.
+                    _logger.LogWarning(
+                        "No hay destinatarios principales activos para el correo de vacantes aprobadas a TI " +
+                        "(solicitud {SolicitudId}); no se envía.",
+                        ctx.SolicitudId);
+                    return;
+                }
+
+                var subject = ctx.Aprobadas.Count == 1
+                    ? $"[Reclutamiento] Vacante aprobada — {ctx.Aprobadas[0].Codigo}"
+                    : $"[Reclutamiento] {ctx.Aprobadas.Count} vacantes aprobadas — {ctx.Area}";
+
+                await _email.SendAsync(
+                    to:      dest.EmailsPara,
+                    subject: subject,
+                    body:    ConstruirCuerpoTi(ctx),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudo enviar el correo de vacantes aprobadas a TI de la solicitud {SolicitudId}",
+                    ctx.SolicitudId);
+            }
+        }
+
+        /// <summary>
+        /// Cuerpo del correo a TI: las vacantes aprobadas, con la fecha de ingreso requerida como
+        /// dato central — es la que le dice a TI para cuándo tiene que estar listo cada puesto. No
+        /// lleva justificación, comentario ni las vacantes rechazadas: eso es contexto de la
+        /// decisión y del reclutamiento, no del trabajo de TI.
+        /// </summary>
+        private static string ConstruirCuerpoTi(AprobacionGgDecisionContextoDto ctx)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var filas = new StringBuilder();
+            foreach (var v in ctx.Aprobadas)
+            {
+                filas.Append($"""
+                    <tr>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
+                    </tr>
+                    """);
+            }
+
+            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
+                ? ""
+                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:680px">
+                  <div style="background:{AzulAbril};padding:12px 16px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Vacantes aprobadas — aviso a TI</h2>
+                  </div>
+                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">
+                      <b>Gerencia General aprobó</b> las siguientes vacantes y ya pasaron a reclutamiento.
+                      Les compartimos el detalle con anticipación para que puedan ir previendo lo que
+                      necesitará cada puesto (equipo, usuario, correo y accesos) para su fecha de ingreso.
+                    </p>
+                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
+                    {solicitante}
+                    <p style="font-size:13px"><b>Vacantes aprobadas:</b> {ctx.Aprobadas.Count}</p>
+                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">
+                      <thead>
+                        <tr style="background:#f3f4f6">
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Código</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Tipo</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Proyecto / Obra</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Ingreso requerido</th>
+                        </tr>
+                      </thead>
+                      <tbody>{filas}</tbody>
+                    </table>
+                    <p style="font-size:12px;color:#555">
+                      La fecha de ingreso es la solicitada por el área: puede moverse según avance el
+                      proceso de selección. Gestión de Talento Humano confirmará la fecha definitiva de
+                      cada ingreso.
+                    </p>
+                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
+                  </div>
+                </div>
+                """;
         }
 
         /// <summary>Cuerpo del correo a GTH: las vacantes aprobadas por el GG (y las rechazadas como contexto).</summary>

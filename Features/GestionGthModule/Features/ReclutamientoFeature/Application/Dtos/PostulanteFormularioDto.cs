@@ -351,6 +351,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Observaciones del rechazo tal como se registraron (null si se aprobó o no se indicó motivo).</summary>
         public string? Motivo { get; set; }
+
+        /// <summary>
+        /// Ficha de <c>person</c> (data maestra) creada/actualizada al aprobar. Null en los rechazos:
+        /// solo la aprobación de GTH da por buenos los datos declarados.
+        /// </summary>
+        public int? PersonId { get; set; }
+
+        /// <summary>
+        /// Aviso a mostrarle a GTH cuando la ficha de la base maestra quedó incompleta (sin documento
+        /// no se puede crear; sin correo personal Onboarding no puede enviar la carta oferta). Null
+        /// cuando quedó completa.
+        /// </summary>
+        public string? PersonAviso { get; set; }
     }
 
     /// <summary>

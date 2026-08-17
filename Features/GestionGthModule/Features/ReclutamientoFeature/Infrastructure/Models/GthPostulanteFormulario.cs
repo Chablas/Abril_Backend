@@ -26,6 +26,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>FK a <c>gth_postulante_formulario_estado</c>: ENVIADO / COMPLETADO / APROBADO / RECHAZADO.</summary>
         public int GthPostulanteFormularioEstadoId { get; set; }
 
+        /// <summary>
+        /// FK a <c>person</c>: la ficha de la data maestra que se creó/actualizó cuando GTH APROBÓ
+        /// este formulario. Null mientras el formulario no esté aprobado.
+        ///
+        /// Esta tabla es el dato "declarado por el postulante": puede traer cualquier cosa hasta que
+        /// alguien de GTH lo valida. <c>person</c> es la data maestra, así que solo se escribe en el
+        /// momento de la aprobación y solo con los campos que tienen columna equivalente allá (ver
+        /// <c>SincronizarPersonAsync</c> en el repositorio). El resto — pretensiones salariales,
+        /// disponibilidad, LinkedIn, colegiatura y toda la experiencia laboral — se queda acá porque
+        /// no existe columna donde ponerlo y no se inventó ninguna.
+        ///
+        /// Es también el enlace que usa Onboarding para saber a qué correo mandar la carta oferta
+        /// (<c>person.email</c>, el correo personal).
+        /// </summary>
+        public int? PersonId { get; set; }
+
         /// <summary>Correo al que GTH envió el enlace del formulario.</summary>
         public string CorreoEnvio { get; set; } = null!;
 

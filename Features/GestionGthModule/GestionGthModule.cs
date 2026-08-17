@@ -1,3 +1,7 @@
+using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Services;
+using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
@@ -35,6 +39,10 @@ namespace Abril_Backend.Features.GestionGthModule
             // Destinatarios efectivos de cada correo: lo comparten el envío real y la
             // previsualización del modal, así que no puede haber dos versiones.
             services.AddScoped<ICorreoDestinatariosResolver, CorreoDestinatariosResolver>();
+
+            // Onboarding: la fase que sigue a Reclutamiento (carta oferta → base maestra).
+            services.AddScoped<IOnboardingRepository, OnboardingRepository>();
+            services.AddScoped<IOnboardingService, OnboardingService>();
             return services;
         }
     }

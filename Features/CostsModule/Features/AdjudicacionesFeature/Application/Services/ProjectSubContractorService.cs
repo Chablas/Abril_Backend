@@ -120,8 +120,40 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return await _projectSubContractorRepository.GetDashboardAsync(filter, includeFilterOptions);
         }
 
+        /// <summary>
+        /// Datos del paso 1 sin los que la adjudicación queda inservible más adelante. Se validan acá
+        /// además del frontend porque la falla aparecía tarde y con un mensaje que no señalaba al dato:
+        /// <list type="bullet">
+        /// <item>Modalidad de contrato: elige la plantilla .docx del contrato y las cláusulas
+        /// especiales de la partida de control. Sin ella se caía en una plantilla genérica inexistente
+        /// y el paso 3 respondía "No se encontró la plantilla del contrato en el servidor".</item>
+        /// <item>Especialidad y partida: son dos niveles de la ruta en OneDrive
+        /// ({Carpeta}/{Especialidad}/{Partida}/...), así que sin ellas no se puede guardar ningún
+        /// documento. Sin archivos iniciales el alta ni siquiera lo detectaba (el preflight de la ruta
+        /// solo corre cuando hay algo que subir) y el error saltaba recién al generar el primer
+        /// documento.</item>
+        /// <item>Partida de control: de ella cuelgan el instructivo y las cláusulas especiales.</item>
+        /// </list>
+        /// </summary>
+        private static void ValidateStep1Data(
+            int? contractModalityId, int? workSpecialtyId, int workItemCategoryId, int workItemId)
+        {
+            var missing = new List<string>();
+
+            if (!contractModalityId.HasValue || contractModalityId.Value <= 0) missing.Add("Modalidad de contrato");
+            if (!workSpecialtyId.HasValue    || workSpecialtyId.Value    <= 0) missing.Add("Especialidad");
+            if (workItemCategoryId <= 0)                                       missing.Add("Partida de control");
+            if (workItemId <= 0)                                               missing.Add("Partida");
+
+            if (missing.Count > 0)
+                throw new AbrilException(
+                    $"Faltan datos obligatorios: {string.Join(", ", missing)}.", 400);
+        }
+
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {
+            ValidateStep1Data(dto.ContractModalityId, dto.WorkSpecialtyId, dto.WorkItemCategoryId, dto.WorkItemId);
+
             var hasInitialFiles = (dto.QuotationFiles?.Count ?? 0) > 0
                                || (dto.ComparativeFiles?.Count ?? 0) > 0;
 
@@ -1040,6 +1072,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
         {
+            ValidateStep1Data(dto.ContractModalityId, dto.WorkSpecialtyId, dto.WorkItemCategoryId, dto.WorkItemId);
+
             var hasNewFiles = (dto.NewQuotationFiles?.Count ?? 0) > 0
                            || (dto.NewComparativeFiles?.Count ?? 0) > 0;
 
@@ -1318,6 +1352,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     if (!data.StartDate.HasValue)      missing.Add("Fecha de inicio del contrato");
                     if (!data.EndDate.HasValue)        missing.Add("Fecha de fin del contrato");
                     if (!data.ContractNumber.HasValue) missing.Add("Número de contrato");
+                    // La modalidad ya es obligatoria al crear/editar, pero las adjudicaciones antiguas
+                    // pueden no tenerla: sin ella no hay plantilla que elegir.
+                    if (!data.ContractModalityId.HasValue) missing.Add("Modalidad de contrato");
                     break;
 
                 case AdjudicacionDocumentType.PromissoryNote:
@@ -1461,12 +1498,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
             ValidateGenerationData(data, AdjudicacionDocumentType.Contract);
 
+            // Solo hay plantilla para las 3 modalidades del catálogo. Cualquier otro valor es dato
+            // inconsistente: se avisa explícitamente en vez de buscar un archivo que no existe.
             var templateFileName = data.ContractModalityId switch
             {
                 1 => "plantilla_suministro_e_instalacion_con_placeholders.docx",
                 2 => "plantilla_suministro_con_placeholders.docx",
                 3 => "plantilla_instalacion_con_placeholders.docx",
-                _ => "plantilla_contrato_con_placeholders.docx",
+                _ => throw new AbrilException(
+                        "La modalidad de contrato de esta adjudicación no es válida. " +
+                        "Corríjala en el paso 1 antes de generar el contrato.", 400),
             };
 
             var templatePath = Path.Combine(

@@ -3,7 +3,9 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
@@ -538,10 +540,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             f.UpdatedDateTime  = now;
             f.UpdatedUserId    = userId;
 
-            await ctx.SaveChangesAsync();
+            // Aprobar es el momento en que los datos declarados por el postulante pasan a ser datos
+            // validados por GTH, así que es acá — y solo acá — donde se escriben en `person` (la data
+            // maestra). Va en la misma transacción que el cambio de estado: o el formulario queda
+            // aprobado CON su ficha en person, o no queda aprobado.
+            string? personAviso = null;
+            if (aprobado)
+            {
+                await using var tx = await ctx.Database.BeginTransactionAsync();
+                var sync = await SincronizarPersonAsync(ctx, f, candidatoId, userId);
+                f.PersonId  = sync.PersonId ?? f.PersonId;
+                personAviso = sync.Aviso;
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            else
+            {
+                await ctx.SaveChangesAsync();
+            }
 
             var contexto = new DecisionFormularioContextoDto
             {
+                PersonId    = f.PersonId,
+                PersonAviso = personAviso,
                 Resumen = new CandidatoFormularioResumenDto
                 {
                     EstadoCodigo   = destino.Codigo,
@@ -575,6 +596,126 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             return contexto;
+        }
+
+        /// <summary>
+        /// Crea o actualiza la ficha de <c>person</c> (la data maestra) con lo que el postulante
+        /// declaró y GTH acaba de validar. Solo se copian los campos que YA tienen columna en
+        /// <c>person</c>; no se agregó ninguna columna nueva para esto.
+        ///
+        /// Mapeo:
+        /// <list type="bullet">
+        ///   <item><description><c>nombres_completos</c> → <c>full_name</c> (en mayúsculas, como el resto de la tabla; si no lo declaró, el nombre que registró GTH en <c>gth_candidato</c>)</description></item>
+        ///   <item><description><c>numero_documento</c> → <c>document_identity_code</c> — es además la llave de coincidencia</description></item>
+        ///   <item><description><c>gth_tipo_documento</c> → <c>document_identity_type</c> (por <c>codigo</c> ↔ <c>abbreviation</c>: DNI / CE)</description></item>
+        ///   <item><description><c>correo_electronico</c> → <c>email</c> (correo personal: es el que usa Onboarding para la carta oferta)</description></item>
+        ///   <item><description><c>numero_celular</c> → <c>phone_number</c> (solo dígitos; la columna es integer)</description></item>
+        ///   <item><description><c>fecha_nacimiento</c> → <c>fecha_nacimiento</c></description></item>
+        ///   <item><description><c>gth_distrito</c> → <c>distrito</c> (texto: la columna de person no está normalizada, a propósito)</description></item>
+        ///   <item><description><c>gth_grado_academico</c> / <c>gth_universidad</c> → <c>grado_academico_id</c> / <c>universidad_id</c> (por nombre; null si ese ítem no existe en el catálogo maestro)</description></item>
+        ///   <item><description><c>profesion</c> (texto libre) → <c>profesion_id</c> (por nombre; null si no coincide con ninguna)</description></item>
+        /// </list>
+        ///
+        /// Política de escritura sobre una ficha que YA existía (mismo documento): se rellenan solo
+        /// las columnas que estén en null, para no pisar data maestra ya curada con lo que tecleó el
+        /// postulante. Las dos excepciones son <c>email</c> y <c>phone_number</c>: son datos de
+        /// contacto, el postulante acaba de declarar los vigentes y GTH los validó, así que ahí manda
+        /// lo nuevo. <c>state</c> y <c>active</c> no se tocan nunca: si el documento pertenece a una
+        /// ficha dada de baja, no se revive por la aprobación de un formulario (eso es una decisión
+        /// aparte de GTH); el enlace <c>person_id</c> queda igual y Onboarding puede leer su correo.
+        ///
+        /// Un solo roundtrip: el upsert resuelve los cuatro catálogos con subconsultas y devuelve el
+        /// <c>person_id</c>. Va por Dapper porque <c>ON CONFLICT DO UPDATE</c> con
+        /// <c>COALESCE(person.x, EXCLUDED.x)</c> no se expresa en EF.
+        /// </summary>
+        private static async Task<(int? PersonId, string? Aviso)> SincronizarPersonAsync(
+            AppDbContext ctx, GthPostulanteFormulario f, int candidatoId, int? userId)
+        {
+            var doc = Trim(f.NumeroDocumento);
+            // El documento es la llave de coincidencia con person (tiene UNIQUE) y sin él no hay forma
+            // de saber si la persona ya existe: insertar a ciegas duplicaría fichas. El formulario
+            // público lo exige para poder enviarse, así que esto solo salta en datos anteriores.
+            if (string.IsNullOrWhiteSpace(doc))
+                return (null, "No se registró en la base maestra: el postulante no declaró su número de documento.");
+
+            // person.phone_number es integer: se guardan solo los dígitos y solo si caben.
+            var celularDigitos = new string((f.NumeroCelular ?? string.Empty).Where(char.IsDigit).ToArray());
+            int? celular = int.TryParse(celularDigitos, out var cel) ? cel : null;
+
+            const string sql = """
+                INSERT INTO person (
+                    document_identity_type_id, document_identity_code, full_name, email, phone_number,
+                    fecha_nacimiento, distrito, grado_academico_id, universidad_id, profesion_id,
+                    created_date_time, created_user_id, active, state, mostrar_en_boletin)
+                VALUES (
+                    (SELECT dit.document_identity_type_id
+                       FROM document_identity_type dit
+                       JOIN gth_tipo_documento gtd
+                         ON upper(btrim(gtd.codigo)) = upper(btrim(dit.document_identity_type_abbreviation))
+                      WHERE gtd.gth_tipo_documento_id = @tipoDocumentoId AND dit.state = true
+                      LIMIT 1),
+                    @doc,
+                    upper(btrim(coalesce(@nombresCompletos,
+                                         (SELECT c.nombre FROM gth_candidato c
+                                           WHERE c.gth_candidato_id = @candidatoId)))),
+                    @email,
+                    @celular,
+                    @fechaNacimiento,
+                    (SELECT gd.nombre FROM gth_distrito gd WHERE gd.gth_distrito_id = @distritoId),
+                    (SELECT ga.grado_academico_id
+                       FROM grado_academico ga
+                       JOIN gth_grado_academico gga ON upper(btrim(gga.nombre)) = upper(btrim(ga.nombre))
+                      WHERE gga.gth_grado_academico_id = @gradoAcademicoId AND ga.state = true
+                      LIMIT 1),
+                    (SELECT u.universidad_id
+                       FROM universidad u
+                       JOIN gth_universidad gu ON upper(btrim(gu.nombre)) = upper(btrim(u.nombre))
+                      WHERE gu.gth_universidad_id = @universidadId AND u.state = true
+                      LIMIT 1),
+                    (SELECT p.profesion_id FROM profesion p
+                      WHERE upper(btrim(p.nombre)) = upper(btrim(@profesion)) AND p.state = true
+                      LIMIT 1),
+                    now(), @userId, true, true, true)
+                ON CONFLICT (document_identity_code) DO UPDATE SET
+                    -- Datos de contacto: manda lo que el postulante acaba de declarar.
+                    email                     = coalesce(EXCLUDED.email,       person.email),
+                    phone_number              = coalesce(EXCLUDED.phone_number, person.phone_number),
+                    -- Resto: solo se rellena lo que estaba vacío.
+                    document_identity_type_id = coalesce(person.document_identity_type_id, EXCLUDED.document_identity_type_id),
+                    fecha_nacimiento          = coalesce(person.fecha_nacimiento,   EXCLUDED.fecha_nacimiento),
+                    distrito                  = coalesce(person.distrito,           EXCLUDED.distrito),
+                    grado_academico_id        = coalesce(person.grado_academico_id, EXCLUDED.grado_academico_id),
+                    universidad_id            = coalesce(person.universidad_id,     EXCLUDED.universidad_id),
+                    profesion_id              = coalesce(person.profesion_id,       EXCLUDED.profesion_id),
+                    updated_date_time         = now(),
+                    updated_user_id           = @userId
+                RETURNING person_id;
+                """;
+
+            var personId = await ctx.Database.GetDbConnection().ExecuteScalarAsync<int?>(
+                sql,
+                new
+                {
+                    doc,
+                    tipoDocumentoId  = f.GthTipoDocumentoId,
+                    nombresCompletos = Trim(f.NombresCompletos),
+                    candidatoId,
+                    email            = Trim(f.CorreoElectronico)?.ToLowerInvariant(),
+                    celular,
+                    fechaNacimiento  = f.FechaNacimiento,
+                    distritoId       = f.GthDistritoId,
+                    gradoAcademicoId = f.GthGradoAcademicoId,
+                    universidadId    = f.GthUniversidadId,
+                    profesion        = Trim(f.Profesion),
+                    userId,
+                },
+                transaction: ctx.Database.CurrentTransaction?.GetDbTransaction());
+
+            var aviso = string.IsNullOrWhiteSpace(Trim(f.CorreoElectronico))
+                ? "Se registró en la base maestra, pero sin correo personal: Onboarding no podrá enviarle la carta oferta hasta que se complete."
+                : null;
+
+            return (personId, aviso);
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────

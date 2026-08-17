@@ -355,8 +355,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var ctx = await _repo.RegistrarDecision(candidatoId, dto.Aprobado, dto.Motivo, userId);
 
+            // Aprobar además copia los datos validados a `person` (la data maestra). Si esa ficha
+            // quedó incompleta se dice acá mismo, porque de su correo personal depende que Onboarding
+            // pueda enviarle la carta oferta.
             if (dto.Aprobado)
-                return new FormularioAccionResultDto { Message = "Formulario aprobado.", Formulario = ctx.Resumen };
+                return new FormularioAccionResultDto
+                {
+                    Message = ctx.PersonAviso == null
+                        ? "Formulario aprobado. Los datos validados quedaron registrados en la base maestra."
+                        : $"Formulario aprobado. {ctx.PersonAviso}",
+                    Formulario = ctx.Resumen,
+                };
 
             // Rechazo de un formulario que el postulante nunca llegó a llenar: es una decisión
             // interna para que el proceso siga sin él, así que no se le escribe nada. Su enlace

@@ -594,9 +594,34 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (tieneArchivos)
                 throw new AbrilException("No se puede eliminar: esta reunión ya tiene archivos adjuntos. Usa \"Cancelar\" en su lugar.", 400);
 
+            var now = DateTime.UtcNow;
             reunion.State = false;
-            reunion.UpdatedDateTime = DateTime.UtcNow;
+            reunion.UpdatedDateTime = now;
             reunion.UpdatedUserId = userId;
+
+            // El borrado debe propagarse: participantes y temas de agenda ya cargados no deben
+            // quedar "vivos" sueltos de una reunión que ya no existe para nadie (acuerdos/archivos
+            // ya se descartaron arriba, así que no hay responsables que limpiar acá).
+            var participantes = await ctx.ReunionParticipante
+                .Where(p => p.ReunionId == reunionId && p.State)
+                .ToListAsync();
+            foreach (var p in participantes)
+            {
+                p.State = false;
+                p.UpdatedDateTime = now;
+                p.UpdatedUserId = userId;
+            }
+
+            var agendaItems = await ctx.ReunionAgendaItem
+                .Where(a => a.ReunionId == reunionId && a.State)
+                .ToListAsync();
+            foreach (var a in agendaItems)
+            {
+                a.State = false;
+                a.UpdatedDateTime = now;
+                a.UpdatedUserId = userId;
+            }
+
             await ctx.SaveChangesAsync();
         }
 
@@ -1265,8 +1290,45 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (workerId is null)
                 throw new AbrilException("No se encontró un trabajador asociado a este usuario.", 400);
 
-            var esParticipante = await ctx.ReunionParticipante
-                .AnyAsync(p => p.ReunionId == reunionId && p.State && p.WorkerId == workerId.Value);
+            // Se compara por persona (no solo por worker.Id): si la persona tiene más de un registro
+            // de worker (histórico/duplicado), un participante agregado con el "otro" worker de la
+            // misma persona igual debe reconocerse como "soy yo" — si no, un convocado real recibía
+            // "No estás convocado" por una diferencia de fila que no le corresponde resolver a él.
+            var personId = await ctx.Worker.Where(w => w.Id == workerId.Value).Select(w => (int?)w.PersonId).FirstOrDefaultAsync();
+            var esParticipante = personId.HasValue && await ctx.ReunionParticipante
+                .Where(p => p.ReunionId == reunionId && p.State && p.WorkerId != null)
+                .Join(ctx.Worker, p => p.WorkerId!.Value, w => w.Id, (p, w) => w.PersonId)
+                .AnyAsync(pid => pid == personId.Value);
+
+            if (!esParticipante)
+            {
+                // Red de seguridad: participantes agregados sin vincular su worker_id (dato viejo o
+                // ingresado a mano) no calzan por el join de arriba aunque sí sean la misma persona.
+                // Si el nombre calza con el del usuario autenticado, se reconoce igual y de paso se
+                // autorepara el registro para que deje de fallar la próxima vez.
+                var miNombre = await ctx.Worker
+                    .Where(w => w.Id == workerId.Value)
+                    .Join(ctx.Person, w => w.PersonId, p => p.PersonId, (w, p) => p.FullName)
+                    .FirstOrDefaultAsync();
+
+                var huerfano = !string.IsNullOrWhiteSpace(miNombre)
+                    ? await ctx.ReunionParticipante
+                        .Where(p => p.ReunionId == reunionId && p.State && p.WorkerId == null)
+                        .ToListAsync()
+                    : new List<ReunionParticipante>();
+                var match = huerfano.FirstOrDefault(p =>
+                    string.Equals(p.Nombre.Trim(), miNombre!.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (match != null)
+                {
+                    match.WorkerId = workerId.Value;
+                    match.UpdatedDateTime = DateTime.UtcNow;
+                    match.UpdatedUserId = userId;
+                    await ctx.SaveChangesAsync();
+                    esParticipante = true;
+                }
+            }
+
             if (!esParticipante)
                 throw new AbrilException("No estás convocado a esta reunión.", 403);
 

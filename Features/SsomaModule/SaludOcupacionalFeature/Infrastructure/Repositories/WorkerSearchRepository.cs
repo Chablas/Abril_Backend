@@ -374,6 +374,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = worker.Id,
                     EmpresaId = dto.EmpresaId,
                     ProyectoId = dto.ProyectoId,
+                    CategoriaId = worker.CategoriaId,
                     FechaInicio = DateOnly.FromDateTime(DateTime.Today),
                     CreatedAt = now,
                 });

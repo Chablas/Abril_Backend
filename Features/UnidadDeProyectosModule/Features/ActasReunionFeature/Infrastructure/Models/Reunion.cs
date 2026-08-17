@@ -44,6 +44,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Reunión de la que se promovió el tema de esta reunión.</summary>
         public int? ReunionAnteriorId { get; set; }
 
+        /// <summary>
+        /// Agenda fija ad-hoc de esta reunión puntual (tema personalizado, no guardado como
+        /// recurrente): al no depender de ningún ReunionTema, se define aquí directamente y
+        /// tiene prioridad sobre la configuración de agenda del tema del catálogo, si hubiera.
+        /// </summary>
+        public string? AgendaTexto { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

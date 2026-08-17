@@ -216,6 +216,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public TimeOnly? HoraInicio { get; set; }
         public TimeOnly? HoraFin { get; set; }
         public int? ReunionAnteriorId { get; set; }
+        /// <summary>
+        /// Agenda fija ad-hoc, obligatoria cuando la reunión es puntual: tema personalizado
+        /// (ReunionTemaId null) y no se guarda como recurrente. Un tema del catálogo ya trae su
+        /// propia configuración de agenda (fija o dinámica) y no necesita esto.
+        /// </summary>
+        public string? AgendaTexto { get; set; }
         public List<ReunionParticipanteInput> Participantes { get; set; } = new();
     }
 
@@ -266,13 +272,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string Descripcion { get; set; } = null!;
     }
 
-    /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
-    public class TemaConvocatoriaDto
+    /// <summary>
+    /// Una regla de la convocatoria de un tema: a quién convocar (área/gerencia y/o proyecto +
+    /// puestos). Un tema puede tener varias reglas independientes — ej. "Reunión de Jefaturas de
+    /// Proyectos" convoca a los jefes de su gerencia, PERO además al Gerente Inmobiliario de otra.
+    /// </summary>
+    public class TemaConvocatoriaReglaDto
     {
         public int? AreaScopeId { get; set; }
         public string? AreaScopeDescripcion { get; set; }
+        public int? ProjectId { get; set; }
+        public string? ProjectDescription { get; set; }
         public List<int> PuestoIds { get; set; } = new();
-        public bool RequiereAgenda { get; set; }
+    }
+
+    public class TemaConvocatoriaReglaInput
+    {
+        public int? AreaScopeId { get; set; }
+        public int? ProjectId { get; set; }
+        public List<int> PuestoIds { get; set; } = new();
+    }
+
+    /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
+    public class TemaConvocatoriaDto
+    {
+        public List<TemaConvocatoriaReglaDto> Reglas { get; set; } = new();
         public bool AgendaFija { get; set; }
         public string? AgendaTexto { get; set; }
         public decimal? RecordatorioHorasAntes { get; set; }
@@ -280,9 +304,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
     public class TemaConvocatoriaSaveRequest
     {
-        public int? AreaScopeId { get; set; }
-        public List<int> PuestoIds { get; set; } = new();
-        public bool RequiereAgenda { get; set; }
+        public List<TemaConvocatoriaReglaInput> Reglas { get; set; } = new();
         public bool AgendaFija { get; set; }
         public string? AgendaTexto { get; set; }
         public decimal? RecordatorioHorasAntes { get; set; }

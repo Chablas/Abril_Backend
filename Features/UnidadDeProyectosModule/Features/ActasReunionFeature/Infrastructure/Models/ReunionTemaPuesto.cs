@@ -8,7 +8,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class ReunionTemaPuesto
     {
         public int ReunionTemaPuestoId { get; set; }
+        /// <summary>Legado: el tema al que pertenece, redundante con ReunionTemaRegla.ReunionTemaId
+        /// pero se conserva para no romper limpiezas existentes (ej. EliminarTema).</summary>
         public int ReunionTemaId { get; set; }
+        /// <summary>Regla (área/gerencia y/o proyecto) de la que forma parte este puesto. Un tema
+        /// puede tener varias reglas independientes (ver ReunionTemaRegla).</summary>
+        public int? ReunionTemaReglaId { get; set; }
         public int PuestoId { get; set; }
 
         public DateTime CreatedDateTime { get; set; }

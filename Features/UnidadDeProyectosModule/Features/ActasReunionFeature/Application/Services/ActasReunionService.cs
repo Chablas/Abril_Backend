@@ -73,6 +73,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 throw new AbrilException("El tema de la reunión es obligatorio.", 400);
             if (request.ProjectId.HasValue && request.AreaScopeId.HasValue)
                 throw new AbrilException("Una reunión no puede pertenecer a un proyecto y a un área/gerencia a la vez.", 400);
+            // Toda reunión requiere agenda. Un tema del catálogo ya trae la suya (fija o dinámica);
+            // una reunión puntual (tema personalizado, sin guardarse como recurrente) debe traer al
+            // menos un punto de agenda definido aquí mismo.
+            if (!request.ReunionTemaId.HasValue && string.IsNullOrWhiteSpace(request.AgendaTexto))
+                throw new AbrilException("Debe indicar al menos un punto de agenda para esta reunión.", 400);
             ValidarHoras(request.HoraInicio, request.HoraFin);
             var reunionId = await _repository.Create(request, userId);
 
@@ -97,7 +102,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             var info = await _repository.GetInfoParaConvocatoria(reunionId, soloWorkerIds);
             if (info == null || info.Destinatarios.Count == 0) return;
 
-            var link = $"{_frontendUrl}/projects/actas-reunion/{info.ReunionId}";
+            // Va directo a la agenda (fija: la ve; dinámica: puede cargar sus temas ahí mismo),
+            // en vez del acta general — es lo primero que el convocado necesita hacer/ver.
+            var link = $"{_frontendUrl}/projects/actas-reunion/{info.ReunionId}/agenda";
             var emails = info.Destinatarios.Select(d => d.Email).Distinct().ToList();
 
             await _emailService.SendAsync(

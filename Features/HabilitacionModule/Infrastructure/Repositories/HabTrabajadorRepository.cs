@@ -56,7 +56,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
-            int? areaScopeId = null)
+            int? areaScopeId = null, bool soloSinLectura = false, bool soloSinCertificado = false, bool soloSinInterconsulta = false,
+            bool soloSinEmoCompleto = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -218,6 +219,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
             }
+
+            if (soloSinLectura)
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo && e.UrlResultado == null));
+
+            if (soloSinCertificado)
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo && e.UrlAptitud == null));
+
+            if (soloSinEmoCompleto)
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo && e.UrlEmoCompleto == null));
+
+            if (soloSinInterconsulta)
+                baseQuery = baseQuery.Where(x =>
+                    ctx.SsInterconsulta.Any(ic => ic.WorkerId == x.Worker.Id
+                                               && ic.Estado != "Cancelada"
+                                               && ic.UrlInforme == null));
 
             var total = await baseQuery.CountAsync();
 

@@ -8,13 +8,26 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro);
         Task<ReunionDetalleDto> GetDetalle(int reunionId);
         Task<int> Create(ReunionCreateRequest request, int userId);
-        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds);
+        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId);
         Task<List<CatalogoDto>> GetPuestos();
         Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
         Task<CatalogoDto> AgregarTema(string descripcion, int userId);
-        Task<List<CatalogoDto>> GetTemasCatalogo();
+        Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo();
         Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
         Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId);
+        /// <summary>Elimina un tema del catálogo (borrado real). Devuelve cuántas reuniones existentes se desvincularon.</summary>
+        Task<int> EliminarTema(int reunionTemaId);
+
+        // ── Agenda de reunión ──────────────────────────────────────────────
+        Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
+        Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request);
+
+        /// <summary>
+        /// Job de recordatorio (disparado por cron externo): revisa las reuniones con agenda
+        /// dinámica cuya hora de aviso ya llegó y envía correo + notificación in-app con el link
+        /// directo para cargar los temas.
+        /// </summary>
+        Task<object> ProcesarRecordatoriosAgenda();
         Task Update(int reunionId, ReunionUpdateRequest request, int userId);
         Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId);
         Task CambiarEstado(int reunionId, ReunionCambiarEstadoRequest request, int userId);

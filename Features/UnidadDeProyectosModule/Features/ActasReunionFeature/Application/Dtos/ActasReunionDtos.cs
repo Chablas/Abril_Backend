@@ -13,6 +13,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string ProjectDescription { get; set; } = null!;
     }
 
+    /// <summary>
+    /// Tema del desplegable "Tema de la reunión", con el área/gerencia de su convocatoria recurrente
+    /// (si tiene) para poder ocultarlo cuando no aplica al ámbito elegido — ej. "Reunión de Jefaturas
+    /// de Proyectos" (AreaScopeId = Gerencia de Proyectos) no debe aparecer al agendar una reunión de
+    /// un proyecto puntual. AreaScopeId null = sin área asociada, aplica a cualquier ámbito.
+    /// </summary>
+    public class ReunionTemaOpcionDto
+    {
+        public int Id { get; set; }
+        public string Descripcion { get; set; } = null!;
+        public int? AreaScopeId { get; set; }
+    }
+
     /// <summary>Trabajador de Abril (workers con email_corporativo @abril.pe) para los desplegables.</summary>
     public class TrabajadorAbrilDto
     {
@@ -71,7 +84,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<CatalogoDto> ReunionEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
         /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
-        public List<CatalogoDto> Temas { get; set; } = new();
+        public List<ReunionTemaOpcionDto> Temas { get; set; } = new();
         public PagedResultDto<ReunionListItemDto> Reuniones { get; set; } = new();
     }
 
@@ -108,7 +121,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<CatalogoDto> AcuerdoEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
         /// <summary>Temas predefinidos para el desplegable al "Agendar siguiente reunión".</summary>
-        public List<CatalogoDto> Temas { get; set; } = new();
+        public List<ReunionTemaOpcionDto> Temas { get; set; } = new();
     }
 
     public class ReunionParticipanteDto
@@ -195,12 +208,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Reunión de un nodo del árbol area_scope (gerencia/área/subárea).</summary>
         public int? AreaScopeId { get; set; }
         public string Tema { get; set; } = null!;
+        /// <summary>Tema del catálogo elegido (null si es personalizado), para heredar su configuración de agenda/recordatorio.</summary>
+        public int? ReunionTemaId { get; set; }
         public string? ConvocadoPor { get; set; }
         public string? Lugar { get; set; }
         public DateOnly Fecha { get; set; }
         public TimeOnly? HoraInicio { get; set; }
         public TimeOnly? HoraFin { get; set; }
         public int? ReunionAnteriorId { get; set; }
+        /// <summary>
+        /// Agenda fija ad-hoc, obligatoria cuando la reunión es puntual: tema personalizado
+        /// (ReunionTemaId null) y no se guarda como recurrente. Un tema del catálogo ya trae su
+        /// propia configuración de agenda (fija o dinámica) y no necesita esto.
+        /// </summary>
+        public string? AgendaTexto { get; set; }
         public List<ReunionParticipanteInput> Participantes { get; set; } = new();
     }
 
@@ -251,18 +272,114 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string Descripcion { get; set; } = null!;
     }
 
-    /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
-    public class TemaConvocatoriaDto
+    /// <summary>
+    /// Una regla de la convocatoria de un tema: a quién convocar (área/gerencia y/o proyecto +
+    /// puestos). Un tema puede tener varias reglas independientes — ej. "Reunión de Jefaturas de
+    /// Proyectos" convoca a los jefes de su gerencia, PERO además al Gerente Inmobiliario de otra.
+    /// </summary>
+    public class TemaConvocatoriaReglaDto
     {
         public int? AreaScopeId { get; set; }
         public string? AreaScopeDescripcion { get; set; }
+        public int? ProjectId { get; set; }
+        public string? ProjectDescription { get; set; }
         public List<int> PuestoIds { get; set; } = new();
+    }
+
+    public class TemaConvocatoriaReglaInput
+    {
+        public int? AreaScopeId { get; set; }
+        public int? ProjectId { get; set; }
+        public List<int> PuestoIds { get; set; } = new();
+    }
+
+    /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
+    public class TemaConvocatoriaDto
+    {
+        public List<TemaConvocatoriaReglaDto> Reglas { get; set; } = new();
+        public bool AgendaFija { get; set; }
+        public string? AgendaTexto { get; set; }
+        public decimal? RecordatorioHorasAntes { get; set; }
     }
 
     public class TemaConvocatoriaSaveRequest
     {
-        public int? AreaScopeId { get; set; }
-        public List<int> PuestoIds { get; set; } = new();
+        public List<TemaConvocatoriaReglaInput> Reglas { get; set; } = new();
+        public bool AgendaFija { get; set; }
+        public string? AgendaTexto { get; set; }
+        public decimal? RecordatorioHorasAntes { get; set; }
+    }
+
+    // ── Agenda de reunión ────────────────────────────────────────────────────
+    public class ReunionAgendaItemDto
+    {
+        public int ReunionAgendaItemId { get; set; }
+        public int WorkerId { get; set; }
+        public string WorkerNombre { get; set; } = null!;
+        public string Descripcion { get; set; } = null!;
+        public int Orden { get; set; }
+    }
+
+    /// <summary>Agenda de una reunión concreta: fija (texto único) o dinámica (temas por participante).</summary>
+    public class ReunionAgendaDto
+    {
+        public bool RequiereAgenda { get; set; }
+        public bool AgendaFija { get; set; }
+        /// <summary>Texto único cuando AgendaFija es true.</summary>
+        public string? AgendaTexto { get; set; }
+        /// <summary>Temas cargados por cada participante cuando AgendaFija es false.</summary>
+        public List<ReunionAgendaItemDto> Items { get; set; } = new();
+        /// <summary>Participantes convocados (con workerId) que aún no cargaron ningún tema.</summary>
+        public List<string> ParticipantesPendientes { get; set; } = new();
+        /// <summary>WorkerId del usuario autenticado que consulta, si es participante de esta reunión (para saber "mis temas").</summary>
+        public int? WorkerIdActual { get; set; }
+    }
+
+    public class ReunionAgendaItemInput
+    {
+        public string Descripcion { get; set; } = null!;
+    }
+
+    /// <summary>Reemplaza por completo los temas a tratar del worker autenticado para una reunión.</summary>
+    public class GuardarMisTemasRequest
+    {
+        public List<ReunionAgendaItemInput> Temas { get; set; } = new();
+    }
+
+    // ── Recordatorio de agenda (job) ─────────────────────────────────────────
+    /// <summary>Reunión PROGRAMADA con agenda dinámica pendiente de recordatorio.</summary>
+    public class ReunionRecordatorioCandidatoDto
+    {
+        public int ReunionId { get; set; }
+        public int Numero { get; set; }
+        public string Tema { get; set; } = null!;
+        public string AmbitoDescripcion { get; set; } = null!;
+        public DateOnly Fecha { get; set; }
+        public TimeOnly HoraInicio { get; set; }
+        public decimal RecordatorioHorasAntes { get; set; }
+        public List<ReunionRecordatorioDestinatarioDto> Destinatarios { get; set; } = new();
+    }
+
+    public class ReunionRecordatorioDestinatarioDto
+    {
+        public int UserId { get; set; }
+        public int WorkerId { get; set; }
+        public string Nombre { get; set; } = null!;
+        public string Email { get; set; } = null!;
+    }
+
+    // ── Convocatoria inmediata (al agendar) ──────────────────────────────────
+    /// <summary>Datos de la reunión recién creada para armar el correo de convocatoria.</summary>
+    public class ReunionConvocatoriaInfoDto
+    {
+        public int ReunionId { get; set; }
+        public int Numero { get; set; }
+        public string Tema { get; set; } = null!;
+        public string AmbitoDescripcion { get; set; } = null!;
+        public DateOnly Fecha { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public string? Lugar { get; set; }
+        public List<ReunionRecordatorioDestinatarioDto> Destinatarios { get; set; } = new();
     }
 
     public class ReunionCambiarEstadoRequest

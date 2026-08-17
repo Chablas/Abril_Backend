@@ -18,6 +18,13 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature
             services.AddScoped<IPlaneamientoBimBloqueoRepository, PlaneamientoBimBloqueoRepository>();
             services.AddScoped<IPlaneamientoBimBloqueoService, PlaneamientoBimBloqueoService>();
 
+            services.AddScoped<IPlaneamientoBimDashboardRepository, PlaneamientoBimDashboardRepository>();
+            services.AddScoped<IPlaneamientoBimDashboardService, PlaneamientoBimDashboardService>();
+
+            services.AddScoped<IPlaneamientoBimPortafolioRepository, PlaneamientoBimPortafolioRepository>();
+            services.AddScoped<IPlaneamientoBimPortafolioService, PlaneamientoBimPortafolioService>();
+            services.AddScoped<PlaneamientoBimReportePdfService>();
+
             return services;
         }
     }

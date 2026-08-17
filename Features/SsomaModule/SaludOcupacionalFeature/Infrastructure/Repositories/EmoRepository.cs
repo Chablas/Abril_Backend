@@ -178,6 +178,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.ue != null && x.ue.UrlAptitud == null);
             if (filter.SinEmoCompleto)
                 q = q.Where(x => x.ue != null && x.ue.UrlEmoCompleto == null);
+            if (filter.SinInterconsulta)
+                q = q.Where(x => ctx.SsInterconsulta.Any(ic =>
+                    ic.WorkerId == x.w.Id && ic.Estado != "Cancelada" && ic.UrlInforme == null));
 
             var page = filter.Page < 1 ? 1 : filter.Page;
             var pageSize = filter.PageSize <= 0 ? 50 : Math.Min(filter.PageSize, 200);

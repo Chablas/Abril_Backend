@@ -14,11 +14,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         private readonly IActasReunionService _service;
         private readonly ILogger<ActasReunionController> _logger;
+        private readonly IConfiguration _configuration;
 
-        public ActasReunionController(IActasReunionService service, ILogger<ActasReunionController> logger)
+        public ActasReunionController(IActasReunionService service, ILogger<ActasReunionController> logger, IConfiguration configuration)
         {
             _service = service;
             _logger = logger;
+            _configuration = configuration;
         }
 
         private int GetUserId()
@@ -58,15 +60,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         }
 
         /// <summary>
-        /// Trabajadores que calzan con un área/gerencia (incluye descendencia) y/o un puesto, para
-        /// convocatoria masiva de participantes (ej. "todas las jefaturas de Proyectos").
+        /// Trabajadores que calzan con un área/gerencia (incluye descendencia), un puesto y/o el
+        /// staff asignado a un proyecto, para convocatoria masiva de participantes (ej. "todas las
+        /// jefaturas de Proyectos", "todo el staff de esta obra").
         /// </summary>
         [HttpGet("trabajadores-por-filtro")]
-        public async Task<IActionResult> BuscarTrabajadoresPorFiltro([FromQuery] int? areaScopeId, [FromQuery] List<int>? puestoIds)
+        public async Task<IActionResult> BuscarTrabajadoresPorFiltro([FromQuery] int? areaScopeId, [FromQuery] List<int>? puestoIds, [FromQuery] int? projectId)
         {
             try
             {
-                return Ok(await _service.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds));
+                return Ok(await _service.BuscarTrabajadoresPorFiltro(areaScopeId, puestoIds, projectId));
             }
             catch (Exception ex)
             {
@@ -139,6 +142,27 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>Elimina un tema del catálogo (borrado real, no soft-delete). Las reuniones que ya lo usaban
+        /// conservan su tema (texto propio) y solo pierden el vínculo al catálogo.</summary>
+        [HttpDelete("temas/{reunionTemaId:int}")]
+        public async Task<IActionResult> EliminarTema(int reunionTemaId)
+        {
+            try
+            {
+                var reunionesDesvinculadas = await _service.EliminarTema(reunionTemaId);
+                return Ok(new { message = "Tema eliminado.", reunionesDesvinculadas });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION ELIMINAR TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Convocatoria recurrente configurada para un tema (área + puestos habituales).</summary>
         [HttpGet("temas/{reunionTemaId:int}/convocatoria")]
         public async Task<IActionResult> GetConvocatoriaTema(int reunionTemaId)
@@ -174,6 +198,74 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR ACTAS REUNION GUARDAR CONVOCATORIA TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Job de recordatorio de agenda (disparado por un cron externo, no por usuarios): revisa
+        /// las reuniones con agenda dinámica cuya hora de aviso ya llegó y envía correo +
+        /// notificación in-app con el link directo para cargar los temas.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("recordatorios/procesar-agenda")]
+        public async Task<IActionResult> ProcesarRecordatoriosAgenda()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                return Ok(await _service.ProcesarRecordatoriosAgenda());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION PROCESAR RECORDATORIOS AGENDA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        // ── Agenda de reunión ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Agenda de una reunión concreta: fija (texto único) o dinámica (temas cargados por cada
+        /// participante). Pensada para el link directo del recordatorio ("cargar mis temas").
+        /// </summary>
+        [HttpGet("{reunionId:int}/agenda")]
+        public async Task<IActionResult> GetAgenda(int reunionId)
+        {
+            try
+            {
+                return Ok(await _service.GetAgenda(reunionId, GetUserId()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GET AGENDA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Reemplaza los temas a tratar del usuario autenticado para esta reunión (agenda dinámica).</summary>
+        [HttpPut("{reunionId:int}/agenda/mis-temas")]
+        public async Task<IActionResult> GuardarMisTemas(int reunionId, [FromBody] GuardarMisTemasRequest request)
+        {
+            try
+            {
+                await _service.GuardarMisTemas(reunionId, GetUserId(), request);
+                return Ok(new { message = "Tus temas se guardaron exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GUARDAR MIS TEMAS: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

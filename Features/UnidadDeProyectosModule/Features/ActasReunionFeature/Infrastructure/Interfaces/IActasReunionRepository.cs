@@ -8,15 +8,40 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro);
         Task<ReunionDetalleDto> GetDetalle(int reunionId);
         Task<int> Create(ReunionCreateRequest request, int userId);
-        /// <summary>Trabajadores que calzan con un área/gerencia (con descendencia) y/o una lista de puestos, para convocatoria masiva.</summary>
-        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds);
+        /// <summary>
+        /// Trabajadores que calzan con un área/gerencia (con descendencia), una lista de puestos,
+        /// y/o el staff asignado a un proyecto (ss_contratista_usuario con scope POR_PROYECTO),
+        /// para convocatoria masiva.
+        /// </summary>
+        Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId);
         Task<List<CatalogoDto>> GetPuestos();
         Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
         Task<CatalogoDto> AgregarTema(string descripcion, int userId);
-        Task<List<CatalogoDto>> GetTemasCatalogo();
+        Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo();
         Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
-        Task GuardarConvocatoriaTema(int reunionTemaId, int? areaScopeId, List<int> puestoIds, int userId);
-        Task Update(int reunionId, ReunionUpdateRequest request, int userId);
+        Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId);
+        /// <summary>Elimina un tema del catálogo (borrado real, no soft-delete). Las reuniones que ya lo usaban
+        /// conservan su tema (texto propio) y solo pierden el vínculo al catálogo. Devuelve cuántas se desvincularon.</summary>
+        Task<int> EliminarTema(int reunionTemaId);
+
+        /// <summary>Datos de la reunión + emails de sus participantes, para el correo de convocatoria.
+        /// soloWorkerIds filtra a solo esos workers; null = todos.</summary>
+        Task<ReunionConvocatoriaInfoDto?> GetInfoParaConvocatoria(int reunionId, List<int>? soloWorkerIds = null);
+
+        // ── Agenda de reunión ──────────────────────────────────────────────
+        /// <summary>Agenda de una reunión concreta (fija o temas cargados por participante), vista por el usuario autenticado.</summary>
+        Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
+        /// <summary>Reemplaza los temas a tratar del worker del usuario autenticado para esta reunión.</summary>
+        Task GuardarMisTemas(int reunionId, int userId, List<string> temas);
+
+        /// <summary>Reuniones PROGRAMADA con agenda dinámica cuyo recordatorio aún no se envió.</summary>
+        Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda();
+        /// <summary>Registra que ya se envió el recordatorio de una reunión (idempotencia del job).</summary>
+        Task RegistrarRecordatorioEnviado(int reunionId);
+        /// <summary>True si la fecha es un feriado configurado (fijo o recurrente anual).</summary>
+        Task<bool> EsFeriado(DateOnly fecha);
+        /// <summary>Guarda los cambios y devuelve los WorkerId de participantes recién agregados (para notificarles).</summary>
+        Task<List<int>> Update(int reunionId, ReunionUpdateRequest request, int userId);
         Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId);
         Task CambiarEstado(int reunionId, string estado, int userId);
         Task Eliminar(int reunionId, int userId);

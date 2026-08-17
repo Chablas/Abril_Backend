@@ -12,6 +12,59 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public DateTime? FechaEnrolamiento { get; set; }
     }
 
+    /// <summary>Fila de la pantalla de "Gestión de permisos" del coordinador: un trabajador de
+    /// Arquitectura Comercial con su estado de enrolamiento facial.</summary>
+    public class TareoTrabajadorEnrolamientoDTO
+    {
+        public int WorkerId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public bool Enrolado { get; set; }
+        public DateTime? FechaEnrolamiento { get; set; }
+        /// <summary>SSO-FO-150 firmado y subido — sin esto el enrolamiento queda bloqueado.</summary>
+        public bool AutorizacionSubida { get; set; }
+        public DateTime? AutorizacionSubidaEn { get; set; }
+    }
+
+    /// <summary>Datos para imprimir el SSO-FO-150 con nombre/DNI del trabajador ya precargados.</summary>
+    public class TareoAutorizacionDetalleDTO
+    {
+        public int WorkerId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Dni { get; set; }
+    }
+
+    /// <summary>Geolocalización de un proyecto para el geofencing de Marcar Tareo — editable
+    /// directo desde Gestión de Permisos, sin salir del módulo de Tareo.</summary>
+    public class TareoProyectoGeoDTO
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+        public decimal? Lat { get; set; }
+        public decimal? Lng { get; set; }
+        public decimal RadioGeofenceMetros { get; set; }
+    }
+
+    public class TareoProyectoGeoUpdateDTO
+    {
+        public decimal? Lat { get; set; }
+        public decimal? Lng { get; set; }
+        public decimal? RadioGeofenceMetros { get; set; }
+    }
+
+    /// <summary>Resultado de la identificación 1:N (buscar, entre los enrolados de Arquitectura
+    /// Comercial, quién es la persona frente a la cámara según su embedding).</summary>
+    public class TareoIdentificacionDTO
+    {
+        public bool Identificado { get; set; }
+        public int? WorkerId { get; set; }
+        public string? Nombre { get; set; }
+    }
+
+    public class TareoIdentificarRequestDTO
+    {
+        public float[]? Embedding { get; set; }
+    }
+
     public class TareoMarcarRequestDTO
     {
         /// <summary>INICIO_JORNADA | INICIO_ALMUERZO | RETORNO | FIN_JORNADA</summary>

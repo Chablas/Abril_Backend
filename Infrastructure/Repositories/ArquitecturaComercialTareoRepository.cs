@@ -23,6 +23,19 @@ namespace Abril_Backend.Infrastructure.Repositories
             _factory = factory;
         }
 
+        public async Task<int> ResolverWorkerId(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var person = await ctx.Person.FirstOrDefaultAsync(p => p.UserId == userId)
+                ?? throw new AbrilException("No tienes un perfil de persona asociado a tu usuario.", 403);
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.PersonId == person.PersonId)
+                ?? throw new AbrilException("No tienes un perfil de trabajador registrado en el sistema.", 403);
+
+            return worker.Id;
+        }
+
         public async Task<TareoEnrolamientoEstadoDTO> GetEnrolamientoEstado(int workerId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -36,6 +49,181 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Enrolado = enrolamiento != null,
                 FechaEnrolamiento = enrolamiento?.CreatedAt,
             };
+        }
+
+        /// <summary>Ids de los "obreros de Arquitectura Comercial": el criterio es que la
+        /// vinculación activa más reciente del trabajador (FechaFin == null, mismo criterio que
+        /// ArquitecturaComercialRepository.GetSupervisoresAc/HabTrabajadorRepository) apunte a un
+        /// Project cuyo ProjectDescription sea "arquitectura comercial". Este es el universo tanto
+        /// para la pantalla de enrolamiento del coordinador como para la identificación 1:N —
+        /// deliberadamente chico (~40 personas) para que el 1:N sea rápido y preciso.</summary>
+        private static IQueryable<int> GetObrerosAcWorkerIdsQuery(AppDbContext ctx)
+        {
+            var vinculacionActivaPorWorker = ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null)
+                .Where(v => !ctx.WorkerVinculacion.Any(otra =>
+                    otra.WorkerId == v.WorkerId &&
+                    otra.FechaFin == null &&
+                    (otra.CreatedAt > v.CreatedAt || (otra.CreatedAt == v.CreatedAt && otra.Id > v.Id))));
+
+            return vinculacionActivaPorWorker
+                .Where(v => v.ProyectoId != null)
+                .Join(ctx.Project.Where(p => p.ProjectDescription != null && p.ProjectDescription.ToLower() == "arquitectura comercial"),
+                      v => v.ProyectoId, p => p.ProjectId, (v, p) => v.WorkerId);
+        }
+
+        public async Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresParaEnrolar()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var obrerosIds = GetObrerosAcWorkerIdsQuery(ctx);
+
+            var workers = await ctx.Worker
+                .Where(w => w.Estado == "ACTIVO" && obrerosIds.Contains(w.Id))
+                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
+                .Select(w => new { w.Id, Nombre = w.Person != null ? w.Person.FullName : null })
+                .ToListAsync();
+
+            var workerIds = workers.Select(w => w.Id).ToList();
+            var enrolamientos = await ctx.AcTareoEnrolamiento
+                .Where(e => workerIds.Contains(e.WorkerId) && e.Activo)
+                .ToListAsync();
+            var enrolamientoMap = enrolamientos.ToDictionary(e => e.WorkerId, e => e.CreatedAt);
+
+            var autorizaciones = await ctx.AcTareoAutorizacion
+                .Where(a => workerIds.Contains(a.WorkerId))
+                .ToListAsync();
+            var autorizacionMap = autorizaciones.ToDictionary(a => a.WorkerId, a => a.SubidoEn);
+
+            return workers.Select(w => new TareoTrabajadorEnrolamientoDTO
+            {
+                WorkerId = w.Id,
+                Nombre = w.Nombre ?? $"Worker {w.Id}",
+                Enrolado = enrolamientoMap.ContainsKey(w.Id),
+                FechaEnrolamiento = enrolamientoMap.GetValueOrDefault(w.Id),
+                AutorizacionSubida = autorizacionMap.ContainsKey(w.Id),
+                AutorizacionSubidaEn = autorizacionMap.GetValueOrDefault(w.Id),
+            }).ToList();
+        }
+
+        public async Task<List<TareoProyectoGeoDTO>> GetProyectosGeo()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project
+                .Where(p => p.Active)
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new TareoProyectoGeoDTO
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    Lat = p.Lat,
+                    Lng = p.Lng,
+                    RadioGeofenceMetros = p.RadioGeofenceMetros,
+                })
+                .ToListAsync();
+        }
+
+        public async Task SetProyectoGeo(int projectId, TareoProyectoGeoUpdateDTO dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId)
+                ?? throw new AbrilException("Proyecto no encontrado.", 404);
+
+            project.Lat = dto.Lat;
+            project.Lng = dto.Lng;
+            if (dto.RadioGeofenceMetros.HasValue)
+                project.RadioGeofenceMetros = dto.RadioGeofenceMetros.Value;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<TareoAutorizacionDetalleDTO> GetAutorizacionDetalle(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            return new TareoAutorizacionDetalleDTO
+            {
+                WorkerId = worker.Id,
+                Nombre = worker.Person?.FullName ?? $"Worker {worker.Id}",
+                Dni = worker.Person?.DocumentIdentityCode,
+            };
+        }
+
+        public async Task<bool> TieneAutorizacion(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.AcTareoAutorizacion.AnyAsync(a => a.WorkerId == workerId);
+        }
+
+        public async Task SetAutorizacion(int workerId, string urlDocumento, int? subidoPorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var existente = await ctx.AcTareoAutorizacion.FirstOrDefaultAsync(a => a.WorkerId == workerId);
+
+            if (existente != null)
+            {
+                existente.UrlDocumento = urlDocumento;
+                existente.SubidoPorUserId = subidoPorUserId;
+                existente.SubidoEn = DateTime.UtcNow;
+            }
+            else
+            {
+                ctx.AcTareoAutorizacion.Add(new AcTareoAutorizacion
+                {
+                    WorkerId = workerId,
+                    UrlDocumento = urlDocumento,
+                    SubidoPorUserId = subidoPorUserId,
+                    SubidoEn = DateTime.UtcNow,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Identificación 1:N: busca, entre los enrolados que son "obreros AC", cuál
+        /// tiene el embedding más parecido al capturado. Doble umbral de seguridad — nunca basta
+        /// con el mejor score solo: (1) el mejor debe superar el umbral de match, Y (2) debe
+        /// sacarle una ventaja clara al segundo lugar (margen), para evitar identificar a la
+        /// persona equivocada cuando dos rostros dan scores parecidos.</summary>
+        public async Task<TareoIdentificacionDTO> IdentificarPorEmbedding(float[] embedding)
+        {
+            const decimal umbralMatch = 0.5m;
+            const decimal margenMinimo = 0.08m;
+
+            using var ctx = _factory.CreateDbContext();
+            var obrerosIds = await GetObrerosAcWorkerIdsQuery(ctx).ToListAsync();
+
+            var enrolamientos = await ctx.AcTareoEnrolamiento
+                .Where(e => e.Activo && obrerosIds.Contains(e.WorkerId))
+                .ToListAsync();
+
+            var candidatos = enrolamientos
+                .Select(e => new { e.WorkerId, Score = (decimal)CompararEmbeddings(e.Embedding, embedding) })
+                .OrderByDescending(c => c.Score)
+                .ToList();
+
+            var mejor = candidatos.FirstOrDefault();
+            if (mejor == null || mejor.Score < umbralMatch)
+                return new TareoIdentificacionDTO { Identificado = false };
+
+            var segundo = candidatos.Skip(1).FirstOrDefault();
+            if (segundo != null && (mejor.Score - segundo.Score) < margenMinimo)
+                return new TareoIdentificacionDTO { Identificado = false };
+
+            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == mejor.WorkerId);
+            return new TareoIdentificacionDTO
+            {
+                Identificado = true,
+                WorkerId = mejor.WorkerId,
+                Nombre = worker?.Person?.FullName ?? $"Worker {mejor.WorkerId}",
+            };
+        }
+
+        public async Task<bool> EsObreroAc(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await GetObrerosAcWorkerIdsQuery(ctx).ContainsAsync(workerId);
         }
 
         public async Task EnrolarWorker(int workerId, string fotoUrl, float[] embedding)

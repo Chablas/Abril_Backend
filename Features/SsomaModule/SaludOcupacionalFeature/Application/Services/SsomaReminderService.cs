@@ -101,9 +101,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(c => c.Accidente.ProyectoId!.Value)
                 .Distinct().ToList();
 
-            var proyectosDict = await ctx.Project.AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId);
+            var proyectosDict = await BuildProyectosDestinatariosAsync(ctx, proyectoIds);
 
             foreach (var c in candidatos)
             {
@@ -154,9 +152,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(c => c.Descanso.ProyectoId!.Value)
                 .Distinct().ToList();
 
-            var proyectosDict = await ctx.Project.AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId);
+            var proyectosDict = await BuildProyectosDestinatariosAsync(ctx, proyectoIds);
 
             foreach (var c in candidatos)
             {
@@ -203,9 +199,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(c => c.Accidente.ProyectoId!.Value)
                 .Distinct().ToList();
 
-            var proyectosDict = await ctx.Project.AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId);
+            var proyectosDict = await BuildProyectosDestinatariosAsync(ctx, proyectoIds);
 
             foreach (var c in candidatos)
             {
@@ -265,9 +259,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(c => c.Caso.ProyectoId!.Value)
                 .Distinct().ToList();
 
-            var proyectosDict = await ctx.Project.AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId);
+            var proyectosDict = await BuildProyectosDestinatariosAsync(ctx, proyectoIds);
 
             foreach (var c in sinSeguimiento)
             {
@@ -297,10 +289,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         // ── Helpers ──────────────────────────────────────────────────────────
 
         /// <summary>
+        /// Emails de un proyecto para efectos de destinatarios de alertas SSOMA. El
+        /// residente sale de su ficha de trabajador (project.residente_workers_id →
+        /// workers.email_corporativo), igual que EmoDestinatariosResolver, en vez de la
+        /// columna Project.EmailResidente (deprecada, se desactualiza cuando cambia el
+        /// residente).
+        /// </summary>
+        private sealed class ProyectoDestinatarios
+        {
+            public int ProjectId { get; set; }
+            public string? EmailResidente { get; set; }
+            public string? EmailResponsable { get; set; }
+            public string? EmailRrhh { get; set; }
+            public string? EmailCoordSsoma { get; set; }
+            public string? EmailCoordAdmin { get; set; }
+        }
+
+        private static async Task<Dictionary<int, ProyectoDestinatarios>> BuildProyectosDestinatariosAsync(
+            AppDbContext ctx, List<int> proyectoIds)
+        {
+            if (proyectoIds.Count == 0) return new Dictionary<int, ProyectoDestinatarios>();
+
+            return await (
+                from p in ctx.Project.AsNoTracking()
+                where proyectoIds.Contains(p.ProjectId)
+                join rw in ctx.Worker.AsNoTracking() on p.ResidenteWorkersId equals rw.Id into rwj
+                from residente in rwj.DefaultIfEmpty()
+                select new ProyectoDestinatarios
+                {
+                    ProjectId        = p.ProjectId,
+                    EmailResidente   = residente != null ? residente.EmailCorporativo : null,
+                    EmailResponsable = p.EmailResponsable,
+                    EmailRrhh        = p.EmailRrhh,
+                    EmailCoordSsoma  = p.EmailCoordSsoma,
+                    EmailCoordAdmin  = p.EmailCoordAdmin,
+                }
+            ).ToDictionaryAsync(p => p.ProjectId);
+        }
+
+        /// <summary>
         /// Igual que EmoAlertaService.BuildDestinatarios:
         /// email personal del trabajador + todos los emails del proyecto vinculado.
         /// </summary>
-        private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
+        private static List<string> BuildDestinatarios(Worker worker, ProyectoDestinatarios? proyecto)
         {
             var raw = new List<string?> { worker.EmailCorporativo };
 

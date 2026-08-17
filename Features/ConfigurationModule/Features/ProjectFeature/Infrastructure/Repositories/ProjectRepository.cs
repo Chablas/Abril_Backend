@@ -97,6 +97,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
                     TieneArquitecturaComercial = p.TieneArquitecturaComercial,
 
+                    Lat = p.Lat,
+                    Lng = p.Lng,
+                    RadioGeofenceMetros = p.RadioGeofenceMetros,
+
                     Active = p.Active
                 })
                 .ToListAsync();
@@ -388,6 +392,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         /// <summary>Aplica los campos editables del DTO Edit a la entidad Project.</summary>
         private static void ApplyDtoToEntity(Project project, ProjectEditDto dto)
         {
+            ApplyGeolocalizacion(project, dto);
             project.ProjectDescription = dto.ProjectDescription.Trim();
             project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo)        ? null : dto.Codigo.Trim();
             project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
@@ -423,6 +428,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.TieneArquitecturaComercial = dto.TieneArquitecturaComercial ?? false;
 
             project.Active = dto.Active;
+        }
+
+        /// <summary>Lat/Lng/RadioGeofenceMetros habilitan el geofencing de Tareo (Arquitectura
+        /// Comercial) — sin esto, Marcar tareo siempre cae en REVISAR por "ningún proyecto activo
+        /// tiene geolocalización configurada".</summary>
+        private static void ApplyGeolocalizacion(Project project, ProjectEditDto dto)
+        {
+            project.Lat = dto.Lat;
+            project.Lng = dto.Lng;
+            if (dto.RadioGeofenceMetros.HasValue)
+                project.RadioGeofenceMetros = dto.RadioGeofenceMetros.Value;
         }
 
         private async Task UpdateContributorLegalEntityRegistryNumberAsync(int? contributorId, string? legalEntityRegistryNumber, int userId)

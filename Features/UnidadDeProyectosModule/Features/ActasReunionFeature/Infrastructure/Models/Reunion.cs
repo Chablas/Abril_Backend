@@ -34,8 +34,22 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int ReunionEstadoId { get; set; }
         public string? Observaciones { get; set; }
 
+        /// <summary>
+        /// Tema del catálogo elegido al agendar (null si el tema fue personalizado y no se guardó
+        /// como recurrente). Permite al job de recordatorios resolver la configuración de agenda
+        /// vigente para esta ocurrencia.
+        /// </summary>
+        public int? ReunionTemaId { get; set; }
+
         /// <summary>Reunión de la que se promovió el tema de esta reunión.</summary>
         public int? ReunionAnteriorId { get; set; }
+
+        /// <summary>
+        /// Agenda fija ad-hoc de esta reunión puntual (tema personalizado, no guardado como
+        /// recurrente): al no depender de ningún ReunionTema, se define aquí directamente y
+        /// tiene prioridad sobre la configuración de agenda del tema del catálogo, si hubiera.
+        /// </summary>
+        public string? AgendaTexto { get; set; }
 
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }

@@ -25,6 +25,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public bool SinCertificado { get; set; }
         public bool SinEmoCompleto { get; set; }
 
+        /// <summary>Trabajadores con interconsulta derivada (no cancelada) y sin informe de levantamiento adjunto.</summary>
+        public bool SinInterconsulta { get; set; }
+
         /// <summary>"fechaEmo" | "fechaVencimiento". Cualquier otro valor (o null) ordena por nombre.</summary>
         public string? SortBy { get; set; }
         public bool SortDesc { get; set; }

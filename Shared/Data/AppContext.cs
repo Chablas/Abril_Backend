@@ -142,6 +142,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcRankingSemanal> AcRankingSemanal { get; set; }
         public DbSet<AcTareoEnrolamiento> AcTareoEnrolamiento { get; set; }
         public DbSet<AcTareoRegistro> AcTareoRegistro { get; set; }
+        public DbSet<AcTareoAutorizacion> AcTareoAutorizacion { get; set; }
         public DbSet<AcEtapa> AcEtapa { get; set; }
         public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
         public DbSet<AcCategoria> AcCategoria { get; set; }
@@ -378,6 +379,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado> ReunionEstado => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema> ReunionTema => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTemaPuesto> ReunionTemaPuesto => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTemaPuesto>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTemaRegla> ReunionTemaRegla => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTemaRegla>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion> ReunionReprogramacion => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante> ReunionParticipante => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo> ReunionAcuerdo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo>();
@@ -385,6 +387,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable> ReunionAcuerdoResponsable => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo> ReunionArchivo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo>();
         public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder> ReunionFolder => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAgendaItem> ReunionAgendaItem => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAgendaItem>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionRecordatorioLog> ReunionRecordatorioLog => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionRecordatorioLog>();
 
         // ── Salud Ocupacional: Tópico, Accidentes, Descansos ──────────
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>     SsTopicoAtencion     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>();
@@ -523,6 +527,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
         public DbSet<BimEvidenciaFoto> BimEvidenciaFoto => Set<BimEvidenciaFoto>();
         public DbSet<BimBloqueo> BimBloqueo => Set<BimBloqueo>();
+        public DbSet<BimMetaSemanal> BimMetaSemanal => Set<BimMetaSemanal>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1705,6 +1710,22 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<BimMetaSemanal>(e =>
+            {
+                e.HasIndex(x => new { x.ProjectId, x.MacroActividadId, x.FechaInicioSemana })
+                 .IsUnique()
+                 .HasDatabaseName("ix_bim_meta_semanal_unico");
+                e.HasIndex(x => x.MacroActividadId);
+                e.HasOne(x => x.Project)
+                 .WithMany()
+                 .HasForeignKey(x => x.ProjectId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(x => x.MacroActividad)
+                 .WithMany()
+                 .HasForeignKey(x => x.MacroActividadId)
+                 .OnDelete(DeleteBehavior.Restrict);
             });
 
         }

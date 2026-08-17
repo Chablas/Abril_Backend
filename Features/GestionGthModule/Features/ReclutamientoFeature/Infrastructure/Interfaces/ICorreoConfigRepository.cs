@@ -28,6 +28,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Correo del área de Gestión del Talento Humano; null si el área no tiene uno cargado.</summary>
         Task<string?> GetEmailAreaGthAsync();
 
+        /// <summary>Correo del área de Tecnología de la Información; null si el área no tiene uno cargado.</summary>
+        Task<string?> GetEmailAreaTiAsync();
+
         /// <summary>Alta de un correo adicional en un correo. Devuelve el id creado.</summary>
         Task<int> CreateAdicionalAsync(string tipoCodigo, string email, string? nombre, bool esCopia, int? userId);
 

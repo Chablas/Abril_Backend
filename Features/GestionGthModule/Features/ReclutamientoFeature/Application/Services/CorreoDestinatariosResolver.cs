@@ -42,7 +42,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : null;
 
             var emailGth = codigosActivos.Contains(CorreoDestinatarioCodigo.GthArea)
-                ? await ResolverAreaGthAsync(tipoCodigo)
+                ? await ResolverAreaAsync(tipoCodigo, "Gestión del Talento Humano", _config.GetEmailAreaGthAsync)
+                : null;
+
+            var emailTi = codigosActivos.Contains(CorreoDestinatarioCodigo.TiArea)
+                ? await ResolverAreaAsync(tipoCodigo, "Tecnología de la Información", _config.GetEmailAreaTiAsync)
                 : null;
 
             var gerenteArea = codigosActivos.Contains(CorreoDestinatarioCodigo.GerenteArea)
@@ -79,6 +83,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     case CorreoDestinatarioCodigo.GthArea:
                         Agregar(lista, emailGth, null,
                             fila.Nombre ?? "Área de Gestión del Talento Humano");
+                        break;
+
+                    case CorreoDestinatarioCodigo.TiArea:
+                        Agregar(lista, emailTi, null,
+                            fila.Nombre ?? "Área de Tecnología de la Información");
                         break;
 
                     case CorreoDestinatarioCodigo.GerenteArea:
@@ -126,20 +135,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        private async Task<string?> ResolverAreaGthAsync(string tipoCodigo)
+        /// <summary>
+        /// Correo de un área (GTH, TI, …), que sale de <c>area_scope.email</c>. Todas se resuelven
+        /// igual y fallan igual, así que comparten el manejo: lo único que cambia es de qué nodo se
+        /// lee y cómo se llama el área en el log.
+        /// </summary>
+        private async Task<string?> ResolverAreaAsync(
+            string tipoCodigo, string areaNombre, Func<Task<string?>> leerEmail)
         {
             try
             {
-                var email = await _config.GetEmailAreaGthAsync();
+                var email = await leerEmail();
                 if (string.IsNullOrWhiteSpace(email))
                     _logger.LogWarning(
-                        "Correo {Tipo}: el área de GTH está activa como destinataria pero no tiene correo configurado.",
-                        tipoCodigo);
+                        "Correo {Tipo}: el área de {Area} está activa como destinataria pero no tiene correo configurado.",
+                        tipoCodigo, areaNombre);
                 return email;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Correo {Tipo}: no se pudo resolver el correo del área de GTH; sale sin él.", tipoCodigo);
+                _logger.LogWarning(ex,
+                    "Correo {Tipo}: no se pudo resolver el correo del área de {Area}; sale sin él.",
+                    tipoCodigo, areaNombre);
                 return null;
             }
         }

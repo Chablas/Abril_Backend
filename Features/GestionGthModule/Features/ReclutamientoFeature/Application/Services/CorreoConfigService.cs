@@ -21,7 +21,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// no es cosmético: es lo que impide que desde una pantalla se toque la configuración de la
         /// otra. La clave es el slug de la URL (<c>api/v1/gestion-gth/{modulo}/configuracion</c>).
         ///   • solicitud-personal → los correos del flujo del solicitante.
-        ///   • aprobaciones       → el que sale cuando Gerencia decide (su aviso a GTH).
+        ///   • aprobaciones       → los que salen cuando Gerencia decide (sus avisos a GTH y a TI).
         ///   • reclutamiento      → los que salen desde la bandeja de GTH.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, string[]> CorreosPorPantalla =
@@ -33,11 +33,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.LongListDecision,
                     CorreoTipoReclutamiento.FinalistaDecision,
                 },
-                // SOLICITUD lo dispara la decisión de Gerencia, no el solicitante: se configura
-                // desde Aprobaciones, que es la pantalla donde esa decisión se toma.
+                // SOLICITUD y TI_VACANTES los dispara la decisión de Gerencia, no el solicitante:
+                // se configuran desde Aprobaciones, que es la pantalla donde esa decisión se toma.
                 ["aprobaciones"] = new[]
                 {
                     CorreoTipoReclutamiento.Solicitud,
+                    CorreoTipoReclutamiento.Ti,
                 },
                 ["reclutamiento"] = new[]
                 {

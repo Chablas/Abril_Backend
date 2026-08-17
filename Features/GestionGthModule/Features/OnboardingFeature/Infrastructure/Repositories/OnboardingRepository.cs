@@ -84,10 +84,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             };
 
         /// <summary>
-        /// Proyecta la fila cruda al DTO de la tabla. <paramref name="totalFases"/> es cuántas fases
-        /// tiene el catálogo vigente: el % de avance es la fase actual sobre ese total.
+        /// Una actividad del catálogo con lo justo para resolver si un onboarding ya la cumplió.
         /// </summary>
-        private static OnboardingListItemDto MapItem(OnboardingRawRow x, int totalFases) => new()
+        private sealed record ActividadCatalogo(int FaseOrden, string Codigo, bool Automatica);
+
+        /// <summary>
+        /// Qué actividades del checklist tiene cumplidas un onboarding. Hoy NO se guarda actividad
+        /// por actividad: se deduce de lo que sí está persistido en su fila, que es la única fuente
+        /// de verdad. Vive acá —y no en la pantalla— para que el % de la tabla y los checks del
+        /// detalle no puedan discrepar:
+        ///
+        ///   • Actividades de fases anteriores a la actual → hechas (para pasar de fase hubo que
+        ///     cumplirlas).
+        ///   • Actividades automáticas → hechas (los avisos preventivos a TI y al responsable de
+        ///     obra salen al registrar la solicitud, antes de que el colaborador llegue a onboarding).
+        ///   • Revisar y aprobar la carta firmada → hecha cuando la carta está aprobada.
+        ///
+        /// A medida que cada fase se implemente, su regla entra acá.
+        /// </summary>
+        private static List<string> ActividadesHechas(
+            IReadOnlyList<ActividadCatalogo> checklist, GthOnboarding ob, int faseOrden) =>
+            checklist
+                .Where(a => a.FaseOrden < faseOrden
+                         || a.Automatica
+                         || (a.Codigo == ActividadOnboarding.RevisarAprobarCarta
+                             && ob.CartaFirmadaAprobadaDateTime != null))
+                .Select(a => a.Codigo)
+                .ToList();
+
+        /// <summary>Catálogo de actividades vigentes, ordenado por fase (para resolver el avance).</summary>
+        private static Task<List<ActividadCatalogo>> LeerChecklist(AppDbContext ctx) =>
+            (from a in ctx.GthOnboardingActividad
+             where a.State && a.Active
+             join f in ctx.GthOnboardingFase on a.GthOnboardingFaseId equals f.GthOnboardingFaseId
+             where f.State && f.Active
+             orderby f.Orden, a.Orden
+             select new ActividadCatalogo(f.Orden, a.Codigo, a.Automatica))
+            .ToListAsync();
+
+        /// <summary>
+        /// Proyecta la fila cruda al DTO de la tabla. <paramref name="checklist"/> es el catálogo de
+        /// actividades vigentes: el % de avance son las actividades cumplidas sobre ese total.
+        /// </summary>
+        private static OnboardingListItemDto MapItem(OnboardingRawRow x, IReadOnlyList<ActividadCatalogo> checklist)
+        {
+            var hechas = ActividadesHechas(checklist, x.Ob, x.FaseOrden);
+            return MapItem(x, hechas, checklist.Count);
+        }
+
+        private static OnboardingListItemDto MapItem(
+            OnboardingRawRow x, List<string> actividadesHechas, int totalActividades) => new()
         {
             OnboardingId = x.Ob.GthOnboardingId,
             CandidatoId  = x.Ob.GthCandidatoId,
@@ -109,13 +155,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             FaseOrden    = x.FaseOrden,
             EstadoCodigo = x.EstadoCodigo,
             EstadoNombre = x.EstadoNombre,
-            AvancePorcentaje = totalFases <= 0
+            ActividadesHechas = actividadesHechas,
+            AvancePorcentaje = totalActividades <= 0
                 ? 0
-                : (int)Math.Round(x.FaseOrden * 100d / totalFases, MidpointRounding.AwayFromZero),
+                : (int)Math.Round(actividadesHechas.Count * 100d / totalActividades, MidpointRounding.AwayFromZero),
             CartaOfertaNombre    = x.Ob.CartaOfertaNombre,
             CartaOfertaUrl       = x.Ob.CartaOfertaUrl,
             CartaOfertaEnviadaEn = x.Ob.CartaOfertaEnviadaDateTime?.ToOffset(PeruOffset).DateTime,
-            IniciadoEn           = x.Ob.CreatedDateTime.ToOffset(PeruOffset).DateTime,
+            CartaFirmadaNombre     = x.Ob.CartaFirmadaNombre,
+            CartaFirmadaUrl        = x.Ob.CartaFirmadaUrl,
+            CartaFirmadaSubidaEn   = x.Ob.CartaFirmadaSubidaDateTime?.ToOffset(PeruOffset).DateTime,
+            CartaFirmadaAprobadaEn = x.Ob.CartaFirmadaAprobadaDateTime?.ToOffset(PeruOffset).DateTime,
+            FileDigitalCarpeta = x.Ob.FileDigitalRuta,
+            Observacion        = x.Ob.Observacion,
+            IniciadoEn         = x.Ob.CreatedDateTime.ToOffset(PeruOffset).DateTime,
         };
 
         public async Task<BandejaOnboardingDto> GetBandeja()
@@ -132,6 +185,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     Nombre      = f.Nombre,
                     Descripcion = f.Descripcion,
                     Orden       = f.Orden,
+                    // El checklist de cada fase va anidado acá para que el detalle no tenga que
+                    // pedirlo por separado: es el mismo catálogo para todos los colaboradores.
+                    Actividades = ctx.GthOnboardingActividad
+                        .Where(a => a.State && a.Active && a.GthOnboardingFaseId == f.GthOnboardingFaseId)
+                        .OrderBy(a => a.Orden)
+                        .Select(a => new ActividadOnboardingDto
+                        {
+                            ActividadId = a.GthOnboardingActividadId,
+                            Codigo      = a.Codigo,
+                            Nombre      = a.Nombre,
+                            Descripcion = a.Descripcion,
+                            Orden       = a.Orden,
+                            Automatica  = a.Automatica,
+                        })
+                        .ToList(),
                 })
                 .ToListAsync();
 
@@ -140,7 +208,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 .ThenByDescending(x => x.Ob.GthOnboardingId)
                 .ToListAsync();
 
-            var colaboradores = filas.Select(x => MapItem(x, fases.Count)).ToList();
+            // El catálogo de actividades se arma de las fases que ya se leyeron: es el mismo dato,
+            // así que no vale un roundtrip más.
+            var checklist = fases
+                .SelectMany(f => f.Actividades.Select(a => new ActividadCatalogo(f.Orden, a.Codigo, a.Automatica)))
+                .ToList();
+
+            var colaboradores = filas.Select(x => MapItem(x, checklist)).ToList();
 
             // Conteo del embudo: cuántos colaboradores hay parados en cada fase.
             foreach (var f in fases)
@@ -272,6 +346,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         public async Task<OnboardingListItemDto> Crear(
             OnboardingContextoDto contexto,
             CartaOfertaPersistDto carta,
+            FileDigitalCarpetaDto carpeta,
             string? observacion,
             int? userId)
         {
@@ -302,6 +377,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 CartaOfertaCorreo     = contexto.Correo,
                 CartaOfertaEnviadaDateTime = now,
                 CartaOfertaEnviadaUserId   = userId,
+                FileDigitalDriveId    = carpeta.DriveId,
+                FileDigitalItemId     = carpeta.ItemId,
+                FileDigitalRuta       = carpeta.Ruta,
                 Observacion           = Trim(observacion),
                 CreatedDateTime       = now,
                 CreatedUserId         = userId,
@@ -310,13 +388,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             ctx.GthOnboarding.Add(ob);
             await ctx.SaveChangesAsync();
 
-            var totalFases = await ctx.GthOnboardingFase.CountAsync(f => f.State && f.Active);
+            var checklist = await LeerChecklist(ctx);
             var fila = await QueryOnboardings(ctx, ob.GthOnboardingId).FirstOrDefaultAsync();
 
             // La fila se acaba de insertar en esta misma conexión, así que siempre está; el fallback
             // existe para no devolver null desde un método que promete una fila.
             return fila != null
-                ? MapItem(fila, totalFases)
+                ? MapItem(fila, checklist)
                 : new OnboardingListItemDto
                 {
                     OnboardingId = ob.GthOnboardingId,
@@ -339,18 +417,188 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     CartaOfertaNombre    = carta.Nombre,
                     CartaOfertaUrl       = carta.Url,
                     CartaOfertaEnviadaEn = now.ToOffset(PeruOffset).DateTime,
+                    FileDigitalCarpeta   = carpeta.Ruta,
+                    Observacion          = Trim(observacion),
                     IniciadoEn           = now.ToOffset(PeruOffset).DateTime,
                 };
         }
 
-        public async Task<string?> GetCartaOfertaFolderUrl()
+        public async Task<CartaOfertaFolderDto?> GetCartaOfertaFolder()
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.GthCartaOfertaFolder
                 .Where(f => f.State && f.Active)
                 .OrderBy(f => f.GthCartaOfertaFolderId)
-                .Select(f => f.LinkUrl)
+                .Select(f => new CartaOfertaFolderDto { LinkUrl = f.LinkUrl, FolderName = f.FolderName })
                 .FirstOrDefaultAsync();
+        }
+
+        // ── Carta oferta firmada ───────────────────────────────────────────────
+
+        public async Task<OnboardingDocumentoContextoDto> PrepararDocumento(int onboardingId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var fila = await (
+                from ob in ctx.GthOnboarding
+                where ob.State && ob.GthOnboardingId == onboardingId
+                join c in ctx.GthCandidato on ob.GthCandidatoId equals c.GthCandidatoId
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join fa in ctx.GthOnboardingFase on ob.GthOnboardingFaseId equals fa.GthOnboardingFaseId
+                select new
+                {
+                    Ob         = ob,
+                    r.Codigo,
+                    CandidatoNombre = c.Nombre,
+                    // El nombre con el que se armó la carpeta al enviar la carta oferta: el que
+                    // declaró el postulante en su formulario, y si no hay formulario el que registró
+                    // GTH. NO es el de la base maestra: ese puede haber cambiado después del envío y
+                    // llevaría la carta firmada a una carpeta distinta.
+                    FormularioNombre = ctx.GthPostulanteFormulario
+                        .Where(f => f.State && f.GthCandidatoId == c.GthCandidatoId)
+                        .Select(f => f.NombresCompletos)
+                        .FirstOrDefault(),
+                    FaseCodigo = fa.Codigo,
+                })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            return new OnboardingDocumentoContextoDto
+            {
+                OnboardingId = fila.Ob.GthOnboardingId,
+                Codigo       = fila.Codigo,
+                Nombre       = string.IsNullOrWhiteSpace(fila.FormularioNombre)
+                    ? fila.CandidatoNombre : fila.FormularioNombre!,
+                FaseCodigo   = fila.FaseCodigo,
+                Carpeta      = string.IsNullOrWhiteSpace(fila.Ob.FileDigitalDriveId)
+                            || string.IsNullOrWhiteSpace(fila.Ob.FileDigitalItemId)
+                    ? null
+                    : new FileDigitalCarpetaDto
+                    {
+                        DriveId = fila.Ob.FileDigitalDriveId!,
+                        ItemId  = fila.Ob.FileDigitalItemId!,
+                        Ruta    = fila.Ob.FileDigitalRuta,
+                    },
+            };
+        }
+
+        /// <summary>
+        /// Guarda la carta firmada recién subida. Reemplazarla borra la aprobación anterior: si
+        /// entró un documento nuevo, lo que GTH aprobó ya no es lo que está adjunto.
+        /// </summary>
+        public async Task<OnboardingListItemDto> GuardarCartaFirmada(
+            int onboardingId, CartaOfertaPersistDto carta, FileDigitalCarpetaDto? carpeta, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ob = await ctx.GthOnboarding.FirstOrDefaultAsync(o => o.GthOnboardingId == onboardingId && o.State)
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            var now = DateTimeOffset.UtcNow;
+            ob.CartaFirmadaNombre           = carta.Nombre;
+            ob.CartaFirmadaUrl              = carta.Url;
+            ob.CartaFirmadaItemId           = carta.ItemId;
+            ob.CartaFirmadaDriveId          = carta.DriveId;
+            ob.CartaFirmadaSubidaDateTime   = now;
+            ob.CartaFirmadaSubidaUserId     = userId;
+            ob.CartaFirmadaAprobadaDateTime = null;
+            ob.CartaFirmadaAprobadaUserId   = null;
+
+            // Onboardings abiertos antes de que se persistiera la carpeta: se completa con la que
+            // acaba de resolver el servicio, así el resto de documentos ya no la vuelve a derivar.
+            if (carpeta != null && string.IsNullOrWhiteSpace(ob.FileDigitalItemId))
+            {
+                ob.FileDigitalDriveId = carpeta.DriveId;
+                ob.FileDigitalItemId  = carpeta.ItemId;
+                ob.FileDigitalRuta    = carpeta.Ruta;
+            }
+
+            ob.UpdatedDateTime = now;
+            ob.UpdatedUserId   = userId;
+            await ctx.SaveChangesAsync();
+
+            return await LeerItem(ctx, onboardingId);
+        }
+
+        public async Task<OnboardingListItemDto> AprobarCartaFirmada(int onboardingId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ob = await ctx.GthOnboarding.FirstOrDefaultAsync(o => o.GthOnboardingId == onboardingId && o.State)
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            if (string.IsNullOrWhiteSpace(ob.CartaFirmadaUrl))
+                throw new AbrilException("Primero adjunta la carta oferta firmada por el colaborador.", 409);
+
+            if (ob.CartaFirmadaAprobadaDateTime == null)
+            {
+                var now = DateTimeOffset.UtcNow;
+                ob.CartaFirmadaAprobadaDateTime = now;
+                ob.CartaFirmadaAprobadaUserId   = userId;
+                ob.UpdatedDateTime = now;
+                ob.UpdatedUserId   = userId;
+                await ctx.SaveChangesAsync();
+            }
+
+            return await LeerItem(ctx, onboardingId);
+        }
+
+        // ── Avance de fase ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Mueve el onboarding a la fase siguiente del catálogo. Cada fase decide qué la habilita a
+        /// avanzar; hoy solo está implementada la primera (carta firmada adjunta y aprobada), así
+        /// que desde el resto se corta con un mensaje explícito en vez de avanzar en falso.
+        /// </summary>
+        public async Task<OnboardingListItemDto> Avanzar(int onboardingId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ob = await ctx.GthOnboarding.FirstOrDefaultAsync(o => o.GthOnboardingId == onboardingId && o.State)
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            var fases = await ctx.GthOnboardingFase
+                .Where(f => f.State && f.Active)
+                .OrderBy(f => f.Orden)
+                .ToListAsync();
+
+            var actual = fases.FirstOrDefault(f => f.GthOnboardingFaseId == ob.GthOnboardingFaseId)
+                ?? throw new AbrilException("La fase actual del onboarding ya no está vigente en el catálogo.", 409);
+
+            if (actual.Codigo != FaseOnboarding.CartaOfertaFirmada)
+                throw new AbrilException(
+                    $"La fase «{actual.Nombre}» todavía no está habilitada para avanzar desde el sistema.", 409);
+
+            if (string.IsNullOrWhiteSpace(ob.CartaFirmadaUrl))
+                throw new AbrilException("Adjunta la carta oferta firmada antes de continuar.", 409);
+            if (ob.CartaFirmadaAprobadaDateTime == null)
+                throw new AbrilException("Aprueba la carta oferta firmada antes de continuar.", 409);
+
+            var siguiente = fases.FirstOrDefault(f => f.Orden > actual.Orden)
+                ?? throw new AbrilException("El onboarding ya está en la última fase del catálogo.", 409);
+
+            var estado = await ctx.GthOnboardingEstado
+                .FirstOrDefaultAsync(e => e.Codigo == EstadoOnboarding.EnProceso && e.State)
+                ?? throw new AbrilException(
+                    $"No está configurado el estado {EstadoOnboarding.EnProceso} del onboarding.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+            ob.GthOnboardingFaseId   = siguiente.GthOnboardingFaseId;
+            ob.GthOnboardingEstadoId = estado.GthOnboardingEstadoId;
+            ob.UpdatedDateTime       = now;
+            ob.UpdatedUserId         = userId;
+            await ctx.SaveChangesAsync();
+
+            return await LeerItem(ctx, onboardingId);
+        }
+
+        /// <summary>Relee la fila ya escrita para devolverla al frontend con sus catálogos resueltos.</summary>
+        private static async Task<OnboardingListItemDto> LeerItem(AppDbContext ctx, int onboardingId)
+        {
+            var checklist = await LeerChecklist(ctx);
+            var fila = await QueryOnboardings(ctx, onboardingId).FirstOrDefaultAsync()
+                ?? throw new AbrilException("No se pudo releer el onboarding actualizado.", 500);
+            return MapItem(fila, checklist);
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────
@@ -373,6 +621,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         public const string Preinicio          = "PREINICIO";
         public const string CierreOnboarding   = "CIERRE_ONBOARDING";
         public const string BaseMaestra        = "BASE_MAESTRA";
+    }
+
+    /// <summary>
+    /// Códigos estables de las actividades del checklist (espejo de
+    /// <c>gth_onboarding_actividad.codigo</c>). Solo se declaran las que el código consulta; el
+    /// resto del catálogo se sirve tal cual a la pantalla.
+    /// </summary>
+    public static class ActividadOnboarding
+    {
+        public const string RevisarAprobarCarta = "REVISAR_APROBAR_CARTA";
     }
 
     /// <summary>Códigos estables del estado del onboarding (espejo de <c>gth_onboarding_estado.codigo</c>).</summary>

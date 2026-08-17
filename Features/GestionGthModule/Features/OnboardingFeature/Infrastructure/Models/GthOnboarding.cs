@@ -55,6 +55,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         public DateTimeOffset? CartaOfertaEnviadaDateTime { get; set; }
         public int? CartaOfertaEnviadaUserId { get; set; }
 
+        // ── Carta oferta FIRMADA (la que el colaborador devuelve) ─────────────
+        // Va aparte de la enviada porque son dos documentos distintos del mismo expediente: la
+        // enviada es la propuesta y la firmada es la evidencia que abre el file digital. Se guarda
+        // en la misma carpeta de SharePoint que la enviada.
+        public string? CartaFirmadaNombre { get; set; }
+        public string? CartaFirmadaUrl { get; set; }
+        public string? CartaFirmadaItemId { get; set; }
+        public string? CartaFirmadaDriveId { get; set; }
+
+        public DateTimeOffset? CartaFirmadaSubidaDateTime { get; set; }
+        public int? CartaFirmadaSubidaUserId { get; set; }
+
+        /// <summary>
+        /// Momento en que GTH aprobó la carta firmada (RF-ONB-02). Mientras esté en null el
+        /// onboarding no puede avanzar de fase: es la primera actividad obligatoria del checklist.
+        /// </summary>
+        public DateTimeOffset? CartaFirmadaAprobadaDateTime { get; set; }
+        public int? CartaFirmadaAprobadaUserId { get; set; }
+
+        // ── File digital del colaborador (RF-ONB-04) ──────────────────────────
+        // La carpeta de SharePoint donde se guardan TODOS los documentos de este onboarding. Se
+        // resuelve al enviar la carta oferta y se persiste acá: los documentos siguientes (empezando
+        // por la carta firmada) se suben a esta carpeta sin volver a derivarla del nombre, que puede
+        // cambiar en la base maestra después del envío.
+        public string? FileDigitalDriveId { get; set; }
+        public string? FileDigitalItemId { get; set; }
+
+        /// <summary>Ruta legible de esa carpeta, solo para mostrarla en pantalla.</summary>
+        public string? FileDigitalRuta { get; set; }
+
         /// <summary>Observación interna de GTH al abrir el onboarding (opcional).</summary>
         public string? Observacion { get; set; }
 

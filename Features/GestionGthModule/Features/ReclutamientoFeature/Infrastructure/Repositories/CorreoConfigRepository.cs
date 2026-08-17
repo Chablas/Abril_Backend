@@ -74,9 +74,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var gerenteGeneral = codigosPresentes.Contains(CorreoDestinatarioCodigo.GerenteGeneral)
                 ? await GetGerenteGeneralAsync(ctx)
                 : null;
-            var emailGth = codigosPresentes.Contains(CorreoDestinatarioCodigo.GthArea)
-                ? await GetEmailAreaGthAsync(ctx)
-                : null;
+
+            // Las áreas van juntas en una sola consulta: la pantalla puede tener varias secciones
+            // con destinatarios de área distintos y no hay motivo para pagar un roundtrip por cada
+            // una.
+            var areasPedidas = new List<int>();
+            if (codigosPresentes.Contains(CorreoDestinatarioCodigo.GthArea))
+                areasPedidas.Add(AreaScopeIds.GestionDelTalentoHumano);
+            if (codigosPresentes.Contains(CorreoDestinatarioCodigo.TiArea))
+                areasPedidas.Add(AreaScopeIds.TecnologiaDeLaInformacion);
+            var emailsArea = await GetEmailsAreasAsync(ctx, areasPedidas);
 
             foreach (var f in filas)
             {
@@ -100,7 +107,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         break;
 
                     case CorreoDestinatarioCodigo.GthArea:
-                        fila.EmailResuelto = emailGth;
+                        fila.EmailResuelto = emailsArea.GetValueOrDefault(AreaScopeIds.GestionDelTalentoHumano);
+                        break;
+
+                    case CorreoDestinatarioCodigo.TiArea:
+                        fila.EmailResuelto = emailsArea.GetValueOrDefault(AreaScopeIds.TecnologiaDeLaInformacion);
                         break;
 
                     case CorreoDestinatarioCodigo.GerenteArea:
@@ -150,7 +161,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<string?> GetEmailAreaGthAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await GetEmailAreaGthAsync(ctx);
+            return await GetEmailAreaAsync(ctx, AreaScopeIds.GestionDelTalentoHumano);
+        }
+
+        public async Task<string?> GetEmailAreaTiAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await GetEmailAreaAsync(ctx, AreaScopeIds.TecnologiaDeLaInformacion);
         }
 
         /// <summary>
@@ -174,12 +191,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
         }
 
-        private static async Task<string?> GetEmailAreaGthAsync(AppDbContext ctx)
+        /// <summary>Correo cargado en un nodo vigente de <c>area_scope</c>; null si no tiene.</summary>
+        private static async Task<string?> GetEmailAreaAsync(AppDbContext ctx, int areaScopeId)
         {
             return await ctx.AreaScope.AsNoTracking()
-                .Where(s => s.AreaScopeId == AreaScopeIds.GestionDelTalentoHumano && s.State)
+                .Where(s => s.AreaScopeId == areaScopeId && s.State)
                 .Select(s => s.Email)
                 .FirstOrDefaultAsync();
+        }
+
+        /// <summary>
+        /// Lo mismo que <see cref="GetEmailAreaAsync"/> pero para varias áreas a la vez, en un solo
+        /// roundtrip. Las áreas sin correo cargado no aparecen en el diccionario.
+        /// </summary>
+        private static async Task<Dictionary<int, string?>> GetEmailsAreasAsync(
+            AppDbContext ctx, IReadOnlyList<int> areaScopeIds)
+        {
+            if (areaScopeIds.Count == 0) return new Dictionary<int, string?>();
+
+            return await ctx.AreaScope.AsNoTracking()
+                .Where(s => areaScopeIds.Contains(s.AreaScopeId) && s.State)
+                .ToDictionaryAsync(s => s.AreaScopeId, s => s.Email);
         }
 
         // ───────────────────────────── Escritura ─────────────────────────────

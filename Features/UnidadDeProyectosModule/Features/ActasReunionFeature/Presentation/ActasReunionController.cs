@@ -142,6 +142,27 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>Elimina un tema del catálogo (borrado real, no soft-delete). Las reuniones que ya lo usaban
+        /// conservan su tema (texto propio) y solo pierden el vínculo al catálogo.</summary>
+        [HttpDelete("temas/{reunionTemaId:int}")]
+        public async Task<IActionResult> EliminarTema(int reunionTemaId)
+        {
+            try
+            {
+                var reunionesDesvinculadas = await _service.EliminarTema(reunionTemaId);
+                return Ok(new { message = "Tema eliminado.", reunionesDesvinculadas });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION ELIMINAR TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Convocatoria recurrente configurada para un tema (área + puestos habituales).</summary>
         [HttpGet("temas/{reunionTemaId:int}/convocatoria")]
         public async Task<IActionResult> GetConvocatoriaTema(int reunionTemaId)

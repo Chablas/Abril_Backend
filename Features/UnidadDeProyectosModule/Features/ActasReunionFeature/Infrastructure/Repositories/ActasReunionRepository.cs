@@ -413,7 +413,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return reunion.ReunionId;
         }
 
-        public async Task Update(int reunionId, ReunionUpdateRequest request, int userId)
+        public async Task<List<int>> Update(int reunionId, ReunionUpdateRequest request, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -463,6 +463,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 }
             }
 
+            // Participantes nuevos (con WorkerId) para avisarles por correo tras guardar — los que
+            // ya estaban no se vuelven a notificar en cada edición.
+            var nuevosWorkerIds = new List<int>();
+
             var orden = 0;
             foreach (var input in entrantes)
             {
@@ -496,12 +500,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         Active = true,
                         State = true,
                     });
+                    if (input.WorkerId.HasValue) nuevosWorkerIds.Add(input.WorkerId.Value);
                 }
             }
 
             await BackfillPuestoTrabajadores(ctx, entrantes);
 
             await ctx.SaveChangesAsync();
+
+            return nuevosWorkerIds;
         }
 
         public async Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId)
@@ -985,8 +992,40 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return new CatalogoDto { Id = tema.ReunionTemaId, Descripcion = tema.Descripcion };
         }
 
+        /// <summary>
+        /// Borrado real (no soft-delete): se pidió explícitamente que el tema desaparezca del todo del
+        /// catálogo, no que quede oculto. Las reuniones que ya lo usaban conservan su <see cref="Reunion.Tema"/>
+        /// (texto propio, copiado al agendar) intacto — solo se desvincula la referencia al catálogo
+        /// (<see cref="Reunion.ReunionTemaId"/> pasa a null), así el borrado no rompe el historial de esas
+        /// actas. Ojo: si alguna de esas reuniones estaba PROGRAMADA con agenda dinámica pendiente de
+        /// recordatorio, al perder el vínculo deja de calzar en <see cref="GetCandidatosRecordatorioAgenda"/>
+        /// y no le llegará el correo — es la consecuencia esperada de "ya no se puede usar hacia adelante".
+        /// Devuelve cuántas reuniones se desvincularon, para informar al usuario.
+        /// </summary>
+        public async Task<int> EliminarTema(int reunionTemaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tema = await ctx.ReunionTema.FirstOrDefaultAsync(t => t.ReunionTemaId == reunionTemaId);
+            if (tema == null) throw new AbrilException("El tema no existe.", 404);
+
+            var reuniones = await ctx.Reunion.Where(r => r.ReunionTemaId == reunionTemaId).ToListAsync();
+            foreach (var r in reuniones) r.ReunionTemaId = null;
+
+            var puestos = await ctx.ReunionTemaPuesto.Where(p => p.ReunionTemaId == reunionTemaId).ToListAsync();
+            ctx.ReunionTemaPuesto.RemoveRange(puestos);
+            await ctx.SaveChangesAsync();
+
+            // Guardado aparte: ReunionTemaPuesto no tiene navegación/Fluent config hacia ReunionTema,
+            // así que EF no conoce la dependencia y no puede ordenar ambos deletes en un solo batch
+            // (llegó a generar el DELETE del padre antes que el de los hijos, violando la FK real de la BD).
+            ctx.ReunionTema.Remove(tema);
+            await ctx.SaveChangesAsync();
+            return reuniones.Count;
+        }
+
         /// <summary>Catálogo de temas predefinidos (para la pantalla de configuración de convocatoria por tema).</summary>
-        public async Task<List<CatalogoDto>> GetTemasCatalogo()
+        public async Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo()
         {
             using var ctx = _factory.CreateDbContext();
             return await GetTemas(ctx);
@@ -1175,6 +1214,54 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             await ctx.SaveChangesAsync();
         }
 
+        // ── Convocatoria inmediata (al agendar) ──────────────────────────────────
+        /// <summary>
+        /// Datos de la reunión + emails de sus participantes, para el correo de convocatoria.
+        /// <paramref name="soloWorkerIds"/> filtra a solo esos workers (ej. al agregar participantes
+        /// nuevos en una edición, para no re-notificar a los que ya estaban); null = todos.
+        /// </summary>
+        public async Task<ReunionConvocatoriaInfoDto?> GetInfoParaConvocatoria(int reunionId, List<int>? soloWorkerIds = null)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var r = await ctx.Reunion.FirstOrDefaultAsync(x => x.ReunionId == reunionId && x.State);
+            if (r == null) return null;
+
+            var ambito = r.ProjectId != null
+                ? await ctx.Project.Where(p => p.ProjectId == r.ProjectId.Value).Select(p => p.ProjectDescription).FirstOrDefaultAsync()
+                : r.AreaScopeId != null
+                    ? await ctx.AreaScope.Where(s => s.AreaScopeId == r.AreaScopeId.Value).Select(s => s.AreaItem!.AreaItemName).FirstOrDefaultAsync()
+                    : "Organización";
+
+            var destinatarios = await (
+                from part in ctx.ReunionParticipante
+                where part.ReunionId == r.ReunionId && part.State && part.WorkerId != null
+                    && (soloWorkerIds == null || soloWorkerIds.Contains(part.WorkerId.Value))
+                join w in ctx.Worker on part.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.UserId != null && w.EmailCorporativo != null
+                select new ReunionRecordatorioDestinatarioDto
+                {
+                    UserId = p.UserId!.Value,
+                    WorkerId = w.Id,
+                    Nombre = p.FullName,
+                    Email = w.EmailCorporativo!,
+                }
+            ).Distinct().ToListAsync();
+
+            return new ReunionConvocatoriaInfoDto
+            {
+                ReunionId = r.ReunionId,
+                Numero = r.Numero,
+                Tema = r.Tema,
+                AmbitoDescripcion = ambito ?? "Organización",
+                Fecha = r.Fecha,
+                HoraInicio = r.HoraInicio,
+                Lugar = r.Lugar,
+                Destinatarios = destinatarios,
+            };
+        }
+
         // ── Recordatorio de agenda (job) ───────────────────────────────────────
         public async Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda()
         {
@@ -1309,12 +1396,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         }
 
         /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
-        private static async Task<List<CatalogoDto>> GetTemas(AppDbContext ctx)
+        private static async Task<List<ReunionTemaOpcionDto>> GetTemas(AppDbContext ctx)
         {
             return await ctx.ReunionTema
                 .Where(t => t.State && t.Active)
                 .OrderBy(t => t.ReunionTemaId)
-                .Select(t => new CatalogoDto { Id = t.ReunionTemaId, Descripcion = t.Descripcion })
+                .Select(t => new ReunionTemaOpcionDto { Id = t.ReunionTemaId, Descripcion = t.Descripcion, AreaScopeId = t.AreaScopeId })
                 .ToListAsync();
         }
 

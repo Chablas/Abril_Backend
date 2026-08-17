@@ -13,6 +13,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string ProjectDescription { get; set; } = null!;
     }
 
+    /// <summary>
+    /// Tema del desplegable "Tema de la reunión", con el área/gerencia de su convocatoria recurrente
+    /// (si tiene) para poder ocultarlo cuando no aplica al ámbito elegido — ej. "Reunión de Jefaturas
+    /// de Proyectos" (AreaScopeId = Gerencia de Proyectos) no debe aparecer al agendar una reunión de
+    /// un proyecto puntual. AreaScopeId null = sin área asociada, aplica a cualquier ámbito.
+    /// </summary>
+    public class ReunionTemaOpcionDto
+    {
+        public int Id { get; set; }
+        public string Descripcion { get; set; } = null!;
+        public int? AreaScopeId { get; set; }
+    }
+
     /// <summary>Trabajador de Abril (workers con email_corporativo @abril.pe) para los desplegables.</summary>
     public class TrabajadorAbrilDto
     {
@@ -71,7 +84,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<CatalogoDto> ReunionEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
         /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
-        public List<CatalogoDto> Temas { get; set; } = new();
+        public List<ReunionTemaOpcionDto> Temas { get; set; } = new();
         public PagedResultDto<ReunionListItemDto> Reuniones { get; set; } = new();
     }
 
@@ -108,7 +121,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<CatalogoDto> AcuerdoEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
         /// <summary>Temas predefinidos para el desplegable al "Agendar siguiente reunión".</summary>
-        public List<CatalogoDto> Temas { get; set; } = new();
+        public List<ReunionTemaOpcionDto> Temas { get; set; } = new();
     }
 
     public class ReunionParticipanteDto
@@ -331,6 +344,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int WorkerId { get; set; }
         public string Nombre { get; set; } = null!;
         public string Email { get; set; } = null!;
+    }
+
+    // ── Convocatoria inmediata (al agendar) ──────────────────────────────────
+    /// <summary>Datos de la reunión recién creada para armar el correo de convocatoria.</summary>
+    public class ReunionConvocatoriaInfoDto
+    {
+        public int ReunionId { get; set; }
+        public int Numero { get; set; }
+        public string Tema { get; set; } = null!;
+        public string AmbitoDescripcion { get; set; } = null!;
+        public DateOnly Fecha { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public string? Lugar { get; set; }
+        public List<ReunionRecordatorioDestinatarioDto> Destinatarios { get; set; } = new();
     }
 
     public class ReunionCambiarEstadoRequest

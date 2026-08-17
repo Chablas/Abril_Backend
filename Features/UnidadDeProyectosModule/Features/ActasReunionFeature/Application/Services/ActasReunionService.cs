@@ -67,14 +67,44 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public Task<ReunionDetalleDto> GetDetalle(int reunionId)
             => _repository.GetDetalle(reunionId);
 
-        public Task<int> Create(ReunionCreateRequest request, int userId)
+        public async Task<int> Create(ReunionCreateRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Tema))
                 throw new AbrilException("El tema de la reunión es obligatorio.", 400);
             if (request.ProjectId.HasValue && request.AreaScopeId.HasValue)
                 throw new AbrilException("Una reunión no puede pertenecer a un proyecto y a un área/gerencia a la vez.", 400);
             ValidarHoras(request.HoraInicio, request.HoraFin);
-            return _repository.Create(request, userId);
+            var reunionId = await _repository.Create(request, userId);
+
+            try
+            {
+                await EnviarConvocatoria(reunionId);
+            }
+            catch (Exception ex)
+            {
+                // El correo de convocatoria no debe bloquear el agendado de la reunión.
+                _logger.LogError(ex, "Error enviando convocatoria de la reunión {ReunionId}", reunionId);
+            }
+
+            return reunionId;
+        }
+
+        /// <summary>Correo inmediato a los participantes al agendar o al sumarse a una reunión existente
+        /// (distinto del recordatorio de agenda, que solo aplica a temas con agenda dinámica y llega más
+        /// cerca de la fecha). soloWorkerIds filtra a solo esos workers; null = todos los participantes.</summary>
+        private async Task EnviarConvocatoria(int reunionId, List<int>? soloWorkerIds = null)
+        {
+            var info = await _repository.GetInfoParaConvocatoria(reunionId, soloWorkerIds);
+            if (info == null || info.Destinatarios.Count == 0) return;
+
+            var link = $"{_frontendUrl}/projects/actas-reunion/{info.ReunionId}";
+            var emails = info.Destinatarios.Select(d => d.Email).Distinct().ToList();
+
+            await _emailService.SendAsync(
+                to: emails,
+                subject: $"[PRUEBA] Convocatoria — Reunión N° {info.Numero}: {info.Tema}",
+                body: BuildCuerpoConvocatoria(info, link),
+                isHtml: true);
         }
 
         public Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId)
@@ -93,7 +123,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.AgregarTema(descripcion, userId);
         }
 
-        public Task<List<CatalogoDto>> GetTemasCatalogo()
+        public Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo()
             => _repository.GetTemasCatalogo();
 
         public Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId)
@@ -101,6 +131,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         public Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId)
             => _repository.GuardarConvocatoriaTema(reunionTemaId, request, userId);
+
+        public Task<int> EliminarTema(int reunionTemaId)
+            => _repository.EliminarTema(reunionTemaId);
 
         public Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId)
             => _repository.GetAgenda(reunionId, userId);
@@ -115,12 +148,24 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.GuardarMisTemas(reunionId, userId, temas);
         }
 
-        public Task Update(int reunionId, ReunionUpdateRequest request, int userId)
+        public async Task Update(int reunionId, ReunionUpdateRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Tema))
                 throw new AbrilException("El tema de la reunión es obligatorio.", 400);
             ValidarHoras(request.HoraInicio, request.HoraFin);
-            return _repository.Update(reunionId, request, userId);
+            var nuevosWorkerIds = await _repository.Update(reunionId, request, userId);
+
+            if (nuevosWorkerIds.Count > 0)
+            {
+                try
+                {
+                    await EnviarConvocatoria(reunionId, nuevosWorkerIds);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error enviando convocatoria a participantes nuevos de la reunión {ReunionId}", reunionId);
+                }
+            }
         }
 
         public Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId)
@@ -324,7 +369,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 {
                     await _emailService.SendAsync(
                         to: emails,
-                        subject: $"Carga tu agenda — Reunión N° {c.Numero}: {c.Tema}",
+                        subject: $"[PRUEBA] Carga tu agenda — Reunión N° {c.Numero}: {c.Tema}",
                         body: BuildCuerpoRecordatorioAgenda(c, link),
                         isHtml: true);
 
@@ -394,10 +439,48 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return target;
         }
 
+        /// <summary>
+        /// Banner "correo de prueba": el módulo de actas de reunión todavía está en validación, así
+        /// que hasta que se confirme con el negocio, todo correo saliente lo deja bien claro arriba
+        /// para que nadie lo tome como una convocatoria real y arme confusión.
+        /// </summary>
+        private const string BannerPrueba = @"
+  <div style='background:#fff3cd;border:1px solid #ffe69c;border-radius:6px;padding:10px 16px;margin-bottom:16px;text-align:center'>
+    <p style='margin:0;color:#664d03;font-size:12px;font-weight:bold'>
+      🧪 CORREO DE PRUEBA — El módulo de Actas de Reunión está en validación. Este mensaje es parte de una prueba interna, no una convocatoria real.
+    </p>
+  </div>";
+
+        private static string BuildCuerpoConvocatoria(ReunionConvocatoriaInfoDto c, string link)
+        {
+            var hora = c.HoraInicio.HasValue ? c.HoraInicio.Value.ToString("HH:mm") : "por confirmar";
+            var lugarHtml = string.IsNullOrWhiteSpace(c.Lugar) ? "" : $"<p>Lugar: {c.Lugar}</p>";
+            return $@"
+<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
+  {BannerPrueba}
+  <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
+    <h2 style='color:#fff;margin:0;font-size:18px'>Convocatoria — Reunión N° {c.Numero}</h2>
+  </div>
+  <div style='background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px'>
+    <p><strong>{c.Tema}</strong></p>
+    <p>{c.AmbitoDescripcion} — {c.Fecha:dd/MM/yyyy} a las {hora}</p>
+    {lugarHtml}
+    <p>Fuiste agregado como participante de esta reunión.</p>
+    <div style='margin:24px 0;text-align:center'>
+      <a href='{link}'
+         style='background:#0F6E56;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold'>
+        Ver detalle de la reunión
+      </a>
+    </div>
+  </div>
+</div>";
+        }
+
         private static string BuildCuerpoRecordatorioAgenda(ReunionRecordatorioCandidatoDto c, string link)
         {
             return $@"
 <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
+  {BannerPrueba}
   <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
     <h2 style='color:#fff;margin:0;font-size:18px'>Recordatorio de Agenda — Reunión N° {c.Numero}</h2>
   </div>

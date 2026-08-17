@@ -17,9 +17,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<List<CatalogoDto>> GetPuestos();
         Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
         Task<CatalogoDto> AgregarTema(string descripcion, int userId);
-        Task<List<CatalogoDto>> GetTemasCatalogo();
+        Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo();
         Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
         Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId);
+        /// <summary>Elimina un tema del catálogo (borrado real, no soft-delete). Las reuniones que ya lo usaban
+        /// conservan su tema (texto propio) y solo pierden el vínculo al catálogo. Devuelve cuántas se desvincularon.</summary>
+        Task<int> EliminarTema(int reunionTemaId);
+
+        /// <summary>Datos de la reunión + emails de sus participantes, para el correo de convocatoria.
+        /// soloWorkerIds filtra a solo esos workers; null = todos.</summary>
+        Task<ReunionConvocatoriaInfoDto?> GetInfoParaConvocatoria(int reunionId, List<int>? soloWorkerIds = null);
 
         // ── Agenda de reunión ──────────────────────────────────────────────
         /// <summary>Agenda de una reunión concreta (fija o temas cargados por participante), vista por el usuario autenticado.</summary>
@@ -33,7 +40,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task RegistrarRecordatorioEnviado(int reunionId);
         /// <summary>True si la fecha es un feriado configurado (fijo o recurrente anual).</summary>
         Task<bool> EsFeriado(DateOnly fecha);
-        Task Update(int reunionId, ReunionUpdateRequest request, int userId);
+        /// <summary>Guarda los cambios y devuelve los WorkerId de participantes recién agregados (para notificarles).</summary>
+        Task<List<int>> Update(int reunionId, ReunionUpdateRequest request, int userId);
         Task Reprogramar(int reunionId, ReunionReprogramarRequest request, int userId);
         Task CambiarEstado(int reunionId, string estado, int userId);
         Task Eliminar(int reunionId, int userId);

@@ -12,9 +12,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<List<CatalogoDto>> GetPuestos();
         Task<List<CatalogoDto>> GetPuestosPorArea(int? areaScopeId);
         Task<CatalogoDto> AgregarTema(string descripcion, int userId);
-        Task<List<CatalogoDto>> GetTemasCatalogo();
+        Task<List<ReunionTemaOpcionDto>> GetTemasCatalogo();
         Task<TemaConvocatoriaDto> GetConvocatoriaTema(int reunionTemaId);
         Task GuardarConvocatoriaTema(int reunionTemaId, TemaConvocatoriaSaveRequest request, int userId);
+        /// <summary>Elimina un tema del catálogo (borrado real). Devuelve cuántas reuniones existentes se desvincularon.</summary>
+        Task<int> EliminarTema(int reunionTemaId);
 
         // ── Agenda de reunión ──────────────────────────────────────────────
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);

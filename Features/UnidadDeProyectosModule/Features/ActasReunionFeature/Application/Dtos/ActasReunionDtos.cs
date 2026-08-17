@@ -405,4 +405,47 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Ids de workers (cualquier trabajador de la organización, haya asistido o no) responsables del acuerdo.</summary>
         public List<int> ResponsableWorkerIds { get; set; } = new();
     }
+
+    // ── Aceptación de acuerdos (link personal enviado por correo) ────────────
+
+    /// <summary>Info mínima para la página de aceptar/rechazar un acuerdo, accedida desde el link del correo.</summary>
+    public class AcuerdoResponsableInfoDto
+    {
+        public int ReunionAcuerdoResponsableId { get; set; }
+        public int ReunionId { get; set; }
+        public int ReunionNumero { get; set; }
+        public string ReunionTema { get; set; } = null!;
+        public string AcuerdoDescripcion { get; set; } = null!;
+        public string? AcuerdoAcciones { get; set; }
+        public DateOnly? FechaProgramada { get; set; }
+        /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
+        public string EstadoAceptacion { get; set; } = null!;
+        public string? MotivoRechazo { get; set; }
+    }
+
+    public class AcuerdoResponsableDecisionRequest
+    {
+        public bool Aceptado { get; set; }
+        /// <summary>Obligatorio cuando Aceptado es false.</summary>
+        public string? MotivoRechazo { get; set; }
+    }
+
+    // ── Envío del acta al marcar la reunión como realizada ───────────────────
+
+    /// <summary>Un destinatario del correo con el acta final: asistió y/o es responsable de algún
+    /// acuerdo. AcuerdosPendientes solo trae los que requieren su aceptación y siguen PENDIENTE.</summary>
+    public class ActaEnvioDestinatarioDto
+    {
+        public int WorkerId { get; set; }
+        public string Nombre { get; set; } = null!;
+        public string Email { get; set; } = null!;
+        public bool Asistio { get; set; }
+        public List<ActaEnvioAcuerdoPendienteDto> AcuerdosPendientes { get; set; } = new();
+    }
+
+    public class ActaEnvioAcuerdoPendienteDto
+    {
+        public int ReunionAcuerdoResponsableId { get; set; }
+        public string Descripcion { get; set; } = null!;
+    }
 }

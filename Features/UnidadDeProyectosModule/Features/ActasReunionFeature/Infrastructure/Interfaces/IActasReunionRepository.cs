@@ -53,6 +53,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<List<ReunionArchivoDto>> AgregarArchivos(int reunionId, List<(string Url, string? OriginalFileName)> archivos, int userId);
         Task EliminarArchivo(int reunionArchivoId, int userId);
 
+        // ── Aceptación de acuerdos + envío del acta al marcar Realizada ──────
+        /// <summary>Info del acuerdo/responsable para la página de aceptar/rechazar; valida que
+        /// userId corresponda a ese responsable (por persona, no worker_id exacto).</summary>
+        Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId);
+        /// <summary>Registra la decisión (aceptar/rechazar) del responsable autenticado.</summary>
+        Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request);
+        /// <summary>Destinatarios del correo del acta final: asistentes + responsables de acuerdos
+        /// (con sus acuerdos pendientes de aceptación, si los tienen), deduplicados por worker.</summary>
+        Task<List<ActaEnvioDestinatarioDto>> GetDestinatariosActaRealizada(int reunionId);
+
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
         /// <summary>Devuelve la carpeta única vigente (state = true) o null si aún no se configuró.</summary>
         Task<ReunionFolderDto?> GetFolderSingleton();

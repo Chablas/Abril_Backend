@@ -40,6 +40,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<List<ReunionArchivoDto>> SubirArchivos(int reunionId, IFormFileCollection files, int userId);
         Task EliminarArchivo(int reunionArchivoId, int userId);
 
+        // ── Aceptación de acuerdos (link personal enviado por correo) ────────
+        Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId);
+        Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request);
+
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
         /// <summary>Devuelve la carpeta única configurada (o null si aún no se configuró).</summary>
         Task<ReunionFolderDto?> GetFolder();

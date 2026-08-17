@@ -4,8 +4,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 {
     public interface IActasReunionRepository
     {
-        Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro);
-        Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro);
+        Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId);
+        Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId);
         Task<ReunionDetalleDto> GetDetalle(int reunionId);
         Task<int> Create(ReunionCreateRequest request, int userId);
         /// <summary>

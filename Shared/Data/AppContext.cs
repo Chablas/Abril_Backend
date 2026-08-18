@@ -180,6 +180,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsItemTrabajador> SsItemTrabajador => Set<SsItemTrabajador>();
         public DbSet<SsItemEmpresa> SsItemEmpresa => Set<SsItemEmpresa>();
         public DbSet<SsItemEquipo> SsItemEquipo => Set<SsItemEquipo>();
+        public DbSet<SsTipoEquipo> SsTipoEquipo => Set<SsTipoEquipo>();
         public DbSet<SsCriterioEvaluacion> SsCriterioEvaluacion => Set<SsCriterioEvaluacion>();
         public DbSet<SsEmpresaProyecto> SsEmpresaProyecto => Set<SsEmpresaProyecto>();
         public DbSet<SsHabTrabajador> SsHabTrabajador => Set<SsHabTrabajador>();

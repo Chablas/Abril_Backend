@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
     public class SsEquipo
     {
         public int Id { get; set; }
-        public string Tipo { get; set; } = string.Empty;
+        public int TipoEquipoId { get; set; }
         public string? Marca { get; set; }
         public string? Modelo { get; set; }
         public string? NSerie { get; set; }
@@ -29,5 +29,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
 
         [ForeignKey(nameof(ProyectoId))]
         public Project? Proyecto { get; set; }
+
+        [ForeignKey(nameof(TipoEquipoId))]
+        public SsTipoEquipo? TipoEquipo { get; set; }
     }
 }

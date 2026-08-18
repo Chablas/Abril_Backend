@@ -837,6 +837,149 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             await ctx.SaveChangesAsync();
         }
 
+        // ── Aceptación de acuerdos + envío del acta al marcar Realizada ──────
+
+        /// <summary>Resuelve el workerId del usuario autenticado y valida que sea (por persona, no
+        /// worker_id exacto) el responsable dueño de esta fila. Lanza 403/404 si no corresponde.</summary>
+        private static async Task<ReunionAcuerdoResponsable> GetResponsableAutorizado(
+            AppDbContext ctx, int reunionAcuerdoResponsableId, int userId)
+        {
+            var responsable = await ctx.ReunionAcuerdoResponsable
+                .FirstOrDefaultAsync(r => r.ReunionAcuerdoResponsableId == reunionAcuerdoResponsableId && r.State);
+            if (responsable is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+            if (responsable.WorkerId is null)
+                throw new AbrilException("Este responsable no está vinculado a un trabajador.", 400);
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+            if (workerId is null)
+                throw new AbrilException("No se encontró un trabajador asociado a este usuario.", 400);
+
+            if (workerId.Value != responsable.WorkerId.Value)
+            {
+                // Igual que en GuardarMisTemas: compara por persona, no por worker_id exacto,
+                // para tolerar duplicados de worker de la misma persona.
+                var personIdActual = await ctx.Worker.Where(w => w.Id == workerId.Value).Select(w => (int?)w.PersonId).FirstOrDefaultAsync();
+                var personIdResponsable = await ctx.Worker.Where(w => w.Id == responsable.WorkerId.Value).Select(w => (int?)w.PersonId).FirstOrDefaultAsync();
+                if (personIdActual is null || personIdActual != personIdResponsable)
+                    throw new AbrilException("Este acuerdo no te corresponde.", 403);
+            }
+
+            return responsable;
+        }
+
+        public async Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var responsable = await GetResponsableAutorizado(ctx, reunionAcuerdoResponsableId, userId);
+
+            var acuerdo = await ctx.ReunionAcuerdo
+                .FirstOrDefaultAsync(a => a.ReunionAcuerdoId == responsable.ReunionAcuerdoId && a.State);
+            if (acuerdo is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+
+            var reunion = await ctx.Reunion
+                .Where(r => r.ReunionId == acuerdo.ReunionId)
+                .Select(r => new { r.Numero, r.Tema })
+                .FirstOrDefaultAsync();
+            if (reunion is null)
+                throw new AbrilException("El acta de reunión no existe.", 404);
+
+            return new AcuerdoResponsableInfoDto
+            {
+                ReunionAcuerdoResponsableId = responsable.ReunionAcuerdoResponsableId,
+                ReunionId = acuerdo.ReunionId,
+                ReunionNumero = reunion.Numero,
+                ReunionTema = reunion.Tema,
+                AcuerdoDescripcion = acuerdo.Descripcion,
+                AcuerdoAcciones = acuerdo.Acciones,
+                FechaProgramada = acuerdo.FechaProgramada,
+                EstadoAceptacion = responsable.EstadoAceptacion,
+                MotivoRechazo = responsable.MotivoRechazo,
+            };
+        }
+
+        public async Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var responsable = await GetResponsableAutorizado(ctx, reunionAcuerdoResponsableId, userId);
+
+            if (!request.Aceptado && string.IsNullOrWhiteSpace(request.MotivoRechazo))
+                throw new AbrilException("Debe indicar el motivo del rechazo.", 400);
+
+            responsable.EstadoAceptacion = request.Aceptado ? "ACEPTADO" : "RECHAZADO";
+            responsable.MotivoRechazo = request.Aceptado ? null : request.MotivoRechazo!.Trim();
+            responsable.FechaRespuesta = DateTime.UtcNow;
+            responsable.UpdatedDateTime = DateTime.UtcNow;
+            responsable.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<ActaEnvioDestinatarioDto>> GetDestinatariosActaRealizada(int reunionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var asistentes = await (
+                from p in ctx.ReunionParticipante
+                where p.ReunionId == reunionId && p.State && p.Asistio && p.WorkerId != null
+                join w in ctx.Worker on p.WorkerId!.Value equals w.Id
+                where w.EmailCorporativo != null
+                select new { WorkerId = w.Id, Nombre = p.Nombre, Email = w.EmailCorporativo! }
+            ).Distinct().ToListAsync();
+
+            var responsables = await (
+                from ac in ctx.ReunionAcuerdo
+                where ac.ReunionId == reunionId && ac.State
+                join resp in ctx.ReunionAcuerdoResponsable on ac.ReunionAcuerdoId equals resp.ReunionAcuerdoId
+                where resp.State && resp.WorkerId != null
+                join w in ctx.Worker on resp.WorkerId!.Value equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.EmailCorporativo != null
+                select new
+                {
+                    WorkerId = w.Id,
+                    Nombre = p.FullName,
+                    Email = w.EmailCorporativo!,
+                    resp.ReunionAcuerdoResponsableId,
+                    ac.Descripcion,
+                    resp.EstadoAceptacion,
+                    ac.RequiereAceptacion,
+                }
+            ).ToListAsync();
+
+            var destinatarios = new Dictionary<int, ActaEnvioDestinatarioDto>();
+            foreach (var a in asistentes)
+            {
+                destinatarios[a.WorkerId] = new ActaEnvioDestinatarioDto
+                {
+                    WorkerId = a.WorkerId,
+                    Nombre = a.Nombre,
+                    Email = a.Email,
+                    Asistio = true,
+                };
+            }
+            foreach (var r in responsables)
+            {
+                if (!destinatarios.TryGetValue(r.WorkerId, out var dest))
+                {
+                    dest = new ActaEnvioDestinatarioDto { WorkerId = r.WorkerId, Nombre = r.Nombre, Email = r.Email, Asistio = false };
+                    destinatarios[r.WorkerId] = dest;
+                }
+                if (r.RequiereAceptacion && r.EstadoAceptacion == "PENDIENTE")
+                {
+                    dest.AcuerdosPendientes.Add(new ActaEnvioAcuerdoPendienteDto
+                    {
+                        ReunionAcuerdoResponsableId = r.ReunionAcuerdoResponsableId,
+                        Descripcion = r.Descripcion,
+                    });
+                }
+            }
+
+            return destinatarios.Values.ToList();
+        }
+
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
         public async Task<ReunionFolderDto?> GetFolderSingleton()
         {

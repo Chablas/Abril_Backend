@@ -935,7 +935,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     // caso Reyes Carbajal), no corresponde aprobar el certificado directo: hay que
                     // armarle al médico la convalidación pendiente, igual que si el cambio de obra
                     // hubiera ocurrido con el EMO ya activo.
-                    var fechaEmoDt = emo.FechaEmo.ToDateTime(TimeOnly.MinValue);
+                    var fechaEmoDt = DateTime.SpecifyKind(emo.FechaEmo.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                     var tieneCambioSinConvalidar = await ctx.WorkerEvento.AnyAsync(ev =>
                         ev.WorkerId == emo.WorkerId
                         && ev.CreatedAt > fechaEmoDt

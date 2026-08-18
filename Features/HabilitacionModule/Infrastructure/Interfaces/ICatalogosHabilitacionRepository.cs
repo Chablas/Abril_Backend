@@ -40,6 +40,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<Categoria> ActualizarCategoriaAsync(int id, string nombre);
         Task ToggleCategoriaAsync(int id, bool activo);
 
+        // Tipos de equipo CRUD
+        /// <summary>Tipos de equipo activos (Volquete, Excavadora de Oruga, …), para el desplegable del formulario de equipos.</summary>
+        Task<List<SsTipoEquipo>> GetTiposEquipoAsync();
+        Task<List<SsTipoEquipo>> GetTiposEquipoTodosAsync();
+        Task<SsTipoEquipo> CrearTipoEquipoAsync(string nombre);
+        Task<SsTipoEquipo> ActualizarTipoEquipoAsync(int id, string nombre);
+        Task ToggleTipoEquipoAsync(int id, bool activo);
+
         // Puestos CRUD
         /// <summary>
         /// Puestos vivos para la pantalla de configuración, con su categoría y la cantidad

@@ -153,7 +153,7 @@ UNION ALL
 SELECT
     heq.id, 'EQUIPO' as tipo,
     i.nombre as nombre_entregable,
-    CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) as entidad_nombre,
+    CONCAT(te.nombre, ' - ', eq.marca, ' ', eq.modelo) as entidad_nombre,
     ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     eq.proyecto_id,
@@ -173,6 +173,7 @@ SELECT
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
+JOIN ss_tipo_equipo te ON te.id = eq.tipo_equipo_id
 LEFT JOIN contributor ec ON ec.contributor_id = eq.propietario_empresa_id
 JOIN project p ON p.project_id = eq.proyecto_id
 WHERE heq.estado = 'Enviado'
@@ -180,7 +181,7 @@ WHERE heq.estado = 'Enviado'
   AND (@EmpresaId IS NULL OR eq.propietario_empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
-  AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
+  AND (@Search IS NULL OR CONCAT(te.nombre, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
   -- Entregable de un equipo, no de un trabajador: sin área propia.
   AND @AreaScopeIds::int[] IS NULL
 

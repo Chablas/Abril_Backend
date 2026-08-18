@@ -33,6 +33,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         // Cambio de puesto: datos y evaluación de riesgo (ver ObraOficinaStaffIds.RiesgoEmo).
         public string? PuestoOrigen { get; set; }
         public string? PuestoDestino { get; set; }
+        public string? CategoriaOrigen { get; set; }
+        public string? CategoriaDestino { get; set; }
         public int? ObraOficinaStaffOrigenId { get; set; }
         public string? ObraOficinaStaffOrigenNombre { get; set; }
         public int? ObraOficinaStaffDestinoId { get; set; }

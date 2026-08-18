@@ -529,5 +529,44 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>Info del acuerdo/responsable para la página de aceptar/rechazar (link del correo del acta).</summary>
+        [HttpGet("acuerdos-responsables/{reunionAcuerdoResponsableId:int}")]
+        public async Task<IActionResult> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId)
+        {
+            try
+            {
+                return Ok(await _service.GetAcuerdoResponsableInfo(reunionAcuerdoResponsableId, GetUserId()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION ACUERDO RESPONSABLE INFO: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Acepta o rechaza el acuerdo, en representación del responsable autenticado.</summary>
+        [HttpPost("acuerdos-responsables/{reunionAcuerdoResponsableId:int}/decision")]
+        public async Task<IActionResult> ResponderAcuerdo(int reunionAcuerdoResponsableId, [FromBody] AcuerdoResponsableDecisionRequest request)
+        {
+            try
+            {
+                await _service.ResponderAcuerdo(reunionAcuerdoResponsableId, GetUserId(), request);
+                return Ok(new { message = "Respuesta registrada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION RESPONDER ACUERDO: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

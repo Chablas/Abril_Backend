@@ -1,5 +1,7 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -181,11 +183,130 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.Reprogramar(reunionId, request, userId);
         }
 
-        public Task CambiarEstado(int reunionId, ReunionCambiarEstadoRequest request, int userId)
+        public async Task CambiarEstado(int reunionId, ReunionCambiarEstadoRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Estado))
                 throw new AbrilException("Debe indicar el estado destino.", 400);
-            return _repository.CambiarEstado(reunionId, request.Estado.Trim().ToUpperInvariant(), userId);
+
+            var estado = request.Estado.Trim().ToUpperInvariant();
+            await _repository.CambiarEstado(reunionId, estado, userId);
+
+            if (estado == ActasReunionRepository.EstadoRealizada)
+            {
+                try
+                {
+                    await EnviarActaRealizada(reunionId);
+                }
+                catch (Exception ex)
+                {
+                    // El envío del acta no debe bloquear el cambio de estado, ya guardado.
+                    _logger.LogError(ex, "Error enviando el acta de la reunión {ReunionId} tras marcarla realizada", reunionId);
+                }
+            }
+        }
+
+        /// <summary>Al marcar la reunión Realizada: genera el PDF del acta, adjunta los archivos ya
+        /// subidos (descargándolos cuando viven en el SharePoint configurado; si no se puede o el
+        /// total supera el límite razonable de adjuntos, se listan como link en el cuerpo), y envía
+        /// un correo a cada asistente y a cada responsable de acuerdo. Quien tiene acuerdos propios
+        /// que requieren aceptación recibe además, en su mismo correo, el link personal para
+        /// aceptarlos o rechazarlos.</summary>
+        private async Task EnviarActaRealizada(int reunionId)
+        {
+            var destinatarios = await _repository.GetDestinatariosActaRealizada(reunionId);
+            if (destinatarios.Count == 0) return;
+
+            var detalle = await _repository.GetDetalle(reunionId);
+            var pdfActa = ActasReunionPdfService.GenerarPdf(detalle);
+
+            const long maxAdjuntosBytes = 15 * 1024 * 1024; // 15 MB: margen razonable para no rebotar por tamaño.
+            var attachments = new List<EmailAttachment>
+            {
+                new() { FileName = $"Acta_Reunion_N{detalle.Numero}.pdf", ContentType = "application/pdf", Content = pdfActa },
+            };
+            long totalBytes = pdfActa.LongLength;
+            var archivosNoAdjuntados = new List<ReunionArchivoDto>();
+
+            foreach (var archivo in detalle.Archivos)
+            {
+                if (totalBytes >= maxAdjuntosBytes) { archivosNoAdjuntados.Add(archivo); continue; }
+                try
+                {
+                    byte[]? bytes = null;
+                    if (Uri.TryCreate(archivo.ArchivoUrl, UriKind.Absolute, out var uri)
+                        && _allowedHosts.Contains(uri.Host.ToLowerInvariant()))
+                    {
+                        bytes = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(archivo.ArchivoUrl);
+                    }
+
+                    if (bytes is null || totalBytes + bytes.LongLength > maxAdjuntosBytes)
+                    {
+                        archivosNoAdjuntados.Add(archivo);
+                        continue;
+                    }
+
+                    totalBytes += bytes.LongLength;
+                    attachments.Add(new EmailAttachment
+                    {
+                        FileName = archivo.OriginalFileName ?? $"adjunto_{archivo.ReunionArchivoId}",
+                        ContentType = "application/octet-stream",
+                        Content = bytes,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo descargar el adjunto {Url} para el correo del acta de la reunión {ReunionId}", archivo.ArchivoUrl, reunionId);
+                    archivosNoAdjuntados.Add(archivo);
+                }
+            }
+
+            foreach (var dest in destinatarios)
+            {
+                await _emailService.SendAsync(
+                    to: new List<string> { dest.Email },
+                    subject: $"Acta de Reunión N° {detalle.Numero}: {detalle.Tema}",
+                    body: BuildCuerpoActaRealizada(detalle, dest, archivosNoAdjuntados, _frontendUrl),
+                    isHtml: true,
+                    attachments: attachments);
+            }
+        }
+
+        private static string BuildCuerpoActaRealizada(ReunionDetalleDto d, ActaEnvioDestinatarioDto dest, List<ReunionArchivoDto> archivosNoAdjuntados, string frontendUrl)
+        {
+            var linksHtml = archivosNoAdjuntados.Count == 0 ? "" : $@"
+    <p style='margin-top:16px'><strong>Archivos adicionales (ver en el sistema):</strong></p>
+    <ul>
+      {string.Join("", archivosNoAdjuntados.Select(a => $"<li><a href='{a.ArchivoUrl}'>{a.OriginalFileName ?? "Archivo"}</a></li>"))}
+    </ul>";
+
+            var acuerdosHtml = dest.AcuerdosPendientes.Count == 0 ? "" : $@"
+  <div style='background:#fff8e6;border:1px solid #ffe6a3;border-radius:8px;padding:16px;margin-top:16px'>
+    <p style='margin:0 0 8px;font-weight:bold;color:#7a5b00'>Acuerdos que requieren tu aceptación</p>
+    <ul style='margin:0;padding-left:18px'>
+      {string.Join("", dest.AcuerdosPendientes.Select(a => $@"
+      <li style='margin-bottom:10px'>
+        {a.Descripcion}<br/>
+        <a href='{frontendUrl}/projects/actas-reunion/acuerdo/{a.ReunionAcuerdoResponsableId}'
+           style='display:inline-block;margin-top:4px;background:#0F6E56;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px'>
+          Aceptar / Rechazar
+        </a>
+      </li>"))}
+    </ul>
+  </div>";
+
+            return $@"
+<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
+  <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
+    <h2 style='color:#fff;margin:0;font-size:18px'>Acta de Reunión N° {d.Numero}</h2>
+  </div>
+  <div style='background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px'>
+    <p><strong>{d.Tema}</strong></p>
+    <p>{d.Fecha:dd/MM/yyyy}{(d.HoraInicio.HasValue ? $" a las {d.HoraInicio:HH\\:mm}" : "")}</p>
+    <p>Se adjunta el acta completa en PDF, con los acuerdos y la asistencia registrada.</p>
+    {linksHtml}
+    {acuerdosHtml}
+  </div>
+</div>";
         }
 
         public Task Eliminar(int reunionId, int userId)
@@ -338,6 +459,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         public Task EliminarArchivo(int reunionArchivoId, int userId)
             => _repository.EliminarArchivo(reunionArchivoId, userId);
+
+        public Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId)
+            => _repository.GetAcuerdoResponsableInfo(reunionAcuerdoResponsableId, userId);
+
+        public Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request)
+            => _repository.ResponderAcuerdo(reunionAcuerdoResponsableId, userId, request);
 
         private static void ValidarAcuerdo(ReunionAcuerdoRequest request)
         {

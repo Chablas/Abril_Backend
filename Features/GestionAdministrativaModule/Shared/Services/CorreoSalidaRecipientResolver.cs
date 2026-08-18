@@ -1,3 +1,4 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -6,7 +7,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// <summary>
     /// Implementación de <see cref="ICorreoSalidaRecipientResolver"/>. Lee la configuración de
     /// destinatarios (ga_correo_evento / ga_correo_tipo_destinatario / ga_correo_regla) en un
-    /// contexto propio y de corta vida. Ver <see cref="ResolveCcAsync"/> para la lógica.
+    /// contexto propio y de corta vida. Ver <see cref="ResolveEnvioAsync"/> para la lógica.
     /// </summary>
     public class CorreoSalidaRecipientResolver : ICorreoSalidaRecipientResolver
     {
@@ -26,21 +27,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             _logger = logger;
         }
 
-        public async Task<List<string>> ResolveCcAsync(string eventoCodigo, IEnumerable<string>? baseCc = null)
+        public async Task<CorreoSalidaEnvioDto> ResolveEnvioAsync(
+            string eventoCodigo,
+            IEnumerable<string>? destinatarioPrincipal = null,
+            IEnumerable<string>? baseCc = null)
         {
-            var baseList = (baseCc ?? Enumerable.Empty<string>()).ToList();
+            var principal = (destinatarioPrincipal ?? Enumerable.Empty<string>()).ToList();
+            var copiaBase = (baseCc ?? Enumerable.Empty<string>()).ToList();
 
             try
             {
                 using var ctx = _factory.CreateDbContext();
 
-                // 1) Reglas vivas + activas del correo, con el código de su tipo (1 query).
+                // 1) Los dos interruptores del correo (1 query).
+                var evento = await ctx.GaCorreoEvento
+                    .Where(e => e.Codigo == eventoCodigo && e.State)
+                    .Select(e => new { e.Id, e.Active, e.DestinatarioPrincipalActivo })
+                    .FirstOrDefaultAsync();
+
+                if (evento == null)
+                {
+                    _logger.LogWarning(
+                        "El correo {Evento} no está en ga_correo_evento; se envía solo con los destinatarios base.",
+                        eventoCodigo);
+                    return Armar(principal, copiaBase, null, null, true);
+                }
+
+                // Apagado desde la configuración: no se envía y no hace falta leer sus reglas.
+                if (!evento.Active)
+                    return new CorreoSalidaEnvioDto { Enviar = false };
+
+                // 2) Reglas vivas + activas del correo, con el código de su tipo (1 query).
                 var reglas = await (
                     from r in ctx.GaCorreoRegla
-                    join e in ctx.GaCorreoEvento on r.EventoId equals e.Id
                     join t in ctx.GaCorreoTipoDestinatario on r.TipoId equals t.Id
-                    where e.Codigo == eventoCodigo && e.State && e.Active
-                          && r.State && r.Active
+                    where r.EventoId == evento.Id && r.State && r.Active
                     select new
                     {
                         r.EsExclusion,
@@ -53,9 +74,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 ).ToListAsync();
 
                 if (reglas.Count == 0)
-                    return Merge(baseList, null, null);
+                    return Armar(principal, copiaBase, null, null, evento.DestinatarioPrincipalActivo);
 
-                // 2) Correos de los trabajadores referenciados (1 query).
+                // 3) Correos de los trabajadores referenciados (1 query).
                 var workerIds = reglas
                     .Where(r => r.TipoCodigo == TipoTrabajador && r.WorkerId.HasValue)
                     .Select(r => r.WorkerId!.Value)
@@ -70,7 +91,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         .Select(w => new { w.Id, Email = w.EmailCorporativo! })
                         .ToDictionaryAsync(x => x.Id, x => x.Email);
 
-                // 3) Expansión de áreas → correos de sus miembros (árbol + workers, 2 queries).
+                // 4) Expansión de áreas → correos de sus miembros (árbol + workers, 2 queries).
                 var emailsByAreaId = new Dictionary<int, List<string>>();
                 Dictionary<int, List<int>> childrenByParent = new();
                 var areaRules = reglas.Where(r => r.TipoCodigo == TipoArea && r.AreaScopeId.HasValue).ToList();
@@ -98,7 +119,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         .ToDictionary(g => g.Key, g => g.Select(m => m.Email).ToList());
                 }
 
-                // 4) Armar inclusiones / exclusiones.
+                // 5) Armar inclusiones / exclusiones.
                 var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var excludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -124,32 +145,64 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     }
                 }
 
-                return Merge(baseList, includes, excludes);
+                return Armar(principal, copiaBase, includes, excludes, evento.DestinatarioPrincipalActivo);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
                     "Error resolviendo destinatarios configurados del correo {Evento}; se usa solo la base.",
                     eventoCodigo);
-                return Merge(baseList, null, null);
+                return Armar(principal, copiaBase, null, null, true);
             }
         }
 
-        /// <summary>(baseCc ∪ includes) − excludes, sin vacíos ni duplicados (case-insensitive).</summary>
-        private static List<string> Merge(
-            IEnumerable<string> baseCc,
+        /// <summary>
+        /// Reparte los correos entre "Para" y "Copia": el principal va al Para (salvo que su
+        /// interruptor esté apagado) y las exclusiones solo recortan las copias. Si el Para
+        /// queda vacío, las copias lo ocupan — así apagar al principal deja el correo en manos
+        /// de los destinatarios configurados en vez de mandarlo sin nadie en el Para.
+        /// </summary>
+        private static CorreoSalidaEnvioDto Armar(
+            List<string> principal,
+            List<string> copiaBase,
             HashSet<string>? includes,
-            HashSet<string>? excludes)
+            HashSet<string>? excludes,
+            bool principalActivo)
+        {
+            var para = principalActivo ? Limpiar(principal, null) : new List<string>();
+            var yaEnPara = new HashSet<string>(para, StringComparer.OrdinalIgnoreCase);
+
+            var fuera = new HashSet<string>(yaEnPara, StringComparer.OrdinalIgnoreCase);
+            if (excludes != null) foreach (var e in excludes) fuera.Add(e);
+
+            var copia = Limpiar(copiaBase.Concat(includes ?? Enumerable.Empty<string>()), fuera);
+
+            // Sin destinatario principal, las copias pasan a ser el "Para".
+            if (para.Count == 0)
+            {
+                para = copia;
+                copia = new List<string>();
+            }
+
+            return new CorreoSalidaEnvioDto
+            {
+                Enviar = para.Count > 0,
+                Para = para,
+                Copia = copia,
+            };
+        }
+
+        /// <summary>Normaliza una lista de correos: sin vacíos, sin duplicados (case-insensitive) y sin los descartados.</summary>
+        private static List<string> Limpiar(IEnumerable<string> correos, HashSet<string>? descartar)
         {
             var result = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var todos = baseCc.Concat(includes ?? Enumerable.Empty<string>());
 
-            foreach (var raw in todos)
+            foreach (var raw in correos)
             {
                 if (string.IsNullOrWhiteSpace(raw)) continue;
                 var email = raw.Trim();
-                if (excludes != null && excludes.Contains(email)) continue;
+                if (descartar != null && descartar.Contains(email)) continue;
                 if (seen.Add(email)) result.Add(email);
             }
             return result;

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
@@ -51,6 +51,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<AprobacionGgDecisionContextoDto> RegistrarDecision(
             int aprobacionId, AprobacionGgDecisionDto dto, int userId, AprobacionScope scope);
+
+        /// <summary>
+        /// Registra la MISMA decisión (aprobar o rechazar todas las vacantes) en la casilla del
+        /// nivel del usuario sobre varias solicitudes a la vez, en un solo lote de escritura. Las
+        /// solicitudes que ya no admiten su decisión —fuera de alcance, dadas de baja, sin vacantes
+        /// o con su casilla ya cerrada— se devuelven como omitidas en vez de tumbar el lote
+        /// completo: en una selección de diez, que una se haya cerrado no invalida las otras nueve.
+        /// </summary>
+        Task<AprobacionGgDecisionMasivaContextoDto> RegistrarDecisionMasiva(
+            List<int> aprobacionIds, bool aprobado, string? comentario, int userId, AprobacionScope scope);
 
         /// <summary>
         /// Resumen de la aprobación de un requerimiento (ambos niveles) para la tarjeta del

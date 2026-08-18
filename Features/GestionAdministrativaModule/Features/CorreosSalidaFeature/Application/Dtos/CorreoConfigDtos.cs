@@ -21,6 +21,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public string Nombre { get; set; } = string.Empty;
         public string? Descripcion { get; set; }
         public int Orden { get; set; }
+
+        /// <summary>Interruptor maestro: false = este correo no se envía.</summary>
+        public bool Active { get; set; } = true;
+
+        /// <summary>Etiqueta del destinatario principal que calcula el backend (el revisor, el solicitante).</summary>
+        public string? DestinatarioPrincipalNombre { get; set; }
+
+        /// <summary>false = el correo no se manda a su destinatario principal, solo a los configurados.</summary>
+        public bool DestinatarioPrincipalActivo { get; set; } = true;
+
+        /// <summary>true = la pantalla muestra el interruptor maestro de este correo.</summary>
+        public bool PermiteDesactivarEnvio { get; set; }
+
+        /// <summary>true = la pantalla muestra el interruptor del destinatario principal.</summary>
+        public bool PermiteDesactivarPrincipal { get; set; }
+
         /// <summary>"Se enviará a" (reglas con es_exclusion = false).</summary>
         public List<CorreoReglaDto> Incluir { get; set; } = new();
         /// <summary>"Nunca se enviará a" (reglas con es_exclusion = true).</summary>
@@ -65,11 +81,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
 
     // ── Update (PUT /{eventoCodigo}) ─────────────────────────────────────────
 
-    /// <summary>Reemplaza el conjunto completo de reglas de un correo.</summary>
+    /// <summary>
+    /// Reemplaza el conjunto completo de reglas de un correo y, opcionalmente, el estado de sus
+    /// dos interruptores. Los interruptores son nullables a propósito: null = no tocar.
+    /// </summary>
     public class CorreoReglasUpdateDto
     {
         public List<CorreoReglaInputDto> Incluir { get; set; } = new();
         public List<CorreoReglaInputDto> Excluir { get; set; } = new();
+
+        /// <summary>Interruptor maestro del correo. Solo se puede cambiar si el correo lo permite.</summary>
+        public bool? Active { get; set; }
+
+        /// <summary>Interruptor del destinatario principal. Solo se puede cambiar si el correo lo permite.</summary>
+        public bool? DestinatarioPrincipalActivo { get; set; }
     }
 
     public class CorreoReglaInputDto

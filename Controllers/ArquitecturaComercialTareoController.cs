@@ -5,6 +5,7 @@ using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Controllers
 {
@@ -145,6 +146,47 @@ namespace Abril_Backend.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en enrolamiento de tareo (coordinador)");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        // ── Enrolamiento asistido (cuenta compartida de campo) ──────────────────
+        // Autoservicio para el correo corporativo compartido (operarios): el trabajador elige su
+        // nombre de una lista (solo quienes ya tienen el SSO-FO-150 subido) y se toma su propia
+        // foto. A diferencia de "Gestión de permisos" (EsGestorAc), esto se autoriza por featureKey
+        // — no da acceso a subir/descargar autorizaciones ni a geolocalización de proyectos.
+
+        [HttpGet("enrolamiento/disponibles")]
+        [RequireFeature("arquitectura-comercial.tareo.enrolamiento")]
+        public async Task<IActionResult> GetTrabajadoresDisponiblesParaEnrolar()
+        {
+            try
+            {
+                return Ok(await _service.GetTrabajadoresDisponiblesParaEnrolar());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error listando trabajadores disponibles para enrolamiento asistido");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("enrolamiento/disponibles/{workerId:int}")]
+        [RequireFeature("arquitectura-comercial.tareo.enrolamiento")]
+        public async Task<IActionResult> EnrolarDisponible(int workerId, [FromBody] TareoEnrolamientoRequestDTO body)
+        {
+            try
+            {
+                // EnrolarWorker ya exige que el SSO-FO-150 esté subido (ver
+                // ArquitecturaComercialTareoService.EnrolarWorker) — misma garantía server-side que
+                // protege a EnrolarTrabajador del coordinador.
+                await _service.EnrolarWorker(workerId, body);
+                return Ok(new { message = "Enrolamiento registrado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en enrolamiento asistido de tareo");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

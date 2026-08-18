@@ -9,6 +9,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
         /// que el claim NameIdentifier ES el Worker.Id: son secuencias distintas.</summary>
         Task<int> ResolverWorkerId(int userId);
         Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresParaEnrolar();
+        Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresDisponiblesParaEnrolar();
         Task<List<TareoProyectoGeoDTO>> GetProyectosGeo();
         Task SetProyectoGeo(int projectId, TareoProyectoGeoUpdateDTO dto);
         Task<TareoAutorizacionDetalleDTO> GetAutorizacionDetalle(int workerId);

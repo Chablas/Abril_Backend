@@ -36,6 +36,9 @@ namespace Abril_Backend.Application.Services
         public Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresParaEnrolar()
             => _repository.GetTrabajadoresParaEnrolar();
 
+        public Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresDisponiblesParaEnrolar()
+            => _repository.GetTrabajadoresDisponiblesParaEnrolar();
+
         public Task<TareoIdentificacionDTO> Identificar(float[]? embedding)
         {
             if (embedding is not { Length: 128 })

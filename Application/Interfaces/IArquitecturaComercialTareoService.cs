@@ -6,6 +6,7 @@ namespace Abril_Backend.Application.Interfaces
     {
         Task<int> ResolverWorkerId(int userId);
         Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresParaEnrolar();
+        Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresDisponiblesParaEnrolar();
         Task<TareoIdentificacionDTO> Identificar(float[]? embedding);
         Task<TareoEnrolamientoEstadoDTO> GetEnrolamientoEstado(int workerId);
         Task<List<TareoProyectoGeoDTO>> GetProyectosGeo();

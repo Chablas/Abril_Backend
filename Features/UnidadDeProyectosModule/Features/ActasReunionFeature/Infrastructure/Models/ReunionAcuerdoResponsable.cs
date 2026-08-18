@@ -19,6 +19,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string? MotivoRechazo { get; set; }
         public DateTime? FechaRespuesta { get; set; }
 
+        /// <summary>Cuando el acuerdo tiene varios responsables, marca a quien queda a cargo de que
+        /// se cumpla (evita que la responsabilidad se diluya entre todos). Debe haber a lo más uno
+        /// en true por acuerdo.</summary>
+        public bool EsPrincipal { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

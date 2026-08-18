@@ -51,6 +51,10 @@ using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfac
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
@@ -237,6 +241,10 @@ namespace Abril_Backend.Features.Ssoma
             // Horas Hombre (a partir del Tareo de Control de Acceso)
             services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();
             services.AddScoped<IHorasHombreService, HorasHombreService>();
+
+            // Programación de Inducciones (rotación por proyecto + aviso automático)
+            services.AddScoped<IInduccionProgramacionRepository, InduccionProgramacionRepository>();
+            services.AddScoped<IInduccionProgramacionService, InduccionProgramacionService>();
 
             return services;
         }

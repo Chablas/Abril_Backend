@@ -23,6 +23,11 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         /// <summary>SSO-FO-150 firmado y subido — sin esto el enrolamiento queda bloqueado.</summary>
         public bool AutorizacionSubida { get; set; }
         public DateTime? AutorizacionSubidaEn { get; set; }
+        /// <summary>URL del escaneo firmado ya subido, para verlo/descargarlo a solicitud. Solo se
+        /// popula para el listado del coordinador (GetTrabajadoresParaEnrolar) — el listado de
+        /// autoservicio (GetTrabajadoresDisponiblesParaEnrolar) la deja null a propósito, para no
+        /// exponer el documento firmado de terceros a la cuenta compartida de campo.</summary>
+        public string? AutorizacionUrl { get; set; }
     }
 
     /// <summary>Datos para imprimir el SSO-FO-150 con nombre/DNI del trabajador ya precargados.</summary>

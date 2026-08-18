@@ -92,7 +92,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var autorizaciones = await ctx.AcTareoAutorizacion
                 .Where(a => workerIds.Contains(a.WorkerId))
                 .ToListAsync();
-            var autorizacionMap = autorizaciones.ToDictionary(a => a.WorkerId, a => a.SubidoEn);
+            var autorizacionMap = autorizaciones.ToDictionary(a => a.WorkerId, a => a);
 
             return workers.Select(w => new TareoTrabajadorEnrolamientoDTO
             {
@@ -101,8 +101,31 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Enrolado = enrolamientoMap.ContainsKey(w.Id),
                 FechaEnrolamiento = enrolamientoMap.GetValueOrDefault(w.Id),
                 AutorizacionSubida = autorizacionMap.ContainsKey(w.Id),
-                AutorizacionSubidaEn = autorizacionMap.GetValueOrDefault(w.Id),
+                AutorizacionSubidaEn = autorizacionMap.GetValueOrDefault(w.Id)?.SubidoEn,
+                AutorizacionUrl = autorizacionMap.GetValueOrDefault(w.Id)?.UrlDocumento,
             }).ToList();
+        }
+
+        /// <summary>Mismo universo que GetTrabajadoresParaEnrolar, pero para la pantalla de
+        /// autoservicio de la cuenta compartida de campo (operarios): solo trabajadores con el
+        /// SSO-FO-150 ya subido por el coordinador, y sin exponer AutorizacionUrl (documento de
+        /// terceros) a esa cuenta.</summary>
+        public async Task<List<TareoTrabajadorEnrolamientoDTO>> GetTrabajadoresDisponiblesParaEnrolar()
+        {
+            var todos = await GetTrabajadoresParaEnrolar();
+            return todos
+                .Where(t => t.AutorizacionSubida)
+                .Select(t => new TareoTrabajadorEnrolamientoDTO
+                {
+                    WorkerId = t.WorkerId,
+                    Nombre = t.Nombre,
+                    Enrolado = t.Enrolado,
+                    FechaEnrolamiento = t.FechaEnrolamiento,
+                    AutorizacionSubida = t.AutorizacionSubida,
+                    AutorizacionSubidaEn = t.AutorizacionSubidaEn,
+                    AutorizacionUrl = null,
+                })
+                .ToList();
         }
 
         public async Task<List<TareoProyectoGeoDTO>> GetProyectosGeo()

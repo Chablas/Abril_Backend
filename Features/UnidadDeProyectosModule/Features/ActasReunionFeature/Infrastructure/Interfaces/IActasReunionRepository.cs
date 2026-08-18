@@ -1,4 +1,5 @@
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces
 {
@@ -33,6 +34,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         /// <summary>Reemplaza los temas a tratar del worker del usuario autenticado para esta reunión.</summary>
         Task GuardarMisTemas(int reunionId, int userId, List<string> temas);
+        Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
+        Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
+        Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);
+        Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId);
+        Task<List<ReunionTema>> GetTemasRecurrentesActivos();
+        Task<List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)>> GetReglasTemaParaGeneracion(int reunionTemaId);
+        Task AvanzarRecurrenciaTema(int reunionTemaId, DateOnly nuevaFechaGenerada, int nuevaReunionId);
 
         /// <summary>Reuniones PROGRAMADA con agenda dinámica cuyo recordatorio aún no se envió.</summary>
         Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda();

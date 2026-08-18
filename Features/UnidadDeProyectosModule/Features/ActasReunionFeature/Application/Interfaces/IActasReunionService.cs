@@ -21,6 +21,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         // ── Agenda de reunión ──────────────────────────────────────────────
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request);
+        Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
+        Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
+        Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);
+        Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId);
+        /// <summary>Job periódico (disparado por cron externo): genera las siguientes ocurrencias
+        /// de cada convocatoria recurrente cuya fecha teórica ya entró en su ventana de
+        /// anticipación.</summary>
+        Task<ProcesarGeneracionRecurrenteResultDto> ProcesarGeneracionRecurrente();
 
         /// <summary>
         /// Job de recordatorio (disparado por cron externo): revisa las reuniones con agenda

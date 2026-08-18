@@ -157,6 +157,123 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.GuardarMisTemas(reunionId, userId, temas);
         }
 
+        public Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId)
+            => _repository.GetMisAcuerdos(userId);
+
+        public Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId)
+            => _repository.GetAcuerdosPendientesAnteriores(reunionId);
+
+        public Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId)
+            => _repository.ReprogramarAcuerdo(reunionAcuerdoId, request, userId);
+
+        public Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId)
+            => _repository.MarcarAcuerdoCumplido(reunionAcuerdoId, userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        /// <summary>0 = generado automáticamente por el job de recurrencia, no por un usuario.</summary>
+        private const int SistemaUserId = 0;
+
+        public Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId)
+            => _repository.GetRecurrenciaTema(reunionTemaId);
+
+        public Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId)
+            => _repository.GuardarRecurrenciaTema(reunionTemaId, request, userId);
+
+        public async Task<ProcesarGeneracionRecurrenteResultDto> ProcesarGeneracionRecurrente()
+        {
+            var resultado = new ProcesarGeneracionRecurrenteResultDto();
+            var temas = await _repository.GetTemasRecurrentesActivos();
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            foreach (var tema in temas)
+            {
+                var siguiente = tema.UltimaFechaGenerada.HasValue
+                    ? tema.UltimaFechaGenerada.Value.AddDays(tema.IntervaloDias!.Value)
+                    : tema.FechaAncla!.Value;
+
+                var reglas = await _repository.GetReglasTemaParaGeneracion(tema.ReunionTemaId);
+                var horizonte = hoy.AddDays(tema.DiasAnticipacion);
+
+                // Tope de seguridad: si el job estuvo caído mucho tiempo, se ponen al día las
+                // ocurrencias atrasadas sin generar de golpe una cantidad descontrolada.
+                var iteraciones = 0;
+                while (siguiente <= horizonte && iteraciones < 20)
+                {
+                    var participantes = await ResolverParticipantesDeReglas(reglas);
+
+                    var request = new ReunionCreateRequest
+                    {
+                        ProjectId = null,
+                        AreaScopeId = tema.AreaScopeId,
+                        Tema = tema.Descripcion,
+                        ReunionTemaId = tema.ReunionTemaId,
+                        ConvocadoPor = null,
+                        Lugar = tema.Lugar,
+                        Fecha = siguiente,
+                        HoraInicio = tema.HoraInicio,
+                        HoraFin = tema.HoraFin,
+                        ReunionAnteriorId = tema.UltimaReunionGeneradaId,
+                        AgendaTexto = null,
+                        Participantes = participantes,
+                    };
+
+                    int nuevaReunionId;
+                    try
+                    {
+                        nuevaReunionId = await Create(request, SistemaUserId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error generando reunión recurrente del tema {ReunionTemaId} para {Fecha}", tema.ReunionTemaId, siguiente);
+                        break; // no sigue de largo si esta ocurrencia falló, para no perder el orden de la cadena
+                    }
+
+                    await _repository.AvanzarRecurrenciaTema(tema.ReunionTemaId, siguiente, nuevaReunionId);
+                    tema.UltimaFechaGenerada = siguiente;
+                    tema.UltimaReunionGeneradaId = nuevaReunionId;
+
+                    resultado.ReunionesGeneradas++;
+                    resultado.Detalle.Add($"Tema {tema.ReunionTemaId} ({tema.Descripcion}): reunión {nuevaReunionId} para {siguiente:yyyy-MM-dd}");
+
+                    siguiente = siguiente.AddDays(tema.IntervaloDias!.Value);
+                    iteraciones++;
+                }
+            }
+
+            return resultado;
+        }
+
+        /// <summary>Igual criterio que la convocatoria masiva manual: une (sin duplicar) los
+        /// trabajadores que califican en cada regla independiente del tema.</summary>
+        private async Task<List<ReunionParticipanteInput>> ResolverParticipantesDeReglas(
+            List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)> reglas)
+        {
+            var vistos = new HashSet<int>();
+            var participantes = new List<ReunionParticipanteInput>();
+
+            foreach (var (areaScopeId, projectId, puestoIds) in reglas)
+            {
+                var trabajadores = await _repository.BuscarTrabajadoresPorFiltro(
+                    areaScopeId, puestoIds.Count > 0 ? puestoIds : null, projectId);
+
+                foreach (var t in trabajadores)
+                {
+                    if (!vistos.Add(t.WorkerId)) continue;
+                    participantes.Add(new ReunionParticipanteInput
+                    {
+                        ReunionParticipanteId = null,
+                        WorkerId = t.WorkerId,
+                        Nombre = t.FullName,
+                        Cargo = t.Cargo,
+                        Iniciales = null,
+                        Asistio = false,
+                    });
+                }
+            }
+
+            return participantes;
+        }
+
         public async Task Update(int reunionId, ReunionUpdateRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Tema))

@@ -202,6 +202,70 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>Configuración de recurrencia de un tema (generación automática de la siguiente reunión).</summary>
+        [HttpGet("temas/{reunionTemaId:int}/recurrencia")]
+        public async Task<IActionResult> GetRecurrenciaTema(int reunionTemaId)
+        {
+            try
+            {
+                return Ok(await _service.GetRecurrenciaTema(reunionTemaId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GET RECURRENCIA TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPut("temas/{reunionTemaId:int}/recurrencia")]
+        public async Task<IActionResult> GuardarRecurrenciaTema(int reunionTemaId, [FromBody] TemaRecurrenciaSaveRequest request)
+        {
+            try
+            {
+                await _service.GuardarRecurrenciaTema(reunionTemaId, request, GetUserId());
+                return Ok(new { message = "Recurrencia del tema guardada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION GUARDAR RECURRENCIA TEMA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Job de generación automática (disparado por un cron externo, no por usuarios): genera
+        /// las siguientes ocurrencias de cada convocatoria recurrente cuya fecha teórica ya entró
+        /// en su ventana de anticipación. El intervalo se calcula siempre desde la fecha ancla de
+        /// la serie, nunca desde la fecha real de la última reunión (que puede haberse reprogramado
+        /// o cancelado) — así una reprogramación no arrastra a toda la cadena.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("recurrencia/procesar")]
+        public async Task<IActionResult> ProcesarGeneracionRecurrente()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                return Ok(await _service.ProcesarGeneracionRecurrente());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION PROCESAR GENERACION RECURRENTE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>
         /// Job de recordatorio de agenda (disparado por un cron externo, no por usuarios): revisa
         /// las reuniones con agenda dinámica cuya hora de aviso ya llegó y envía correo +
@@ -266,6 +330,80 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR ACTAS REUNION GUARDAR MIS TEMAS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Dashboard personal: todos los acuerdos (de cualquier reunión) de los que el
+        /// usuario autenticado es responsable, para el tab "Dashboard" de Actas de Reunión.</summary>
+        [HttpGet("mis-acuerdos")]
+        public async Task<IActionResult> GetMisAcuerdos()
+        {
+            try
+            {
+                return Ok(await _service.GetMisAcuerdos(GetUserId()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION MIS ACUERDOS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Acuerdos pendientes (no cumplidos/anulados) de ediciones anteriores de la misma
+        /// convocatoria recurrente, para revisarlos al abrir esta reunión.</summary>
+        [HttpGet("{reunionId:int}/acuerdos-pendientes-anteriores")]
+        public async Task<IActionResult> GetAcuerdosPendientesAnteriores(int reunionId)
+        {
+            try
+            {
+                return Ok(await _service.GetAcuerdosPendientesAnteriores(reunionId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION PENDIENTES ANTERIORES: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Reprograma la fecha programada de un acuerdo, dejando registro de motivo y del
+        /// contador de veces reprogramado (para detectar acuerdos que se siguen postergando).</summary>
+        [HttpPatch("acuerdos/{reunionAcuerdoId:int}/reprogramar")]
+        public async Task<IActionResult> ReprogramarAcuerdo(int reunionAcuerdoId, [FromBody] AcuerdoReprogramarRequest request)
+        {
+            try
+            {
+                await _service.ReprogramarAcuerdo(reunionAcuerdoId, request, GetUserId());
+                return Ok(new { message = "Acuerdo reprogramado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION REPROGRAMAR ACUERDO: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Marca un acuerdo como cumplido (usado desde la revisión de pendientes de
+        /// ediciones anteriores).</summary>
+        [HttpPatch("acuerdos/{reunionAcuerdoId:int}/marcar-cumplido")]
+        public async Task<IActionResult> MarcarAcuerdoCumplido(int reunionAcuerdoId)
+        {
+            try
+            {
+                await _service.MarcarAcuerdoCumplido(reunionAcuerdoId, GetUserId());
+                return Ok(new { message = "Acuerdo marcado como cumplido." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION MARCAR ACUERDO CUMPLIDO: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

@@ -144,6 +144,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
         public string EstadoAceptacion { get; set; } = null!;
         public string? MotivoRechazo { get; set; }
+        /// <summary>true cuando este responsable es el encargado principal de que el acuerdo se cumpla.</summary>
+        public bool EsPrincipal { get; set; }
     }
 
     public class ReunionAcuerdoDto
@@ -157,10 +159,70 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int ReunionAcuerdoEstadoId { get; set; }
         public string ReunionAcuerdoEstado { get; set; } = null!;
         public int Orden { get; set; }
+        /// <summary>NORMAL | MEDIO | CRITICO.</summary>
+        public string Criticidad { get; set; } = null!;
         public bool RequiereAceptacion { get; set; }
         public bool RequiereEvidencia { get; set; }
         public string? EvidenciaUrl { get; set; }
+        public int VecesReprogramado { get; set; }
+        public string? UltimoMotivoReprogramacion { get; set; }
         public List<ReunionAcuerdoResponsableDto> Responsables { get; set; } = new();
+    }
+
+    // ── Revisión de acuerdos pendientes de ediciones anteriores ──────────────
+    /// <summary>Un acuerdo aún no cumplido (ni anulado) de una edición anterior de la misma
+    /// convocatoria recurrente, para revisarlo al abrir la siguiente reunión de la cadena.</summary>
+    public class AcuerdoPendienteAnteriorDto
+    {
+        public int ReunionAcuerdoId { get; set; }
+        public int ReunionId { get; set; }
+        public int ReunionNumero { get; set; }
+        public string ReunionTema { get; set; } = null!;
+        public string Descripcion { get; set; } = null!;
+        public string? Acciones { get; set; }
+        /// <summary>NORMAL | MEDIO | CRITICO.</summary>
+        public string Criticidad { get; set; } = null!;
+        public DateOnly? FechaProgramada { get; set; }
+        public int ReunionAcuerdoEstadoId { get; set; }
+        public string ReunionAcuerdoEstado { get; set; } = null!;
+        public int VecesReprogramado { get; set; }
+        public string? UltimoMotivoReprogramacion { get; set; }
+        public List<ReunionAcuerdoResponsableDto> Responsables { get; set; } = new();
+    }
+
+    public class AcuerdoReprogramarRequest
+    {
+        public DateOnly NuevaFechaProgramada { get; set; }
+        public string Motivo { get; set; } = null!;
+    }
+
+    // ── Dashboard "Mis acuerdos" ─────────────────────────────────────────────
+    /// <summary>Un acuerdo del que el usuario autenticado es responsable, en cualquier reunión,
+    /// para el dashboard personal de seguimiento (agrupado por criticidad/vencimiento en el frontend).</summary>
+    public class MisAcuerdoDto
+    {
+        public int ReunionAcuerdoId { get; set; }
+        public int ReunionAcuerdoResponsableId { get; set; }
+        public int ReunionId { get; set; }
+        public int ReunionNumero { get; set; }
+        public string ReunionTema { get; set; } = null!;
+        /// <summary>Proyecto, área o "Organización" (ámbito de la reunión de origen).</summary>
+        public string Ambito { get; set; } = null!;
+        public string Descripcion { get; set; } = null!;
+        public string? Acciones { get; set; }
+        /// <summary>NORMAL | MEDIO | CRITICO.</summary>
+        public string Criticidad { get; set; } = null!;
+        public DateOnly? FechaProgramada { get; set; }
+        public int ReunionAcuerdoEstadoId { get; set; }
+        public string ReunionAcuerdoEstado { get; set; } = null!;
+        public DateOnly? FechaCumplimiento { get; set; }
+        /// <summary>true si este responsable es el principal (encargado de que se cumpla).</summary>
+        public bool EsPrincipal { get; set; }
+        /// <summary>Nombres de los demás responsables del mismo acuerdo, si hay más de uno.</summary>
+        public List<string> OtrosResponsables { get; set; } = new();
+        public bool RequiereAceptacion { get; set; }
+        /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
+        public string EstadoAceptacion { get; set; } = null!;
     }
 
     public class ReunionArchivoDto
@@ -310,12 +372,54 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public decimal? RecordatorioHorasAntes { get; set; }
     }
 
+    // ── Recurrencia (generación automática de reuniones) ─────────────────────
+    public class TemaRecurrenciaDto
+    {
+        public bool EsRecurrente { get; set; }
+        public bool RecurrenciaActiva { get; set; }
+        /// <summary>Área/gerencia (nodo area_scope) a la que pertenecerán las reuniones generadas.
+        /// Obligatorio para activar la recurrencia.</summary>
+        public int? AreaScopeId { get; set; }
+        public string? AreaScopeDescripcion { get; set; }
+        public int? IntervaloDias { get; set; }
+        public DateOnly? FechaAncla { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
+        public string? Lugar { get; set; }
+        public int DiasAnticipacion { get; set; }
+        public DateOnly? UltimaFechaGenerada { get; set; }
+        /// <summary>Próxima fecha teórica en la que se generaría la siguiente ocurrencia
+        /// (informativo, calculado; no es un campo en base de datos).</summary>
+        public DateOnly? ProximaFechaEstimada { get; set; }
+    }
+
+    public class TemaRecurrenciaSaveRequest
+    {
+        public bool EsRecurrente { get; set; }
+        public bool RecurrenciaActiva { get; set; }
+        public int? AreaScopeId { get; set; }
+        public int? IntervaloDias { get; set; }
+        public DateOnly? FechaAncla { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
+        public string? Lugar { get; set; }
+        public int DiasAnticipacion { get; set; } = 5;
+    }
+
+    public class ProcesarGeneracionRecurrenteResultDto
+    {
+        public int ReunionesGeneradas { get; set; }
+        public List<string> Detalle { get; set; } = new();
+    }
+
     // ── Agenda de reunión ────────────────────────────────────────────────────
     public class ReunionAgendaItemDto
     {
         public int ReunionAgendaItemId { get; set; }
         public int WorkerId { get; set; }
         public string WorkerNombre { get; set; } = null!;
+        /// <summary>Subárea (nodo area_scope) del trabajador, si tiene una asignada.</summary>
+        public string? SubareaDescripcion { get; set; }
         public string Descripcion { get; set; } = null!;
         public int Orden { get; set; }
     }
@@ -397,6 +501,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public DateOnly? FechaCumplimiento { get; set; }
         /// <summary>Null al crear: se asigna PENDIENTE.</summary>
         public int? ReunionAcuerdoEstadoId { get; set; }
+        /// <summary>NORMAL | MEDIO | CRITICO.</summary>
+        public string Criticidad { get; set; } = "NORMAL";
         /// <summary>Si true, cada responsable debe aceptar el acuerdo antes de quedar activo.</summary>
         public bool RequiereAceptacion { get; set; }
         /// <summary>Si true, no se puede marcar CUMPLIDO sin adjuntar evidencia.</summary>
@@ -404,6 +510,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string? EvidenciaUrl { get; set; }
         /// <summary>Ids de workers (cualquier trabajador de la organización, haya asistido o no) responsables del acuerdo.</summary>
         public List<int> ResponsableWorkerIds { get; set; } = new();
+        /// <summary>WorkerId del responsable principal (encargado de que el acuerdo se cumpla) cuando hay más de uno; null si solo hay uno o ninguno.</summary>
+        public int? ResponsablePrincipalWorkerId { get; set; }
     }
 
     // ── Aceptación de acuerdos (link personal enviado por correo) ────────────

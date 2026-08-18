@@ -32,6 +32,29 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// </summary>
         public decimal? RecordatorioHorasAntes { get; set; }
 
+        // ── Recurrencia (generación automática de la siguiente reunión) ─────────
+        /// <summary>Si true, un job periódico genera automáticamente las siguientes ocurrencias
+        /// según <see cref="IntervaloDias"/> desde <see cref="FechaAncla"/>. Requiere AreaScopeId
+        /// configurado (el ámbito de las reuniones generadas).</summary>
+        public bool EsRecurrente { get; set; }
+        /// <summary>Distinto del soft-delete: permite pausar la generación sin perder la config.</summary>
+        public bool RecurrenciaActiva { get; set; } = true;
+        public int? IntervaloDias { get; set; }
+        /// <summary>Fecha teórica de la primera ocurrencia de la serie. Fija: reprogramar o cancelar
+        /// una ocurrencia generada NO la mueve.</summary>
+        public DateOnly? FechaAncla { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
+        public string? Lugar { get; set; }
+        /// <summary>Cuántos días antes de la fecha teórica se genera la reunión (para que la
+        /// convocatoria/agenda le llegue a tiempo a los convocados).</summary>
+        public int DiasAnticipacion { get; set; } = 5;
+        /// <summary>Puntero de calendario: última fecha TEÓRICA (no la real/reprogramada) para la
+        /// que ya se generó una reunión. Null = aún no se generó ninguna.</summary>
+        public DateOnly? UltimaFechaGenerada { get; set; }
+        /// <summary>Última reunión generada por esta serie, para encadenar ReunionAnteriorId.</summary>
+        public int? UltimaReunionGeneradaId { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

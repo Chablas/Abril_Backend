@@ -34,6 +34,7 @@ using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesF
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -192,6 +193,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsEvalSupervisor> SsEvalSupervisor => Set<SsEvalSupervisor>();
         public DbSet<SsEvalSupervisorItem> SsEvalSupervisorItem => Set<SsEvalSupervisorItem>();
         public DbSet<SsInduccion> SsInduccion => Set<SsInduccion>();
+        public DbSet<SsInduccionRotacionProyecto> SsInduccionRotacionProyecto => Set<SsInduccionRotacionProyecto>();
+        public DbSet<SsInduccionProgramacion> SsInduccionProgramacion => Set<SsInduccionProgramacion>();
+        public DbSet<SsInduccionRotacionCursor> SsInduccionRotacionCursor => Set<SsInduccionRotacionCursor>();
         public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();

@@ -5,6 +5,7 @@ using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Applicati
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
@@ -267,7 +268,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             byte[] signedPdf;
             try
             {
-                signedPdf = SignaturePdfStamper.Stamp(original, signature.Bytes);
+                // Todas las páginas: la firma del Gerente General vale como visado de cada hoja.
+                signedPdf = SignaturePdfStamper.Stamp(original, signature.Bytes, SignatureStampScope.AllPages);
             }
             catch (Exception ex)
             {

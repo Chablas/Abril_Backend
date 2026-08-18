@@ -1,5 +1,5 @@
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
@@ -13,26 +13,42 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
     public class OnboardingService : IOnboardingService
     {
         private readonly IOnboardingRepository _repo;
-        private readonly IGraphSharePointService _sharePoint;
+        private readonly IFileDigitalColaboradorService _fileDigital;
         private readonly IEmailService _email;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<OnboardingService> _logger;
 
         public OnboardingService(
             IOnboardingRepository repo,
-            IGraphSharePointService sharePoint,
+            IFileDigitalColaboradorService fileDigital,
             IEmailService email,
+            IConfiguration configuration,
             ILogger<OnboardingService> logger)
         {
-            _repo       = repo;
-            _sharePoint = sharePoint;
-            _email      = email;
-            _logger     = logger;
+            _repo          = repo;
+            _fileDigital   = fileDigital;
+            _email         = email;
+            _configuration = configuration;
+            _logger        = logger;
         }
 
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
 
-        /// <summary>Formatos aceptados para la carta oferta (los mismos que el resto de adjuntos del módulo).</summary>
+        /// <summary>
+        /// Formato aceptado para la carta oferta: PDF y nada más. El colaborador la ve dentro de la
+        /// intranet y la firma ahí mismo, y las dos cosas necesitan un PDF — un DOC/DOCX no se puede
+        /// mostrar en el navegador ni estampar sin convertirlo, y convertirlo puede mover el formato
+        /// de la carta que GTH revisó. Se corta al subir, que es donde el mensaje sirve de algo.
+        /// </summary>
         private static readonly HashSet<string> AllowedCartaExt = new(StringComparer.OrdinalIgnoreCase)
+            { ".pdf" };
+
+        /// <summary>
+        /// Formatos aceptados para la carta oferta FIRMADA que sube GTH a mano (la vía de respaldo,
+        /// para el colaborador que firma en papel en vez de usar el enlace). Acá no hay nada que
+        /// estampar, así que se mantienen los formatos que ya se aceptaban.
+        /// </summary>
+        private static readonly HashSet<string> AllowedCartaFirmadaExt = new(StringComparer.OrdinalIgnoreCase)
             { ".pdf", ".doc", ".docx" };
 
         private const long MaxCartaBytes = 15L * 1024 * 1024; // 15 MB
@@ -54,7 +70,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
             var ext = Path.GetExtension(cartaFileName);
             if (!AllowedCartaExt.Contains(ext))
-                throw new AbrilException("La carta oferta tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
+                throw new AbrilException(
+                    "La carta oferta debe ser un PDF: es el formato que el colaborador puede ver y firmar desde el enlace.", 400);
             if (cartaContent.Length > MaxCartaBytes)
                 throw new AbrilException("La carta oferta supera el tamaño máximo permitido (15 MB).", 400);
 
@@ -63,58 +80,101 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             if (correoManual != null && !EmailRegex.IsMatch(correoManual))
                 throw new AbrilException("El correo indicado para la carta oferta no es válido.", 400);
 
-            // 1) Validar que el candidato pueda entrar a onboarding y resolver el correo destino
-            //    ANTES de tocar SharePoint o mandar correos.
+            // 1) Validar que el candidato pueda entrar a onboarding y resolver el correo destino y su
+            //    ficha de la base maestra ANTES de tocar SharePoint o mandar correos.
             var ctx = await _repo.PrepararInicio(dto.CandidatoId, dto.FechaIngreso, correoManual);
+            ctx.Token = NuevoToken();
 
             // 2) Resolver la carpeta destino de la carta ANTES de enviar el correo. Si la biblioteca
             //    no está configurada o no se puede resolver, esto corta acá: lo contrario sería
-            //    mandarle la carta al colaborador para después fallar al guardarla y no dejar
-            //    onboarding registrado, obligando a reenviarla.
-            var carpeta = await ResolverFileDigitalAsync(ctx.Codigo, ctx.Nombre);
+            //    avisarle al colaborador para después fallar al guardar la carta y dejarlo con un
+            //    enlace que no tiene nada que mostrar.
+            var carpeta = await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
 
-            // 3) Enviar la carta oferta. Va antes de persistir a propósito: mientras la carta no
-            //    salga, el colaborador no está en onboarding y GTH puede reintentar sin arrastrar una
-            //    fila a medias. Mismo criterio que el envío de la long list en Reclutamiento.
+            // 3) Guardar la carta en el file del colaborador y registrar el onboarding. Va ANTES del
+            //    correo —al revés que en el flujo viejo, donde la carta iba adjunta— porque ahora el
+            //    correo solo lleva un enlace: si el enlace saliera primero, apuntaría a un token que
+            //    todavía no existe y a una carta que todavía no está guardada. Con este orden, un
+            //    correo que falla deja un onboarding completo del que GTH reenvía el enlace.
+            var carta = await _fileDigital.SubirDocumentoAsync(
+                carpeta, SubcarpetaFileDigital.CartaEnviada,
+                _fileDigital.NombreArchivo("carta_oferta", ctx.Codigo, ext),
+                cartaContent, cartaContentType, "la carta oferta");
+
+            var colaborador = await _repo.Crear(ctx, carta, carpeta, dto.Observacion, userId);
+
+            // 4) Avisarle al colaborador con el enlace a su carta. La carta NO va adjunta: se ve
+            //    dentro de la intranet, que es donde también la firma.
             try
             {
-                await _email.SendAsync(
-                    to:      new List<string> { ctx.Correo },
-                    subject: $"Carta oferta — {ctx.Puesto} · Abril Grupo Inmobiliario",
-                    body:    ConstruirCuerpoCartaOferta(ctx),
-                    isHtml:  true,
-                    attachments: new List<EmailAttachment>
-                    {
-                        new()
-                        {
-                            FileName    = cartaFileName,
-                            ContentType = string.IsNullOrWhiteSpace(cartaContentType)
-                                ? "application/octet-stream" : cartaContentType,
-                            Content     = cartaContent,
-                        },
-                    });
+                await EnviarCorreoEnlaceAsync(ctx);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló el correo de la carta oferta del candidato {CandidatoId}", dto.CandidatoId);
+                _logger.LogError(ex,
+                    "Falló el correo del enlace de la carta oferta del onboarding {OnboardingId}",
+                    colaborador.OnboardingId);
                 throw new AbrilException(
-                    "No se pudo enviar la carta oferta al correo del colaborador. El onboarding no se inició; reintenta.", 502);
+                    $"El onboarding quedó abierto y la carta oferta guardada, pero no se pudo enviar el correo a {ctx.Correo}. " +
+                    "Reenvía el enlace desde el detalle del colaborador.", 502);
             }
-
-            // 4) Carta enviada: guardarla en SharePoint (queda en el file del colaborador) y recién
-            //    ahí registrar el onboarding, con la carpeta que le sirve de file digital.
-            var nombreArchivo = $"carta_oferta_{SanitizeFilename(ctx.Codigo)}_{Sello()}{Path.GetExtension(cartaFileName)}";
-            var carta = await SubirAlFileDigitalAsync(
-                carpeta, nombreArchivo, cartaContent, cartaContentType, "la carta oferta");
-
-            var colaborador = await _repo.Crear(ctx, carta, carpeta, dto.Observacion, userId);
 
             return new OnboardingCreateResultDto
             {
                 OnboardingId = colaborador.OnboardingId,
                 Colaborador  = colaborador,
-                Message      = $"Onboarding iniciado. Carta oferta enviada a {ctx.Correo}.",
+                Message      = $"Onboarding iniciado. Se le envió a {ctx.Correo} el enlace para revisar y firmar su carta oferta.",
             };
+        }
+
+        public async Task<OnboardingAccionResultDto> ReenviarEnlaceFirma(
+            int onboardingId, string? correo, int? userId)
+        {
+            var correoManual = string.IsNullOrWhiteSpace(correo) ? null : correo.Trim().ToLowerInvariant();
+            if (correoManual != null && !EmailRegex.IsMatch(correoManual))
+                throw new AbrilException("El correo indicado para el enlace de firma no es válido.", 400);
+
+            // El token nuevo solo se usa si la fila no tiene uno (onboarding abierto antes de que
+            // existiera la firma en línea): si ya tiene, se conserva para no romper el enlace que el
+            // colaborador pueda tener en su bandeja.
+            var ctx = await _repo.PrepararReenvio(onboardingId, correoManual, NuevoToken());
+
+            await EnviarCorreoEnlaceAsync(ctx);
+
+            // Recién con el correo afuera se deja registrado el envío (y el token, si era nuevo).
+            var colaborador = await _repo.MarcarEnlaceEnviado(onboardingId, ctx, userId);
+
+            return new OnboardingAccionResultDto
+            {
+                Colaborador = colaborador,
+                Message     = $"Enlace de firma reenviado a {ctx.Correo}.",
+            };
+        }
+
+        /// <summary>
+        /// Manda el correo con el enlace a la página donde el colaborador ve y firma su carta oferta.
+        /// Lo usan el alta del onboarding y el reenvío, así que el correo que recibe el colaborador es
+        /// el mismo en los dos casos. Las excepciones se dejan salir: cada quien decide qué hacer con
+        /// un correo que no salió (el alta ya tiene la fila creada, el reenvío no escribió nada).
+        /// </summary>
+        private async Task EnviarCorreoEnlaceAsync(OnboardingContextoDto ctx)
+        {
+            await _email.SendAsync(
+                to:      new List<string> { ctx.Correo },
+                subject: $"Carta oferta — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                body:    ConstruirCuerpoEnlaceCartaOferta(ctx, ConstruirLinkFirma(ctx.Token)),
+                isHtml:  true);
+        }
+
+        /// <summary>Token del enlace público (hex, url-safe). Mismo formato que el del formulario del postulante.</summary>
+        private static string NuevoToken() =>
+            Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+
+        /// <summary>Enlace público donde el colaborador ve y firma su carta oferta.</summary>
+        private string ConstruirLinkFirma(string token)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/postulante/carta-oferta?token={Uri.EscapeDataString(token)}";
         }
 
         // ── Carta oferta firmada ───────────────────────────────────────────────
@@ -126,21 +186,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                 throw new AbrilException("Adjunta la carta oferta firmada.", 400);
 
             var ext = Path.GetExtension(fileName);
-            if (!AllowedCartaExt.Contains(ext))
+            if (!AllowedCartaFirmadaExt.Contains(ext))
                 throw new AbrilException("La carta oferta firmada tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
             if (content.Length > MaxCartaBytes)
                 throw new AbrilException("La carta oferta firmada supera el tamaño máximo permitido (15 MB).", 400);
 
             var ctx = await _repo.PrepararDocumento(onboardingId);
 
-            // La carta firmada va a la MISMA carpeta que la enviada. Normalmente ya está guardada en
-            // el onboarding; los abiertos antes de que se persistiera se resuelven por nombre, que es
-            // exactamente como se resolvió la primera vez (EnsureChildFolder devuelve la existente).
-            var carpeta = ctx.Carpeta ?? await ResolverFileDigitalAsync(ctx.Codigo, ctx.Nombre);
+            // La carta firmada va al MISMO file que la enviada, pero a su propia subcarpeta. El file
+            // normalmente ya está guardado en el onboarding; los abiertos antes de que se persistiera
+            // se resuelven por nombre, que es exactamente como se resolvió la primera vez
+            // (EnsureChildFolder devuelve la existente).
+            var carpeta = ctx.Carpeta ?? await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
 
-            var nombreArchivo = $"carta_oferta_firmada_{SanitizeFilename(ctx.Codigo)}_{Sello()}{ext}";
-            var carta = await SubirAlFileDigitalAsync(
-                carpeta, nombreArchivo, content, contentType, "la carta oferta firmada");
+            var carta = await _fileDigital.SubirDocumentoAsync(
+                carpeta, SubcarpetaFileDigital.CartaFirmada,
+                _fileDigital.NombreArchivo("carta_oferta_firmada", ctx.Codigo, ext),
+                content, contentType, "la carta oferta firmada");
 
             var colaborador = await _repo.GuardarCartaFirmada(onboardingId, carta, carpeta, userId);
 
@@ -172,92 +234,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         }
 
         /// <summary>
-        /// Sube un documento al file digital del colaborador (la <paramref name="carpeta"/> ya
-        /// resuelta). La fila del onboarding se queda con el driveId/itemId/webUrl de ESTA subida: si
-        /// mañana se cambia la biblioteca configurada, el documento se sigue abriendo desde acá.
-        /// <paramref name="queEs"/> solo arma el mensaje de error ("la carta oferta firmada").
+        /// Correo genérico con el enlace a la carta oferta. La carta NO va adjunta: el colaborador
+        /// entra al enlace, la lee ahí, registra su firma y la firma en la misma página. El cuerpo
+        /// resume la posición para que reconozca de qué proceso se trata sin abrir nada, pero las
+        /// condiciones de la propuesta solo se ven dentro de la intranet.
         /// </summary>
-        private async Task<CartaOfertaPersistDto> SubirAlFileDigitalAsync(
-            FileDigitalCarpetaDto carpeta, string fileName, byte[] content, string contentType, string queEs)
-        {
-            try
-            {
-                using var stream = new MemoryStream(content);
-                var result = await _sharePoint.UploadToOneDriveFolderAsync(
-                    carpeta.DriveId, carpeta.ItemId, fileName,
-                    stream, string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
-                    autoRenameOnLock: true);
-
-                if (result?.WebUrl == null)
-                    throw new AbrilException($"No se pudo subir {queEs} a SharePoint.", 502);
-
-                return new CartaOfertaPersistDto
-                {
-                    Nombre  = result.FileName ?? fileName,
-                    Url     = result.WebUrl,
-                    ItemId  = result.ItemId,
-                    DriveId = carpeta.DriveId,
-                };
-            }
-            catch (AbrilException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló la subida de {QueEs} al archivo {FileName}", queEs, fileName);
-                throw new AbrilException($"Error al subir {queEs} a SharePoint.", 502);
-            }
-        }
-
-        /// <summary>
-        /// Resuelve la biblioteca de cartas oferta (link en <c>gth_carta_oferta_folder</c>) y, dentro,
-        /// la subcarpeta del colaborador: esa subcarpeta es su file digital. Si no se puede crear se
-        /// cae a la raíz: el nombre del archivo ya lleva el código del requerimiento, así que no
-        /// colisiona.
-        ///
-        /// El link se lee de la BD en cada envío, así que cambiar esa fila redirige las cartas nuevas
-        /// sin redeploy y sin tocar las anteriores. Para un onboarding ya abierto no se vuelve a
-        /// llamar: su carpeta queda persistida en la fila.
-        /// </summary>
-        private async Task<FileDigitalCarpetaDto> ResolverFileDigitalAsync(string codigo, string nombre)
-        {
-            var folder = await _repo.GetCartaOfertaFolder();
-            if (folder == null || string.IsNullOrWhiteSpace(folder.LinkUrl))
-                throw new AbrilException(
-                    "No está configurada la carpeta de SharePoint donde se guardan las cartas oferta.", 500);
-
-            var raiz = await _sharePoint.ResolveSharePointFolderUrlAsync(folder.LinkUrl);
-            if (raiz == null || !raiz.IsFolder)
-                throw new AbrilException(
-                    "No se pudo resolver en SharePoint la carpeta configurada para las cartas oferta. Revisa que el link apunte a una carpeta existente y accesible.", 502);
-
-            var biblioteca = string.IsNullOrWhiteSpace(folder.FolderName) ? raiz.Name : folder.FolderName;
-            var subcarpeta = $"Onboarding {SanitizeFilename(codigo)} - {SanitizeFilename(nombre)}";
-
-            try
-            {
-                var subItemId = await _sharePoint.EnsureChildFolderAsync(raiz.DriveId, raiz.ItemId, subcarpeta);
-                return new FileDigitalCarpetaDto
-                {
-                    DriveId = raiz.DriveId,
-                    ItemId  = subItemId,
-                    Ruta    = $"{biblioteca} / {subcarpeta}",
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "No se pudo crear la subcarpeta de onboarding de {Codigo}; se usa la carpeta raíz", codigo);
-                return new FileDigitalCarpetaDto { DriveId = raiz.DriveId, ItemId = raiz.ItemId, Ruta = biblioteca };
-            }
-        }
-
-        /// <summary>Sello de tiempo del nombre de archivo: evita pisar una versión anterior.</summary>
-        private static string Sello() => DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-
-        /// <summary>
-        /// Correo de la carta oferta al nuevo colaborador. La carta va adjunta; el cuerpo resume la
-        /// posición y le pide devolverla firmada, que es justamente la primera fase del onboarding.
-        /// </summary>
-        private static string ConstruirCuerpoCartaOferta(OnboardingContextoDto ctx)
+        private static string ConstruirCuerpoEnlaceCartaOferta(OnboardingContextoDto ctx, string link)
         {
             static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
             static string Fila(string etiqueta, string? valor) =>
@@ -281,8 +263,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                     <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
                     <p style="font-size:13px">
                       Nos complace informarte que fuiste seleccionado(a) para la posición de
-                      <b>{Esc(ctx.Puesto)}</b> en <b>Abril Grupo Inmobiliario</b>. Adjunto a este correo
-                      encontrarás tu <b>carta oferta</b> con las condiciones de la propuesta.
+                      <b>{Esc(ctx.Puesto)}</b> en <b>Abril Grupo Inmobiliario</b>. Ya tienes disponible
+                      tu <b>carta oferta</b> con las condiciones de la propuesta.
                     </p>
                     <table style="border-collapse:collapse;margin:14px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
                       {Fila("Puesto", ctx.Puesto)}
@@ -293,13 +275,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                       {Fila("Fecha de ingreso", ctx.FechaIngreso?.ToString("dd/MM/yyyy"))}
                     </table>
                     <p style="font-size:13px">
-                      Para continuar con tu proceso de incorporación, <b>revisa la carta, fírmala y
-                      respóndenos este correo con el documento firmado</b>. Con eso avanzamos a la
-                      entrega de tu file digital y al resto de tu onboarding.
+                      Ingresa al siguiente enlace para <b>leer tu carta oferta, registrar tu firma y
+                      firmarla en línea</b>. No necesitas imprimir ni escanear nada.
+                    </p>
+                    <p style="margin:18px 0">
+                      <a href="{Esc(link)}"
+                         style="background:#005D9D;color:#fff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:13px;font-weight:bold;display:inline-block">
+                        Ver y firmar mi carta oferta
+                      </a>
+                    </p>
+                    <p style="font-size:11.5px;color:#888;word-break:break-all">
+                      Si el botón no funciona, copia y pega este enlace en tu navegador:<br>{Esc(link)}
                     </p>
                     <p style="font-size:12.5px;color:#555">
-                      Si tienes alguna consulta sobre la propuesta, respóndenos este correo y el equipo
-                      de Gestión de Talento Humano te apoyará.
+                      Este enlace es personal: no lo compartas. Si tienes alguna consulta sobre la
+                      propuesta, respóndenos este correo y el equipo de Gestión de Talento Humano te
+                      apoyará.
                     </p>
                     <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Onboarding.</p>
                   </div>
@@ -307,14 +298,5 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                 """;
         }
 
-        /// <summary>Deja el texto usable como nombre de archivo/carpeta en SharePoint.</summary>
-        private static string SanitizeFilename(string value)
-        {
-            var limpio = new string((value ?? string.Empty)
-                .Select(ch => Path.GetInvalidFileNameChars().Contains(ch) || ch == '#' || ch == '%' ? '_' : ch)
-                .ToArray())
-                .Trim();
-            return string.IsNullOrWhiteSpace(limpio) ? "sin_nombre" : limpio;
-        }
     }
 }

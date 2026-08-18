@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
@@ -411,22 +411,134 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return res;
         }
 
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Aprobar (o rechazar) desde la lista es exactamente el mismo acto que abrir el modal de
+        /// cada solicitud y marcar todas sus vacantes igual, así que se apoya en las mismas reglas:
+        /// el nivel lo resuelve el scope y solo la decisión de Gerencia General manda lo aprobado a
+        /// GTH y a TI. Lo único propio del bloque es que la escritura ocurre en un solo lote y que
+        /// los destinatarios de los correos se resuelven una vez para todo él.
+        /// </remarks>
+        public async Task<AprobacionGgDecisionMasivaResultDto> RegistrarDecisionMasiva(
+            AprobacionGgDecisionMasivaDto dto, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+
+            var ids = dto?.AprobacionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0)
+                throw new AbrilException("Selecciona al menos una solicitud para registrar tu decisión.", 400);
+
+            // El nivel sale de la categoría del usuario, nunca del payload: igual que en la decisión
+            // de una sola, nadie puede pedir que su firma cuente como la de Gerencia General.
+            var scope = await _scopes.ResolveAsync(userId);
+
+            var ctx = await _repo.RegistrarDecisionMasiva(ids, dto!.Aprobado, dto.Comentario, userId.Value, scope);
+
+            var res = new AprobacionGgDecisionMasivaResultDto
+            {
+                Nivel       = ctx.Nivel,
+                Aprobado    = dto.Aprobado,
+                Solicitudes = ctx.Registradas.Count,
+                Vacantes    = ctx.Registradas.Sum(c => c.Resultado.Aprobados + c.Resultado.Rechazados),
+                Omitidas    = ctx.Omitidas,
+            };
+
+            // Los correos salen como en la decisión de una: UNO por solicitud aprobada. GTH y TI
+            // trabajan por solicitud (cada correo lleva sus códigos de vacante y su justificación),
+            // así que fusionarlas en un solo correo cambiaría lo que reciben. Solo el visto bueno del
+            // gerente del área sigue sin disparar nada.
+            if (ctx.Nivel == AprobacionNivel.GerenteGeneral)
+            {
+                var conAprobadas = ctx.Registradas.Where(c => c.Aprobadas.Count > 0).ToList();
+                if (conAprobadas.Count > 0)
+                {
+                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Solicitud);
+                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
+
+                    // Best-effort, como en la decisión de una: la decisión ya quedó registrada y no
+                    // se revierte porque un correo falle.
+                    foreach (var c in conAprobadas)
+                    {
+                        if (destGth != null) await NotificarAGthAsync(c, userId, destGth);
+                        if (destTi  != null) await NotificarATiAsync(c, destTi);
+                    }
+                }
+            }
+
+            res.Message = ConstruirMensajeMasivo(res);
+            return res;
+        }
+
+        /// <summary>
+        /// Destinatarios de un correo resueltos una sola vez para todo el lote. Null si no se
+        /// pudieron resolver: en ese caso ese correo no sale, pero la decisión ya está registrada.
+        /// </summary>
+        private async Task<SolicitudDestinatariosDto?> ResolverDestinatariosDelLote(string tipoCodigo)
+        {
+            try
+            {
+                return await _destinatarios.ResolverAsync(tipoCodigo);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudieron resolver los destinatarios del correo {Tipo} de la decisión en bloque", tipoCodigo);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Mensaje de la decisión en bloque. Como en la decisión de una, dice si la solicitud avanza
+        /// —lo único que el gerente necesita saber—: el Gerente General manda lo aprobado a GTH, el
+        /// gerente del área solo deja constancia. Si hubo solicitudes omitidas se dice cuántas, para
+        /// que el conteo no quede sin explicar.
+        /// </summary>
+        private static string ConstruirMensajeMasivo(AprobacionGgDecisionMasivaResultDto res)
+        {
+            if (res.Solicitudes == 0)
+                return "No se registró ninguna decisión: las solicitudes seleccionadas ya no admitían tu decisión.";
+
+            var omitidas = res.Omitidas.Count == 0
+                ? string.Empty
+                : $" {res.Omitidas.Count} solicitud(es) quedaron fuera porque ya no admitían tu decisión.";
+
+            if (res.Nivel == AprobacionNivel.GerenteGeneral)
+            {
+                return res.Aprobado
+                    ? $"Aprobaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Ya se enviaron a Gestión de Talento Humano para iniciar el reclutamiento.{omitidas}"
+                    : $"Rechazaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Ninguna continúa y no se enviaron a Gestión de Talento Humano.{omitidas}";
+            }
+
+            return res.Aprobado
+                ? $"Visto bueno registrado en {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Avanzan recién con la aprobación de Gerencia General.{omitidas}"
+                : $"Observaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Gerencia General verá tu postura al decidir.{omitidas}";
+        }
+
         /// <summary>
         /// Correo + campanita a GTH con las vacantes que Gerencia General aprobó (tipo SOLICITUD).
         /// Es el correo de "nueva solicitud de personal" que antes salía al registrar la solicitud:
         /// ahora espera la aprobación del GG y solo lleva lo aprobado. No bloquea.
         /// </summary>
-        private async Task NotificarAGthAsync(AprobacionGgDecisionContextoDto ctx, int? userId)
+        private async Task NotificarAGthAsync(
+            AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null)
         {
-            SolicitudDestinatariosDto dest;
-            try
+            // En la decisión de UNA solicitud los destinatarios se resuelven acá. En la decisión en
+            // bloque llegan ya resueltos, una sola vez para todo el lote: no dependen de la
+            // solicitud ni de su área, así que repetir la consulta por cada una sería un roundtrip
+            // por solicitud sin ninguna diferencia en el resultado.
+            var dest = destinatarios;
+            if (dest == null)
             {
-                dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo resolver a los destinatarios de GTH de la solicitud {SolicitudId}", ctx.SolicitudId);
-                return;
+                try
+                {
+                    dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo resolver a los destinatarios de GTH de la solicitud {SolicitudId}", ctx.SolicitudId);
+                    return;
+                }
             }
 
             // 1) Correo.
@@ -490,11 +602,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <c>area_scope.email</c> del área de Tecnología de la Información. No bloquea ni lanza —
         /// la decisión ya quedó registrada y no se revierte porque un correo falle.
         /// </summary>
-        private async Task NotificarATiAsync(AprobacionGgDecisionContextoDto ctx)
+        private async Task NotificarATiAsync(
+            AprobacionGgDecisionContextoDto ctx, SolicitudDestinatariosDto? destinatarios = null)
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti);
+                // Igual que en el correo a GTH: en bloque llegan ya resueltos para todo el lote.
+                var dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti);
                 if (dest.Para.Count == 0)
                 {
                     // También entra acá cuando el correo está apagado con su interruptor maestro:

@@ -29,6 +29,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                     Nombre = e.Nombre,
                     Descripcion = e.Descripcion,
                     Orden = e.Orden,
+                    Active = e.Active,
+                    DestinatarioPrincipalNombre = e.DestinatarioPrincipalNombre,
+                    DestinatarioPrincipalActivo = e.DestinatarioPrincipalActivo,
+                    PermiteDesactivarEnvio = e.PermiteDesactivarEnvio,
+                    PermiteDesactivarPrincipal = e.PermiteDesactivarPrincipal,
                 })
                 .ToListAsync();
 
@@ -206,6 +211,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                     .ToListAsync();
                 if (areaIds.Except(existen).Any())
                     throw new AbrilException("Una o más áreas seleccionadas no existen.", 400);
+            }
+
+            // Interruptores del correo. Solo se aceptan si el correo los permite, y solo se
+            // rechaza cuando el valor realmente cambia: así la pantalla puede mandar siempre el
+            // estado actual de los correos que no son apagables sin recibir un error.
+            if (dto.Active.HasValue && dto.Active.Value != evento.Active)
+            {
+                if (!evento.PermiteDesactivarEnvio)
+                    throw new AbrilException("Este correo no se puede desactivar.", 400);
+                evento.Active = dto.Active.Value;
+                evento.UpdatedAt = now;
+            }
+            if (dto.DestinatarioPrincipalActivo.HasValue
+                && dto.DestinatarioPrincipalActivo.Value != evento.DestinatarioPrincipalActivo)
+            {
+                if (!evento.PermiteDesactivarPrincipal)
+                    throw new AbrilException("El destinatario principal de este correo no se puede desactivar.", 400);
+                evento.DestinatarioPrincipalActivo = dto.DestinatarioPrincipalActivo.Value;
+                evento.UpdatedAt = now;
             }
 
             // Reemplazo completo: soft-delete de las reglas vivas del correo + insertar las nuevas.

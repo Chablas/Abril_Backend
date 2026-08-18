@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
@@ -645,6 +645,349 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Aprobadas          = vacantes.Where(v => decisionDeEsteNivel(v) == true).ToList(),
                 Rechazadas         = vacantes.Where(v => decisionDeEsteNivel(v) == false).ToList(),
             };
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Misma regla que <see cref="RegistrarDecision"/> —solo se escribe la casilla del nivel del
+        /// usuario y solo el Gerente General mueve el pipeline— pero resuelta en lote: las
+        /// cabeceras, las vacantes, los detalles y los catálogos se leen de una vez para todas las
+        /// solicitudes seleccionadas y todo se guarda en un solo <c>SaveChanges</c>, en vez de
+        /// repetir N veces la decisión de una.
+        ///
+        /// El lote no es todo-o-nada: cada solicitud que ya no admite la decisión de este usuario se
+        /// aparta con su motivo y las demás se registran igual. Lo contrario obligaría al gerente a
+        /// adivinar cuál de las diez que seleccionó se cerró mientras revisaba.
+        /// </remarks>
+        public async Task<AprobacionGgDecisionMasivaContextoDto> RegistrarDecisionMasiva(
+            List<int> aprobacionIds, bool aprobado, string? comentario, int userId, AprobacionScope scope)
+        {
+            if (!scope.PuedeDecidir)
+                throw new AbrilException(
+                    "Tu ficha de trabajador no es de Gerencia General ni de gerente de área, " +
+                    "así que no puedes aprobar ni rechazar solicitudes de personal.", 403);
+
+            var resultado = new AprobacionGgDecisionMasivaContextoDto { Nivel = scope.Nivel };
+            if (aprobacionIds.Count == 0) return resultado;
+
+            using var ctx = _factory.CreateDbContext();
+            var esGg = scope.Nivel == AprobacionNivel.GerenteGeneral;
+
+            // 1) Cabeceras: la aprobación y su solicitud. Entidades (no proyección) porque las dos
+            //    se escriben más abajo.
+            var cabeceras = await (
+                from a in ctx.GthAprobacionGg
+                where aprobacionIds.Contains(a.GthAprobacionGgId) && a.State
+                join s in ctx.GthSolicitud on a.GthSolicitudId equals s.GthSolicitudId
+                where s.State
+                select new { Aprobacion = a, Solicitud = s }
+            ).ToListAsync();
+
+            // Las que ni siquiera existen (o se dieron de baja) se apartan acá: sin esto
+            // desaparecerían del conteo sin explicación.
+            foreach (var id in aprobacionIds.Where(id => cabeceras.All(c => c.Aprobacion.GthAprobacionGgId != id)))
+                resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
+                {
+                    AprobacionId = id,
+                    Motivo       = "La solicitud ya no está disponible.",
+                });
+
+            if (cabeceras.Count == 0) return resultado;
+
+            // 2) Catálogos y filas hijas de TODAS las cabeceras, de una sola vez.
+            //    Los estados de la aprobación son un catálogo de 4 filas: se trae completo (sin
+            //    filtrar State) porque hace falta tanto para leer el estado actual de cada casilla
+            //    como para resolver el destino.
+            var estados = await ctx.GthAprobacionGgEstado.AsNoTracking().ToListAsync();
+
+            var solicitudIds = cabeceras.Select(c => c.Solicitud.GthSolicitudId).ToList();
+            var requerimientos = await ctx.GthRequerimiento
+                .Where(r => solicitudIds.Contains(r.GthSolicitudId) && r.State)
+                .OrderBy(r => r.GthRequerimientoId)
+                .ToListAsync();
+            var reqPorSolicitud = requerimientos
+                .GroupBy(r => r.GthSolicitudId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var idsVivos = cabeceras.Select(c => c.Aprobacion.GthAprobacionGgId).ToList();
+            var detalles = await ctx.GthAprobacionGgDetalle
+                .Where(d => idsVivos.Contains(d.GthAprobacionGgId) && d.State)
+                .ToListAsync();
+            var detallePorAprobacion = detalles
+                .GroupBy(d => d.GthAprobacionGgId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Estados destino del requerimiento: solo los mueve Gerencia General (ver RegistrarDecision).
+            GthEstadoRequerimiento? validacionGth = null, rechazadoGg = null;
+            if (esGg)
+            {
+                var estadosReq = await ctx.GthEstadoRequerimiento
+                    .Where(e => e.State && (e.Codigo == EstadoReclutamiento.ValidacionGth
+                                            || e.Codigo == EstadoReclutamiento.RechazadoGg))
+                    .ToListAsync();
+                validacionGth = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.ValidacionGth)
+                    ?? throw new AbrilException("No está configurado el estado VALIDACION_GTH de reclutamiento.", 500);
+                rechazadoGg = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.RechazadoGg)
+                    ?? throw new AbrilException("No está configurado el estado RECHAZADO_GG de reclutamiento.", 500);
+            }
+
+            // Estado destino de la casilla: en bloque la decisión es la misma para todas las
+            // vacantes de la solicitud, así que nunca queda una aprobación parcial.
+            var codigoDestino = aprobado ? AprobacionGgEstadoCodigo.Aprobada : AprobacionGgEstadoCodigo.Rechazada;
+            var estadoDestino = estados.FirstOrDefault(e => e.Codigo == codigoDestino && e.State)
+                ?? throw new AbrilException($"No está configurado el estado {codigoDestino} de la aprobación.", 500);
+
+            var comentarioLimpio = string.IsNullOrWhiteSpace(comentario) ? null : comentario.Trim();
+            var now = DateTimeOffset.UtcNow;
+
+            // 3) La decisión, solicitud por solicitud pero sin volver a la BD.
+            var decididas = new List<(GthAprobacionGg Aprobacion, GthSolicitud Solicitud, int Vacantes)>();
+
+            foreach (var c in cabeceras)
+            {
+                var aprobacion = c.Aprobacion;
+                var solicitud  = c.Solicitud;
+
+                // Alcance: acá no corta con 403 —el lote sigue— pero tampoco deja pasar una
+                // solicitud de otra gerencia. Es la misma regla de EnsureAlcance, como omisión.
+                if (!scope.Alcanza(solicitud.AreaScopeId))
+                {
+                    resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
+                    {
+                        AprobacionId = aprobacion.GthAprobacionGgId,
+                        Motivo       = "Pertenece a otra área y no está dentro de tu alcance.",
+                    });
+                    continue;
+                }
+
+                // Cada nivel decide UNA sola vez, y solo se mira SU casilla: que el otro nivel ya
+                // haya decidido no impide registrar la propia.
+                var estadoActualId = esGg ? aprobacion.EstadoGerenteGeneralId : aprobacion.EstadoGerenteAreaId;
+                var codigoActual = estados.FirstOrDefault(e => e.GthAprobacionGgEstadoId == estadoActualId)?.Codigo;
+                if (codigoActual != AprobacionGgEstadoCodigo.Pendiente)
+                {
+                    resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
+                    {
+                        AprobacionId = aprobacion.GthAprobacionGgId,
+                        Motivo       = esGg ? "Gerencia General ya decidió sobre esta solicitud."
+                                            : "El gerente del área ya registró su visto bueno.",
+                    });
+                    continue;
+                }
+
+                if (!reqPorSolicitud.TryGetValue(solicitud.GthSolicitudId, out var vacantes) || vacantes.Count == 0)
+                {
+                    resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
+                    {
+                        AprobacionId = aprobacion.GthAprobacionGgId,
+                        Motivo       = "La solicitud no tiene vacantes por aprobar.",
+                    });
+                    continue;
+                }
+
+                detallePorAprobacion.TryGetValue(aprobacion.GthAprobacionGgId, out var detallesDeEsta);
+
+                // Todas las vacantes de la fila reciben la misma decisión: es justamente lo que
+                // significa aprobar o rechazar la fila completa desde la lista.
+                foreach (var r in vacantes)
+                {
+                    if (esGg)
+                    {
+                        r.GthEstadoRequerimientoId = aprobado
+                            ? validacionGth!.GthEstadoRequerimientoId
+                            : rechazadoGg!.GthEstadoRequerimientoId;
+                        r.UpdatedDateTime = now;
+                        r.UpdatedUserId   = userId;
+                    }
+
+                    var detalle = detallesDeEsta?.FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId);
+                    if (detalle == null)
+                    {
+                        detalle = new GthAprobacionGgDetalle
+                        {
+                            GthAprobacionGgId  = aprobacion.GthAprobacionGgId,
+                            GthRequerimientoId = r.GthRequerimientoId,
+                            CreatedDateTime    = now,
+                            CreatedUserId      = userId,
+                            Active             = true,
+                            State              = true,
+                        };
+                        ctx.GthAprobacionGgDetalle.Add(detalle);
+                    }
+                    else
+                    {
+                        detalle.UpdatedDateTime = now;
+                        detalle.UpdatedUserId   = userId;
+                    }
+
+                    // Solo la columna del nivel que decide: la del otro queda como esté.
+                    if (esGg)
+                    {
+                        detalle.AprobadoGerenteGeneral         = aprobado;
+                        detalle.GerenteGeneralDecididoDateTime = now;
+                    }
+                    else
+                    {
+                        detalle.AprobadoGerenteArea         = aprobado;
+                        detalle.GerenteAreaDecididoDateTime = now;
+                    }
+                }
+
+                if (esGg)
+                {
+                    aprobacion.EstadoGerenteGeneralId         = estadoDestino.GthAprobacionGgEstadoId;
+                    aprobacion.GerenteGeneralDecididoDateTime = now;
+                    aprobacion.GerenteGeneralDecididoUserId   = userId;
+                    aprobacion.GerenteGeneralComentario       = comentarioLimpio;
+                }
+                else
+                {
+                    aprobacion.EstadoGerenteAreaId         = estadoDestino.GthAprobacionGgEstadoId;
+                    aprobacion.GerenteAreaDecididoDateTime = now;
+                    aprobacion.GerenteAreaDecididoUserId   = userId;
+                    aprobacion.GerenteAreaComentario       = comentarioLimpio;
+                }
+
+                aprobacion.UpdatedDateTime = now;
+                aprobacion.UpdatedUserId   = userId;
+
+                decididas.Add((aprobacion, solicitud, vacantes.Count));
+            }
+
+            if (decididas.Count == 0) return resultado;
+
+            await ctx.SaveChangesAsync();
+
+            // 4) Contexto de cada decisión registrada. Los datos legibles (vacantes, solicitante,
+            //    visto bueno del área) solo los consume el correo del Gerente General, así que en el
+            //    visto bueno del gerente del área no se consulta nada más: se devuelven las
+            //    cabeceras con sus conteos y listo.
+            var aprobacionIdsDecididas = decididas.Select(d => d.Aprobacion.GthAprobacionGgId).ToList();
+
+            var vacantesPorAprobacion = esGg
+                ? await QueryVacantesDeVarias(ctx, aprobacionIdsDecididas)
+                : new Dictionary<int, List<AprobacionGgVacanteDto>>();
+
+            var nombresPorUser = new Dictionary<int, string?>();
+            var resumenAreaPorAprobacion = new Dictionary<int, string?>();
+            if (esGg)
+            {
+                // Nombres del solicitante de cada solicitud y del gerente de área que ya dio su
+                // visto bueno, en una sola consulta a person para todos los usuarios del lote.
+                var userIds = decididas
+                    .Select(d => d.Solicitud.SolicitanteUserId)
+                    .Concat(decididas.Select(d => d.Aprobacion.GerenteAreaDecididoUserId))
+                    .Where(id => id.HasValue)
+                    .Distinct()
+                    .ToList();
+
+                if (userIds.Count > 0)
+                {
+                    var filas = await ctx.Person.AsNoTracking()
+                        .Where(p => userIds.Contains(p.UserId))
+                        .Select(p => new { p.UserId, p.FullName })
+                        .ToListAsync();
+                    foreach (var f in filas)
+                        if (f.UserId.HasValue) nombresPorUser[f.UserId.Value] = f.FullName;
+                }
+
+                // "Aprobada parcialmente — Juan Pérez": lo mismo que BuildGerenteAreaResumen, pero
+                // con el catálogo y los nombres ya en memoria. Null si el área nunca opinó.
+                foreach (var d in decididas)
+                {
+                    if (!d.Aprobacion.GerenteAreaDecididoDateTime.HasValue) continue;
+
+                    var estadoNombre = estados
+                        .FirstOrDefault(e => e.GthAprobacionGgEstadoId == d.Aprobacion.EstadoGerenteAreaId)?.Nombre;
+                    if (string.IsNullOrWhiteSpace(estadoNombre)) continue;
+
+                    var quien = d.Aprobacion.GerenteAreaDecididoUserId.HasValue
+                        ? nombresPorUser.GetValueOrDefault(d.Aprobacion.GerenteAreaDecididoUserId.Value)
+                        : null;
+
+                    resumenAreaPorAprobacion[d.Aprobacion.GthAprobacionGgId] =
+                        string.IsNullOrWhiteSpace(quien) ? estadoNombre : $"{estadoNombre} — {quien}";
+                }
+            }
+
+            foreach (var d in decididas)
+            {
+                var vacantes = vacantesPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId)
+                               ?? new List<AprobacionGgVacanteDto>();
+
+                resultado.Registradas.Add(new AprobacionGgDecisionContextoDto
+                {
+                    Resultado = new AprobacionGgDecisionResultDto
+                    {
+                        Nivel        = scope.Nivel,
+                        EstadoCodigo = estadoDestino.Codigo,
+                        EstadoNombre = estadoDestino.Nombre,
+                        Aprobados    = aprobado ? d.Vacantes : 0,
+                        Rechazados   = aprobado ? 0 : d.Vacantes,
+                    },
+                    SolicitudId        = d.Solicitud.GthSolicitudId,
+                    Area               = d.Solicitud.AreaNombre,
+                    SolicitanteNombre  = d.Solicitud.SolicitanteUserId.HasValue
+                        ? nombresPorUser.GetValueOrDefault(d.Solicitud.SolicitanteUserId.Value)
+                        : null,
+                    Justificacion      = d.Solicitud.Justificacion,
+                    SustentoNombre     = d.Solicitud.SustentoNombre,
+                    SustentoUrl        = d.Solicitud.SustentoUrl,
+                    Comentario         = comentarioLimpio,
+                    GerenteAreaResumen = resumenAreaPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId),
+                    Aprobadas          = aprobado ? vacantes : new List<AprobacionGgVacanteDto>(),
+                    Rechazadas         = aprobado ? new List<AprobacionGgVacanteDto>() : vacantes,
+                });
+            }
+
+            return resultado;
+        }
+
+        /// <summary>
+        /// Igual que <see cref="QueryVacantes"/> pero para varias aprobaciones en un solo roundtrip,
+        /// agrupadas por aprobación. La llave del join al detalle es el par (aprobación,
+        /// requerimiento), como en <see cref="GetBandeja"/>: filtrar solo por requerimiento traería
+        /// el detalle de otra aprobación de la misma solicitud.
+        /// </summary>
+        private static async Task<Dictionary<int, List<AprobacionGgVacanteDto>>> QueryVacantesDeVarias(
+            AppDbContext ctx, List<int> aprobacionIds)
+        {
+            var filas = await (
+                from a in ctx.GthAprobacionGg.AsNoTracking()
+                where aprobacionIds.Contains(a.GthAprobacionGgId)
+                join r in ctx.GthRequerimiento.AsNoTracking() on a.GthSolicitudId equals r.GthSolicitudId
+                where r.State
+                join p in ctx.Puesto.AsNoTracking() on r.PuestoId equals p.PuestoId
+                join t in ctx.GthTipoRequerimiento.AsNoTracking() on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
+                join pr in ctx.Project.AsNoTracking() on r.ProjectId equals pr.ProjectId
+                join d in ctx.GthAprobacionGgDetalle.AsNoTracking().Where(x => x.State)
+                    on new { A = a.GthAprobacionGgId, R = r.GthRequerimientoId }
+                    equals new { A = d.GthAprobacionGgId, R = d.GthRequerimientoId } into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
+                join wr in ctx.Worker.AsNoTracking() on r.ReemplazaWorkerId equals (int?)wr.Id into reemplazaJoin
+                from wr in reemplazaJoin.DefaultIfEmpty()
+                orderby r.GthRequerimientoId
+                select new
+                {
+                    a.GthAprobacionGgId,
+                    Vacante = new AprobacionGgVacanteDto
+                    {
+                        RequerimientoId        = r.GthRequerimientoId,
+                        Codigo                 = r.Codigo,
+                        Puesto                 = p.Nombre,
+                        TipoRequerimiento      = t.Nombre,
+                        TrabajadorReemplazado  = wr == null ? null
+                            : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
+                        ProyectoObra           = pr.ProjectDescription,
+                        FechaRequeridaIngreso  = r.FechaRequeridaIngreso,
+                        AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
+                        AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
+                    },
+                }).ToListAsync();
+
+            return filas
+                .GroupBy(f => f.GthAprobacionGgId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Vacante).ToList());
         }
 
         /// <summary>

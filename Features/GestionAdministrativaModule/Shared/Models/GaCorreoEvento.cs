@@ -32,9 +32,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("orden")]
         public int Orden { get; set; }
 
-        /// <summary>Si false, el correo no aparece en la configuración (no se usa hoy, previsto para el futuro).</summary>
+        /// <summary>
+        /// Interruptor maestro: si false, este correo NO se envía (su configuración se conserva).
+        /// Solo se puede apagar desde la pantalla si <see cref="PermiteDesactivarEnvio"/>.
+        /// </summary>
         [Column("active")]
         public bool Active { get; set; } = true;
+
+        /// <summary>
+        /// Etiqueta del destinatario principal que calcula el backend (el revisor en REVISOR,
+        /// el solicitante en los demás). Solo informativa: la pantalla la muestra junto al
+        /// interruptor del principal.
+        /// </summary>
+        [Column("destinatario_principal_nombre")]
+        public string? DestinatarioPrincipalNombre { get; set; }
+
+        /// <summary>
+        /// Si false, el correo no se manda a su destinatario principal: solo a los destinatarios
+        /// configurados en <see cref="GaCorreoRegla"/>. Si no queda ninguno, no se envía nada.
+        /// Solo se puede apagar desde la pantalla si <see cref="PermiteDesactivarPrincipal"/>.
+        /// </summary>
+        [Column("destinatario_principal_activo")]
+        public bool DestinatarioPrincipalActivo { get; set; } = true;
+
+        /// <summary>true = la pantalla muestra el interruptor maestro (<see cref="Active"/>) de este correo.</summary>
+        [Column("permite_desactivar_envio")]
+        public bool PermiteDesactivarEnvio { get; set; }
+
+        /// <summary>true = la pantalla muestra el interruptor de <see cref="DestinatarioPrincipalActivo"/>.</summary>
+        [Column("permite_desactivar_principal")]
+        public bool PermiteDesactivarPrincipal { get; set; }
 
         /// <summary>Soft delete: false = eliminado (se conserva para auditoría).</summary>
         [Column("state")]

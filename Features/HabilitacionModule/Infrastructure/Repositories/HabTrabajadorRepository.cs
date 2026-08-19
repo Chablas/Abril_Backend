@@ -988,6 +988,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ProyectoId = dto.NuevoProyectoId,
                 Puesto = nuevoPuesto ?? currentPuesto,
                 ObraOficinaStaffId = nuevoObraOficinaStaffId,
+                CategoriaId = worker.CategoriaId,
                 FechaInicio = fechaCambio,
                 CreatedAt = now
             });
@@ -1388,6 +1389,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 WorkerId = workerId,
                 EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
+                CategoriaId = worker.CategoriaId,
                 FechaInicio = fechaReingreso,
                 CreatedAt = now
             });
@@ -1502,6 +1504,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId    = workerId,
                     EmpresaId   = ultimaCerrada?.EmpresaId,
                     ProyectoId  = ultimaCerrada?.ProyectoId,
+                    CategoriaId = ultimaCerrada?.CategoriaId ?? worker.CategoriaId,
                     FechaInicio = fechaReingreso,
                     CreatedAt   = DateTimeOffset.UtcNow,
                 });
@@ -2398,6 +2401,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId    = workerId,
                     EmpresaId   = ultima?.EmpresaId,
                     ProyectoId  = ultima?.ProyectoId,
+                    CategoriaId = ultima?.CategoriaId,
                     FechaInicio = hoy,
                     CreatedAt   = now,
                 });

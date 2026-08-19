@@ -43,6 +43,15 @@ namespace Abril_Backend.Features.GestionGthModule
             // Onboarding: la fase que sigue a Reclutamiento (carta oferta → base maestra).
             services.AddScoped<IOnboardingRepository, OnboardingRepository>();
             services.AddScoped<IOnboardingService, OnboardingService>();
+
+            // File digital del colaborador en SharePoint. Lo comparten la pantalla de GTH y la página
+            // pública de firma: las dos tienen que dejar los documentos en la misma carpeta.
+            services.AddScoped<IFileDigitalColaboradorService, FileDigitalColaboradorService>();
+
+            // Página pública donde el postulante ve su carta oferta, registra su firma y la firma
+            // (acceso por token, sin login).
+            services.AddScoped<ICartaOfertaFirmaRepository, CartaOfertaFirmaRepository>();
+            services.AddScoped<ICartaOfertaFirmaService, CartaOfertaFirmaService>();
             return services;
         }
     }

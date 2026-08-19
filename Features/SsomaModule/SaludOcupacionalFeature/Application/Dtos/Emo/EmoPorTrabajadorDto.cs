@@ -45,6 +45,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? UrlAptitud { get; set; }
         public string? UrlEmoCompleto { get; set; }
         public string? UrlResultado { get; set; }
+        /// <summary>true = la lectura la hace el médico de Abril, no la clínica. Junto con
+        /// UrlResultado == null define si el EMO está "pendiente de lectura" para Abril.</summary>
+        public bool RequiereLecturaAbril { get; set; }
         public bool RequiereInterconsulta { get; set; }
         public int? InterconsultaId { get; set; }
         public string? InterconsultaEspecialidad { get; set; }

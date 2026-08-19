@@ -162,7 +162,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         }
 
         // ── Detalle ──────────────────────────────────────────────────────────
-        public async Task<ReunionDetalleDto> GetDetalle(int reunionId)
+        public async Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -171,6 +171,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .Select(r => new ReunionDetalleDto
                 {
                     ReunionId = r.ReunionId,
+                    CreatedUserId = r.CreatedUserId,
                     ProjectId = r.ProjectId,
                     ProjectDescription = r.ProjectId == null ? null : ctx.Project
                         .Where(p => p.ProjectId == r.ProjectId.Value)
@@ -200,6 +201,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             if (detalle is null)
                 throw new AbrilException("El acta de reunión no existe.", 404);
+
+            detalle.PuedeEditar = await PuedeEditarActa(ctx, reunionId, detalle.CreatedUserId, userId);
 
             if (detalle.ReunionAnteriorId.HasValue)
             {
@@ -232,6 +235,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     Iniciales = p.Iniciales,
                     Asistio = p.Asistio,
                     Orden = p.Orden,
+                    EsCoautor = p.EsCoautor,
                 })
                 .ToListAsync();
 
@@ -252,9 +256,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         .Select(e => e.Descripcion)
                         .First(),
                     Orden = a.Orden,
+                    Criticidad = a.Criticidad,
                     RequiereAceptacion = a.RequiereAceptacion,
                     RequiereEvidencia = a.RequiereEvidencia,
                     EvidenciaUrl = a.EvidenciaUrl,
+                    EsInformativo = a.EsInformativo,
+                    ComentarioCumplimiento = a.ComentarioCumplimiento,
+                    VecesReprogramado = a.VecesReprogramado,
+                    UltimoMotivoReprogramacion = a.UltimoMotivoReprogramacion,
                 })
                 .ToListAsync();
 
@@ -275,6 +284,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         WorkerNombre = per.FullName,
                         x.EstadoAceptacion,
                         x.MotivoRechazo,
+                        x.EsPrincipal,
                     }
                 ).ToListAsync();
                 var porAcuerdo = responsables.GroupBy(x => x.ReunionAcuerdoId).ToDictionary(
@@ -286,6 +296,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         WorkerNombre = x.WorkerNombre,
                         EstadoAceptacion = x.EstadoAceptacion,
                         MotivoRechazo = x.MotivoRechazo,
+                        EsPrincipal = x.EsPrincipal,
                     }).ToList());
                 foreach (var acuerdo in detalle.Acuerdos)
                     acuerdo.Responsables = porAcuerdo.TryGetValue(acuerdo.ReunionAcuerdoId, out var lista)
@@ -435,6 +446,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             using var ctx = _factory.CreateDbContext();
 
             var reunion = await GetReunionOrThrow(ctx, reunionId);
+            await EnsurePuedeEditarActa(ctx, reunionId, reunion.CreatedUserId, userId);
 
             var now = DateTime.UtcNow;
             reunion.Tema = request.Tema.Trim();
@@ -497,6 +509,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     existente.Cargo = input.Cargo?.Trim();
                     existente.Iniciales = input.Iniciales?.Trim();
                     existente.Asistio = input.Asistio;
+                    existente.EsCoautor = input.WorkerId.HasValue && input.EsCoautor;
                     existente.Orden = orden++;
                     existente.UpdatedDateTime = now;
                     existente.UpdatedUserId = userId;
@@ -511,6 +524,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         Cargo = input.Cargo?.Trim(),
                         Iniciales = input.Iniciales?.Trim(),
                         Asistio = input.Asistio,
+                        EsCoautor = input.WorkerId.HasValue && input.EsCoautor,
                         Orden = orden++,
                         CreatedDateTime = now,
                         CreatedUserId = userId,
@@ -533,6 +547,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             using var ctx = _factory.CreateDbContext();
 
             var reunion = await GetReunionOrThrow(ctx, reunionId);
+            await EnsurePuedeEditarActa(ctx, reunionId, reunion.CreatedUserId, userId);
 
             var estadoActual = await ctx.ReunionEstado
                 .Where(e => e.ReunionEstadoId == reunion.ReunionEstadoId)
@@ -576,6 +591,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             using var ctx = _factory.CreateDbContext();
 
             var reunion = await GetReunionOrThrow(ctx, reunionId);
+            await EnsurePuedeEditarActa(ctx, reunionId, reunion.CreatedUserId, userId);
             var estadoId = await GetEstadoReunionId(ctx, estado);
 
             reunion.ReunionEstadoId = estadoId;
@@ -589,6 +605,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             using var ctx = _factory.CreateDbContext();
 
             var reunion = await GetReunionOrThrow(ctx, reunionId);
+            await EnsurePuedeEditarActa(ctx, reunionId, reunion.CreatedUserId, userId);
 
             var tieneSiguiente = await ctx.Reunion.AnyAsync(r => r.ReunionAnteriorId == reunionId && r.State);
             if (tieneSiguiente)
@@ -646,7 +663,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             using var ctx = _factory.CreateDbContext();
 
-            await GetReunionOrThrow(ctx, reunionId);
+            var reunion = await GetReunionOrThrow(ctx, reunionId);
+            await EnsurePuedeEditarActa(ctx, reunionId, reunion.CreatedUserId, userId);
             await ValidarResponsables(ctx, request.ResponsableWorkerIds);
 
             var estadoId = request.ReunionAcuerdoEstadoId
@@ -667,9 +685,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 FechaCumplimiento = request.FechaCumplimiento,
                 ReunionAcuerdoEstadoId = estadoId,
                 Orden = orden,
+                Criticidad = string.IsNullOrWhiteSpace(request.Criticidad) ? "NORMAL" : request.Criticidad,
                 RequiereAceptacion = request.RequiereAceptacion,
                 RequiereEvidencia = request.RequiereEvidencia,
                 EvidenciaUrl = request.EvidenciaUrl?.Trim(),
+                EsInformativo = request.EsInformativo,
                 CreatedDateTime = now,
                 CreatedUserId = userId,
                 Active = true,
@@ -686,6 +706,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ReunionAcuerdoId = acuerdo.ReunionAcuerdoId,
                     WorkerId = workerId,
                     EstadoAceptacion = estadoAceptacionInicial,
+                    EsPrincipal = request.ResponsablePrincipalWorkerId.HasValue && request.ResponsablePrincipalWorkerId.Value == workerId,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
@@ -707,6 +728,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (acuerdo is null)
                 throw new AbrilException("El acuerdo no existe.", 404);
 
+            await EnsurePuedeEditarActaByReunionId(ctx, acuerdo.ReunionId, userId);
             await ValidarResponsables(ctx, request.ResponsableWorkerIds);
 
             if (request.RequiereEvidencia && string.IsNullOrWhiteSpace(request.EvidenciaUrl))
@@ -723,9 +745,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             acuerdo.FechaProgramada = request.FechaProgramada;
             acuerdo.FechaReprogramacion = request.FechaReprogramacion;
             acuerdo.FechaCumplimiento = request.FechaCumplimiento;
+            acuerdo.Criticidad = string.IsNullOrWhiteSpace(request.Criticidad) ? "NORMAL" : request.Criticidad;
             acuerdo.RequiereAceptacion = request.RequiereAceptacion;
             acuerdo.RequiereEvidencia = request.RequiereEvidencia;
             acuerdo.EvidenciaUrl = request.EvidenciaUrl?.Trim();
+            acuerdo.EsInformativo = request.EsInformativo;
             if (request.ReunionAcuerdoEstadoId.HasValue)
                 acuerdo.ReunionAcuerdoEstadoId = request.ReunionAcuerdoEstadoId.Value;
             acuerdo.UpdatedDateTime = now;
@@ -754,11 +778,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ReunionAcuerdoId = reunionAcuerdoId,
                     WorkerId = workerId,
                     EstadoAceptacion = estadoAceptacionInicial,
+                    EsPrincipal = request.ResponsablePrincipalWorkerId.HasValue && request.ResponsablePrincipalWorkerId.Value == workerId,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
                     State = true,
                 });
+            }
+
+            // El principal también puede cambiar entre responsables que ya estaban.
+            foreach (var actual in actuales.Where(x => idsNuevos.Contains(x.WorkerId!.Value)))
+            {
+                var debeSerPrincipal = request.ResponsablePrincipalWorkerId.HasValue
+                    && request.ResponsablePrincipalWorkerId.Value == actual.WorkerId!.Value;
+                if (actual.EsPrincipal != debeSerPrincipal)
+                {
+                    actual.EsPrincipal = debeSerPrincipal;
+                    actual.UpdatedDateTime = now;
+                    actual.UpdatedUserId = userId;
+                }
             }
 
             await ctx.SaveChangesAsync();
@@ -772,6 +810,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .FirstOrDefaultAsync(a => a.ReunionAcuerdoId == reunionAcuerdoId && a.State);
             if (acuerdo is null)
                 throw new AbrilException("El acuerdo no existe.", 404);
+
+            await EnsurePuedeEditarActaByReunionId(ctx, acuerdo.ReunionId, userId);
 
             var now = DateTime.UtcNow;
             acuerdo.State = false;
@@ -831,10 +871,158 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (archivo is null)
                 throw new AbrilException("El archivo no existe.", 404);
 
+            await EnsurePuedeEditarActaByReunionId(ctx, archivo.ReunionId, userId);
+
             archivo.State = false;
             archivo.UpdatedDateTime = DateTime.UtcNow;
             archivo.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
+        }
+
+        // ── Aceptación de acuerdos + envío del acta al marcar Realizada ──────
+
+        /// <summary>Resuelve el workerId del usuario autenticado y valida que sea (por persona, no
+        /// worker_id exacto) el responsable dueño de esta fila. Lanza 403/404 si no corresponde.</summary>
+        private static async Task<ReunionAcuerdoResponsable> GetResponsableAutorizado(
+            AppDbContext ctx, int reunionAcuerdoResponsableId, int userId)
+        {
+            var responsable = await ctx.ReunionAcuerdoResponsable
+                .FirstOrDefaultAsync(r => r.ReunionAcuerdoResponsableId == reunionAcuerdoResponsableId && r.State);
+            if (responsable is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+            if (responsable.WorkerId is null)
+                throw new AbrilException("Este responsable no está vinculado a un trabajador.", 400);
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+            if (workerId is null)
+                throw new AbrilException("No se encontró un trabajador asociado a este usuario.", 400);
+
+            if (workerId.Value != responsable.WorkerId.Value)
+            {
+                // Igual que en GuardarMisTemas: compara por persona, no por worker_id exacto,
+                // para tolerar duplicados de worker de la misma persona.
+                var personIdActual = await ctx.Worker.Where(w => w.Id == workerId.Value).Select(w => (int?)w.PersonId).FirstOrDefaultAsync();
+                var personIdResponsable = await ctx.Worker.Where(w => w.Id == responsable.WorkerId.Value).Select(w => (int?)w.PersonId).FirstOrDefaultAsync();
+                if (personIdActual is null || personIdActual != personIdResponsable)
+                    throw new AbrilException("Este acuerdo no te corresponde.", 403);
+            }
+
+            return responsable;
+        }
+
+        public async Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var responsable = await GetResponsableAutorizado(ctx, reunionAcuerdoResponsableId, userId);
+
+            var acuerdo = await ctx.ReunionAcuerdo
+                .FirstOrDefaultAsync(a => a.ReunionAcuerdoId == responsable.ReunionAcuerdoId && a.State);
+            if (acuerdo is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+
+            var reunion = await ctx.Reunion
+                .Where(r => r.ReunionId == acuerdo.ReunionId)
+                .Select(r => new { r.Numero, r.Tema })
+                .FirstOrDefaultAsync();
+            if (reunion is null)
+                throw new AbrilException("El acta de reunión no existe.", 404);
+
+            return new AcuerdoResponsableInfoDto
+            {
+                ReunionAcuerdoResponsableId = responsable.ReunionAcuerdoResponsableId,
+                ReunionId = acuerdo.ReunionId,
+                ReunionNumero = reunion.Numero,
+                ReunionTema = reunion.Tema,
+                AcuerdoDescripcion = acuerdo.Descripcion,
+                AcuerdoAcciones = acuerdo.Acciones,
+                FechaProgramada = acuerdo.FechaProgramada,
+                EstadoAceptacion = responsable.EstadoAceptacion,
+                MotivoRechazo = responsable.MotivoRechazo,
+            };
+        }
+
+        public async Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var responsable = await GetResponsableAutorizado(ctx, reunionAcuerdoResponsableId, userId);
+
+            if (!request.Aceptado && string.IsNullOrWhiteSpace(request.MotivoRechazo))
+                throw new AbrilException("Debe indicar el motivo del rechazo.", 400);
+
+            responsable.EstadoAceptacion = request.Aceptado ? "ACEPTADO" : "RECHAZADO";
+            responsable.MotivoRechazo = request.Aceptado ? null : request.MotivoRechazo!.Trim();
+            responsable.FechaRespuesta = DateTime.UtcNow;
+            responsable.UpdatedDateTime = DateTime.UtcNow;
+            responsable.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<ActaEnvioDestinatarioDto>> GetDestinatariosActaRealizada(int reunionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Se envía a todo convocado (haya marcado "Asistió" o no), no solo a los que sí
+            // asistieron: el checkbox de asistencia queda para el registro del acta, pero no debe
+            // ser condición para que alguien reciba el acta de una reunión a la que fue convocado.
+            var asistentes = await (
+                from p in ctx.ReunionParticipante
+                where p.ReunionId == reunionId && p.State && p.WorkerId != null
+                join w in ctx.Worker on p.WorkerId!.Value equals w.Id
+                where w.EmailCorporativo != null
+                select new { WorkerId = w.Id, Nombre = p.Nombre, Email = w.EmailCorporativo! }
+            ).Distinct().ToListAsync();
+
+            var responsables = await (
+                from ac in ctx.ReunionAcuerdo
+                where ac.ReunionId == reunionId && ac.State
+                join resp in ctx.ReunionAcuerdoResponsable on ac.ReunionAcuerdoId equals resp.ReunionAcuerdoId
+                where resp.State && resp.WorkerId != null
+                join w in ctx.Worker on resp.WorkerId!.Value equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.EmailCorporativo != null
+                select new
+                {
+                    WorkerId = w.Id,
+                    Nombre = p.FullName,
+                    Email = w.EmailCorporativo!,
+                    resp.ReunionAcuerdoResponsableId,
+                    ac.Descripcion,
+                    resp.EstadoAceptacion,
+                    ac.RequiereAceptacion,
+                }
+            ).ToListAsync();
+
+            var destinatarios = new Dictionary<int, ActaEnvioDestinatarioDto>();
+            foreach (var a in asistentes)
+            {
+                destinatarios[a.WorkerId] = new ActaEnvioDestinatarioDto
+                {
+                    WorkerId = a.WorkerId,
+                    Nombre = a.Nombre,
+                    Email = a.Email,
+                    Asistio = true,
+                };
+            }
+            foreach (var r in responsables)
+            {
+                if (!destinatarios.TryGetValue(r.WorkerId, out var dest))
+                {
+                    dest = new ActaEnvioDestinatarioDto { WorkerId = r.WorkerId, Nombre = r.Nombre, Email = r.Email, Asistio = false };
+                    destinatarios[r.WorkerId] = dest;
+                }
+                if (r.RequiereAceptacion && r.EstadoAceptacion == "PENDIENTE")
+                {
+                    dest.AcuerdosPendientes.Add(new ActaEnvioAcuerdoPendienteDto
+                    {
+                        ReunionAcuerdoResponsableId = r.ReunionAcuerdoResponsableId,
+                        Descripcion = r.Descripcion,
+                    });
+                }
+            }
+
+            return destinatarios.Values.ToList();
         }
 
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
@@ -1218,6 +1406,122 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             await ctx.SaveChangesAsync();
         }
 
+        // ── Recurrencia (generación automática de la siguiente reunión) ──────────
+        public async Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tema = await ctx.ReunionTema
+                .Where(t => t.ReunionTemaId == reunionTemaId && t.State)
+                .FirstOrDefaultAsync();
+            if (tema is null)
+                throw new AbrilException("El tema no existe.", 404);
+
+            DateOnly? proxima = null;
+            if (tema.EsRecurrente && tema.IntervaloDias.HasValue)
+            {
+                proxima = tema.UltimaFechaGenerada.HasValue
+                    ? tema.UltimaFechaGenerada.Value.AddDays(tema.IntervaloDias.Value)
+                    : tema.FechaAncla;
+            }
+
+            var areaScopeDescripcion = tema.AreaScopeId.HasValue
+                ? await ctx.AreaScope.Where(s => s.AreaScopeId == tema.AreaScopeId.Value)
+                    .Select(s => s.AreaItem!.AreaItemName).FirstOrDefaultAsync()
+                : null;
+
+            return new TemaRecurrenciaDto
+            {
+                EsRecurrente = tema.EsRecurrente,
+                RecurrenciaActiva = tema.RecurrenciaActiva,
+                AreaScopeId = tema.AreaScopeId,
+                AreaScopeDescripcion = areaScopeDescripcion,
+                IntervaloDias = tema.IntervaloDias,
+                FechaAncla = tema.FechaAncla,
+                HoraInicio = tema.HoraInicio,
+                HoraFin = tema.HoraFin,
+                Lugar = tema.Lugar,
+                DiasAnticipacion = tema.DiasAnticipacion,
+                UltimaFechaGenerada = tema.UltimaFechaGenerada,
+                ProximaFechaEstimada = proxima,
+            };
+        }
+
+        public async Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tema = await ctx.ReunionTema.FirstOrDefaultAsync(t => t.ReunionTemaId == reunionTemaId && t.State);
+            if (tema is null)
+                throw new AbrilException("El tema no existe.", 404);
+
+            if (request.EsRecurrente)
+            {
+                if (!request.AreaScopeId.HasValue)
+                    throw new AbrilException("Indica el área/gerencia a la que pertenecerán las reuniones generadas.", 400);
+                if (!request.IntervaloDias.HasValue || request.IntervaloDias.Value <= 0)
+                    throw new AbrilException("Indica cada cuántos días se repite la reunión.", 400);
+                if (!request.FechaAncla.HasValue)
+                    throw new AbrilException("Indica la fecha de la primera ocurrencia de la serie.", 400);
+            }
+
+            tema.EsRecurrente = request.EsRecurrente;
+            tema.RecurrenciaActiva = request.RecurrenciaActiva;
+            tema.AreaScopeId = request.AreaScopeId;
+            tema.IntervaloDias = request.IntervaloDias;
+            tema.FechaAncla = request.FechaAncla;
+            tema.HoraInicio = request.HoraInicio;
+            tema.HoraFin = request.HoraFin;
+            tema.Lugar = request.Lugar?.Trim();
+            tema.DiasAnticipacion = request.DiasAnticipacion <= 0 ? 5 : request.DiasAnticipacion;
+            tema.UpdatedDateTime = DateTime.UtcNow;
+            tema.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Temas con recurrencia activada y no pausada, con reglas de convocatoria
+        /// configuradas, para el job de generación automática.</summary>
+        public async Task<List<ReunionTema>> GetTemasRecurrentesActivos()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ReunionTema
+                .Where(t => t.State && t.EsRecurrente && t.RecurrenciaActiva
+                    && t.AreaScopeId != null && t.IntervaloDias != null)
+                .ToListAsync();
+        }
+
+        public async Task<List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)>> GetReglasTemaParaGeneracion(int reunionTemaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var reglas = await ctx.ReunionTemaRegla
+                .Where(r => r.ReunionTemaId == reunionTemaId && r.State)
+                .ToListAsync();
+
+            var resultado = new List<(int?, int?, List<int>)>();
+            foreach (var regla in reglas)
+            {
+                var puestoIds = await ctx.ReunionTemaPuesto
+                    .Where(p => p.ReunionTemaReglaId == regla.ReunionTemaReglaId && p.State)
+                    .Select(p => p.PuestoId)
+                    .ToListAsync();
+                resultado.Add((regla.AreaScopeId, regla.ProjectId, puestoIds));
+            }
+            return resultado;
+        }
+
+        /// <summary>Avanza el puntero de calendario de la serie tras generar una nueva ocurrencia.</summary>
+        public async Task AvanzarRecurrenciaTema(int reunionTemaId, DateOnly nuevaFechaGenerada, int nuevaReunionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var tema = await ctx.ReunionTema.FirstOrDefaultAsync(t => t.ReunionTemaId == reunionTemaId);
+            if (tema is null) return;
+
+            tema.UltimaFechaGenerada = nuevaFechaGenerada;
+            tema.UltimaReunionGeneradaId = nuevaReunionId;
+            await ctx.SaveChangesAsync();
+        }
+
         // ── Agenda de reunión ────────────────────────────────────────────────
         public async Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId)
         {
@@ -1275,6 +1579,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ReunionAgendaItemId = a.ReunionAgendaItemId,
                     WorkerId = a.WorkerId,
                     WorkerNombre = p.FullName,
+                    SubareaDescripcion = w.AreaScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == w.AreaScopeId.Value)
+                        .Select(s => s.AreaItem!.AreaItemName)
+                        .FirstOrDefault(),
                     Descripcion = a.Descripcion,
                     Orden = a.Orden,
                 }
@@ -1374,6 +1682,386 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     State = true,
                 });
             }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        // ── Dashboard "Mis acuerdos" ──────────────────────────────────────────────
+        public async Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+            if (workerId is null) return new List<MisAcuerdoDto>();
+
+            var haceUnMes = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-30));
+
+            var propios = await (
+                from resp in ctx.ReunionAcuerdoResponsable
+                where resp.State && resp.WorkerId == workerId.Value
+                join ac in ctx.ReunionAcuerdo on resp.ReunionAcuerdoId equals ac.ReunionAcuerdoId
+                where ac.State && !ac.EsInformativo
+                join estado in ctx.ReunionAcuerdoEstado on ac.ReunionAcuerdoEstadoId equals estado.ReunionAcuerdoEstadoId
+                join r in ctx.Reunion on ac.ReunionId equals r.ReunionId
+                where r.State
+                    && (estado.Descripcion != AcuerdoCumplido || (ac.FechaCumplimiento != null && ac.FechaCumplimiento >= haceUnMes))
+                select new
+                {
+                    resp.ReunionAcuerdoResponsableId,
+                    resp.EsPrincipal,
+                    ac.RequiereAceptacion,
+                    ac.RequiereEvidencia,
+                    ac.EvidenciaUrl,
+                    ac.ComentarioCumplimiento,
+                    resp.EstadoAceptacion,
+                    ac.ReunionAcuerdoId,
+                    ac.Descripcion,
+                    ac.Acciones,
+                    ac.Criticidad,
+                    ac.FechaProgramada,
+                    ac.FechaCumplimiento,
+                    ac.ReunionAcuerdoEstadoId,
+                    ReunionAcuerdoEstado = estado.Descripcion,
+                    r.ReunionId,
+                    r.Numero,
+                    r.Tema,
+                    r.ProjectId,
+                    r.AreaScopeId,
+                }
+            ).ToListAsync();
+
+            if (propios.Count == 0) return new List<MisAcuerdoDto>();
+
+            var acuerdoIds = propios.Select(p => p.ReunionAcuerdoId).Distinct().ToList();
+            var todosResponsables = await (
+                from x in ctx.ReunionAcuerdoResponsable
+                where acuerdoIds.Contains(x.ReunionAcuerdoId) && x.State && x.WorkerId != null
+                join w in ctx.Worker on x.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals per.PersonId
+                select new { x.ReunionAcuerdoId, WorkerId = x.WorkerId!.Value, Nombre = per.FullName }
+            ).ToListAsync();
+            var otrosPorAcuerdo = todosResponsables
+                .GroupBy(x => x.ReunionAcuerdoId)
+                .ToDictionary(g => g.Key, g => g.Where(x => x.WorkerId != workerId.Value).Select(x => x.Nombre).ToList());
+
+            var proyectoIds = propios.Where(p => p.ProjectId != null).Select(p => p.ProjectId!.Value).Distinct().ToList();
+            var proyectos = await ctx.Project.Where(p => proyectoIds.Contains(p.ProjectId))
+                .Select(p => new { p.ProjectId, p.ProjectDescription }).ToListAsync();
+            var areaScopeIds = propios.Where(p => p.AreaScopeId != null).Select(p => p.AreaScopeId!.Value).Distinct().ToList();
+            var areaScopes = await ctx.AreaScope.Where(s => areaScopeIds.Contains(s.AreaScopeId))
+                .Select(s => new { s.AreaScopeId, Nombre = s.AreaItem!.AreaItemName }).ToListAsync();
+
+            return propios.Select(p => new MisAcuerdoDto
+            {
+                ReunionAcuerdoId = p.ReunionAcuerdoId,
+                ReunionAcuerdoResponsableId = p.ReunionAcuerdoResponsableId,
+                ReunionId = p.ReunionId,
+                ReunionNumero = p.Numero,
+                ReunionTema = p.Tema,
+                Ambito = p.ProjectId != null
+                    ? proyectos.First(x => x.ProjectId == p.ProjectId.Value).ProjectDescription
+                    : p.AreaScopeId != null
+                        ? areaScopes.First(x => x.AreaScopeId == p.AreaScopeId.Value).Nombre
+                        : "Organización",
+                Descripcion = p.Descripcion,
+                Acciones = p.Acciones,
+                Criticidad = p.Criticidad,
+                FechaProgramada = p.FechaProgramada,
+                ReunionAcuerdoEstadoId = p.ReunionAcuerdoEstadoId,
+                ReunionAcuerdoEstado = p.ReunionAcuerdoEstado,
+                RequiereEvidencia = p.RequiereEvidencia,
+                EvidenciaUrl = p.EvidenciaUrl,
+                ComentarioCumplimiento = p.ComentarioCumplimiento,
+                FechaCumplimiento = p.FechaCumplimiento,
+                EsPrincipal = p.EsPrincipal,
+                OtrosResponsables = otrosPorAcuerdo.TryGetValue(p.ReunionAcuerdoId, out var otros) ? otros : new List<string>(),
+                RequiereAceptacion = p.RequiereAceptacion,
+                EstadoAceptacion = p.EstadoAceptacion,
+            })
+            .OrderBy(a => a.ReunionAcuerdoEstado == AcuerdoCumplido ? 1 : 0)
+            .ThenBy(a => a.FechaProgramada.HasValue && a.FechaProgramada.Value < DateOnly.FromDateTime(DateTime.UtcNow) && a.ReunionAcuerdoEstado != AcuerdoCumplido ? 0 : 1)
+            .ThenBy(a => a.Criticidad == "CRITICO" ? 0 : a.Criticidad == "MEDIO" ? 1 : 2)
+            .ThenBy(a => a.FechaProgramada)
+            .ToList();
+        }
+
+        // ── Vista global "Acuerdos" ──────────────────────────────────────────
+        public async Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+
+            // Mismo alcance que GetReuniones: reuniones que el usuario organizó o a las que fue
+            // convocado. No se filtra por si es responsable del acuerdo (a diferencia de "Mis
+            // Acuerdos"): esta vista es para ver todo lo tratado en las reuniones donde participó.
+            var query =
+                from ac in ctx.ReunionAcuerdo
+                where ac.State
+                join r in ctx.Reunion on ac.ReunionId equals r.ReunionId
+                where r.State
+                    && (r.CreatedUserId == userId
+                        || (workerId != null && ctx.ReunionParticipante.Any(p =>
+                            p.ReunionId == r.ReunionId && p.State && p.WorkerId == workerId.Value)))
+                join estado in ctx.ReunionAcuerdoEstado on ac.ReunionAcuerdoEstadoId equals estado.ReunionAcuerdoEstadoId
+                select new { ac, r, EstadoDescripcion = estado.Descripcion };
+
+            if (!string.IsNullOrWhiteSpace(filtro.Estado))
+            {
+                var estado = filtro.Estado.Trim().ToUpperInvariant();
+                query = estado == "INFORMATIVO"
+                    ? query.Where(x => x.ac.EsInformativo)
+                    : query.Where(x => !x.ac.EsInformativo && x.EstadoDescripcion == estado);
+            }
+            if (filtro.ResponsableWorkerId.HasValue)
+            {
+                var respId = filtro.ResponsableWorkerId.Value;
+                query = query.Where(x => ctx.ReunionAcuerdoResponsable.Any(resp =>
+                    resp.ReunionAcuerdoId == x.ac.ReunionAcuerdoId && resp.State && resp.WorkerId == respId));
+            }
+            if (filtro.Desde.HasValue)
+                query = query.Where(x => x.ac.FechaProgramada != null && x.ac.FechaProgramada >= filtro.Desde.Value);
+            if (filtro.Hasta.HasValue)
+                query = query.Where(x => x.ac.FechaProgramada != null && x.ac.FechaProgramada <= filtro.Hasta.Value);
+            if (!string.IsNullOrWhiteSpace(filtro.Texto))
+            {
+                var texto = filtro.Texto.Trim().ToLower();
+                query = query.Where(x => x.ac.Descripcion.ToLower().Contains(texto) || x.r.Tema.ToLower().Contains(texto));
+            }
+
+            var page = filtro.Page < 1 ? 1 : filtro.Page;
+            var pageSize = filtro.PageSize < 1 ? 10 : filtro.PageSize;
+
+            var total = await query.CountAsync();
+
+            var pageData = await query
+                .OrderByDescending(x => x.ac.FechaProgramada ?? x.r.Fecha)
+                .ThenByDescending(x => x.ac.ReunionAcuerdoId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new
+                {
+                    x.ac.ReunionAcuerdoId,
+                    x.r.ReunionId,
+                    x.r.Numero,
+                    x.r.Tema,
+                    x.r.ProjectId,
+                    x.r.AreaScopeId,
+                    x.ac.Descripcion,
+                    x.ac.Criticidad,
+                    x.ac.FechaProgramada,
+                    x.ac.FechaCumplimiento,
+                    x.ac.ReunionAcuerdoEstadoId,
+                    x.EstadoDescripcion,
+                    x.ac.EsInformativo,
+                    x.ac.RequiereEvidencia,
+                    x.ac.EvidenciaUrl,
+                    x.ac.ComentarioCumplimiento,
+                })
+                .ToListAsync();
+
+            var totalPages = (int)Math.Ceiling(total / (double)pageSize);
+            if (pageData.Count == 0)
+                return new PagedResultDto<AcuerdoBusquedaItemDto> { Page = page, PageSize = pageSize, TotalRecords = total, TotalPages = totalPages, Data = new() };
+
+            // Ambito (proyecto/área/organización) y responsables — mismo patrón que GetMisAcuerdos.
+            var proyectoIds = pageData.Where(p => p.ProjectId != null).Select(p => p.ProjectId!.Value).Distinct().ToList();
+            var proyectos = await ctx.Project.Where(p => proyectoIds.Contains(p.ProjectId))
+                .Select(p => new { p.ProjectId, p.ProjectDescription }).ToListAsync();
+            var areaScopeIds = pageData.Where(p => p.AreaScopeId != null).Select(p => p.AreaScopeId!.Value).Distinct().ToList();
+            var areaScopes = await ctx.AreaScope.Where(s => areaScopeIds.Contains(s.AreaScopeId))
+                .Select(s => new { s.AreaScopeId, Nombre = s.AreaItem!.AreaItemName }).ToListAsync();
+
+            var acuerdoIds = pageData.Select(p => p.ReunionAcuerdoId).ToList();
+            var responsables = await (
+                from x in ctx.ReunionAcuerdoResponsable
+                where acuerdoIds.Contains(x.ReunionAcuerdoId) && x.State && x.WorkerId != null
+                join w in ctx.Worker on x.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals per.PersonId
+                select new { x.ReunionAcuerdoId, Nombre = per.FullName }
+            ).ToListAsync();
+            var responsablesPorAcuerdo = responsables.GroupBy(x => x.ReunionAcuerdoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Nombre).ToList());
+
+            var data = pageData.Select(p => new AcuerdoBusquedaItemDto
+            {
+                ReunionAcuerdoId = p.ReunionAcuerdoId,
+                ReunionId = p.ReunionId,
+                ReunionNumero = p.Numero,
+                ReunionTema = p.Tema,
+                Ambito = p.ProjectId != null
+                    ? proyectos.First(x => x.ProjectId == p.ProjectId.Value).ProjectDescription
+                    : p.AreaScopeId != null
+                        ? areaScopes.First(x => x.AreaScopeId == p.AreaScopeId.Value).Nombre
+                        : "Organización",
+                Descripcion = p.Descripcion,
+                Criticidad = p.Criticidad,
+                FechaProgramada = p.FechaProgramada,
+                FechaCumplimiento = p.FechaCumplimiento,
+                ReunionAcuerdoEstadoId = p.ReunionAcuerdoEstadoId,
+                ReunionAcuerdoEstado = p.EstadoDescripcion,
+                EsInformativo = p.EsInformativo,
+                RequiereEvidencia = p.RequiereEvidencia,
+                EvidenciaUrl = p.EvidenciaUrl,
+                ComentarioCumplimiento = p.ComentarioCumplimiento,
+                Responsables = responsablesPorAcuerdo.TryGetValue(p.ReunionAcuerdoId, out var list) ? list : new List<string>(),
+            }).ToList();
+
+            return new PagedResultDto<AcuerdoBusquedaItemDto>
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = total,
+                TotalPages = totalPages,
+                Data = data,
+            };
+        }
+
+        // ── Revisión de acuerdos pendientes de ediciones anteriores ──────────────────
+        /// <summary>Acuerdos aún no cumplidos (ni anulados) de reuniones anteriores en la misma
+        /// cadena de convocatoria recurrente (siguiendo reunion_anterior_id hacia atrás), para
+        /// revisarlos al abrir la siguiente edición. No incluye los de <paramref name="reunionId"/>
+        /// misma, solo los de ediciones previas.</summary>
+        public async Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Sube la cadena de "reunión anterior" hasta el inicio (con un tope de seguridad).
+            var reunionesAnteriores = new List<int>();
+            var actualId = (int?)reunionId;
+            for (var i = 0; i < 50; i++)
+            {
+                var anteriorId = await ctx.Reunion
+                    .Where(r => r.ReunionId == actualId!.Value)
+                    .Select(r => r.ReunionAnteriorId)
+                    .FirstOrDefaultAsync();
+                if (anteriorId is null) break;
+                reunionesAnteriores.Add(anteriorId.Value);
+                actualId = anteriorId;
+            }
+
+            if (reunionesAnteriores.Count == 0) return new List<AcuerdoPendienteAnteriorDto>();
+
+            var acuerdos = await (
+                from a in ctx.ReunionAcuerdo
+                where reunionesAnteriores.Contains(a.ReunionId) && a.State
+                join estado in ctx.ReunionAcuerdoEstado on a.ReunionAcuerdoEstadoId equals estado.ReunionAcuerdoEstadoId
+                where estado.Descripcion != AcuerdoCumplido && estado.Descripcion != "ANULADO"
+                join r in ctx.Reunion on a.ReunionId equals r.ReunionId
+                orderby a.FechaProgramada
+                select new AcuerdoPendienteAnteriorDto
+                {
+                    ReunionAcuerdoId = a.ReunionAcuerdoId,
+                    ReunionId = r.ReunionId,
+                    ReunionNumero = r.Numero,
+                    ReunionTema = r.Tema,
+                    Descripcion = a.Descripcion,
+                    Acciones = a.Acciones,
+                    Criticidad = a.Criticidad,
+                    FechaProgramada = a.FechaProgramada,
+                    ReunionAcuerdoEstadoId = a.ReunionAcuerdoEstadoId,
+                    ReunionAcuerdoEstado = estado.Descripcion,
+                    RequiereEvidencia = a.RequiereEvidencia,
+                    EvidenciaUrl = a.EvidenciaUrl,
+                    VecesReprogramado = a.VecesReprogramado,
+                    UltimoMotivoReprogramacion = a.UltimoMotivoReprogramacion,
+                }
+            ).ToListAsync();
+
+            if (acuerdos.Count == 0) return acuerdos;
+
+            var acuerdoIds = acuerdos.Select(a => a.ReunionAcuerdoId).ToList();
+            var responsables = await (
+                from x in ctx.ReunionAcuerdoResponsable
+                where acuerdoIds.Contains(x.ReunionAcuerdoId) && x.State && x.WorkerId != null
+                join w in ctx.Worker on x.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals per.PersonId
+                select new
+                {
+                    x.ReunionAcuerdoId,
+                    x.ReunionAcuerdoResponsableId,
+                    WorkerId = x.WorkerId!.Value,
+                    WorkerNombre = per.FullName,
+                    x.EstadoAceptacion,
+                    x.MotivoRechazo,
+                    x.EsPrincipal,
+                }
+            ).ToListAsync();
+            var porAcuerdo = responsables.GroupBy(r => r.ReunionAcuerdoId).ToDictionary(
+                g => g.Key,
+                g => g.Select(r => new ReunionAcuerdoResponsableDto
+                {
+                    ReunionAcuerdoResponsableId = r.ReunionAcuerdoResponsableId,
+                    WorkerId = r.WorkerId,
+                    WorkerNombre = r.WorkerNombre,
+                    EstadoAceptacion = r.EstadoAceptacion,
+                    MotivoRechazo = r.MotivoRechazo,
+                    EsPrincipal = r.EsPrincipal,
+                }).ToList());
+
+            foreach (var a in acuerdos)
+                a.Responsables = porAcuerdo.TryGetValue(a.ReunionAcuerdoId, out var lista) ? lista : new List<ReunionAcuerdoResponsableDto>();
+
+            // Vencidos y críticos primero.
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            return acuerdos
+                .OrderBy(a => a.FechaProgramada.HasValue && a.FechaProgramada.Value < hoy ? 0 : 1)
+                .ThenBy(a => a.Criticidad == "CRITICO" ? 0 : a.Criticidad == "MEDIO" ? 1 : 2)
+                .ThenBy(a => a.FechaProgramada)
+                .ToList();
+        }
+
+        /// <summary>Marca un acuerdo como cumplido sin necesitar el payload completo (usado desde la
+        /// revisión de pendientes de ediciones anteriores, que solo maneja una proyección reducida).</summary>
+        public async Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var acuerdo = await ctx.ReunionAcuerdo
+                .FirstOrDefaultAsync(a => a.ReunionAcuerdoId == reunionAcuerdoId && a.State);
+            if (acuerdo is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+
+            await EnsurePuedeGestionarAcuerdo(ctx, reunionAcuerdoId, userId);
+
+            // Si esta misma acción trae el archivo recién subido, queda como evidencia del acuerdo
+            // antes de evaluar si la exigencia de evidencia quedó satisfecha.
+            if (!string.IsNullOrWhiteSpace(request.EvidenciaUrl))
+                acuerdo.EvidenciaUrl = request.EvidenciaUrl.Trim();
+
+            if (acuerdo.RequiereEvidencia && string.IsNullOrWhiteSpace(acuerdo.EvidenciaUrl))
+                throw new AbrilException("Este acuerdo requiere adjuntar evidencia antes de poder marcarse como cumplido.", 400);
+
+            // Siempre obligatorio: es el registro de cómo se resolvió, tenga o no evidencia adjunta.
+            if (string.IsNullOrWhiteSpace(request.Comentario))
+                throw new AbrilException("Indica cómo se levantó el acuerdo.", 400);
+
+            acuerdo.ReunionAcuerdoEstadoId = await GetEstadoAcuerdoId(ctx, AcuerdoCumplido);
+            acuerdo.FechaCumplimiento = DateOnly.FromDateTime(DateTime.UtcNow);
+            acuerdo.ComentarioCumplimiento = request.Comentario?.Trim();
+            acuerdo.UpdatedDateTime = DateTime.UtcNow;
+            acuerdo.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var acuerdo = await ctx.ReunionAcuerdo
+                .FirstOrDefaultAsync(a => a.ReunionAcuerdoId == reunionAcuerdoId && a.State);
+            if (acuerdo is null)
+                throw new AbrilException("El acuerdo no existe.", 404);
+
+            await EnsurePuedeGestionarAcuerdo(ctx, reunionAcuerdoId, userId);
+
+            acuerdo.FechaProgramada = request.NuevaFechaProgramada;
+            acuerdo.FechaReprogramacion = request.NuevaFechaProgramada;
+            acuerdo.VecesReprogramado += 1;
+            acuerdo.UltimoMotivoReprogramacion = request.Motivo.Trim();
+            acuerdo.UpdatedDateTime = DateTime.UtcNow;
+            acuerdo.UpdatedUserId = userId;
 
             await ctx.SaveChangesAsync();
         }
@@ -1629,6 +2317,51 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (reunion is null)
                 throw new AbrilException("El acta de reunión no existe.", 404);
             return reunion;
+        }
+
+        /// <summary>true si el usuario autenticado puede editar el acta: es su creador, o es un
+        /// participante marcado como coautor (ver ReunionParticipante.EsCoautor).</summary>
+        private static async Task<bool> PuedeEditarActa(AppDbContext ctx, int reunionId, int createdUserId, int userId)
+        {
+            if (createdUserId == userId) return true;
+
+            var workerId = await ResolveWorkerId(ctx, userId);
+            if (workerId is null) return false;
+
+            return await ctx.ReunionParticipante.AnyAsync(p =>
+                p.ReunionId == reunionId && p.State && p.EsCoautor && p.WorkerId == workerId.Value);
+        }
+
+        /// <summary>Lanza 403 si el usuario autenticado no puede editar el acta (ver PuedeEditarActa).
+        /// Usar en el CRUD del acta y sus acuerdos; no aplica a "marcar cumplido"/"reprogramar" un
+        /// acuerdo propio, que se rigen por EnsurePuedeGestionarAcuerdo (solo el responsable).</summary>
+        private static async Task EnsurePuedeEditarActa(AppDbContext ctx, int reunionId, int createdUserId, int userId)
+        {
+            if (!await PuedeEditarActa(ctx, reunionId, createdUserId, userId))
+                throw new AbrilException("Solo el creador del acta o sus coautores pueden editarla.", 403);
+        }
+
+        /// <summary>Igual que EnsurePuedeEditarActa pero resolviendo primero el CreatedUserId del acta.
+        /// Para usar en operaciones sobre un acuerdo/archivo puntual donde no se tiene la Reunion cargada.</summary>
+        private static async Task EnsurePuedeEditarActaByReunionId(AppDbContext ctx, int reunionId, int userId)
+        {
+            var createdUserId = await ctx.Reunion
+                .Where(r => r.ReunionId == reunionId)
+                .Select(r => (int?)r.CreatedUserId)
+                .FirstOrDefaultAsync();
+            if (createdUserId is null) return; // ya validado por GetReunionOrThrow o la carga previa del acuerdo/archivo
+            await EnsurePuedeEditarActa(ctx, reunionId, createdUserId.Value, userId);
+        }
+
+        /// <summary>Lanza 403 si el usuario autenticado no es responsable (worker) del acuerdo. Usado
+        /// para "marcar cumplido" y "reprogramar" un acuerdo propio desde Mis Acuerdos.</summary>
+        private static async Task EnsurePuedeGestionarAcuerdo(AppDbContext ctx, int reunionAcuerdoId, int userId)
+        {
+            var workerId = await ResolveWorkerId(ctx, userId);
+            var esResponsable = workerId.HasValue && await ctx.ReunionAcuerdoResponsable.AnyAsync(r =>
+                r.ReunionAcuerdoId == reunionAcuerdoId && r.State && r.WorkerId == workerId.Value);
+            if (!esResponsable)
+                throw new AbrilException("Solo un responsable de este acuerdo puede realizar esta acción.", 403);
         }
 
         private static async Task<int> GetEstadoReunionId(AppDbContext ctx, string descripcion)

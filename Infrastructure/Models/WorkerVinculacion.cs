@@ -38,6 +38,16 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("obra_oficina_staff_id")]
         public int? ObraOficinaStaffId { get; set; }
 
+        /// <summary>Categoría vigente (campo de LÓGICA, catálogo <c>categoria</c>) durante ESTA
+        /// vinculación — congelada al momento del cambio, igual que <see cref="Puesto"/> y
+        /// <see cref="ObraOficinaStaffId"/>, para poder reconstruir el historial con precisión
+        /// (p.ej. convalidaciones de EMO necesitan saber la categoría de origen vs destino).</summary>
+        [Column("categoria_id")]
+        public int? CategoriaId { get; set; }
+
+        [ForeignKey(nameof(CategoriaId))]
+        public Shared.Models.Categoria? Categoria { get; set; }
+
         [Column("tipo_vinculacion")]
         public string? TipoVinculacion { get; set; }
 

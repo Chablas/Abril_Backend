@@ -5745,3 +5745,33 @@ Sesión corta: se actualizó `victor-backend` con lo último de `master` (44 arc
 ### Pendiente
 - **El seed `20260817_PlaneamientoBimPortafolioFeatureSeed.sql` NO se corrió contra producción todavía.** Se revisó contra los checks D2/D3 pedidos: D3 (SELECT de `feature_id`, sin ID hardcodeado) OK; D2 usa `NOT EXISTS` en vez de `ON CONFLICT DO NOTHING` — funcionalmente idempotente igual, pero no es el patrón literal pedido (posible razón: `ON CONFLICT` exige una constraint UNIQUE que puede no existir en `feature_key`/`role_feature`). Quedó pendiente de confirmación del usuario antes de ejecutar por el túnel SSH.
 - Frontend de Fase 3 (Dashboard de Portafolio + export PDF) y Procura simplificado — pendiente en `Abril-Frontend`.
+
+## Sesión 2026-08-19 — Lectura de EMO por médico interno de Abril + coautores en Actas de Reunión
+
+### 1) EMOs: lectura a cargo del médico ocupacional de Abril (no la clínica)
+Hasta ahora la lectura de un EMO (`fecha_lectura` + `url_resultado`) siempre la subía la clínica al completar el EMO. Se necesitaba distinguir los EMOs cuya lectura la hace el médico interno de Abril Grupo Inmobiliario en vez de la clínica, y darle a ese médico una cola propia para completarla.
+
+- Columna nueva `worker_emos.requiere_lectura_abril` (boolean, default false) — `Migrations_Manual/2026-08-18_worker_emos_requiere_lectura_abril.sql`, aplicar manual vía psql/pgAdmin (no EF). "Pendiente de lectura por Abril" = `requiere_lectura_abril = true AND url_resultado IS NULL` (mismo criterio que ya usaba el filtro existente "Sin Lectura EMO").
+- El flag se puede marcar desde dos lugares: la clínica al completar el EMO (`EmoCreateDto.RequiereLecturaAbril`) o el personal interno al editar un EMO existente (`EmoUpdateDto.RequiereLecturaAbril`).
+- Nuevo endpoint `POST /emos/{emoId}/lectura-abril` (`EmoController.CompletarLecturaAbril`) — sube el PDF a SharePoint, y delega a `EmoRepository.CompletarLecturaAbril` que guarda `FechaLectura`/`UrlResultado` y corre `SincronizarEntregableEmoAsync` (la misma sincronización de habilitaciones — `ss_hab_trabajador` item LecturaEmo → "Aprobado" — que ya corrían `Create()`/`Update()`). Antes, subir un documento de tipo "Lectura" vía el endpoint genérico `SubirDocumento` NO corría esa sincronización; este nuevo endpoint sí, para que "aprobar" siga el mismo proceso que cuando la clínica lo hace.
+- `EmoPorTrabajadorFilterDto.PendienteLecturaAbril` + filtro correspondiente en `EmoRepository.ListPorTrabajador`, para alimentar la subtab nueva del frontend.
+- Frontend (ver Abril-Frontend, misma sesión): checkbox "Será leído por el médico de Abril Grupo Inmobiliario" en Completar EMO (clínica) y Editar EMO (interno); subtab "Pendientes de lectura (médico Abril)" en la pantalla EMOs; modal Documentos EMO detecta el caso pendiente y muestra fecha + botón "Subir y aprobar" que pega al endpoint nuevo.
+
+### 2) Actas de Reunión: coautores de acuerdos + flag `es_informativo`
+Dos migraciones manuales nuevas, sin aplicar todavía contra prod (quedan pendientes, avisar antes de dar por cerrado):
+- `Migrations_Manual/2026-08-18_reunion_participante_coautor.sql`
+- `Migrations_Manual/2026-08-19_reunion_acuerdo_es_informativo.sql`
+
+Tocados: `ReunionAcuerdo`, `ReunionParticipante`, `ActasReunionRepository` (+220 líneas), `ActasReunionService`, `ActasReunionController`, `ActasReunionDtos`.
+
+### 3) Evaluaciones — ajustes menores
+`EvPeriodoRepository`, `EvContratistaRepository`, `EvDashboardController`, `EvPeriodoController` — cambios acarreados de sesión(es) anterior(es), no hay detalle adicional registrado en esta sesión.
+
+### Verificado
+- Build: `dotnet build Abril-Backend.csproj` → 0 errores, solo warnings preexistentes (CS8618 en DTOs de Adjudicaciones, no relacionados a esta sesión).
+- No se probó en runtime (el usuario tenía el backend corriendo en otra terminal, bloqueando el build hasta detenerlo).
+
+### Pendiente
+- Aplicar las 3 migraciones SQL nuevas contra la base real (el usuario las corre manualmente, no `dotnet ef database update`): `2026-08-18_reunion_participante_coautor.sql`, `2026-08-18_worker_emos_requiere_lectura_abril.sql`, `2026-08-19_reunion_acuerdo_es_informativo.sql`.
+- Frontend correspondiente (Abril-Frontend) va en commit separado de esta misma sesión.
+- Excluido a propósito de este push: rama `curso-prueba-loto` del repo `plataforma-cursos` (piloto de material interactivo LOTO, no tocar git/deploy todavía).

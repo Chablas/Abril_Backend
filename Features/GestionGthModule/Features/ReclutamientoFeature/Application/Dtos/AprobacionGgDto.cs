@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Una de las dos casillas de decisión de la solicitud (gerente del área o Gerencia General),
@@ -77,10 +77,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
 
         /// <summary>
-        /// A quién le llegará el correo a GTH al confirmar la decisión (tipo SOLICITUD). Sale del
-        /// mismo resolver que usa el envío, así que el aviso del modal no puede prometer algo
-        /// distinto de lo que se manda. Solo se resuelve cuando quien abre el modal es el Gerente
-        /// General y aún no ha decidido: es el único caso en el que ese correo va a salir.
+        /// A quién le llegarán los correos que dispara la decisión: el de GTH (tipo SOLICITUD) y el
+        /// de TI (tipo TI_VACANTES), fusionados en una sola lista. Salen del mismo resolver que usa
+        /// el envío, así que el aviso del modal no puede prometer algo distinto de lo que se manda.
+        /// Solo se resuelve cuando quien abre el modal es el Gerente General y aún no ha decidido:
+        /// es el único caso en el que esos correos van a salir.
         /// </summary>
         public SolicitudDestinatariosDto? Destinatarios { get; set; }
     }
@@ -213,6 +214,81 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string EstadoNombre { get; set; } = string.Empty;
         public int Aprobados { get; set; }
         public int Rechazados { get; set; }
+    }
+
+    /// <summary>
+    /// Decisión en bloque desde la lista de «Aprobaciones»: se aprueban (o rechazan) TODAS las
+    /// vacantes de cada solicitud seleccionada. Es el mismo acto que abrir el modal de cada una y
+    /// marcar todo igual, pero en una sola petición.
+    ///
+    /// Como en la decisión de una sola, el nivel con el que se registra NO viaja en el payload: lo
+    /// resuelve el backend desde la categoría del usuario. Un gerente de área deja su visto bueno
+    /// en las solicitudes de su alcance; el Gerente General registra la aprobación obligatoria y,
+    /// solo entonces, lo aprobado sale a GTH y a TI.
+    /// </summary>
+    public class AprobacionGgDecisionMasivaDto
+    {
+        /// <summary>Solicitudes seleccionadas (ids de <c>gth_aprobacion_gg</c>).</summary>
+        public List<int> AprobacionIds { get; set; } = new();
+
+        /// <summary>
+        /// true = aprobar todas las vacantes de cada solicitud; false = rechazarlas todas. La
+        /// decisión es la misma para todas: en bloque no hay forma de decidir vacante por vacante
+        /// (para eso está el modal de la fila).
+        /// </summary>
+        public bool Aprobado { get; set; }
+
+        /// <summary>Comentario opcional; queda igual en todas las solicitudes del lote.</summary>
+        public string? Comentario { get; set; }
+    }
+
+    /// <summary>
+    /// Solicitud que quedó fuera del lote y por qué. No es un error de la petición: entre que la
+    /// pantalla se cargó y el gerente decidió, la solicitud pudo cerrarse (el otro gerente de su
+    /// mismo nivel decidió, o se dio de baja). Se devuelven para poder decirlo en pantalla en vez
+    /// de dejar que el conteo no cuadre en silencio.
+    /// </summary>
+    public class AprobacionGgDecisionOmitidaDto
+    {
+        public int AprobacionId { get; set; }
+
+        /// <summary>Motivo legible, listo para mostrarse al usuario.</summary>
+        public string Motivo { get; set; } = string.Empty;
+    }
+
+    /// <summary>Resultado de una decisión en bloque.</summary>
+    public class AprobacionGgDecisionMasivaResultDto
+    {
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>Nivel con el que se registró (GERENTE_GENERAL / GERENTE_AREA).</summary>
+        public string Nivel { get; set; } = string.Empty;
+
+        /// <summary>true si el lote se aprobó; false si se rechazó (eco de lo pedido).</summary>
+        public bool Aprobado { get; set; }
+
+        /// <summary>Solicitudes en las que la decisión quedó registrada.</summary>
+        public int Solicitudes { get; set; }
+
+        /// <summary>Vacantes decididas en total (la suma de las vacantes de esas solicitudes).</summary>
+        public int Vacantes { get; set; }
+
+        /// <summary>Solicitudes seleccionadas que no se pudieron decidir, con su motivo.</summary>
+        public List<AprobacionGgDecisionOmitidaDto> Omitidas { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Contexto de una decisión en bloque ya registrada: una entrada por solicitud decidida —con la
+    /// misma forma que la decisión de una sola, para que los correos se armen con el mismo código—
+    /// más las que se omitieron.
+    /// </summary>
+    public class AprobacionGgDecisionMasivaContextoDto
+    {
+        /// <summary>Nivel con el que se registró el lote.</summary>
+        public string Nivel { get; set; } = string.Empty;
+
+        public List<AprobacionGgDecisionContextoDto> Registradas { get; set; } = new();
+        public List<AprobacionGgDecisionOmitidaDto> Omitidas { get; set; } = new();
     }
 
     /// <summary>

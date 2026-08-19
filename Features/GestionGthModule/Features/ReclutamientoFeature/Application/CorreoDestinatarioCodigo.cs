@@ -29,6 +29,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string GthArea = "GTH_AREA";
 
         /// <summary>
+        /// Área de Tecnología de la Información: <c>area_scope.email</c> del nodo de TI, misma
+        /// idea que <see cref="GthArea"/>. El buzón de TI no se cablea en el código: si cambia, se
+        /// cambia en Configuración → Áreas y todos los correos que lo usan lo siguen.
+        /// </summary>
+        public const string TiArea = "TI_AREA";
+
+        /// <summary>
         /// Destinatarios que necesitan el área del solicitante para resolverse. Un correo que no
         /// tiene esa información los omite en vez de mandar algo incompleto.
         /// </summary>

@@ -34,6 +34,7 @@ using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesF
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -180,6 +181,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsItemTrabajador> SsItemTrabajador => Set<SsItemTrabajador>();
         public DbSet<SsItemEmpresa> SsItemEmpresa => Set<SsItemEmpresa>();
         public DbSet<SsItemEquipo> SsItemEquipo => Set<SsItemEquipo>();
+        public DbSet<SsTipoEquipo> SsTipoEquipo => Set<SsTipoEquipo>();
         public DbSet<SsCriterioEvaluacion> SsCriterioEvaluacion => Set<SsCriterioEvaluacion>();
         public DbSet<SsEmpresaProyecto> SsEmpresaProyecto => Set<SsEmpresaProyecto>();
         public DbSet<SsHabTrabajador> SsHabTrabajador => Set<SsHabTrabajador>();
@@ -191,6 +193,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsEvalSupervisor> SsEvalSupervisor => Set<SsEvalSupervisor>();
         public DbSet<SsEvalSupervisorItem> SsEvalSupervisorItem => Set<SsEvalSupervisorItem>();
         public DbSet<SsInduccion> SsInduccion => Set<SsInduccion>();
+        public DbSet<SsInduccionRotacionProyecto> SsInduccionRotacionProyecto => Set<SsInduccionRotacionProyecto>();
+        public DbSet<SsInduccionProgramacion> SsInduccionProgramacion => Set<SsInduccionProgramacion>();
+        public DbSet<SsInduccionRotacionCursor> SsInduccionRotacionCursor => Set<SsInduccionRotacionCursor>();
         public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
@@ -508,6 +513,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
         public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
@@ -1556,11 +1562,25 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
 
+            // Checklist operativo: las actividades obligatorias de cada fase.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>(e =>
+            {
+                e.HasIndex(a => a.Codigo).IsUnique().HasFilter("state = true");
+                e.HasIndex(a => a.GthOnboardingFaseId);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>()
+                 .WithMany().HasForeignKey(a => a.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
+            });
+
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>(e =>
             {
                 // Un solo onboarding "vivo" (state = true) por candidato seleccionado.
                 e.HasIndex(o => o.GthCandidatoId).IsUnique().HasFilter("state = true");
                 e.HasIndex(o => o.PersonId);
+
+                // El token del enlace público es la única credencial de la página donde el postulante
+                // firma su carta oferta: no puede repetirse entre onboardings vigentes.
+                e.HasIndex(o => o.CartaOfertaToken).IsUnique()
+                 .HasFilter("state = true AND carta_oferta_token IS NOT NULL");
 
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
                  .WithMany().HasForeignKey(o => o.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);

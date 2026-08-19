@@ -3,7 +3,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Equipos
     public class EquipoListDto
     {
         public int Id { get; set; }
-        public string Tipo { get; set; } = string.Empty;
+        public int TipoEquipoId { get; set; }
+        public string TipoNombre { get; set; } = string.Empty;
         public string? Marca { get; set; }
         public string? Modelo { get; set; }
         public string? NSerie { get; set; }

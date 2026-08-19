@@ -49,6 +49,12 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("puesto_destino")]
         public string? PuestoDestino { get; set; }
 
+        [Column("categoria_origen")]
+        public string? CategoriaOrigen { get; set; }
+
+        [Column("categoria_destino")]
+        public string? CategoriaDestino { get; set; }
+
         [Column("obra_oficina_staff_origen_id")]
         public int? ObraOficinaStaffOrigenId { get; set; }
 

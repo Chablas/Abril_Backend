@@ -124,6 +124,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         .FirstOrDefault(),
                     PuestoOrigen = x.cv.PuestoOrigen ?? (x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre),
                     PuestoDestino = x.cv.PuestoDestino,
+                    CategoriaOrigen = x.cv.CategoriaOrigen ?? (x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre),
+                    CategoriaDestino = x.cv.CategoriaDestino ?? (x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre),
                     ObraOficinaStaffOrigenId = x.cv.ObraOficinaStaffOrigenId ?? x.w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = x.oso != null ? x.oso.Name
                         : (x.w.ObraOficinaStaff != null ? x.w.ObraOficinaStaff.Name : null),
@@ -195,6 +197,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Notas = cv.Observaciones,
                     PuestoOrigen = cv.PuestoOrigen ?? (w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre),
                     PuestoDestino = cv.PuestoDestino,
+                    CategoriaOrigen = cv.CategoriaOrigen ?? (w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre),
+                    CategoriaDestino = cv.CategoriaDestino ?? (w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre),
                     ObraOficinaStaffOrigenId = cv.ObraOficinaStaffOrigenId ?? w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = oso != null ? oso.Name
                         : (w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null),
@@ -344,6 +348,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             );
         }
 
+        /// <summary>
+        /// Categoría "de origen" = la que el trabajador tenía congelada en la vinculación con la
+        /// empresa de origen del EMO, a la fecha del EMO — igual criterio que
+        /// <see cref="ResolverPuestoOrigenAsync"/>. Solo existe con precisión histórica para
+        /// vinculaciones creadas después de que <c>worker_vinculaciones.categoria_id</c> empezó a
+        /// congelarse; para registros previos cae al valor ACTUAL del trabajador como mejor esfuerzo.
+        /// </summary>
+        private static async Task<string?> ResolverCategoriaOrigenAsync(AppDbContext ctx, WorkerEmo emo)
+        {
+            var vinculacionOrigen = await ctx.WorkerVinculacion
+                .Include(v => v.Categoria)
+                .Where(v => v.WorkerId == emo.WorkerId
+                         && v.EmpresaId == emo.EmpresaOrigenId
+                         && v.FechaInicio <= emo.FechaEmo)
+                .OrderByDescending(v => v.FechaInicio)
+                .FirstOrDefaultAsync();
+
+            return vinculacionOrigen?.Categoria?.Nombre ?? emo.Worker?.CategoriaCatalogo?.Nombre;
+        }
+
+        /// <summary>Categoría "de destino" = el registro VIGENTE del trabajador (vinculación activa).</summary>
+        private static async Task<string?> ResolverCategoriaDestinoAsync(AppDbContext ctx, WorkerEmo emo)
+        {
+            var vinculacionActual = await ctx.WorkerVinculacion
+                .Include(v => v.Categoria)
+                .Where(v => v.WorkerId == emo.WorkerId && v.FechaFin == null)
+                .OrderByDescending(v => v.FechaInicio)
+                .FirstOrDefaultAsync();
+
+            return vinculacionActual?.Categoria?.Nombre ?? emo.Worker?.CategoriaCatalogo?.Nombre;
+        }
+
         public async Task<int> Create(ConvalidacionCreateDto dto, int? userId, string? ip, string? userAgent)
         {
             using var ctx = _factory.CreateDbContext();
@@ -354,6 +390,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var (puestoOrigenAuto, obraOficinaOrigenAuto) = await ResolverPuestoOrigenAsync(ctx, emo);
             var (puestoDestinoAuto, obraOficinaDestinoAuto) = await ResolverPuestoDestinoAsync(ctx, emo);
+            var categoriaOrigenAuto = await ResolverCategoriaOrigenAsync(ctx, emo);
+            var categoriaDestinoAuto = await ResolverCategoriaDestinoAsync(ctx, emo);
 
             var puestoOrigen = dto.PuestoOrigen ?? puestoOrigenAuto;
             var origenId = dto.ObraOficinaStaffOrigenId ?? obraOficinaOrigenAuto;
@@ -374,6 +412,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Observaciones = dto.Notas,
                 PuestoOrigen = puestoOrigen,
                 PuestoDestino = puestoDestino,
+                CategoriaOrigen = categoriaOrigenAuto,
+                CategoriaDestino = categoriaDestinoAuto,
                 ObraOficinaStaffOrigenId = origenId,
                 ObraOficinaStaffDestinoId = destinoId,
                 CambioRiesgo = cambioRiesgo,
@@ -411,6 +451,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (ent.ObraOficinaStaffDestinoId is null || string.IsNullOrWhiteSpace(ent.PuestoDestino))
                 (puestoDestinoAuto, obraOficinaDestinoAuto) = await ResolverPuestoDestinoAsync(ctx, emo);
 
+            string? categoriaOrigenAuto = null, categoriaDestinoAuto = null;
+            if (string.IsNullOrWhiteSpace(ent.CategoriaOrigen))
+                categoriaOrigenAuto = await ResolverCategoriaOrigenAsync(ctx, emo);
+            if (string.IsNullOrWhiteSpace(ent.CategoriaDestino))
+                categoriaDestinoAuto = await ResolverCategoriaDestinoAsync(ctx, emo);
+
             var origenId = dto.ObraOficinaStaffOrigenId ?? ent.ObraOficinaStaffOrigenId ?? obraOficinaOrigenAuto;
             var destinoId = dto.ObraOficinaStaffDestinoId ?? ent.ObraOficinaStaffDestinoId ?? obraOficinaDestinoAuto;
             var cambioRiesgo = ValidarCambioRiesgo(origenId, destinoId, dto.Resultado);
@@ -424,6 +470,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             ent.Observaciones = dto.Notas;
             ent.PuestoOrigen = dto.PuestoOrigen ?? ent.PuestoOrigen ?? puestoOrigenAuto;
             ent.PuestoDestino = dto.PuestoDestino ?? ent.PuestoDestino ?? puestoDestinoAuto;
+            ent.CategoriaOrigen = ent.CategoriaOrigen ?? categoriaOrigenAuto;
+            ent.CategoriaDestino = ent.CategoriaDestino ?? categoriaDestinoAuto;
             ent.ObraOficinaStaffOrigenId = origenId;
             ent.ObraOficinaStaffDestinoId = destinoId;
             ent.CambioRiesgo = cambioRiesgo;

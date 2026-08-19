@@ -547,12 +547,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string? personAviso = null;
             if (aprobado)
             {
-                await using var tx = await ctx.Database.BeginTransactionAsync();
-                var sync = await SincronizarPersonAsync(ctx, f, candidatoId, userId);
-                f.PersonId  = sync.PersonId ?? f.PersonId;
-                personAviso = sync.Aviso;
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
+                // La transacción se abre dentro de la execution strategy porque el provider corre con
+                // EnableRetryOnFailure y no admite transacciones iniciadas por fuera de ella.
+                var strategy = ctx.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                    await using var tx = await ctx.Database.BeginTransactionAsync();
+                    // La estrategia puede reintentar el bloque completo y acá es seguro: los cambios de
+                    // `f` se hicieron antes de entrar (siguen trackeados como Modified porque el
+                    // SaveChanges fallido no los acepta) y el upsert de person es idempotente por su
+                    // ON CONFLICT, así que el reintento vuelve a escribir exactamente lo mismo. Por eso
+                    // no hace falta limpiar el ChangeTracker como en otros bloques del módulo.
+                    var sync = await SincronizarPersonAsync(ctx, f, candidatoId, userId);
+                    f.PersonId  = sync.PersonId ?? f.PersonId;
+                    personAviso = sync.Aviso;
+                    await ctx.SaveChangesAsync();
+                    await tx.CommitAsync();
+                });
             }
             else
             {

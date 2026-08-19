@@ -189,6 +189,44 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Completa la lectura de un EMO marcado como "requiere lectura del médico de Abril"
+        /// (subtab "Pendientes de lectura"): sube el adjunto y guarda la fecha, siguiendo el
+        /// mismo proceso de aprobación que cuando la lectura la sube la clínica.
+        /// </summary>
+        [HttpPost("emos/{emoId:int}/lectura-abril")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CompletarLecturaAbril(
+            int emoId,
+            [FromForm] IFormFile archivo,
+            [FromForm] DateOnly fechaLectura)
+        {
+            try
+            {
+                if (archivo == null || archivo.Length == 0)
+                    throw new AbrilException("El archivo de lectura es obligatorio.", 400);
+
+                using var ctx = _factory.CreateDbContext();
+                var emo = await ctx.WorkerEmo
+                    .Include(e => e.Worker).ThenInclude(w => w!.Person)
+                    .FirstOrDefaultAsync(e => e.Id == emoId)
+                    ?? throw new AbrilException("EMO no encontrado.", 404);
+
+                var dni = emo.Worker?.Person?.DocumentIdentityCode ?? emo.WorkerId.ToString();
+                var fecha = DateTime.UtcNow.ToString("yyyyMMdd");
+                var fileName = $"{dni}_Lectura_{fecha}.pdf";
+
+                string path;
+                using (var stream = archivo.OpenReadStream())
+                    path = await _sharePoint.SubirArchivoAsync(stream, fileName, "lectura-emo");
+
+                await _service.CompletarLecturaAbril(emoId, fechaLectura, path, CurrentUserId());
+                return Ok(new { url = path, message = "Lectura registrada y aprobada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EmoController.CompletarLecturaAbril"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("emos/{emoId:int}/documentos")]
         public async Task<IActionResult> SubirDocumento(int emoId, [FromForm] IFormFile file, [FromForm] string tipo)
         {

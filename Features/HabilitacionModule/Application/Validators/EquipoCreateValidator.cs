@@ -7,7 +7,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
     {
         public EquipoCreateValidator()
         {
-            RuleFor(x => x.Tipo).NotEmpty().MaximumLength(200);
+            RuleFor(x => x.TipoEquipoId).GreaterThan(0);
             RuleFor(x => x.ProyectoId).GreaterThan(0);
 
             RuleFor(x => x.EmailAdmin).EmailAddress()

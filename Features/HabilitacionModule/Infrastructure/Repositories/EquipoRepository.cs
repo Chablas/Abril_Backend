@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.SsEquipo.AsQueryable();
+            var query = ctx.SsEquipo.Include(e => e.TipoEquipo).AsQueryable();
 
             if (proyectoId.HasValue) query = query.Where(e => e.ProyectoId == proyectoId.Value);
             if (empresaId.HasValue) query = query.Where(e => e.PropietarioEmpresaId == empresaId.Value);
@@ -33,7 +33,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 var s = search.ToLower();
                 query = query.Where(e =>
-                    e.Tipo.ToLower().Contains(s) ||
+                    (e.TipoEquipo != null && e.TipoEquipo.Nombre.ToLower().Contains(s)) ||
                     (e.Marca != null && e.Marca.ToLower().Contains(s)) ||
                     (e.Modelo != null && e.Modelo.ToLower().Contains(s)) ||
                     (e.NSerie != null && e.NSerie.ToLower().Contains(s)));
@@ -49,7 +49,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var total = await withState.CountAsync();
 
             var pageRows = await withState
-                .OrderBy(x => x.Equipo.Tipo)
+                .OrderBy(x => x.Equipo.TipoEquipo!.Nombre)
                 .ThenBy(x => x.Equipo.Id)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
@@ -73,7 +73,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var items = pageRows.Select(r => new EquipoListDto
             {
                 Id = r.Equipo.Id,
-                Tipo = r.Equipo.Tipo,
+                TipoEquipoId = r.Equipo.TipoEquipoId,
+                TipoNombre = r.Equipo.TipoEquipo?.Nombre ?? string.Empty,
                 Marca = r.Equipo.Marca,
                 Modelo = r.Equipo.Modelo,
                 NSerie = r.Equipo.NSerie,
@@ -99,7 +100,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
             var entity = new SsEquipo
             {
-                Tipo = dto.Tipo,
+                TipoEquipoId = dto.TipoEquipoId,
                 Marca = dto.Marca,
                 Modelo = dto.Modelo,
                 NSerie = dto.NSerie,
@@ -124,7 +125,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var entity = await ctx.SsEquipo.FirstOrDefaultAsync(e => e.Id == id)
                 ?? throw new AbrilException("Equipo no encontrado.", 404);
 
-            entity.Tipo = dto.Tipo;
+            entity.TipoEquipoId = dto.TipoEquipoId;
             entity.Marca = dto.Marca;
             entity.Modelo = dto.Modelo;
             entity.NSerie = dto.NSerie;
@@ -148,7 +149,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Equipo no encontrado.", 404);
 
             var items = await ctx.SsItemEquipo
-                .Where(i => i.Activo)
+                .Where(i => i.Activo && (i.TipoEquipoId == null || i.TipoEquipoId == equipo.TipoEquipoId))
                 .OrderBy(i => i.Orden)
                 .ToListAsync();
 

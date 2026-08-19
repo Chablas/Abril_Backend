@@ -277,7 +277,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN project pr ON pr.project_id = ec.proyecto_id
                   ORDER BY pr.project_description");
 
-            // Período a usar: el solicitado o el activo
+            // Período a usar: el solicitado o, a falta de uno, el último registrado (no el
+            // "activo" — este listado es de solo lectura y debe verse aunque hoy no esté
+            // abierta la ventana de evaluación).
             int targetPeriodo;
             if (periodoId.HasValue)
             {
@@ -285,15 +287,14 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             }
             else
             {
-                var activo = await conn.QueryFirstOrDefaultAsync<int?>(
-                    "SELECT id FROM ev_periodo WHERE activo = TRUE LIMIT 1");
-                if (!activo.HasValue)
+                var ultimo = await ResolverUltimoPeriodoIdAsync(conn);
+                if (!ultimo.HasValue)
                     return new EvContratistaVerInicioDto
                     {
                         Periodos = periodos.Select(MapPeriodo).ToList(),
                         Proyectos = proyectos.ToList()
                     };
-                targetPeriodo = activo.Value;
+                targetPeriodo = ultimo.Value;
             }
 
             var evaluaciones = await ObtenerResumenesAsync(conn, targetPeriodo, proyectoId);
@@ -312,7 +313,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            // Período objetivo
+            // Período objetivo: el solicitado o, a falta de uno, el último registrado (no el
+            // "activo" — el dashboard es de solo lectura y debe verse aunque hoy no esté
+            // abierta la ventana de evaluación).
             int targetPeriodo;
             if (periodoId.HasValue)
             {
@@ -320,11 +323,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             }
             else
             {
-                var activo = await conn.QueryFirstOrDefaultAsync<int?>(
-                    "SELECT id FROM ev_periodo WHERE activo = TRUE LIMIT 1");
-                if (!activo.HasValue)
+                var ultimo = await ResolverUltimoPeriodoIdAsync(conn);
+                if (!ultimo.HasValue)
                     return new EvContratistaDashboardDto();
-                targetPeriodo = activo.Value;
+                targetPeriodo = ultimo.Value;
             }
 
             var contratistas = await ObtenerResumenesAsync(conn, targetPeriodo, proyectoId);
@@ -393,6 +395,29 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         }
 
         // ─── Helpers ───────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Período a usar cuando no se pide uno explícito: siempre el mes calendario anterior
+        /// al actual (el último que ya cerró por completo). No toma el mayor (anio, mes) de la
+        /// tabla a secas porque puede haber períodos futuros o de prueba sembrados de antemano
+        /// (p. ej. para poblar la tendencia histórica de gráficos) sin evaluaciones reales.
+        /// </summary>
+        private static async Task<int?> ResolverUltimoPeriodoIdAsync(System.Data.IDbConnection conn)
+        {
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            var mesAnterior = hoy.AddMonths(-1);
+
+            var delMesAnterior = await conn.QueryFirstOrDefaultAsync<int?>(
+                "SELECT id FROM ev_periodo WHERE mes = @Mes AND anio = @Anio LIMIT 1",
+                new { Mes = mesAnterior.Month, Anio = mesAnterior.Year });
+            if (delMesAnterior.HasValue) return delMesAnterior;
+
+            return await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT id FROM ev_periodo
+                  WHERE anio < @HoyAnio OR (anio = @HoyAnio AND mes <= @HoyMes)
+                  ORDER BY anio DESC, mes DESC LIMIT 1",
+                new { HoyAnio = hoy.Year, HoyMes = hoy.Month });
+        }
 
         private static async Task<List<EvContratistaResumenDto>> ObtenerResumenesAsync(
             System.Data.IDbConnection conn, int periodoId, int? proyectoId)

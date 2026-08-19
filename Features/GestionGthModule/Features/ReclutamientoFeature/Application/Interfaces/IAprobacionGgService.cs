@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces
 {
@@ -47,5 +47,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// campanita); el visto bueno del gerente del área no dispara ningún correo.
         /// </summary>
         Task<AprobacionGgDecisionResultDto> RegistrarDecision(int aprobacionId, AprobacionGgDecisionDto dto, int? userId);
+
+        /// <summary>
+        /// Registra la MISMA decisión (aprobar o rechazar todas las vacantes) sobre varias
+        /// solicitudes seleccionadas en la lista, en la casilla del nivel del usuario. Si quien
+        /// decide es Gerencia General, cada solicitud aprobada dispara sus correos a GTH y a TI —los
+        /// mismos que dispara la decisión de una— pero los destinatarios se resuelven una sola vez
+        /// para todo el lote. Las solicitudes que ya no admitían la decisión se devuelven como
+        /// omitidas.
+        /// </summary>
+        Task<AprobacionGgDecisionMasivaResultDto> RegistrarDecisionMasiva(
+            AprobacionGgDecisionMasivaDto dto, int? userId);
     }
 }

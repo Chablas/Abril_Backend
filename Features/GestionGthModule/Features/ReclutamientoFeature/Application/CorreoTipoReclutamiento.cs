@@ -19,6 +19,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public const string Solicitud = "SOLICITUD";
 
+        /// <summary>
+        /// Correo de "vacantes aprobadas a TI". Sale junto con el de GTH, en la misma decisión de
+        /// Gerencia General y con las mismas vacantes aprobadas, pero es un aviso de preparación:
+        /// TI necesita la anticipación para alistar equipo, usuario y accesos de cada ingreso. Es
+        /// independiente del de GTH — apagar uno no apaga el otro.
+        /// </summary>
+        public const string Ti = "TI_VACANTES";
+
         /// <summary>Correo de "long list enviada" (va al solicitante).</summary>
         public const string LongList = "LONG_LIST";
 
@@ -46,15 +54,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string Entrevista = "ENTREVISTA";
 
         /// <summary>
-        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>long-list</c> /
-        /// <c>decision-long-list</c> / <c>decision-finalista</c> / <c>formulario-completado</c> /
-        /// <c>entrevista</c>) al código estable. Devuelve null si el slug no corresponde a un tipo
-        /// conocido.
+        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
+        /// <c>long-list</c> / <c>decision-long-list</c> / <c>decision-finalista</c> /
+        /// <c>formulario-completado</c> / <c>entrevista</c>) al código estable. Devuelve null si el
+        /// slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
             "aprobacion-gg"          => AprobacionGg,
             "solicitud"              => Solicitud,
+            "ti-vacantes"            => Ti,
             "long-list"              => LongList,
             "decision-long-list"     => LongListDecision,
             "decision-finalista"     => FinalistaDecision,

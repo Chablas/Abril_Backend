@@ -1,4 +1,5 @@
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces
 {
@@ -6,7 +7,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId);
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId);
-        Task<ReunionDetalleDto> GetDetalle(int reunionId);
+        Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId);
         Task<int> Create(ReunionCreateRequest request, int userId);
         /// <summary>
         /// Trabajadores que calzan con un área/gerencia (con descendencia), una lista de puestos,
@@ -33,6 +34,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         /// <summary>Reemplaza los temas a tratar del worker del usuario autenticado para esta reunión.</summary>
         Task GuardarMisTemas(int reunionId, int userId, List<string> temas);
+        Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
+        /// <summary>Todos los acuerdos de reuniones que el usuario organizó o a las que fue
+        /// convocado (mismo alcance que GetReuniones), sin filtrar por si es responsable.</summary>
+        Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId);
+        Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
+        Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);
+        Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId);
+        Task<List<ReunionTema>> GetTemasRecurrentesActivos();
+        Task<List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)>> GetReglasTemaParaGeneracion(int reunionTemaId);
+        Task AvanzarRecurrenciaTema(int reunionTemaId, DateOnly nuevaFechaGenerada, int nuevaReunionId);
 
         /// <summary>Reuniones PROGRAMADA con agenda dinámica cuyo recordatorio aún no se envió.</summary>
         Task<List<ReunionRecordatorioCandidatoDto>> GetCandidatosRecordatorioAgenda();
@@ -52,6 +67,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         Task<List<ReunionArchivoDto>> AgregarArchivos(int reunionId, List<(string Url, string? OriginalFileName)> archivos, int userId);
         Task EliminarArchivo(int reunionArchivoId, int userId);
+
+        // ── Aceptación de acuerdos + envío del acta al marcar Realizada ──────
+        /// <summary>Info del acuerdo/responsable para la página de aceptar/rechazar; valida que
+        /// userId corresponda a ese responsable (por persona, no worker_id exacto).</summary>
+        Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId);
+        /// <summary>Registra la decisión (aceptar/rechazar) del responsable autenticado.</summary>
+        Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request);
+        /// <summary>Destinatarios del correo del acta final: asistentes + responsables de acuerdos
+        /// (con sus acuerdos pendientes de aceptación, si los tienen), deduplicados por worker.</summary>
+        Task<List<ActaEnvioDestinatarioDto>> GetDestinatariosActaRealizada(int reunionId);
 
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
         /// <summary>Devuelve la carpeta única vigente (state = true) o null si aún no se configuró.</summary>

@@ -154,30 +154,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 // 3a. Email al revisor resuelto (workers_revisores → fallback GTH). Se guarda
                 //     el correo al que se envió (enviado_a_correo); el aprobador real
                 //     (aprobador_worker_id / aprobador_area_scope_id) se llena recién al
-                //     momento de la decisión.
+                //     momento de la decisión. enviado_a_correo se guarda apenas se resuelve el
+                //     revisor aunque su interruptor esté apagado y no le llegue el correo: sigue
+                //     siendo el revisor asignado y de ahí sale su visibilidad en Gestión de Salidas.
                 var revisor = await _revisorResolver.ResolveAsync(solicitante.Id);
                 var aprobadorEmail = revisor?.Email;
-                if (revisor != null && !string.IsNullOrWhiteSpace(revisor.Email))
-                {
-                    await _repo.SetEnviadoACorreo(solicitud.Id, revisor.Email);
-                    // Los documentos adjuntos de la solicitud van SOLO en este correo (revisor);
-                    // la confirmación al solicitante y demás correos no los llevan.
-                    var adjuntosEmail = await BuildAdjuntosEmailAsync(adjuntos);
-                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, mostrarRecordatorio, revisor.Email, nombreSolicitante, adjuntosEmail);
-                }
+                if (!string.IsNullOrWhiteSpace(aprobadorEmail))
+                    await _repo.SetEnviadoACorreo(solicitud.Id, aprobadorEmail);
                 else
-                {
                     _logger.LogWarning(
                         "No se pudo resolver revisor para solicitud {SolicitudId} (worker {WorkerId}): sin revisores en workers_revisores y sin correo GTH configurado en area_scope.email",
                         solicitud.Id, solicitante.Id);
-                }
+
+                var enviadoRevisorA = await SendNotificacionAprobadorAsync(
+                    solicitud, trayectosResueltos, mostrarRecordatorio, aprobadorEmail, nombreSolicitante, adjuntos);
 
                 // 3b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
                 if (userId.HasValue)
                 {
                     try
                     {
-                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante, userId.Value, aprobadorEmail);
+                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante, userId.Value, aprobadorEmail, enviadoRevisorA);
                     }
                     catch (Exception ex)
                     {
@@ -409,14 +406,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return (resueltos, algunaHoraExacta);
         }
 
-        private async Task SendNotificacionAprobadorAsync(
+        /// <summary>
+        /// Envía el correo con los botones de aprobar/rechazar. El revisor resuelto es su
+        /// destinatario principal, pero la configuración manda: si el correo está apagado, o si
+        /// el revisor está apagado y no hay ningún destinatario configurado, no se envía nada.
+        /// Devuelve los correos a los que realmente se envió (vacío si no se envió).
+        /// </summary>
+        private async Task<List<string>> SendNotificacionAprobadorAsync(
             GaSolicitudSalida solicitud,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             bool mostrarRecordatorio,
-            string aprobadorEmail,
+            string? aprobadorEmail,
             string nombreSolicitante,
-            List<EmailAttachment>? adjuntosEmail = null)
+            IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos = null)
         {
+            // El revisor (To) nunca se excluye; las exclusiones solo aplican a los correos en copia.
+            var envio = await _correoResolver.ResolveEnvioAsync(
+                CorreoEventoCodigos.Revisor,
+                string.IsNullOrWhiteSpace(aprobadorEmail) ? null : new List<string> { aprobadorEmail });
+
+            if (!envio.Enviar)
+            {
+                _logger.LogInformation(
+                    "Correo al revisor no enviado para solicitud {SolicitudId}: el correo está apagado o no quedó ningún destinatario configurado.",
+                    solicitud.Id);
+                return new List<string>();
+            }
+
+            // Los documentos adjuntos de la solicitud van SOLO en este correo (revisor); la
+            // confirmación al solicitante y demás correos no los llevan. Se arman recién acá
+            // para no leer los archivos si al final no se envía nada.
+            var adjuntosEmail = await BuildAdjuntosEmailAsync(adjuntos);
+
             var tokenAprobar  = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Aprobar,  TimeSpan.FromDays(30));
             var tokenRechazar = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Rechazar, TimeSpan.FromDays(30));
 
@@ -428,19 +449,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, mostrarRecordatorio, urlAprobar, urlRechazar);
             var subject = $"Solicitud de salida - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
 
-            // CC configurable del correo al revisor (por defecto sin reglas ⇒ sin copia). El revisor
-            // resuelto (To) nunca se excluye; las exclusiones solo aplican a los correos en copia. Se
-            // quita el revisor del CC por si alguien lo agregó como inclusión (ya está en To).
-            var cc = await _correoResolver.ResolveCcAsync(CorreoEventoCodigos.Revisor);
-            cc.RemoveAll(e => string.Equals(e, aprobadorEmail, StringComparison.OrdinalIgnoreCase));
-
             await _emailService.SendAsync(
-                to: new List<string> { aprobadorEmail },
+                to: envio.Para,
                 subject: subject,
                 body: body,
                 isHtml: true,
-                cc: cc.Count > 0 ? cc : null,
+                cc: envio.Copia.Count > 0 ? envio.Copia : null,
                 attachments: adjuntosEmail);
+
+            return envio.Para;
         }
 
         /// <summary>
@@ -479,7 +496,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             bool mostrarRecordatorio,
             string nombreSolicitante,
             int userId,
-            string? aprobadorEmail)
+            string? aprobadorEmail,
+            List<string> enviadoRevisorA)
         {
             var emailSolicitante = await ctx.User
                 .Where(u => u.UserId == userId)
@@ -494,20 +512,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return;
             }
 
+            var envio = await _correoResolver.ResolveEnvioAsync(
+                CorreoEventoCodigos.Confirmacion,
+                new List<string> { emailSolicitante },
+                await GetRecepcionRole52Async(ctx));
+
+            if (!envio.Enviar)
+            {
+                _logger.LogInformation(
+                    "Correo de confirmación no enviado para solicitud {SolicitudId}: el correo está apagado o no quedó ningún destinatario configurado.",
+                    solicitud.Id);
+                return;
+            }
+
             var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, solicitud.WorkerId, solicitud.Id);
 
-            var body    = BuildEmailConfirmacionSolicitante(nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio, aprobadorEmail);
+            var body    = BuildEmailConfirmacionSolicitante(
+                nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio,
+                enviadoRevisorA, aprobadorEmail);
             var subject = $"Tu solicitud de salida #{numeroUsuario} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
-            var cc = await _correoResolver.ResolveCcAsync(
-                CorreoEventoCodigos.Confirmacion, await GetRecepcionRole52Async(ctx));
-
             await _emailService.SendAsync(
-                to: new List<string> { emailSolicitante },
+                to: envio.Para,
                 subject: subject,
                 body: body,
                 isHtml: true,
-                cc: cc);
+                cc: envio.Copia.Count > 0 ? envio.Copia : null);
         }
 
         // ── CC recepción ────────────────────────────────────────────────────
@@ -621,11 +651,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                  <b>Recuerda:</b> no olvides coordinar la recuperación de las horas dentro del mes calendario.
                </p>";
 
+        /// <summary>
+        /// Cuerpo del correo de confirmación al solicitante. <paramref name="enviadoRevisorA"/> son
+        /// los correos a los que realmente salió la solicitud para revisión (vacío si ese correo
+        /// está apagado) y <paramref name="aprobadorAsignado"/> el revisor que la tiene asignada
+        /// aunque no le haya llegado el correo: sin eso el aviso diría que se envió a alguien que
+        /// nunca lo recibió.
+        /// </summary>
         private static string BuildEmailConfirmacionSolicitante(
             string nombre, int numeroUsuario, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             bool mostrarRecordatorio,
-            string? aprobadorEmail)
+            List<string> enviadoRevisorA,
+            string? aprobadorAsignado)
         {
             string esc(string s) => WebUtility.HtmlEncode(s);
 
@@ -646,15 +684,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
 
-            var aprobadorBloque = string.IsNullOrWhiteSpace(aprobadorEmail)
-                ? @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
-                     Aún no se identificó a tu jefatura inmediata. El equipo administrativo será notificado para asignarla.
-                   </p>"
-                : $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
-                      Tu solicitud fue enviada a
-                      <b style=""color:#0086A5"">{esc(aprobadorEmail)}</b>
-                      para su revisión.
-                    </p>";
+            var aprobadorBloque =
+                enviadoRevisorA.Count > 0
+                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
+                          Tu solicitud fue enviada a
+                          <b style=""color:#0086A5"">{esc(string.Join(", ", enviadoRevisorA))}</b>
+                          para su revisión.
+                        </p>"
+                : !string.IsNullOrWhiteSpace(aprobadorAsignado)
+                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
+                          Tu solicitud quedó asignada a
+                          <b style=""color:#0086A5"">{esc(aprobadorAsignado)}</b>
+                          para su revisión.
+                        </p>"
+                    : @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
+                         Aún no se identificó a tu jefatura inmediata. El equipo administrativo será notificado para asignarla.
+                       </p>";
 
             return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
   <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
@@ -834,18 +879,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
 
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    CorreoEventoCodigos.Aprobada,
+                    new List<string> { info.Email },
+                    await GetRecepcionRole52Async(ctx));
+
+                if (!envio.Enviar)
+                {
+                    _logger.LogInformation(
+                        "Correo de aprobación no enviado para solicitud {SolicitudId}: el correo está apagado o no quedó ningún destinatario configurado.",
+                        solicitudId);
+                    return;
+                }
+
                 var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, mostrarRecordatorio);
                 var subject = $"Solicitud de salida #{numeroUsuario} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
-                var cc = await _correoResolver.ResolveCcAsync(
-                    CorreoEventoCodigos.Aprobada, await GetRecepcionRole52Async(ctx));
-
                 await _emailService.SendAsync(
-                    to: new List<string> { info.Email },
+                    to: envio.Para,
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: cc);
+                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
             }
             catch (Exception ex)
             {
@@ -902,18 +957,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
 
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    CorreoEventoCodigos.Rechazada,
+                    new List<string> { info.Email },
+                    await GetRecepcionRole52Async(ctx));
+
+                if (!envio.Enviar)
+                {
+                    _logger.LogInformation(
+                        "Correo de rechazo no enviado para solicitud {SolicitudId}: el correo está apagado o no quedó ningún destinatario configurado.",
+                        solicitudId);
+                    return;
+                }
+
                 var body    = BuildEmailRechazoSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, info.MotivoRechazo);
                 var subject = $"Solicitud de salida #{numeroUsuario} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
 
-                var cc = await _correoResolver.ResolveCcAsync(
-                    CorreoEventoCodigos.Rechazada, await GetRecepcionRole52Async(ctx));
-
                 await _emailService.SendAsync(
-                    to: new List<string> { info.Email },
+                    to: envio.Para,
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: cc);
+                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
             }
             catch (Exception ex)
             {

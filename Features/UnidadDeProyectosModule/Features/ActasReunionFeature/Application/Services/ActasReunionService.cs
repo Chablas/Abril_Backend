@@ -1,5 +1,7 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -31,6 +33,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         private readonly ILogger<ActasReunionService> _logger;
         private readonly string[] _allowedHosts;
         private readonly string _frontendUrl;
+        private readonly string[] _logoPaths;
 
         public ActasReunionService(
             IActasReunionRepository repository,
@@ -40,7 +43,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             IEmailService emailService,
             INotificacionesService notificacionesService,
             ILogger<ActasReunionService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IWebHostEnvironment env)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
@@ -50,6 +54,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             _notificacionesService = notificacionesService;
             _logger = logger;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            // Mismos candidatos que usa Convalidación/Amonestaciones para el logo del PDF.
+            _logoPaths = new[]
+            {
+                Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
+                Path.Combine(env.WebRootPath, "images", "logo-abril.jpg"),
+                Path.Combine(env.ContentRootPath, "Templates", "logo-abril.jpg"),
+            };
 
             // Hosts permitidos del tenant, derivados del sitio ya configurado (mismo criterio
             // que la carpeta de facturas de Contabilidad).
@@ -64,8 +75,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId)
             => _repository.GetReuniones(filtro, userId);
 
-        public Task<ReunionDetalleDto> GetDetalle(int reunionId)
-            => _repository.GetDetalle(reunionId);
+        public Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId)
+            => _repository.GetDetalle(reunionId, userId);
 
         public async Task<int> Create(ReunionCreateRequest request, int userId)
         {
@@ -155,6 +166,126 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.GuardarMisTemas(reunionId, userId, temas);
         }
 
+        public Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId)
+            => _repository.GetMisAcuerdos(userId);
+
+        public Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId)
+            => _repository.GetAcuerdos(filtro, userId);
+
+        public Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId)
+            => _repository.GetAcuerdosPendientesAnteriores(reunionId);
+
+        public Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId)
+            => _repository.ReprogramarAcuerdo(reunionAcuerdoId, request, userId);
+
+        public Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId)
+            => _repository.MarcarAcuerdoCumplido(reunionAcuerdoId, request, userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        /// <summary>0 = generado automáticamente por el job de recurrencia, no por un usuario.</summary>
+        private const int SistemaUserId = 0;
+
+        public Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId)
+            => _repository.GetRecurrenciaTema(reunionTemaId);
+
+        public Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId)
+            => _repository.GuardarRecurrenciaTema(reunionTemaId, request, userId);
+
+        public async Task<ProcesarGeneracionRecurrenteResultDto> ProcesarGeneracionRecurrente()
+        {
+            var resultado = new ProcesarGeneracionRecurrenteResultDto();
+            var temas = await _repository.GetTemasRecurrentesActivos();
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            foreach (var tema in temas)
+            {
+                var siguiente = tema.UltimaFechaGenerada.HasValue
+                    ? tema.UltimaFechaGenerada.Value.AddDays(tema.IntervaloDias!.Value)
+                    : tema.FechaAncla!.Value;
+
+                var reglas = await _repository.GetReglasTemaParaGeneracion(tema.ReunionTemaId);
+                var horizonte = hoy.AddDays(tema.DiasAnticipacion);
+
+                // Tope de seguridad: si el job estuvo caído mucho tiempo, se ponen al día las
+                // ocurrencias atrasadas sin generar de golpe una cantidad descontrolada.
+                var iteraciones = 0;
+                while (siguiente <= horizonte && iteraciones < 20)
+                {
+                    var participantes = await ResolverParticipantesDeReglas(reglas);
+
+                    var request = new ReunionCreateRequest
+                    {
+                        ProjectId = null,
+                        AreaScopeId = tema.AreaScopeId,
+                        Tema = tema.Descripcion,
+                        ReunionTemaId = tema.ReunionTemaId,
+                        ConvocadoPor = null,
+                        Lugar = tema.Lugar,
+                        Fecha = siguiente,
+                        HoraInicio = tema.HoraInicio,
+                        HoraFin = tema.HoraFin,
+                        ReunionAnteriorId = tema.UltimaReunionGeneradaId,
+                        AgendaTexto = null,
+                        Participantes = participantes,
+                    };
+
+                    int nuevaReunionId;
+                    try
+                    {
+                        nuevaReunionId = await Create(request, SistemaUserId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error generando reunión recurrente del tema {ReunionTemaId} para {Fecha}", tema.ReunionTemaId, siguiente);
+                        break; // no sigue de largo si esta ocurrencia falló, para no perder el orden de la cadena
+                    }
+
+                    await _repository.AvanzarRecurrenciaTema(tema.ReunionTemaId, siguiente, nuevaReunionId);
+                    tema.UltimaFechaGenerada = siguiente;
+                    tema.UltimaReunionGeneradaId = nuevaReunionId;
+
+                    resultado.ReunionesGeneradas++;
+                    resultado.Detalle.Add($"Tema {tema.ReunionTemaId} ({tema.Descripcion}): reunión {nuevaReunionId} para {siguiente:yyyy-MM-dd}");
+
+                    siguiente = siguiente.AddDays(tema.IntervaloDias!.Value);
+                    iteraciones++;
+                }
+            }
+
+            return resultado;
+        }
+
+        /// <summary>Igual criterio que la convocatoria masiva manual: une (sin duplicar) los
+        /// trabajadores que califican en cada regla independiente del tema.</summary>
+        private async Task<List<ReunionParticipanteInput>> ResolverParticipantesDeReglas(
+            List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)> reglas)
+        {
+            var vistos = new HashSet<int>();
+            var participantes = new List<ReunionParticipanteInput>();
+
+            foreach (var (areaScopeId, projectId, puestoIds) in reglas)
+            {
+                var trabajadores = await _repository.BuscarTrabajadoresPorFiltro(
+                    areaScopeId, puestoIds.Count > 0 ? puestoIds : null, projectId);
+
+                foreach (var t in trabajadores)
+                {
+                    if (!vistos.Add(t.WorkerId)) continue;
+                    participantes.Add(new ReunionParticipanteInput
+                    {
+                        ReunionParticipanteId = null,
+                        WorkerId = t.WorkerId,
+                        Nombre = t.FullName,
+                        Cargo = t.Cargo,
+                        Iniciales = null,
+                        Asistio = false,
+                    });
+                }
+            }
+
+            return participantes;
+        }
+
         public async Task Update(int reunionId, ReunionUpdateRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Tema))
@@ -181,11 +312,136 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.Reprogramar(reunionId, request, userId);
         }
 
-        public Task CambiarEstado(int reunionId, ReunionCambiarEstadoRequest request, int userId)
+        public async Task CambiarEstado(int reunionId, ReunionCambiarEstadoRequest request, int userId)
         {
             if (string.IsNullOrWhiteSpace(request.Estado))
                 throw new AbrilException("Debe indicar el estado destino.", 400);
-            return _repository.CambiarEstado(reunionId, request.Estado.Trim().ToUpperInvariant(), userId);
+
+            var estado = request.Estado.Trim().ToUpperInvariant();
+            await _repository.CambiarEstado(reunionId, estado, userId);
+
+            if (estado == ActasReunionRepository.EstadoRealizada)
+            {
+                try
+                {
+                    await EnviarActaRealizada(reunionId);
+                }
+                catch (Exception ex)
+                {
+                    // El envío del acta no debe bloquear el cambio de estado, ya guardado.
+                    _logger.LogError(ex, "Error enviando el acta de la reunión {ReunionId} tras marcarla realizada", reunionId);
+                }
+            }
+        }
+
+        /// <summary>Al marcar la reunión Realizada: genera el PDF del acta, adjunta los archivos ya
+        /// subidos (descargándolos cuando viven en el SharePoint configurado; si no se puede o el
+        /// total supera el límite razonable de adjuntos, se listan como link en el cuerpo), y envía
+        /// un correo a cada asistente y a cada responsable de acuerdo. Quien tiene acuerdos propios
+        /// que requieren aceptación recibe además, en su mismo correo, el link personal para
+        /// aceptarlos o rechazarlos.</summary>
+        private async Task<byte[]?> CargarLogoAsync()
+        {
+            var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+            return logoPath != null ? await File.ReadAllBytesAsync(logoPath) : null;
+        }
+
+        private async Task EnviarActaRealizada(int reunionId)
+        {
+            var destinatarios = await _repository.GetDestinatariosActaRealizada(reunionId);
+            if (destinatarios.Count == 0) return;
+
+            var detalle = await _repository.GetDetalle(reunionId, SistemaUserId);
+            var pdfActa = ActasReunionPdfService.GenerarPdf(detalle, await CargarLogoAsync());
+
+            const long maxAdjuntosBytes = 15 * 1024 * 1024; // 15 MB: margen razonable para no rebotar por tamaño.
+            var attachments = new List<EmailAttachment>
+            {
+                new() { FileName = $"Acta_Reunion_N{detalle.Numero}.pdf", ContentType = "application/pdf", Content = pdfActa },
+            };
+            long totalBytes = pdfActa.LongLength;
+            var archivosNoAdjuntados = new List<ReunionArchivoDto>();
+
+            foreach (var archivo in detalle.Archivos)
+            {
+                if (totalBytes >= maxAdjuntosBytes) { archivosNoAdjuntados.Add(archivo); continue; }
+                try
+                {
+                    byte[]? bytes = null;
+                    if (Uri.TryCreate(archivo.ArchivoUrl, UriKind.Absolute, out var uri)
+                        && _allowedHosts.Contains(uri.Host.ToLowerInvariant()))
+                    {
+                        bytes = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(archivo.ArchivoUrl);
+                    }
+
+                    if (bytes is null || totalBytes + bytes.LongLength > maxAdjuntosBytes)
+                    {
+                        archivosNoAdjuntados.Add(archivo);
+                        continue;
+                    }
+
+                    totalBytes += bytes.LongLength;
+                    attachments.Add(new EmailAttachment
+                    {
+                        FileName = archivo.OriginalFileName ?? $"adjunto_{archivo.ReunionArchivoId}",
+                        ContentType = "application/octet-stream",
+                        Content = bytes,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo descargar el adjunto {Url} para el correo del acta de la reunión {ReunionId}", archivo.ArchivoUrl, reunionId);
+                    archivosNoAdjuntados.Add(archivo);
+                }
+            }
+
+            foreach (var dest in destinatarios)
+            {
+                await _emailService.SendAsync(
+                    to: new List<string> { dest.Email },
+                    subject: $"Acta de Reunión N° {detalle.Numero}: {detalle.Tema}",
+                    body: BuildCuerpoActaRealizada(detalle, dest, archivosNoAdjuntados, _frontendUrl),
+                    isHtml: true,
+                    attachments: attachments);
+            }
+        }
+
+        private static string BuildCuerpoActaRealizada(ReunionDetalleDto d, ActaEnvioDestinatarioDto dest, List<ReunionArchivoDto> archivosNoAdjuntados, string frontendUrl)
+        {
+            var linksHtml = archivosNoAdjuntados.Count == 0 ? "" : $@"
+    <p style='margin-top:16px'><strong>Archivos adicionales (ver en el sistema):</strong></p>
+    <ul>
+      {string.Join("", archivosNoAdjuntados.Select(a => $"<li><a href='{a.ArchivoUrl}'>{a.OriginalFileName ?? "Archivo"}</a></li>"))}
+    </ul>";
+
+            var acuerdosHtml = dest.AcuerdosPendientes.Count == 0 ? "" : $@"
+  <div style='background:#fff8e6;border:1px solid #ffe6a3;border-radius:8px;padding:16px;margin-top:16px'>
+    <p style='margin:0 0 8px;font-weight:bold;color:#7a5b00'>Acuerdos que requieren tu aceptación</p>
+    <ul style='margin:0;padding-left:18px'>
+      {string.Join("", dest.AcuerdosPendientes.Select(a => $@"
+      <li style='margin-bottom:10px'>
+        {a.Descripcion}<br/>
+        <a href='{frontendUrl}/projects/actas-reunion/acuerdo/{a.ReunionAcuerdoResponsableId}'
+           style='display:inline-block;margin-top:4px;background:#0F6E56;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px'>
+          Aceptar / Rechazar
+        </a>
+      </li>"))}
+    </ul>
+  </div>";
+
+            return $@"
+<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
+  <div style='background:#0F6E56;padding:16px 24px;border-radius:8px 8px 0 0'>
+    <h2 style='color:#fff;margin:0;font-size:18px'>Acta de Reunión N° {d.Numero}</h2>
+  </div>
+  <div style='background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px'>
+    <p><strong>{d.Tema}</strong></p>
+    <p>{d.Fecha:dd/MM/yyyy}{(d.HoraInicio.HasValue ? $" a las {d.HoraInicio:HH\\:mm}" : "")}</p>
+    <p>Se adjunta el acta completa en PDF, con los acuerdos y la asistencia registrada.</p>
+    {linksHtml}
+    {acuerdosHtml}
+  </div>
+</div>";
         }
 
         public Task Eliminar(int reunionId, int userId)
@@ -338,6 +594,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         public Task EliminarArchivo(int reunionArchivoId, int userId)
             => _repository.EliminarArchivo(reunionArchivoId, userId);
+
+        public Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId)
+            => _repository.GetAcuerdoResponsableInfo(reunionAcuerdoResponsableId, userId);
+
+        public Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request)
+            => _repository.ResponderAcuerdo(reunionAcuerdoResponsableId, userId, request);
 
         private static void ValidarAcuerdo(ReunionAcuerdoRequest request)
         {

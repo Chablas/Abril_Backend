@@ -6,7 +6,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId);
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId);
-        Task<ReunionDetalleDto> GetDetalle(int reunionId);
+        Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId);
         Task<int> Create(ReunionCreateRequest request, int userId);
         Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId);
         Task<List<CatalogoDto>> GetPuestos();
@@ -21,6 +21,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         // ── Agenda de reunión ──────────────────────────────────────────────
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request);
+        Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
+        Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId);
+        Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
+        Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId);
+
+        // ── Recurrencia ────────────────────────────────────────────────────
+        Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);
+        Task GuardarRecurrenciaTema(int reunionTemaId, TemaRecurrenciaSaveRequest request, int userId);
+        /// <summary>Job periódico (disparado por cron externo): genera las siguientes ocurrencias
+        /// de cada convocatoria recurrente cuya fecha teórica ya entró en su ventana de
+        /// anticipación.</summary>
+        Task<ProcesarGeneracionRecurrenteResultDto> ProcesarGeneracionRecurrente();
 
         /// <summary>
         /// Job de recordatorio (disparado por cron externo): revisa las reuniones con agenda
@@ -39,6 +52,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         Task<List<ReunionArchivoDto>> SubirArchivos(int reunionId, IFormFileCollection files, int userId);
         Task EliminarArchivo(int reunionArchivoId, int userId);
+
+        // ── Aceptación de acuerdos (link personal enviado por correo) ────────
+        Task<AcuerdoResponsableInfoDto> GetAcuerdoResponsableInfo(int reunionAcuerdoResponsableId, int userId);
+        Task ResponderAcuerdo(int reunionAcuerdoResponsableId, int userId, AcuerdoResponsableDecisionRequest request);
 
         // ── Carpeta de SharePoint para adjuntos (singleton) ──────────────────
         /// <summary>Devuelve la carpeta única configurada (o null si aún no se configuró).</summary>

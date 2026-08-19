@@ -125,6 +125,8 @@ public static class ConvalidacionPdfService
                     L("Puesto:"); V(d.WorkerPuesto ?? "—");
                     L("Puesto de origen:"); V(d.PuestoOrigen ?? "—");
                     L("Puesto de destino:"); V(d.PuestoDestino ?? "—");
+                    L("Categoría de origen:"); V(d.CategoriaOrigen ?? "—");
+                    L("Categoría de destino:"); V(d.CategoriaDestino ?? "—");
                 });
             });
 

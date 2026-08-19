@@ -16,6 +16,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? NumeroInforme { get; set; }
         public DateOnly? FechaLectura { get; set; }
         public string? UrlResultado { get; set; }
+        public bool RequiereLecturaAbril { get; set; }
         public string? Notas { get; set; }
         public string? InterconsultaInlineJson { get; set; }
 

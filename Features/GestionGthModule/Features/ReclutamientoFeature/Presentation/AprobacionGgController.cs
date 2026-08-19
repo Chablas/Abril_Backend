@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -105,6 +105,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en AprobacionGgController.RegistrarDecision");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Registra la MISMA decisión sobre varias solicitudes seleccionadas en la lista: se aprueban
+        /// (o se rechazan) TODAS las vacantes de cada una, en la casilla del nivel del usuario —que,
+        /// como en la decisión de una sola, resuelve el servicio y no viaja en el payload. Si decide
+        /// Gerencia General, cada solicitud aprobada pasa a VALIDACION_GTH y se notifica a GTH y a TI.
+        ///
+        /// Devuelve 200 aunque alguna solicitud no se haya podido decidir (ya cerrada, fuera de
+        /// alcance, dada de baja): esas vienen en <c>omitidas</c> con su motivo, para no tumbar el
+        /// resto del lote por una.
+        /// </summary>
+        [HttpPost("decision-masiva")]
+        public async Task<IActionResult> RegistrarDecisionMasiva([FromBody] AprobacionGgDecisionMasivaDto dto)
+        {
+            try
+            {
+                return Ok(await _service.RegistrarDecisionMasiva(dto, UserId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en AprobacionGgController.RegistrarDecisionMasiva");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

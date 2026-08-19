@@ -52,6 +52,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.UpdateEstado(id, estado, userId);
         }
 
+        public Task CompletarLecturaAbril(int id, DateOnly fechaLectura, string urlResultado, int? userId)
+        {
+            if (string.IsNullOrWhiteSpace(urlResultado))
+                throw new AbrilException("El archivo de lectura es obligatorio.", 400);
+            return _repo.CompletarLecturaAbril(id, fechaLectura, urlResultado, userId);
+        }
+
         private static void ValidarComun(int? workerId, int? tipoEmoId, string? aptitud, bool requiereInterconsulta)
         {
             if (workerId.HasValue && workerId.Value <= 0)

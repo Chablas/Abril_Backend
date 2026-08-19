@@ -14,6 +14,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public string? ProyectoOrigen { get; set; }
         public string? RestringidoPor { get; set; }
         public DateOnly? FechaRestriccion { get; set; }
+        /// <summary>SANCION (retiro definitivo por amonestación) | DESCANSO_MEDICO (bloqueo temporal de acceso, no es sanción) | MANUAL.
+        /// Distingue el origen para que pantallas de sanciones (Amonestaciones) puedan excluir los bloqueos médicos,
+        /// mientras Control de Acceso sigue bloqueando el ingreso sin importar el tipo.</summary>
+        public string Tipo { get; set; } = "MANUAL";
         public bool Activo { get; set; } = true;
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

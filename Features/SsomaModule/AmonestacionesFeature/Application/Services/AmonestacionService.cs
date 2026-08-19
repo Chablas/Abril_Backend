@@ -60,6 +60,13 @@ public class AmonestacionService : IAmonestacionService
         if (req.AplicaPenalizacion && req.SancionInfraccionId is null)
             throw new AbrilException("Debe seleccionar una sanción si aplica penalización.", 400);
 
+        // Defensa en profundidad: el frontend ya exige descripción no vacía, pero acá se valida
+        // igual porque este campo es el único lugar donde queda la razón REAL de la sanción —
+        // sin esto, un retiro definitivo puede terminar en la lista negra sin más motivo que
+        // la clasificación genérica ("Retiro definitivo del proyecto por sanción CRÍTICA").
+        if (string.IsNullOrWhiteSpace(req.Descripcion) || req.Descripcion.Trim().Length < 15)
+            throw new AbrilException("La descripción debe explicar la razón real de la sanción (mínimo 15 caracteres).", 400);
+
         // Retiro definitivo del proyecto: siempre son 10 puntos,
         // sin importar lo que se haya seleccionado/enviado en el formulario.
         if (req.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
@@ -184,16 +191,28 @@ public class AmonestacionService : IAmonestacionService
         {
             var detalleCreado = await _repo.GetDetalleAsync(id);
             if (detalleCreado is not null)
-                await RegistrarEnListaNegraAsync(detalleCreado);
+                await RegistrarEnListaNegraAsync(detalleCreado, userId);
         }
 
         return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
     }
 
-    private async Task RegistrarEnListaNegraAsync(AmonestacionDetalleDto detalle)
+    private async Task RegistrarEnListaNegraAsync(AmonestacionDetalleDto detalle, int userId)
     {
         try
         {
+            // La razón real de la sanción (Descripcion) es obligatoria al crear la amonestación
+            // (validado en el frontend y, ahora, también en CrearAsync), así que nunca debería
+            // llegar vacía acá — pero si pasa, no se registra en la lista negra con un motivo
+            // genérico: se loguea para revisión manual en vez de crear un registro sin sustento.
+            if (string.IsNullOrWhiteSpace(detalle.Descripcion))
+            {
+                _logger.LogError(
+                    "Amonestacion {Id} (retiro definitivo) sin Descripcion — no se registra en lista negra automáticamente, requiere revisión manual.",
+                    detalle.Id);
+                return;
+            }
+
             await _restringido.CreateAsync(new TrabajadorRestringidoCreateDto
             {
                 WorkerId         = detalle.WorkerId,
@@ -202,7 +221,8 @@ public class AmonestacionService : IAmonestacionService
                 Motivo           = $"Retiro definitivo del proyecto — {detalle.Descripcion}",
                 ProyectoOrigen   = detalle.ProyectoNombre,
                 FechaRestriccion = DateOnly.FromDateTime(detalle.Fecha),
-            });
+                Tipo             = "SANCION",
+            }, userId);
         }
         catch (Exception ex)
         {
@@ -211,7 +231,7 @@ public class AmonestacionService : IAmonestacionService
         }
     }
 
-    public async Task<AmonestacionCreadaDto> ConfirmarAsync(int id)
+    public async Task<AmonestacionCreadaDto> ConfirmarAsync(int id, int userId)
     {
         var detalle = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Amonestación no encontrada.", 404);
@@ -260,14 +280,40 @@ public class AmonestacionService : IAmonestacionService
         var detalleConf = await _repo.GetDetalleAsync(id);
         if (detalleConf is not null)
         {
-            await _inhabilitacion.EvaluarTrasBmonestacionAsync(detalleConf.WorkerId, detalleConf.TipoSancionId, 0);
+            await _inhabilitacion.EvaluarTrasBmonestacionAsync(detalleConf.WorkerId, detalleConf.TipoSancionId, userId);
 
             // Retiro definitivo del proyecto: pasa también a la lista negra real (Habilitación)
             if (detalleConf.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
-                await RegistrarEnListaNegraAsync(detalleConf);
+                await RegistrarEnListaNegraAsync(detalleConf, userId);
         }
 
         return new AmonestacionCreadaDto { Id = id, Codigo = detalle.Codigo };
+    }
+
+    public async Task EditarAsync(int id, AmonestacionEditRequest req, int userId)
+    {
+        if (string.IsNullOrWhiteSpace(req.MotivoEdicion) || req.MotivoEdicion.Trim().Length < 10)
+            throw new AbrilException("Debe indicar el motivo de la corrección (mínimo 10 caracteres) — queda en el registro de auditoría.", 400);
+
+        if (req.PuntosInfraccion is < 0 or > 10)
+            throw new AbrilException("Los puntos por infracción deben estar entre 0 y 10.", 400);
+
+        var (workerId, cambiosResumen) = await _repo.EditarAsync(id, req, userId);
+
+        using var ctx = _factory.CreateDbContext();
+        ctx.WorkerEvento.Add(new Abril_Backend.Features.Habilitacion.Infrastructure.Models.WorkerEvento
+        {
+            WorkerId    = workerId,
+            TipoEvento  = "EdicionAmonestacion",
+            Descripcion = $"Amonestación {id} corregida. Motivo: {req.MotivoEdicion.Trim()}. Cambios: {cambiosResumen}",
+            UsuarioId   = userId > 0 ? userId : null,
+            CreatedAt   = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync();
+
+        // La corrección puede subir o bajar los puntos netos del trabajador: reevaluar
+        // el bloqueo SSOMA (puede desbloquear si ya no llega al umbral, o bloquear si ahora sí).
+        await _inhabilitacion.ReevaluarAsync(workerId, userId);
     }
 
     private async Task<byte[]?> ResolveLogoAsync(AmonestacionDetalleDto detalle)

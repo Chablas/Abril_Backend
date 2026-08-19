@@ -16,11 +16,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         public Task<bool> EstaRestringidoPorDniAsync(string? dni) =>
             _repo.EstaRestringidoPorDniAsync(dni);
 
-        public Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null) =>
-            _repo.GetAllAsync(soloActivos, dni);
+        public Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null, bool incluirDescansoMedico = false) =>
+            _repo.GetAllAsync(soloActivos, dni, incluirDescansoMedico);
 
-        public Task<TrabajadorRestringidoListDto> CreateAsync(TrabajadorRestringidoCreateDto dto) =>
-            _repo.CreateAsync(dto);
+        public Task<TrabajadorRestringidoListDto> CreateAsync(TrabajadorRestringidoCreateDto dto, int? userId = null) =>
+            _repo.CreateAsync(dto, userId);
 
         public Task DesactivarAsync(int id) =>
             _repo.DesactivarAsync(id);

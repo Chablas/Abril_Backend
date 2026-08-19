@@ -179,6 +179,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                 ts.nombre AS tipoSancionNombre,
                 ts.nivel_gravedad AS nivelGravedad,
                 it.nombre AS infraccionTipoNombre,
+                a.descripcion,
                 a.puntos_infraccion AS puntosInfraccion,
                 a.aplica_penalizacion AS aplicaPenalizacion,
                 a.monto_calculado AS montoCalculado,
@@ -515,5 +516,62 @@ public class AmonestacionRepository : IAmonestacionRepository
         entity.Estado = "Registrada";
         entity.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task<(int WorkerId, string CambiosResumen)> EditarAsync(int id, AmonestacionEditRequest req, int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.SsomaAmonestaciones.FirstOrDefaultAsync(a => a.Id == id && a.State)
+            ?? throw new Exception("Amonestación no encontrada.");
+
+        var cambios = new List<string>();
+
+        if (req.TipoSancionId.HasValue && req.TipoSancionId != entity.TipoSancionId)
+        {
+            cambios.Add($"TipoSancionId: {entity.TipoSancionId} -> {req.TipoSancionId}");
+            entity.TipoSancionId = req.TipoSancionId.Value;
+        }
+        if (req.InfraccionTipoId.HasValue && req.InfraccionTipoId != entity.InfraccionTipoId)
+        {
+            cambios.Add($"InfraccionTipoId: {entity.InfraccionTipoId} -> {req.InfraccionTipoId}");
+            entity.InfraccionTipoId = req.InfraccionTipoId.Value;
+        }
+        if (req.Descripcion is not null && req.Descripcion != entity.Descripcion)
+        {
+            cambios.Add("Descripción corregida");
+            entity.Descripcion = req.Descripcion;
+        }
+        if (req.PuntosInfraccion.HasValue && req.PuntosInfraccion != entity.PuntosInfraccion)
+        {
+            cambios.Add($"PuntosInfraccion: {entity.PuntosInfraccion} -> {req.PuntosInfraccion}");
+            entity.PuntosInfraccion = req.PuntosInfraccion.Value;
+        }
+        if (req.AplicaPenalizacion.HasValue && req.AplicaPenalizacion != entity.AplicaPenalizacion)
+        {
+            cambios.Add($"AplicaPenalizacion: {entity.AplicaPenalizacion} -> {req.AplicaPenalizacion}");
+            entity.AplicaPenalizacion = req.AplicaPenalizacion.Value;
+        }
+        if (req.SancionInfraccionId.HasValue && req.SancionInfraccionId != entity.SancionInfraccionId)
+        {
+            cambios.Add($"SancionInfraccionId: {entity.SancionInfraccionId} -> {req.SancionInfraccionId}");
+            entity.SancionInfraccionId = req.SancionInfraccionId;
+        }
+        if (req.DiasSuspension.HasValue && req.DiasSuspension != entity.DiasSuspension)
+        {
+            cambios.Add($"DiasSuspension: {entity.DiasSuspension} -> {req.DiasSuspension}");
+            entity.DiasSuspension = req.DiasSuspension;
+        }
+        if (req.FechaInicioSuspension is not null && DateOnly.TryParse(req.FechaInicioSuspension, out var fi))
+            entity.FechaInicioSuspension = fi;
+        if (req.FechaFinSuspension is not null && DateOnly.TryParse(req.FechaFinSuspension, out var ff))
+            entity.FechaFinSuspension = ff;
+
+        entity.UpdatedBy = userId > 0 ? userId : null;
+        entity.UpdatedAt = DateTime.UtcNow;
+
+        await ctx.SaveChangesAsync();
+
+        var resumen = cambios.Count > 0 ? string.Join("; ", cambios) : "Sin cambios detectados";
+        return (entity.WorkerId, resumen);
     }
 }

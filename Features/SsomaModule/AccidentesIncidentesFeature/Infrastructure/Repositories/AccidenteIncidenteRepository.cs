@@ -823,7 +823,30 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
     public async Task<List<string>> GetDestinatariosFlashReportAsync()
     {
+        // "w.area ILIKE '%proyecto%'" dependía del texto legacy workers.area, que puede quedar
+        // vacío aunque el trabajador tenga bien resuelto workers.area_scope_id (el árbol de áreas,
+        // que es la fuente de verdad real y lo que muestra la ficha del trabajador). Caso real:
+        // COORDINADOR SSOMA con area_scope_id apuntando a "Ssoma" (colgado de "Gerencia de
+        // Proyectos") pero area='' -> nunca entraba por el filtro de texto. Por eso el área se
+        // resuelve subiendo por area_scope_parent_id hasta encontrar un nodo "%proyecto%", en vez
+        // de depender de que el texto legacy esté sincronizado.
         const string sql = """
+            WITH RECURSIVE area_scope_ancestros AS (
+                SELECT area_scope_id AS origen_id, area_scope_id, area_item_id, area_scope_parent_id
+                FROM area_scope
+                WHERE active = true AND state = true
+                UNION ALL
+                SELECT a.origen_id, p.area_scope_id, p.area_item_id, p.area_scope_parent_id
+                FROM area_scope_ancestros a
+                JOIN area_scope p ON p.area_scope_id = a.area_scope_parent_id
+                WHERE p.active = true AND p.state = true
+            ),
+            area_scope_proyectos AS (
+                SELECT DISTINCT a.origen_id
+                FROM area_scope_ancestros a
+                JOIN area_item ai ON ai.area_item_id = a.area_item_id
+                WHERE ai.area_item_name ILIKE '%proyecto%' AND ai.state = true
+            )
             SELECT DISTINCT w.email_corporativo
             FROM workers w
             WHERE w.estado = 'ACTIVO'
@@ -833,6 +856,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
               AND w.email_corporativo <> ''
               AND (
                   w.area     ILIKE '%proyecto%'
+                  OR w.area_scope_id IN (SELECT origen_id FROM area_scope_proyectos)
                   OR w.subarea  ILIKE '%talento%'
                   OR w.subarea  ILIKE '%humano%'
                   OR w.subarea  ILIKE '%gth%'

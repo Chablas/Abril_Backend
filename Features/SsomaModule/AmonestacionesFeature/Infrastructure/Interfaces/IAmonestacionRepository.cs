@@ -16,4 +16,5 @@ public interface IAmonestacionRepository
     Task LimpiarBase64FotosAsync(int id);
     Task ConfirmarEstadoAsync(int id);
     Task CerrarAsync(int id, string documentoFirmadoUrl);
+    Task<(int WorkerId, string CambiosResumen)> EditarAsync(int id, AmonestacionEditRequest req, int userId);
 }

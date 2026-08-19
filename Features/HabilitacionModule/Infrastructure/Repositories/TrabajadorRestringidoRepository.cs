@@ -25,7 +25,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .AnyAsync(r => r.Dni != null && r.Dni.ToUpper() == dniNorm && r.Activo);
         }
 
-        public async Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null)
+        public async Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null, bool incluirDescansoMedico = false)
         {
             using var ctx = _factory.CreateDbContext();
             var query = ctx.SsTrabajadorRestringido.AsQueryable();
@@ -36,6 +36,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var dniNorm = dni.Trim().ToUpper();
                 query = query.Where(r => r.Dni != null && r.Dni.ToUpper() == dniNorm);
             }
+            // Los bloqueos por descanso médico no son sanciones: la pantalla de Amonestaciones
+            // (única consumidora de este listado) no debe mostrarlos junto a sanciones reales.
+            if (!incluirDescansoMedico)
+                query = query.Where(r => r.Tipo != "DESCANSO_MEDICO");
 
             return await query
                 .OrderByDescending(r => r.CreatedAt)
@@ -48,18 +52,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ProyectoOrigen = r.ProyectoOrigen,
                     RestringidoPor = r.RestringidoPor,
                     FechaRestriccion = r.FechaRestriccion,
+                    Tipo = r.Tipo,
                     Activo = r.Activo,
                     CreatedAt = r.CreatedAt
                 })
                 .ToListAsync();
         }
 
-        public async Task<TrabajadorRestringidoListDto> CreateAsync(TrabajadorRestringidoCreateDto dto)
+        public async Task<TrabajadorRestringidoListDto> CreateAsync(TrabajadorRestringidoCreateDto dto, int? userId = null)
         {
             using var ctx = _factory.CreateDbContext();
 
             var dniNorm = dto.Dni?.Trim().ToUpper();
             var dniOriginal = dto.Dni?.Trim();
+
+            // "Restringido por" y "fecha" nunca deben quedar en blanco: si el llamador no los
+            // envía, se rellenan con el usuario que ejecuta la acción y la fecha actual.
+            var restringidoPor = dto.RestringidoPor;
+            if (string.IsNullOrWhiteSpace(restringidoPor) && userId is > 0)
+            {
+                var usuario = await ctx.User.Include(u => u.Person)
+                    .FirstOrDefaultAsync(u => u.UserId == userId.Value);
+                restringidoPor = usuario?.Person?.FullName ?? usuario?.Email;
+            }
+            var fechaRestriccion = dto.FechaRestriccion ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var tipo = string.IsNullOrWhiteSpace(dto.Tipo) ? "MANUAL" : dto.Tipo;
 
             // Si ya existe un registro con el mismo WorkerId o DNI pero inactivo, reactivarlo
             SsTrabajadorRestringido? existente = null;
@@ -83,8 +100,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 existente.Motivo = dto.Motivo;
                 existente.ApellidoNombre = dto.ApellidoNombre ?? existente.ApellidoNombre;
                 existente.ProyectoOrigen = dto.ProyectoOrigen;
-                existente.RestringidoPor = dto.RestringidoPor;
-                existente.FechaRestriccion = dto.FechaRestriccion;
+                existente.RestringidoPor = restringidoPor;
+                existente.FechaRestriccion = fechaRestriccion;
+                existente.Tipo = tipo;
                 existente.UpdatedAt = DateTime.UtcNow;
                 await ctx.SaveChangesAsync();
                 return ToDto(existente);
@@ -97,8 +115,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ApellidoNombre = dto.ApellidoNombre,
                 Motivo = dto.Motivo,
                 ProyectoOrigen = dto.ProyectoOrigen,
-                RestringidoPor = dto.RestringidoPor,
-                FechaRestriccion = dto.FechaRestriccion,
+                RestringidoPor = restringidoPor,
+                FechaRestriccion = fechaRestriccion,
+                Tipo = tipo,
                 Activo = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -143,6 +162,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             ProyectoOrigen = r.ProyectoOrigen,
             RestringidoPor = r.RestringidoPor,
             FechaRestriccion = r.FechaRestriccion,
+            Tipo = r.Tipo,
             Activo = r.Activo,
             CreatedAt = r.CreatedAt
         };

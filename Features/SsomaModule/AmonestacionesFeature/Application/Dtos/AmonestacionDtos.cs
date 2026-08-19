@@ -119,10 +119,29 @@ public class AmonestacionListItemDto
     public string TipoSancionNombre { get; set; } = "";
     public string NivelGravedad { get; set; } = "";
     public string InfraccionTipoNombre { get; set; } = "";
+    /// <summary>Motivo/falta real capturada en texto libre — no confundir con InfraccionTipoNombre (solo la categoría).</summary>
+    public string Descripcion { get; set; } = "";
     public int PuntosInfraccion { get; set; }
     public bool AplicaPenalizacion { get; set; }
     public decimal MontoCalculado { get; set; }
     public string Estado { get; set; } = "Registrada";
+}
+
+// ── Editar (acceso restringido — corregir errores de captura) ──────────────
+
+public class AmonestacionEditRequest
+{
+    public int? TipoSancionId { get; set; }
+    public int? InfraccionTipoId { get; set; }
+    public string? Descripcion { get; set; }
+    public int? PuntosInfraccion { get; set; }
+    public bool? AplicaPenalizacion { get; set; }
+    public int? SancionInfraccionId { get; set; }
+    public int? DiasSuspension { get; set; }
+    public string? FechaInicioSuspension { get; set; }
+    public string? FechaFinSuspension { get; set; }
+    /// <summary>Por qué se corrige — queda en el log de auditoría (WorkerEvento), obligatorio.</summary>
+    public string MotivoEdicion { get; set; } = "";
 }
 
 // ── Detalle ────────────────────────────────────────────────────────────────

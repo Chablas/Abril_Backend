@@ -5775,3 +5775,11 @@ Tocados: `ReunionAcuerdo`, `ReunionParticipante`, `ActasReunionRepository` (+220
 - Aplicar las 3 migraciones SQL nuevas contra la base real (el usuario las corre manualmente, no `dotnet ef database update`): `2026-08-18_reunion_participante_coautor.sql`, `2026-08-18_worker_emos_requiere_lectura_abril.sql`, `2026-08-19_reunion_acuerdo_es_informativo.sql`.
 - Frontend correspondiente (Abril-Frontend) va en commit separado de esta misma sesión.
 - Excluido a propósito de este push: rama `curso-prueba-loto` del repo `plataforma-cursos` (piloto de material interactivo LOTO, no tocar git/deploy todavía).
+
+## Sesión 2026-08-19 (continuación) — Actualización de rama, sin cambios de código
+
+Sesión corta: se trajo `origin/master` a `victor-backend` (`git fetch` + `git merge origin/master`) y se resolvió un conflicto en `CONTEXT.md` — no era un conflicto real de código, sino dos entradas de sesión cronológicas independientes (17 y 19 de agosto) que se concatenaron en orden. Build post-merge: 0 errores. `master` local también quedó sincronizado con `origin/master` (`git fetch origin master:master`).
+
+Además se confirmó al usuario, a pedido, el contenido exacto y completo del seed `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql` (40 líneas, 2 `INSERT` idempotentes vía `NOT EXISTS` — feature `planeamiento-bim.portafolio` + `role_feature` para roles 1 y 2) para que lo corra manualmente en pgAdmin. Sigue pendiente de ejecución contra producción (ver sesión anterior).
+
+No hubo cambios de código en esta sesión.

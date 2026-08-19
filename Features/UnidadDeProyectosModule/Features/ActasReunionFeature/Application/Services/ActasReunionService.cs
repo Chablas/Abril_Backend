@@ -75,8 +75,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId)
             => _repository.GetReuniones(filtro, userId);
 
-        public Task<ReunionDetalleDto> GetDetalle(int reunionId)
-            => _repository.GetDetalle(reunionId);
+        public Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId)
+            => _repository.GetDetalle(reunionId, userId);
 
         public async Task<int> Create(ReunionCreateRequest request, int userId)
         {
@@ -168,6 +168,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         public Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId)
             => _repository.GetMisAcuerdos(userId);
+
+        public Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId)
+            => _repository.GetAcuerdos(filtro, userId);
 
         public Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId)
             => _repository.GetAcuerdosPendientesAnteriores(reunionId);
@@ -348,7 +351,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             var destinatarios = await _repository.GetDestinatariosActaRealizada(reunionId);
             if (destinatarios.Count == 0) return;
 
-            var detalle = await _repository.GetDetalle(reunionId);
+            var detalle = await _repository.GetDetalle(reunionId, SistemaUserId);
             var pdfActa = ActasReunionPdfService.GenerarPdf(detalle, await CargarLogoAsync());
 
             const long maxAdjuntosBytes = 15 * 1024 * 1024; // 15 MB: margen razonable para no rebotar por tamaño.

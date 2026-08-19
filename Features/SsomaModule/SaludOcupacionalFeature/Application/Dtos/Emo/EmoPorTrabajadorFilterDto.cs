@@ -28,6 +28,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         /// <summary>Trabajadores con interconsulta derivada (no cancelada) y sin informe de levantamiento adjunto.</summary>
         public bool SinInterconsulta { get; set; }
 
+        /// <summary>Subtab "Pendientes de lectura": EMOs marcados para que los lea el médico de
+        /// Abril (RequiereLecturaAbril) y que todavía no tienen el archivo de lectura subido.</summary>
+        public bool PendienteLecturaAbril { get; set; }
+
         /// <summary>"fechaEmo" | "fechaVencimiento". Cualquier otro valor (o null) ordena por nombre.</summary>
         public string? SortBy { get; set; }
         public bool SortDesc { get; set; }

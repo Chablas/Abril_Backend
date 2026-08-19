@@ -79,6 +79,14 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("interconsulta_resuelta")]
         public bool InterconsultaResuelta { get; set; }
 
+        /// <summary>
+        /// true = la lectura de este EMO la hace el médico ocupacional de Abril Grupo
+        /// Inmobiliario (no la clínica). Mientras sea true y UrlResultado siga null, el EMO
+        /// aparece en la subtab "Pendientes de lectura" de la pantalla de EMOs.
+        /// </summary>
+        [Column("requiere_lectura_abril")]
+        public bool RequiereLecturaAbril { get; set; }
+
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
 

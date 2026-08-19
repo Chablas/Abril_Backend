@@ -24,13 +24,18 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             _logger = logger;
         }
 
+        // Nota: estos endpoints son de solo lectura (resumen/dashboard) — a falta de periodoId
+        // explícito, deben caer al ÚLTIMO período registrado (GetUltimoAsync), no al período
+        // "activo" (que solo existe durante la ventana de evaluación, día 25 -> día 4). El
+        // dashboard debe poder verse todo el mes, no solo esos días.
+
         [HttpGet("gerencia")]
         public async Task<IActionResult> GetGerencia([FromQuery] int? periodoId)
         {
             try
             {
-                var pid = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
-                if (pid == null) return NotFound(new { message = "No hay período activo." });
+                var pid = periodoId ?? (await _periodoRepo.GetUltimoAsync())?.Id;
+                if (pid == null) return NotFound(new { message = "No hay períodos registrados." });
                 return Ok(await _dashRepo.GetDashboardGerenciaAsync(pid.Value));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -42,8 +47,8 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
-                var pid = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
-                if (pid == null) return NotFound(new { message = "No hay período activo." });
+                var pid = periodoId ?? (await _periodoRepo.GetUltimoAsync())?.Id;
+                if (pid == null) return NotFound(new { message = "No hay períodos registrados." });
                 return Ok(await _dashRepo.GetResidentesResumenAsync(pid.Value));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -55,8 +60,8 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
-                var pid = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
-                if (pid == null) return NotFound(new { message = "No hay período activo." });
+                var pid = periodoId ?? (await _periodoRepo.GetUltimoAsync())?.Id;
+                if (pid == null) return NotFound(new { message = "No hay períodos registrados." });
                 return Ok(await _dashRepo.GetPromediosPorAreaAsync(pid.Value));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -76,8 +81,8 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
-                var pid = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
-                if (pid == null) return NotFound(new { message = "No hay período activo." });
+                var pid = periodoId ?? (await _periodoRepo.GetUltimoAsync())?.Id;
+                if (pid == null) return NotFound(new { message = "No hay períodos registrados." });
                 return Ok(await _dashRepo.GetPendientesAsync(pid.Value));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

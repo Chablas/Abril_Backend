@@ -350,6 +350,22 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>Listado filtrado/paginado de acuerdos de reuniones que el usuario organizó o a
+        /// las que fue convocado (mismo alcance que GetReuniones), para la vista "Acuerdos".</summary>
+        [HttpGet("acuerdos")]
+        public async Task<IActionResult> GetAcuerdos([FromQuery] AcuerdoBusquedaFiltroRequest filtro)
+        {
+            try
+            {
+                return Ok(await _service.GetAcuerdos(filtro, GetUserId()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION LISTADO DE ACUERDOS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Acuerdos pendientes (no cumplidos/anulados) de ediciones anteriores de la misma
         /// convocatoria recurrente, para revisarlos al abrir esta reunión.</summary>
         [HttpGet("{reunionId:int}/acuerdos-pendientes-anteriores")]
@@ -414,7 +430,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         {
             try
             {
-                return Ok(await _service.GetDetalle(reunionId));
+                return Ok(await _service.GetDetalle(reunionId, GetUserId()));
             }
             catch (AbrilException ex)
             {

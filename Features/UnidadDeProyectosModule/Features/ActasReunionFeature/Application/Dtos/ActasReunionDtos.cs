@@ -107,6 +107,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string ReunionEstado { get; set; } = null!;
         public string? Observaciones { get; set; }
 
+        public int CreatedUserId { get; set; }
+        /// <summary>true si el usuario autenticado es el creador del acta o uno de sus coautores;
+        /// controla si el frontend muestra las acciones de edición.</summary>
+        public bool PuedeEditar { get; set; }
+
         public int? ReunionAnteriorId { get; set; }
         public int? ReunionAnteriorNumero { get; set; }
         public string? ReunionAnteriorTema { get; set; }
@@ -133,6 +138,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string? Iniciales { get; set; }
         public bool Asistio { get; set; }
         public int Orden { get; set; }
+        /// <summary>true si este participante puede editar el acta igual que su creador.</summary>
+        public bool EsCoautor { get; set; }
     }
 
     /// <summary>Responsable de un acuerdo, con su estado de aceptación individual.</summary>
@@ -164,6 +171,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public bool RequiereAceptacion { get; set; }
         public bool RequiereEvidencia { get; set; }
         public string? EvidenciaUrl { get; set; }
+        /// <summary>Solo registra información: no requiere seguimiento ni acción de ningún responsable.</summary>
+        public bool EsInformativo { get; set; }
         /// <summary>Cómo se levantó el acuerdo (obligatorio si no tiene evidencia).</summary>
         public string? ComentarioCumplimiento { get; set; }
         public int VecesReprogramado { get; set; }
@@ -176,6 +185,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     public class AcuerdoMarcarCumplidoRequest
     {
         public string? Comentario { get; set; }
+        /// <summary>URL del archivo ya subido (vía POST {reunionId}/archivos) a usar como evidencia
+        /// de este acuerdo. Null si no se adjunta nada en esta acción.</summary>
+        public string? EvidenciaUrl { get; set; }
     }
 
     // ── Revisión de acuerdos pendientes de ediciones anteriores ──────────────
@@ -233,9 +245,50 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<string> OtrosResponsables { get; set; } = new();
         public bool RequiereEvidencia { get; set; }
         public string? EvidenciaUrl { get; set; }
+        /// <summary>Cómo se levantó el acuerdo (obligatorio al marcar CUMPLIDO).</summary>
+        public string? ComentarioCumplimiento { get; set; }
         public bool RequiereAceptacion { get; set; }
         /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
         public string EstadoAceptacion { get; set; } = null!;
+    }
+
+    // ── Vista global "Acuerdos" (todas las reuniones donde el usuario participó) ─────────────
+    public class AcuerdoBusquedaFiltroRequest
+    {
+        /// <summary>PENDIENTE | EN PROCESO | CUMPLIDO | ANULADO | INFORMATIVO. Null = todos.
+        /// INFORMATIVO filtra por EsInformativo=true (no es un valor real del catálogo de estados).</summary>
+        public string? Estado { get; set; }
+        public int? ResponsableWorkerId { get; set; }
+        /// <summary>Filtra por FechaProgramada.</summary>
+        public DateOnly? Desde { get; set; }
+        public DateOnly? Hasta { get; set; }
+        /// <summary>Busca en la descripción del acuerdo y en el tema de la reunión.</summary>
+        public string? Texto { get; set; }
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 10;
+    }
+
+    public class AcuerdoBusquedaItemDto
+    {
+        public int ReunionAcuerdoId { get; set; }
+        public int ReunionId { get; set; }
+        public int ReunionNumero { get; set; }
+        public string ReunionTema { get; set; } = null!;
+        /// <summary>Proyecto, área o "Organización" (ámbito de la reunión de origen).</summary>
+        public string Ambito { get; set; } = null!;
+        public string Descripcion { get; set; } = null!;
+        /// <summary>NORMAL | MEDIO | CRITICO.</summary>
+        public string Criticidad { get; set; } = null!;
+        public DateOnly? FechaProgramada { get; set; }
+        public DateOnly? FechaCumplimiento { get; set; }
+        public int ReunionAcuerdoEstadoId { get; set; }
+        public string ReunionAcuerdoEstado { get; set; } = null!;
+        public bool EsInformativo { get; set; }
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
+        /// <summary>Cómo se levantó el acuerdo (obligatorio al marcar CUMPLIDO).</summary>
+        public string? ComentarioCumplimiento { get; set; }
+        public List<string> Responsables { get; set; } = new();
     }
 
     public class ReunionArchivoDto
@@ -274,6 +327,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public string? Cargo { get; set; }
         public string? Iniciales { get; set; }
         public bool Asistio { get; set; }
+        /// <summary>Solo tiene efecto si WorkerId viene informado (un invitado externo no puede ser coautor).</summary>
+        public bool EsCoautor { get; set; }
     }
 
     public class ReunionCreateRequest
@@ -521,6 +576,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Si true, no se puede marcar CUMPLIDO sin adjuntar evidencia.</summary>
         public bool RequiereEvidencia { get; set; }
         public string? EvidenciaUrl { get; set; }
+        /// <summary>Si true, solo registra información: no requiere seguimiento ni acción de ningún
+        /// responsable (el frontend desactiva RequiereAceptacion/RequiereEvidencia junto con esto).</summary>
+        public bool EsInformativo { get; set; }
         /// <summary>Ids de workers (cualquier trabajador de la organización, haya asistido o no) responsables del acuerdo.</summary>
         public List<int> ResponsableWorkerIds { get; set; } = new();
         /// <summary>WorkerId del responsable principal (encargado de que el acuerdo se cumpla) cuando hay más de uno; null si solo hay uno o ninguno.</summary>

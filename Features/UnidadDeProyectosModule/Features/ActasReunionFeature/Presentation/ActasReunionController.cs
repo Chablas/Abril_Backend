@@ -390,11 +390,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Marca un acuerdo como cumplido (usado desde la revisión de pendientes de
         /// ediciones anteriores).</summary>
         [HttpPatch("acuerdos/{reunionAcuerdoId:int}/marcar-cumplido")]
-        public async Task<IActionResult> MarcarAcuerdoCumplido(int reunionAcuerdoId)
+        public async Task<IActionResult> MarcarAcuerdoCumplido(int reunionAcuerdoId, [FromBody] AcuerdoMarcarCumplidoRequest request)
         {
             try
             {
-                await _service.MarcarAcuerdoCumplido(reunionAcuerdoId, GetUserId());
+                await _service.MarcarAcuerdoCumplido(reunionAcuerdoId, request, GetUserId());
                 return Ok(new { message = "Acuerdo marcado como cumplido." });
             }
             catch (AbrilException ex)

@@ -33,6 +33,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         private readonly ILogger<ActasReunionService> _logger;
         private readonly string[] _allowedHosts;
         private readonly string _frontendUrl;
+        private readonly string[] _logoPaths;
 
         public ActasReunionService(
             IActasReunionRepository repository,
@@ -42,7 +43,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             IEmailService emailService,
             INotificacionesService notificacionesService,
             ILogger<ActasReunionService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IWebHostEnvironment env)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
@@ -52,6 +54,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             _notificacionesService = notificacionesService;
             _logger = logger;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            // Mismos candidatos que usa Convalidación/Amonestaciones para el logo del PDF.
+            _logoPaths = new[]
+            {
+                Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
+                Path.Combine(env.WebRootPath, "images", "logo-abril.jpg"),
+                Path.Combine(env.ContentRootPath, "Templates", "logo-abril.jpg"),
+            };
 
             // Hosts permitidos del tenant, derivados del sitio ya configurado (mismo criterio
             // que la carpeta de facturas de Contabilidad).
@@ -166,8 +175,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId)
             => _repository.ReprogramarAcuerdo(reunionAcuerdoId, request, userId);
 
-        public Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId)
-            => _repository.MarcarAcuerdoCumplido(reunionAcuerdoId, userId);
+        public Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId)
+            => _repository.MarcarAcuerdoCumplido(reunionAcuerdoId, request, userId);
 
         // ── Recurrencia ────────────────────────────────────────────────────
         /// <summary>0 = generado automáticamente por el job de recurrencia, no por un usuario.</summary>
@@ -328,13 +337,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// un correo a cada asistente y a cada responsable de acuerdo. Quien tiene acuerdos propios
         /// que requieren aceptación recibe además, en su mismo correo, el link personal para
         /// aceptarlos o rechazarlos.</summary>
+        private async Task<byte[]?> CargarLogoAsync()
+        {
+            var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+            return logoPath != null ? await File.ReadAllBytesAsync(logoPath) : null;
+        }
+
         private async Task EnviarActaRealizada(int reunionId)
         {
             var destinatarios = await _repository.GetDestinatariosActaRealizada(reunionId);
             if (destinatarios.Count == 0) return;
 
             var detalle = await _repository.GetDetalle(reunionId);
-            var pdfActa = ActasReunionPdfService.GenerarPdf(detalle);
+            var pdfActa = ActasReunionPdfService.GenerarPdf(detalle, await CargarLogoAsync());
 
             const long maxAdjuntosBytes = 15 * 1024 * 1024; // 15 MB: margen razonable para no rebotar por tamaño.
             var attachments = new List<EmailAttachment>

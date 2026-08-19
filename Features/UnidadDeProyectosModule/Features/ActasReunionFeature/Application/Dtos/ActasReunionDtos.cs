@@ -164,9 +164,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public bool RequiereAceptacion { get; set; }
         public bool RequiereEvidencia { get; set; }
         public string? EvidenciaUrl { get; set; }
+        /// <summary>Cómo se levantó el acuerdo (obligatorio si no tiene evidencia).</summary>
+        public string? ComentarioCumplimiento { get; set; }
         public int VecesReprogramado { get; set; }
         public string? UltimoMotivoReprogramacion { get; set; }
         public List<ReunionAcuerdoResponsableDto> Responsables { get; set; } = new();
+    }
+
+    /// <summary>Al marcar un acuerdo como cumplido: comentario obligatorio si no tiene evidencia
+    /// adjunta, opcional si sí la tiene.</summary>
+    public class AcuerdoMarcarCumplidoRequest
+    {
+        public string? Comentario { get; set; }
     }
 
     // ── Revisión de acuerdos pendientes de ediciones anteriores ──────────────
@@ -185,6 +194,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public DateOnly? FechaProgramada { get; set; }
         public int ReunionAcuerdoEstadoId { get; set; }
         public string ReunionAcuerdoEstado { get; set; } = null!;
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
         public int VecesReprogramado { get; set; }
         public string? UltimoMotivoReprogramacion { get; set; }
         public List<ReunionAcuerdoResponsableDto> Responsables { get; set; } = new();
@@ -220,6 +231,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public bool EsPrincipal { get; set; }
         /// <summary>Nombres de los demás responsables del mismo acuerdo, si hay más de uno.</summary>
         public List<string> OtrosResponsables { get; set; } = new();
+        public bool RequiereEvidencia { get; set; }
+        public string? EvidenciaUrl { get; set; }
         public bool RequiereAceptacion { get; set; }
         /// <summary>PENDIENTE | ACEPTADO | RECHAZADO.</summary>
         public string EstadoAceptacion { get; set; } = null!;

@@ -256,6 +256,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     RequiereAceptacion = a.RequiereAceptacion,
                     RequiereEvidencia = a.RequiereEvidencia,
                     EvidenciaUrl = a.EvidenciaUrl,
+                    ComentarioCumplimiento = a.ComentarioCumplimiento,
                     VecesReprogramado = a.VecesReprogramado,
                     UltimoMotivoReprogramacion = a.UltimoMotivoReprogramacion,
                 })
@@ -1690,6 +1691,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     resp.ReunionAcuerdoResponsableId,
                     resp.EsPrincipal,
                     ac.RequiereAceptacion,
+                    ac.RequiereEvidencia,
+                    ac.EvidenciaUrl,
                     resp.EstadoAceptacion,
                     ac.ReunionAcuerdoId,
                     ac.Descripcion,
@@ -1746,6 +1749,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 FechaProgramada = p.FechaProgramada,
                 ReunionAcuerdoEstadoId = p.ReunionAcuerdoEstadoId,
                 ReunionAcuerdoEstado = p.ReunionAcuerdoEstado,
+                RequiereEvidencia = p.RequiereEvidencia,
+                EvidenciaUrl = p.EvidenciaUrl,
                 FechaCumplimiento = p.FechaCumplimiento,
                 EsPrincipal = p.EsPrincipal,
                 OtrosResponsables = otrosPorAcuerdo.TryGetValue(p.ReunionAcuerdoId, out var otros) ? otros : new List<string>(),
@@ -1803,6 +1808,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     FechaProgramada = a.FechaProgramada,
                     ReunionAcuerdoEstadoId = a.ReunionAcuerdoEstadoId,
                     ReunionAcuerdoEstado = estado.Descripcion,
+                    RequiereEvidencia = a.RequiereEvidencia,
+                    EvidenciaUrl = a.EvidenciaUrl,
                     VecesReprogramado = a.VecesReprogramado,
                     UltimoMotivoReprogramacion = a.UltimoMotivoReprogramacion,
                 }
@@ -1853,7 +1860,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
         /// <summary>Marca un acuerdo como cumplido sin necesitar el payload completo (usado desde la
         /// revisión de pendientes de ediciones anteriores, que solo maneja una proyección reducida).</summary>
-        public async Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId)
+        public async Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1865,8 +1872,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (acuerdo.RequiereEvidencia && string.IsNullOrWhiteSpace(acuerdo.EvidenciaUrl))
                 throw new AbrilException("Este acuerdo requiere adjuntar evidencia antes de poder marcarse como cumplido.", 400);
 
+            // El comentario es el único registro de cómo se resolvió cuando no hay evidencia
+            // adjunta; si ya hay un archivo, queda como respaldo adicional opcional.
+            if (string.IsNullOrWhiteSpace(acuerdo.EvidenciaUrl) && string.IsNullOrWhiteSpace(request.Comentario))
+                throw new AbrilException("Indica cómo se levantó el acuerdo (obligatorio cuando no hay evidencia adjunta).", 400);
+
             acuerdo.ReunionAcuerdoEstadoId = await GetEstadoAcuerdoId(ctx, AcuerdoCumplido);
             acuerdo.FechaCumplimiento = DateOnly.FromDateTime(DateTime.UtcNow);
+            acuerdo.ComentarioCumplimiento = request.Comentario?.Trim();
             acuerdo.UpdatedDateTime = DateTime.UtcNow;
             acuerdo.UpdatedUserId = userId;
 

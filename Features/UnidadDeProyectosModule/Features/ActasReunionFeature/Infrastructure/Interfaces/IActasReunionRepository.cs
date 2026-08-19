@@ -37,7 +37,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
         Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
         Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
-        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId);
 
         // ── Recurrencia ────────────────────────────────────────────────────
         Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);

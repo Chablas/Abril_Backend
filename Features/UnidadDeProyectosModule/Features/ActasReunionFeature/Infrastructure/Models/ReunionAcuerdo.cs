@@ -13,6 +13,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public DateOnly? FechaProgramada { get; set; }
         public DateOnly? FechaReprogramacion { get; set; }
         public DateOnly? FechaCumplimiento { get; set; }
+        /// <summary>Cómo se levantó el acuerdo. Obligatorio si no hay EvidenciaUrl; opcional si sí la hay.</summary>
+        public string? ComentarioCumplimiento { get; set; }
         public int ReunionAcuerdoEstadoId { get; set; }
         public int Orden { get; set; }
 

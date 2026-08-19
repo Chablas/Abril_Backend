@@ -53,10 +53,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
 
         /// <summary>
         /// Inicia el onboarding de un colaborador (modal «Nuevo ingreso»). Multipart: <c>data</c> =
-        /// JSON de <see cref="OnboardingCreateDto"/>; <c>cartaOferta</c> = el archivo de la carta, que
-        /// se le envía por correo y se guarda en su file de SharePoint. El correo destino lo resuelve
-        /// el backend desde la base de datos (<c>person.email</c>), no viaja desde el frontend salvo
-        /// que GTH lo haya corregido a mano.
+        /// JSON de <see cref="OnboardingCreateDto"/>; <c>cartaOferta</c> = el archivo de la carta (PDF),
+        /// que se guarda en su file de SharePoint. Al colaborador se le envía un correo con el
+        /// <b>enlace</b> para leerla y firmarla en línea, no la carta adjunta. El correo destino lo
+        /// resuelve el backend desde la base de datos (<c>person.email</c>), no viaja desde el frontend
+        /// salvo que GTH lo haya corregido a mano.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.onboarding</c> en role_feature.</remarks>
         [HttpPost]
@@ -107,8 +108,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
         }
 
         /// <summary>
+        /// Reenvía al colaborador el correo con el enlace para ver y firmar su carta oferta. Sirve
+        /// cuando el correo del alta no salió, cuando el colaborador lo perdió o cuando cambió de
+        /// correo, y es también la vía por la que un onboarding abierto antes de la firma en línea
+        /// obtiene su enlace. El token del enlace original se conserva.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.onboarding</c> en role_feature.</remarks>
+        [HttpPost("{id:int}/carta-oferta/reenviar")]
+        [RequireFeature("gestion-gth.onboarding")]
+        public async Task<IActionResult> ReenviarEnlaceFirma(int id, [FromBody] OnboardingReenviarEnlaceDto? dto)
+        {
+            try
+            {
+                return Ok(await _service.ReenviarEnlaceFirma(id, dto?.Correo, UserId()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en OnboardingController.ReenviarEnlaceFirma");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Adjunta la carta oferta que el colaborador devolvió firmada (primera actividad del
-        /// checklist). Se guarda en el file digital del onboarding — la misma carpeta de SharePoint
+        /// checklist). Es la vía de RESPALDO: lo normal es que la firme él mismo desde el enlace
+        /// público. Se guarda en el file digital del onboarding — la misma carpeta de SharePoint
         /// donde quedó la carta oferta enviada — y queda pendiente de aprobación por GTH.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.onboarding</c> en role_feature.</remarks>

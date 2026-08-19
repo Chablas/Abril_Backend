@@ -18,9 +18,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         Task<OnboardingContextoDto> PrepararInicio(int candidatoId, DateOnly? fechaIngreso, string? correo);
 
         /// <summary>
-        /// Persiste el onboarding ya con su carta oferta enviada: fase inicial CARTA_OFERTA_FIRMADA y
-        /// estado CARTA_ENVIADA. <paramref name="carpeta"/> es el file digital del colaborador, que
-        /// queda guardado para los documentos siguientes. Devuelve la fila lista para la tabla.
+        /// Persiste el onboarding ya con su carta oferta cargada y su enlace de firma enviado: fase
+        /// inicial CARTA_OFERTA_FIRMADA y estado CARTA_ENVIADA. <paramref name="carpeta"/> es el file
+        /// digital del colaborador, que queda guardado para los documentos siguientes. El token del
+        /// enlace público viaja en <c>contexto.Token</c>. Devuelve la fila lista para la tabla.
         /// </summary>
         Task<OnboardingListItemDto> Crear(
             OnboardingContextoDto contexto,
@@ -30,10 +31,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             int? userId);
 
         /// <summary>
-        /// Carpeta de SharePoint donde se suben las cartas oferta (<c>gth_carta_oferta_folder</c>,
-        /// primera fila vigente). Se define por BD y no por appsettings: cambiar ese link redirige
-        /// las cartas NUEVAS sin tocar las ya subidas, que se abren con la url/itemId que cada
-        /// onboarding guardó en su propia fila. Null si no hay fila vigente configurada.
+        /// Valida que se le pueda reenviar el enlace de firma a un onboarding ya abierto y devuelve el
+        /// contexto para armar el correo. No escribe nada: se llama ANTES de mandar el correo.
+        ///
+        /// Es además la vía por la que un onboarding abierto antes de la firma en línea entra al flujo
+        /// nuevo: su fila no tiene token ni ficha resuelta, así que se resuelven acá.
+        /// <paramref name="tokenSiFalta"/> solo se usa en ese caso; si la fila ya tiene token, se
+        /// conserva para no invalidar el enlace que el colaborador ya recibió.
+        /// </summary>
+        Task<OnboardingContextoDto> PrepararReenvio(int onboardingId, string? correo, string tokenSiFalta);
+
+        /// <summary>
+        /// Deja registrado que el enlace de firma salió: guarda el token, la ficha y el correo usados
+        /// y actualiza la fecha de envío. Se llama DESPUÉS del correo, para no dar por enviado un
+        /// enlace que nunca llegó.
+        /// </summary>
+        Task<OnboardingListItemDto> MarcarEnlaceEnviado(
+            int onboardingId, OnboardingContextoDto contexto, int? userId);
+
+        /// <summary>
+        /// Biblioteca de SharePoint donde vive el file de los colaboradores
+        /// (<c>gth_carta_oferta_folder</c>, primera fila vigente): dentro se crea la carpeta
+        /// «{DNI} - {NOMBRE}» de cada uno. Se define por BD y no por appsettings: cambiar ese link
+        /// redirige los documentos NUEVOS sin tocar los ya subidos, que se abren con la url/itemId
+        /// que cada onboarding guardó en su propia fila. Null si no hay fila vigente configurada.
         /// </summary>
         Task<CartaOfertaFolderDto?> GetCartaOfertaFolder();
 

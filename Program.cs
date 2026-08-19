@@ -90,6 +90,10 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<AuditoriaInterceptor>();
 
+// Dapper no trae soporte para DateOnly y revienta al pasarlo como parámetro; esto lo habilita
+// globalmente (ver Shared/Data/DapperTypeHandlers.cs). Va antes de cualquier consulta.
+DapperTypeHandlers.Register();
+
 builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 {
     if (databaseProvider == "SqlServer")

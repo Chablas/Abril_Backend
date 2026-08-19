@@ -162,10 +162,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             CartaOfertaNombre    = x.Ob.CartaOfertaNombre,
             CartaOfertaUrl       = x.Ob.CartaOfertaUrl,
             CartaOfertaEnviadaEn = x.Ob.CartaOfertaEnviadaDateTime?.ToOffset(PeruOffset).DateTime,
-            CartaFirmadaNombre     = x.Ob.CartaFirmadaNombre,
-            CartaFirmadaUrl        = x.Ob.CartaFirmadaUrl,
-            CartaFirmadaSubidaEn   = x.Ob.CartaFirmadaSubidaDateTime?.ToOffset(PeruOffset).DateTime,
-            CartaFirmadaAprobadaEn = x.Ob.CartaFirmadaAprobadaDateTime?.ToOffset(PeruOffset).DateTime,
+            CartaFirmadaNombre       = x.Ob.CartaFirmadaNombre,
+            CartaFirmadaUrl          = x.Ob.CartaFirmadaUrl,
+            CartaFirmadaSubidaEn     = x.Ob.CartaFirmadaSubidaDateTime?.ToOffset(PeruOffset).DateTime,
+            CartaFirmadaPostulanteEn = x.Ob.CartaFirmadaPostulanteDateTime?.ToOffset(PeruOffset).DateTime,
+            CartaFirmadaAprobadaEn   = x.Ob.CartaFirmadaAprobadaDateTime?.ToOffset(PeruOffset).DateTime,
             FileDigitalCarpeta = x.Ob.FileDigitalRuta,
             Observacion        = x.Ob.Observacion,
             IniciadoEn         = x.Ob.CreatedDateTime.ToOffset(PeruOffset).DateTime,
@@ -303,8 +304,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                                 .FirstOrDefault()
                              ?? fo.CorreoElectronico
                              ?? fo.CorreoEnvio,
+                    // Mismo criterio y misma forma que el correo: manda el documento de la base
+                    // maestra y, si esa ficha todavía no existe, el que declaró el postulante. Es
+                    // lo que nombra su carpeta en el file de colaboradores.
+                    Dni = ctx.Person
+                             .Where(x => x.PersonId == fo.PersonId)
+                             .Select(x => x.DocumentIdentityCode)
+                             .FirstOrDefault()
+                          ?? fo.NumeroDocumento,
                     FechaRequeridaIngreso = r.FechaRequeridaIngreso,
                     JefeDirecto = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                    // La firma que el postulante dibuja en el enlace público se guarda en su ficha de
+                    // la base maestra, así que sin ficha el envío no puede salir. Se busca igual que
+                    // el correo y el documento: primero el enlace que dejó su formulario aprobado y,
+                    // si no existe, por coincidencia de documento (person.document_identity_code es
+                    // único), que cubre a quien ya estaba en la base maestra de antes. Va como un solo
+                    // Any con el OR adentro —y no como dos Any unidos por ||— para que sea un único
+                    // EXISTS en la consulta.
+                    TieneFichaMaestra = ctx.Person.Any(x =>
+                        x.PersonId == fo.PersonId
+                        || (fo.NumeroDocumento != null && x.DocumentIdentityCode == fo.NumeroDocumento)),
                 }).ToListAsync();
 
         public async Task<OnboardingContextoDto> PrepararInicio(int candidatoId, DateOnly? fechaIngreso, string? correo)
@@ -325,13 +344,39 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     "El colaborador no tiene un correo personal registrado. Aprueba su formulario de postulante en Reclutamiento para que quede en la base maestra, o indica el correo a mano.",
                     409);
 
+            // Sin documento no hay carpeta: el file del colaborador se llama «{DNI} - {NOMBRE}» y de
+            // ese nombre dependen tanto encontrar su file como los permisos que se le dan encima. Se
+            // corta acá, antes de enviarle la carta, y no se inventa un nombre alterno.
+            var dni = Trim(apto.Dni);
+            if (string.IsNullOrWhiteSpace(dni))
+                throw new AbrilException(
+                    "El colaborador no tiene documento de identidad registrado. Aprueba su formulario de postulante en Reclutamiento para que quede en la base maestra.",
+                    409);
+
+            // La ficha de la base maestra es obligatoria en este flujo: la firma que el postulante
+            // dibuja en el enlace público se guarda en `person`, así que sin ficha no habría dónde
+            // ponerla y el enlace llegaría a una página que no puede terminar. Se corta acá, antes de
+            // enviar nada. Mismo orden de búsqueda que el correo y el documento: el enlace del
+            // formulario aprobado y, si falta, la coincidencia por documento.
+            var personId = apto.PersonId
+                ?? await ctx.Person
+                    .Where(x => x.DocumentIdentityCode == dni)
+                    .Select(x => (int?)x.PersonId)
+                    .FirstOrDefaultAsync();
+
+            if (personId == null)
+                throw new AbrilException(
+                    "El colaborador no tiene ficha en la base maestra y su firma se guarda ahí. Aprueba su formulario de postulante en Reclutamiento para crearla y vuelve a intentarlo.",
+                    409);
+
             return new OnboardingContextoDto
             {
                 CandidatoId     = apto.CandidatoId,
                 RequerimientoId = apto.RequerimientoId,
-                PersonId        = apto.PersonId,
+                PersonId        = personId.Value,
                 Codigo          = apto.Codigo,
                 Nombre          = apto.Nombre,
+                Dni             = dni,
                 Puesto          = apto.Puesto,
                 Area            = apto.Area,
                 Empresa         = apto.Empresa,
@@ -375,6 +420,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 CartaOfertaItemId     = carta.ItemId,
                 CartaOfertaDriveId    = carta.DriveId,
                 CartaOfertaCorreo     = contexto.Correo,
+                CartaOfertaToken      = contexto.Token,
                 CartaOfertaEnviadaDateTime = now,
                 CartaOfertaEnviadaUserId   = userId,
                 FileDigitalDriveId    = carpeta.DriveId,
@@ -423,6 +469,109 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 };
         }
 
+        // ── Reenvío del enlace de firma ────────────────────────────────────────
+
+        public async Task<OnboardingContextoDto> PrepararReenvio(
+            int onboardingId, string? correo, string tokenSiFalta)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var fila = await QueryOnboardings(ctx, onboardingId).FirstOrDefaultAsync()
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            var ob = fila.Ob;
+
+            // Sin carta subida el enlace llega a una página sin nada que mostrar.
+            if (string.IsNullOrWhiteSpace(ob.CartaOfertaUrl))
+                throw new AbrilException(
+                    "Este onboarding no tiene una carta oferta cargada, así que no hay nada que el colaborador pueda ver ni firmar.",
+                    409);
+
+            // Ya firmada: el enlace abriría una página de solo lectura y el correo le pediría firmar
+            // algo que ya firmó. Si hay que rehacerla, GTH reemplaza la carta firmada desde el detalle.
+            if (ob.CartaFirmadaAprobadaDateTime != null)
+                throw new AbrilException(
+                    "La carta oferta firmada ya fue aprobada: el proceso de firma está cerrado.", 409);
+            if (!string.IsNullOrWhiteSpace(ob.CartaFirmadaUrl))
+                throw new AbrilException(
+                    "El colaborador ya devolvió su carta oferta firmada; no hace falta reenviarle el enlace.", 409);
+
+            var destino = Trim(correo) ?? Trim(fila.PersonEmail) ?? Trim(ob.CartaOfertaCorreo);
+            if (string.IsNullOrWhiteSpace(destino))
+                throw new AbrilException(
+                    "El colaborador no tiene un correo personal registrado. Complétalo en su ficha de la base maestra o indícalo a mano.",
+                    409);
+
+            // El documento y la ficha se resuelven igual que al abrir el onboarding: esto también es
+            // la vía por la que un onboarding abierto ANTES de la firma en línea entra al flujo nuevo,
+            // porque su fila no tiene ni token ni person_id.
+            var dni = await ctx.Person
+                          .Where(x => x.PersonId == ob.PersonId)
+                          .Select(x => x.DocumentIdentityCode)
+                          .FirstOrDefaultAsync()
+                      ?? await ctx.GthPostulanteFormulario
+                          .Where(f => f.State && f.GthCandidatoId == ob.GthCandidatoId)
+                          .Select(f => f.NumeroDocumento)
+                          .FirstOrDefaultAsync();
+
+            var personId = ob.PersonId
+                ?? (string.IsNullOrWhiteSpace(dni)
+                    ? null
+                    : await ctx.Person
+                        .Where(x => x.DocumentIdentityCode == dni)
+                        .Select(x => (int?)x.PersonId)
+                        .FirstOrDefaultAsync());
+
+            if (personId == null)
+                throw new AbrilException(
+                    "El colaborador no tiene ficha en la base maestra y su firma se guarda ahí. Aprueba su formulario de postulante en Reclutamiento para crearla y vuelve a intentarlo.",
+                    409);
+
+            return new OnboardingContextoDto
+            {
+                CandidatoId     = ob.GthCandidatoId,
+                RequerimientoId = 0, // no se usa al reenviar: la vacante ya está atada al onboarding
+                PersonId        = personId.Value,
+                Codigo          = fila.Codigo,
+                Nombre          = string.IsNullOrWhiteSpace(fila.PersonNombre)
+                    ? fila.CandidatoNombre : fila.PersonNombre!,
+                Token           = Trim(ob.CartaOfertaToken) ?? tokenSiFalta,
+                Dni             = dni ?? string.Empty,
+                Puesto          = fila.Puesto,
+                Area            = fila.Area,
+                Empresa         = fila.Empresa,
+                ProyectoObra    = fila.ProyectoObra,
+                Correo          = destino.ToLowerInvariant(),
+                FechaIngreso    = ob.FechaIngreso,
+                JefeDirecto     = fila.JefeDirecto,
+            };
+        }
+
+        public async Task<OnboardingListItemDto> MarcarEnlaceEnviado(
+            int onboardingId, OnboardingContextoDto contexto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ob = await ctx.GthOnboarding.FirstOrDefaultAsync(o => o.GthOnboardingId == onboardingId && o.State)
+                ?? throw new AbrilException("El onboarding indicado no existe o fue dado de baja.", 404);
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Se escribe todo junto y recién después de que el correo salió: el token y la ficha
+            // quedan guardados solo si el colaborador realmente recibió el enlace que los usa.
+            ob.CartaOfertaToken   = contexto.Token;
+            ob.PersonId         ??= contexto.PersonId;
+            ob.CartaOfertaCorreo  = contexto.Correo;
+            ob.CartaOfertaEnviadaDateTime = now;
+            ob.CartaOfertaEnviadaUserId   = userId;
+            ob.UpdatedDateTime = now;
+            ob.UpdatedUserId   = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return await LeerItem(ctx, onboardingId);
+        }
+
         public async Task<CartaOfertaFolderDto?> GetCartaOfertaFolder()
         {
             using var ctx = _factory.CreateDbContext();
@@ -458,6 +607,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                         .Where(f => f.State && f.GthCandidatoId == c.GthCandidatoId)
                         .Select(f => f.NombresCompletos)
                         .FirstOrDefault(),
+                    // Mismo orden que al abrir el onboarding (base maestra y, si no hay ficha, el
+                    // formulario) para que la carpeta que se rearme sea la misma. Solo se usa en los
+                    // onboardings que no la tienen persistida.
+                    Dni = ctx.Person
+                        .Where(x => x.PersonId == ob.PersonId)
+                        .Select(x => x.DocumentIdentityCode)
+                        .FirstOrDefault()
+                        ?? ctx.GthPostulanteFormulario
+                            .Where(f => f.State && f.GthCandidatoId == c.GthCandidatoId)
+                            .Select(f => f.NumeroDocumento)
+                            .FirstOrDefault(),
                     FaseCodigo = fa.Codigo,
                 })
                 .FirstOrDefaultAsync()
@@ -469,6 +629,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 Codigo       = fila.Codigo,
                 Nombre       = string.IsNullOrWhiteSpace(fila.FormularioNombre)
                     ? fila.CandidatoNombre : fila.FormularioNombre!,
+                Dni          = fila.Dni ?? string.Empty,
                 FaseCodigo   = fila.FaseCodigo,
                 Carpeta      = string.IsNullOrWhiteSpace(fila.Ob.FileDigitalDriveId)
                             || string.IsNullOrWhiteSpace(fila.Ob.FileDigitalItemId)

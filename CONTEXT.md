@@ -5735,6 +5735,17 @@ Ambos idempotentes, aplicados directo con psql. Las migraciones EF correspondien
 - Revisar si el push a `master` debía saltar la regla de protección de rama de GitHub (ver punto 1).
 - Decidir si el rol "Gerencia/Dirección" del spec original amerita crearse en `role` a futuro, o si `AdministradorSistema`+`AdministradorUdp` queda como gate definitivo del Portafolio.
 
+## Sesión 2026-08-17
+
+Sesión corta: se actualizó `victor-backend` con lo último de `master` (44 archivos de GTH: Onboarding, Reclutamiento con doble aprobación GG, Actas de Reunión con agenda/recordatorios, Tareo de Arquitectura Comercial — todo de otras sesiones/ramas, fast-forward sin conflictos, build 0 errores) y se agregó el seed de la Fase 3 del Portafolio BIM.
+
+- Nuevo `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql`: siembra `feature.feature_key = 'planeamiento-bim.portafolio'` y su `role_feature` para `AdministradorSistema` (role_id 1) + `AdministradorUdp` (role_id 2), sin `UsuarioUdp` — coincide con el gate ya implementado en `PlaneamientoBimPortafolioController` (ver sesión anterior, punto 5).
+- El pedido de frontend (Fase 3 + Procura simplificado, `DESIGN-VICTOR.md`) se redirigió a la sesión de `Abril-Frontend` — este repo es solo backend.
+
+### Pendiente
+- **El seed `20260817_PlaneamientoBimPortafolioFeatureSeed.sql` NO se corrió contra producción todavía.** Se revisó contra los checks D2/D3 pedidos: D3 (SELECT de `feature_id`, sin ID hardcodeado) OK; D2 usa `NOT EXISTS` en vez de `ON CONFLICT DO NOTHING` — funcionalmente idempotente igual, pero no es el patrón literal pedido (posible razón: `ON CONFLICT` exige una constraint UNIQUE que puede no existir en `feature_key`/`role_feature`). Quedó pendiente de confirmación del usuario antes de ejecutar por el túnel SSH.
+- Frontend de Fase 3 (Dashboard de Portafolio + export PDF) y Procura simplificado — pendiente en `Abril-Frontend`.
+
 ## Sesión 2026-08-19 — Lectura de EMO por médico interno de Abril + coautores en Actas de Reunión
 
 ### 1) EMOs: lectura a cargo del médico ocupacional de Abril (no la clínica)
@@ -5764,3 +5775,11 @@ Tocados: `ReunionAcuerdo`, `ReunionParticipante`, `ActasReunionRepository` (+220
 - Aplicar las 3 migraciones SQL nuevas contra la base real (el usuario las corre manualmente, no `dotnet ef database update`): `2026-08-18_reunion_participante_coautor.sql`, `2026-08-18_worker_emos_requiere_lectura_abril.sql`, `2026-08-19_reunion_acuerdo_es_informativo.sql`.
 - Frontend correspondiente (Abril-Frontend) va en commit separado de esta misma sesión.
 - Excluido a propósito de este push: rama `curso-prueba-loto` del repo `plataforma-cursos` (piloto de material interactivo LOTO, no tocar git/deploy todavía).
+
+## Sesión 2026-08-19 (continuación) — Actualización de rama, sin cambios de código
+
+Sesión corta: se trajo `origin/master` a `victor-backend` (`git fetch` + `git merge origin/master`) y se resolvió un conflicto en `CONTEXT.md` — no era un conflicto real de código, sino dos entradas de sesión cronológicas independientes (17 y 19 de agosto) que se concatenaron en orden. Build post-merge: 0 errores. `master` local también quedó sincronizado con `origin/master` (`git fetch origin master:master`).
+
+Además se confirmó al usuario, a pedido, el contenido exacto y completo del seed `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql` (40 líneas, 2 `INSERT` idempotentes vía `NOT EXISTS` — feature `planeamiento-bim.portafolio` + `role_feature` para roles 1 y 2) para que lo corra manualmente en pgAdmin. Sigue pendiente de ejecución contra producción (ver sesión anterior).
+
+No hubo cambios de código en esta sesión.

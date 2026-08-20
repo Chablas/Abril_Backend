@@ -52,6 +52,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public bool DependeDeLaSolicitud { get; set; }
 
+        /// <summary>
+        /// true = es la fila del destinatario principal que pone el sistema (el solicitante, el
+        /// postulante, el candidato…). No sale de <c>gth_correo_destinatario</c> sino del propio
+        /// tipo de correo, así que su interruptor va a otro endpoint y su
+        /// <see cref="DestinatarioId"/> es 0.
+        /// </summary>
+        public bool EsPrincipalSistema { get; set; }
+
         public int Orden { get; set; }
     }
 
@@ -68,7 +76,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// true = el destinatario principal lo agrega el backend solo (ej. la long list siempre va
-        /// al solicitante), así que la pantalla no debe advertir que falta uno.
+        /// al solicitante). Ese destinatario viaja como una fila más de
+        /// <see cref="Destinatarios"/> (con <c>EsPrincipalSistema</c>), para que la pantalla lo
+        /// prenda y apague igual que a los demás.
         /// </summary>
         public bool PrincipalAutomatico { get; set; }
 
@@ -89,6 +99,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         public string Email { get; set; } = string.Empty;
         public string? Nombre { get; set; }
+    }
+
+    /// <summary>
+    /// Configuración de un correo lista para enviarlo: sus destinatarios activos y si el
+    /// destinatario principal que pone el sistema sigue prendido.
+    ///
+    /// Las dos cosas viajan juntas porque el flag hay que leerlo del tipo aunque no venga ninguna
+    /// fila (un correo puede no tener ningún destinatario configurado y salir igual, por su
+    /// principal automático).
+    /// </summary>
+    public class CorreoEnvioConfigDto
+    {
+        /// <summary>Filas activas del correo (vacío si el correo está apagado o no existe).</summary>
+        public List<CorreoDestinatarioEnvioDto> Filas { get; set; } = new();
+
+        /// <summary>
+        /// false = el correo no le llega al destinatario principal que pone el sistema (el
+        /// solicitante, el postulante, el candidato…): o lo apagaron a él desde Configuración, o
+        /// está apagado el correo entero.
+        /// </summary>
+        public bool PrincipalAutomaticoActivo { get; set; } = true;
     }
 
     /// <summary>

@@ -176,6 +176,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var dest = await ResolverDestinatariosFormularioAsync(ctx.EsRechazo);
                 await EnviarCorreoFormularioAsync(ctx, dest);
             }
+            // Un AbrilException acá ya trae el motivo exacto (nadie a quien escribirle): se deja
+            // pasar tal cual en vez de taparlo con el "reintenta" del fallo de proveedor.
+            catch (AbrilException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Falló el correo del formulario del postulante (candidato {CandidatoId})", candidatoId);
@@ -290,12 +293,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                         // El formulario ya quedó registrado como enviado, así que se devuelve su resumen
                         // igual: la bandeja debe mostrar el estado real de la base de datos, con el aviso
-                        // de que a ese postulante hay que reintentarle el correo.
+                        // de que a ese postulante hay que reintentarle el correo. Si el motivo es de
+                        // configuración (nadie a quien escribirle), ese es el que se muestra: reintentar
+                        // no lo arregla.
                         resultados[p.CandidatoId] = new FormularioEnvioMasivoResultadoDto
                         {
                             CandidatoId = p.CandidatoId,
                             Enviado     = false,
-                            Error       = "No se pudo enviar el correo al postulante. Reintenta el envío.",
+                            Error       = ex is AbrilException
+                                ? ex.Message
+                                : "No se pudo enviar el correo al postulante. Reintenta el envío.",
                             Formulario  = p.Contexto.Resumen,
                         };
                     }
@@ -336,8 +343,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var link = ConstruirLink(ctx.Token);
 
             // El principal es SIEMPRE el postulante; la configuración solo suma principales extra
-            // y copias.
+            // y copias. Salvo que lo hayan apagado desde Configuración: ahí no queda a quién
+            // escribirle y reintentar no cambia nada, así que se dice qué pasó en vez de fallar
+            // como si fuera el proveedor de correo.
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
+            if (principales.Count == 0)
+                throw new AbrilException(
+                    "El formulario quedó registrado, pero el correo no se envió: no hay a quién "
+                    + "enviárselo. Revísalo en Configuración de correos.", 409);
 
             return _email.SendAsync(
                 to:      principales,

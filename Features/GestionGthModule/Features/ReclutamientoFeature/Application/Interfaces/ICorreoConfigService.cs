@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces
 {
@@ -28,6 +28,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Prende o apaga un correo completo.</summary>
         Task SetCorreoActive(string pantalla, string tipoSlug, bool active, int? userId);
+
+        /// <summary>Prende o apaga el destinatario principal que asigna el sistema.</summary>
+        Task SetPrincipalAutomaticoActive(string pantalla, string tipoSlug, bool active, int? userId);
 
         /// <summary>Elimina (baja lógica) un correo adicional.</summary>
         Task EliminarAdicional(string pantalla, int destinatarioId, int? userId);

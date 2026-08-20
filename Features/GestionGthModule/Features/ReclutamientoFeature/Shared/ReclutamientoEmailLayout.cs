@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared
@@ -62,7 +62,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string VerdeOk = "#166534";     // texto de un resultado aprobado
         public const string RojoNo = "#991B1B";      // texto de un resultado rechazado
 
-        private const string PiePorDefecto = "Correo automático de Abril One · Gestión GTH · Reclutamiento.";
+        /// <summary>
+        /// Pie de TODOS los correos del módulo. Es el mismo para el candidato y para los internos:
+        /// el código del requerimiento no va acá — es jerga nuestra y a quien postula no le dice
+        /// nada.
+        /// </summary>
+        private const string Pie = "Correo automático de Abril One · Gestión GTH · Reclutamiento.";
 
         private readonly string _iconos;
         private readonly string _logoUrl;
@@ -109,11 +114,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Cabecera del correo. <paramref name="Bajada"/> es UNA línea con lo que el destinatario
         /// tiene delante y va como HTML (admite &lt;b&gt;), así que el llamador tiene que escapar
-        /// con <see cref="Esc"/> lo que venga de la base de datos. <paramref name="PieExtra"/>
-        /// agrega el código del requerimiento al pie de los correos que van a un candidato, donde
-        /// es el único identificador del proceso que tiene a la mano.
+        /// con <see cref="Esc"/> lo que venga de la base de datos.
         /// </summary>
-        public sealed record Cabecera(string Icono, string Titulo, string? Bajada = null, string? PieExtra = null);
+        public sealed record Cabecera(string Icono, string Titulo, string? Bajada = null);
 
         // ── Documento ─────────────────────────────────────────────────────────
 
@@ -127,10 +130,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var cuerpo = new StringBuilder();
             foreach (var bloque in bloques)
                 if (!string.IsNullOrWhiteSpace(bloque)) cuerpo.Append(bloque);
-
-            var pie = string.IsNullOrWhiteSpace(cabecera.PieExtra)
-                ? PiePorDefecto
-                : $"{PiePorDefecto.TrimEnd('.')} · {Esc(cabecera.PieExtra)}.";
 
             // Los títulos largos bajan de cuerpo: el de la cabecera va en una sola línea (nowrap)
             // para que la barra lima quede alineada con él, y a 26px uno de más de 21 caracteres se
@@ -178,7 +177,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 </tr>
 
 <tr>
-<td align='center' style='padding:14px 34px 28px 34px;font-family:{Fuente};font-size:11px;line-height:16px;color:{TextoPie}'>{pie}</td>
+<td align='center' style='padding:14px 34px 28px 34px;font-family:{Fuente};font-size:11px;line-height:16px;color:{TextoPie}'>{Pie}</td>
 </tr>
 
 </table>

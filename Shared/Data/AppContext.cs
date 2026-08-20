@@ -514,6 +514,9 @@ namespace Abril_Backend.Infrastructure.Data
         // Evaluación de la entrevista (puntajes + comentarios del informe de finalista) + catálogo de resultados.
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado> GthCandidatoResultado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion> GthCandidatoEvaluacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion>();
+        // Archivos del informe de la entrevista (informe final y evaluación de conocimientos) + su catálogo.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEvaluacionArchivoTipo> GthEvaluacionArchivoTipo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEvaluacionArchivoTipo>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacionArchivo> GthCandidatoEvaluacionArchivo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacionArchivo>();
         // Formulario de información del postulante (público por token) + sus catálogos.
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormulario> GthPostulanteFormulario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormulario>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormularioEstado> GthPostulanteFormularioEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormularioEstado>();
@@ -1530,6 +1533,25 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado>()
                  .WithMany()
                  .HasForeignKey(x => x.GthCandidatoResultadoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Archivos del informe de la entrevista: catálogo de documentos (un registro vivo por
+            // código) y un archivo vivo por evaluación y tipo — volver a subirlo reemplaza al anterior.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEvaluacionArchivoTipo>()
+                .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacionArchivo>(e =>
+            {
+                e.HasIndex(a => new { a.GthCandidatoEvaluacionId, a.GthEvaluacionArchivoTipoId })
+                 .IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion>()
+                 .WithMany()
+                 .HasForeignKey(a => a.GthCandidatoEvaluacionId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEvaluacionArchivoTipo>()
+                 .WithMany()
+                 .HasForeignKey(a => a.GthEvaluacionArchivoTipoId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

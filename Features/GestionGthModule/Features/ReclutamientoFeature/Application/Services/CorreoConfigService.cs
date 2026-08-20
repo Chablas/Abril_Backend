@@ -83,6 +83,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task SetCorreoActive(string pantalla, string tipoSlug, bool active, int? userId) =>
             _repo.SetTipoActiveAsync(ResolverTipo(pantalla, tipoSlug), active, userId);
 
+        public Task SetPrincipalAutomaticoActive(string pantalla, string tipoSlug, bool active, int? userId) =>
+            _repo.SetPrincipalAutomaticoActiveAsync(ResolverTipo(pantalla, tipoSlug), active, userId);
+
         public Task EliminarAdicional(string pantalla, int destinatarioId, int? userId) =>
             _repo.DeleteAdicionalAsync(destinatarioId, CorreosDeLaPantalla(pantalla), userId);
 

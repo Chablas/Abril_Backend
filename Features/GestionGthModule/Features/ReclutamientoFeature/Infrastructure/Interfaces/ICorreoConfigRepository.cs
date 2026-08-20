@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
 {
@@ -17,10 +17,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<CorreoConfigDto> GetConfigAsync(IReadOnlyList<string> tipoCodigos);
 
         /// <summary>
-        /// Destinatarios vigentes y activos de un correo activo. Lista vacía si el correo está
-        /// apagado (interruptor maestro) o no existe.
+        /// Configuración de envío de un correo: sus destinatarios vigentes y activos (lista vacía si
+        /// el correo está apagado con el interruptor maestro o no existe) más el interruptor del
+        /// destinatario principal que pone el sistema, que es independiente del maestro.
         /// </summary>
-        Task<List<CorreoDestinatarioEnvioDto>> GetDestinatariosEnvioAsync(string tipoCodigo);
+        Task<CorreoEnvioConfigDto> GetEnvioConfigAsync(string tipoCodigo);
 
         /// <summary>Gerente General vigente (puesto "GERENTE GENERAL"); null si no hay uno con correo.</summary>
         Task<CorreoDestinatarioResueltoDto?> GetGerenteGeneralAsync();
@@ -49,6 +50,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Prende o apaga un correo completo (interruptor maestro).</summary>
         Task SetTipoActiveAsync(string tipoCodigo, bool active, int? userId);
+
+        /// <summary>
+        /// Prende o apaga el destinatario principal que pone el sistema (el solicitante, el
+        /// postulante, el candidato…). 400 si el correo no tiene uno.
+        /// </summary>
+        Task SetPrincipalAutomaticoActiveAsync(string tipoCodigo, bool active, int? userId);
 
         /// <summary>Baja lógica de un correo adicional (los dinámicos no se eliminan, se apagan).</summary>
         Task DeleteAdicionalAsync(int destinatarioId, IReadOnlyList<string> tiposPermitidos, int? userId);

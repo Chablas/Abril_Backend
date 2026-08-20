@@ -76,6 +76,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
+        /// <summary>
+        /// Prende o apaga el destinatario principal que asigna el sistema (el solicitante, el
+        /// postulante, el candidato…). Es su propio interruptor, aparte del maestro del correo.
+        /// </summary>
+        [HttpPut("correos/{tipo}/principal-automatico/active")]
+        public async Task<IActionResult> SetPrincipalAutomaticoActive(
+            string modulo, string tipo, [FromBody] CorreoActivePatchDto dto)
+        {
+            try
+            {
+                await _service.SetPrincipalAutomaticoActive(modulo, tipo, dto?.Active ?? false, UserId);
+                return Ok(new { message = "Configuración de correo actualizada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en CorreoConfiguracionController.SetPrincipalAutomaticoActive");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Alta de un correo adicional dentro de la sección de un correo.</summary>
         [HttpPost("correos/destinatarios")]
         public async Task<IActionResult> CrearAdicional(string modulo, [FromBody] CorreoAdicionalCreateDto dto)

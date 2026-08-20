@@ -281,6 +281,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Entrevista);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Resumen.CorreoEnvio, dest);
 
+            // Sin nadie a quien mandársela no hay envío que intentar: pasa cuando el postulante
+            // quedó apagado como destinatario en Configuración y el correo no tiene principales
+            // configurados. La cita igual quedó programada.
+            if (principales.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Entrevista del candidato {CandidatoId}: el correo ENTREVISTA no tiene destinatarios "
+                    + "principales activos (el postulante está apagado), así que la invitación no sale.",
+                    candidatoId);
+                return new EntrevistaAccionResultDto
+                {
+                    Message = "La entrevista quedó programada, pero la invitación no se envió: "
+                              + "no hay a quién enviársela. Revísalo en Configuración de correos.",
+                    Entrevista = ctx.Resumen,
+                };
+            }
+
             // El correo es best-effort: la entrevista ya quedó programada, así que un fallo del
             // envío se informa en el mensaje en vez de tumbar la operación.
             var message = $"Invitación enviada a {ctx.Resumen.CorreoEnvio}.";
@@ -330,8 +347,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return l.Documento(
                 new Layout.Cabecera(
                     "req-entrevista", "Invitación a Entrevista",
-                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la posición <b>{Layout.Esc(ctx.Puesto)}</b>.",
-                    ctx.Codigo),
+                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la posición <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Tarjeta(new List<Layout.Fila>
                 {
                     new("req-fecha", "Fecha", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
@@ -480,28 +496,51 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         // ── Evaluación de la entrevista y no continuidad ──────────────────────
+        /// <summary>
+        /// Formatos aceptados en los archivos del informe. Más amplio que el del CV porque los
+        /// resultados de una evaluación de conocimientos suelen venir en Excel o escaneados.
+        /// </summary>
+        private static readonly string[] AllowedEvaluacionExt =
+            { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".webp" };
+
         public async Task<EvaluacionAccionResultDto> GuardarEvaluacion(
-            int candidatoId, EvaluacionGuardarDto dto, int? userId)
+            int candidatoId, EvaluacionGuardarDto dto, List<EvaluacionArchivoSubidaDto> archivos, int? userId)
         {
             if (dto == null)
                 throw new AbrilException("Datos de la evaluación no recibidos.", 400);
 
             // Los tres comentarios son obligatorios: guardar el informe es enviarlo como finalista,
-            // y el área solicitante decide con ese informe completo.
+            // y el área solicitante decide con ese informe completo. Los dos archivos NO lo son.
             if (string.IsNullOrWhiteSpace(dto.ComentarioEntrevista) ||
                 string.IsNullOrWhiteSpace(dto.ComentarioPsicotecnico) ||
                 string.IsNullOrWhiteSpace(dto.ComentarioRecomendacion))
                 throw new AbrilException(
                     "El resultado de entrevista, el informe psicotécnico y la recomendación GTH son obligatorios.", 400);
 
+            archivos ??= new List<EvaluacionArchivoSubidaDto>();
+            ValidarArchivosEvaluacion(archivos);
+
             var guardada = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
 
+            // Los archivos se suben DESPUÉS de guardar porque la carpeta de SharePoint lleva el
+            // código del requerimiento, que sale de ese guardado. Si la subida falla, el informe ya
+            // quedó registrado: se corta acá con un mensaje claro y GTH vuelve a guardar (los
+            // comentarios se reescriben igual y el correo sale en ese reintento).
+            if (archivos.Count > 0)
+            {
+                var subidos = await SubirArchivosEvaluacionAsync(guardada.Codigo, candidatoId, archivos);
+                var lista   = await _repo.GuardarEvaluacionArchivos(guardada.EvaluacionId, subidos, userId);
+
+                guardada.Evaluacion.Archivos       = lista;
+                guardada.Envio.Evaluacion.Archivos = lista;
+            }
+
             // Guardar el informe ES enviar al finalista, así que acá sale el aviso al solicitante
-            // (tipo FINALISTA_ENVIO). Best-effort: el finalista ya quedó enviado en la base y el
-            // solicitante lo ve igual en su panel, así que un fallo del correo se informa en el
-            // mensaje en vez de tumbar la operación.
+            // (tipo FINALISTA_ENVIO), con los archivos adjuntos. Best-effort: el finalista ya quedó
+            // enviado en la base y el solicitante lo ve igual en su panel, así que un fallo del
+            // correo se informa en el mensaje en vez de tumbar la operación.
             var message = "Evaluación guardada.";
-            var envio   = await EnviarFinalistaAlSolicitanteAsync(guardada.Envio);
+            var envio   = await EnviarFinalistaAlSolicitanteAsync(guardada.Envio, archivos);
             if (envio != null) message += " " + envio;
 
             return new EvaluacionAccionResultDto
@@ -514,14 +553,83 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Valida los archivos del informe antes de tocar nada: formato, y el peso conjunto contra
+        /// lo que acepta el proveedor de correo con los adjuntos adentro (van adjuntos al aviso del
+        /// finalista, igual que los CVs en la long list). Se valida acá, antes de subir, para que
+        /// GTH vea qué archivo achicar en vez de un 502 al final del flujo.
+        /// </summary>
+        private static void ValidarArchivosEvaluacion(List<EvaluacionArchivoSubidaDto> archivos)
+        {
+            long total = 0;
+            foreach (var archivo in archivos)
+            {
+                if (archivo.Content == null || archivo.Content.Length == 0)
+                    throw new AbrilException("Un archivo del informe llegó vacío. Vuelve a cargarlo.", 400);
+
+                var ext = Path.GetExtension(archivo.FileName).ToLowerInvariant();
+                if (!AllowedEvaluacionExt.Contains(ext))
+                    throw new AbrilException(
+                        $"El archivo «{Path.GetFileName(archivo.FileName)}» tiene un formato no permitido. Solo " +
+                        $"{string.Join(", ", AllowedEvaluacionExt.Select(e => e.TrimStart('.').ToUpperInvariant()))}.", 400);
+
+                total += archivo.Content.Length;
+            }
+
+            if (total > MaxLongListCorreoBytes)
+                throw new AbrilException(
+                    $"Los archivos del informe pesan {FormatearMb(total)} y el correo admite hasta " +
+                    $"{FormatearMb(MaxLongListCorreoBytes)}. Reduce o quita alguno antes de enviar al finalista.", 400);
+        }
+
+        /// <summary>
+        /// Sube los archivos del informe a la carpeta del requerimiento en SharePoint y devuelve lo
+        /// que hay que persistir. El nombre lleva el candidato para que dos finalistas del mismo
+        /// requerimiento no se pisen.
+        /// </summary>
+        private async Task<List<EvaluacionArchivoPersistDto>> SubirArchivosEvaluacionAsync(
+            string codigo, int candidatoId, List<EvaluacionArchivoSubidaDto> archivos)
+        {
+            var carpeta = await ResolverCarpetaRequerimientoAsync(codigo);
+            var persist = new List<EvaluacionArchivoPersistDto>(archivos.Count);
+
+            foreach (var archivo in archivos)
+            {
+                var prefijo = archivo.TipoCodigo == EvaluacionArchivoCodigo.InformeFinal
+                    ? "informe"
+                    : "conocimientos";
+
+                var subida = await SubirArchivoRequerimientoAsync(
+                    carpeta, prefijo, codigo, $"{candidatoId}",
+                    archivo.FileName, archivo.Content, archivo.ContentType);
+
+                persist.Add(new EvaluacionArchivoPersistDto
+                {
+                    TipoCodigo     = archivo.TipoCodigo,
+                    Nombre         = subida.FileName,
+                    NombreOriginal = Path.GetFileName(archivo.FileName),
+                    Url            = subida.WebUrl,
+                    ItemId         = subida.ItemId,
+                    DriveId        = carpeta.DriveId,
+                });
+            }
+
+            return persist;
+        }
+
+        /// <summary>
         /// Avisa al área solicitante que tiene un finalista por decidir (tipo FINALISTA_ENVIO). El
         /// destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
         /// configuración solo aporta principales adicionales y copias.
         ///
+        /// Los archivos del informe viajan adjuntos: el solicitante decide leyéndolos, así que
+        /// tenerlos en el correo le evita entrar a la pantalla solo para abrirlos (igual quedan
+        /// enlazados ahí).
+        ///
         /// Devuelve la frase que se le agrega al mensaje de la pantalla, o null si no hay nada que
         /// contar. Nunca lanza: el finalista ya quedó enviado en la base.
         /// </summary>
-        private async Task<string?> EnviarFinalistaAlSolicitanteAsync(FinalistaEnvioContextoDto ctx)
+        private async Task<string?> EnviarFinalistaAlSolicitanteAsync(
+            FinalistaEnvioContextoDto ctx, List<EvaluacionArchivoSubidaDto>? archivos = null)
         {
             try
             {
@@ -537,12 +645,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return "El solicitante no tiene un correo al que avisarle: revísalo en Configuración.";
                 }
 
+                var adjuntos = (archivos ?? new List<EvaluacionArchivoSubidaDto>())
+                    .Select(a => new EmailAttachment
+                    {
+                        FileName    = string.IsNullOrWhiteSpace(a.FileName) ? "informe" : Path.GetFileName(a.FileName),
+                        ContentType = string.IsNullOrWhiteSpace(a.ContentType) ? "application/octet-stream" : a.ContentType,
+                        Content     = a.Content,
+                    })
+                    .ToList();
+
                 await _email.SendAsync(
                     to:      principales,
                     subject: $"[Reclutamiento] Finalista por revisar — {ctx.Codigo} · {ctx.Puesto}",
                     body:    ConstruirCuerpoFinalistaEnvio(ctx),
                     isHtml:  true,
                     cc:      copias.Count > 0 ? copias : null,
+                    attachments: adjuntos.Count > 0 ? adjuntos : null,
                     sender:  EmailSenders.Gth);
 
                 return $"Se le avisó al solicitante ({principales[0]}).";
@@ -601,6 +719,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 informe.Add(new("req-vistobueno", "Recomendación GTH",
                     Layout.EscMultilinea(ev.ComentarioRecomendacion)));
 
+            // Los archivos van adjuntos, pero también como fila con su enlace: el adjunto se pierde
+            // al reenviar el correo y el enlace sigue abriendo el documento desde SharePoint.
+            foreach (var archivo in ev.Archivos)
+                informe.Add(new("req-sustento", archivo.TipoNombre,
+                    string.IsNullOrWhiteSpace(archivo.Url)
+                        ? Textos.OGuion(archivo.Nombre)
+                        : Textos.Enlace(archivo.Url!, archivo.Nombre)));
+
             var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre)
                 ? "Un candidato"
                 : Layout.Esc(ctx.CandidatoNombre);
@@ -628,7 +754,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var message = $"Correo de agradecimiento enviado a {ctx.Correo}. El candidato ya no continúa en el proceso.";
             try
             {
-                await EnviarAgradecimientoAsync(ctx);
+                if (!await EnviarAgradecimientoAsync(ctx)) message = FinDeProcesoSinDestinatarios;
             }
             catch (Exception ex)
             {
@@ -649,7 +775,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var message = $"Se envió el correo de fin de proceso a {ctx.Correo}. El postulante ya no continúa.";
             try
             {
-                await EnviarAgradecimientoAsync(ctx);
+                if (!await EnviarAgradecimientoAsync(ctx)) message = FinDeProcesoSinDestinatarios;
             }
             catch (Exception ex)
             {
@@ -670,11 +796,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// entrevista, cuando el solicitante rechaza a un finalista y cuando aprueba a uno y los
         /// demás quedan sin elegir. No atrapa excepciones a propósito — cada llamador ya decide
         /// qué hacer si el envío falla.
+        ///
+        /// Devuelve false cuando no hay a quién enviárselo (el candidato quedó apagado como
+        /// destinatario en Configuración y el correo no tiene principales configurados): no es un
+        /// error del proveedor, así que no se lanza — el llamador lo dice en su mensaje.
         /// </summary>
-        private async Task EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
+        private async Task<bool> EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
         {
             var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Agradecimiento);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
+
+            if (principales.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Fin de proceso de «{Candidato}»: el correo AGRADECIMIENTO no tiene destinatarios "
+                    + "principales activos (el candidato está apagado), así que no sale.", ctx.CandidatoNombre);
+                return false;
+            }
 
             await _email.SendAsync(
                 to:      principales,
@@ -683,7 +821,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 isHtml:  true,
                 cc:      copias.Count > 0 ? copias : null,
                 sender:  EmailSenders.Gth);
+
+            return true;
         }
+
+        /// <summary>
+        /// Mensaje para GTH cuando el fin de proceso no salió por configuración y no por un fallo
+        /// del proveedor: reintentar no cambia nada, hay que prender al candidato en Configuración.
+        /// </summary>
+        private const string FinDeProcesoSinDestinatarios =
+            "El candidato quedó fuera del proceso, pero el correo de fin de proceso no se envió: "
+            + "no hay a quién enviárselo. Revísalo en Configuración de correos.";
 
         /// <summary>
         /// Cierre del proceso para el candidato que no continúa. No menciona motivos: informa que
@@ -702,7 +850,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var l = Layout.Desde(_configuration);
 
             return l.Documento(
-                new Layout.Cabecera("req-gracias", "Fin de Proceso", PieExtra: ctx.Codigo),
+                new Layout.Cabecera("req-gracias", "Fin de Proceso"),
                 l.Parrafo("Estimado postulante,"),
                 l.Parrafo(
                     "Le informamos que el proceso de selección para el puesto de "
@@ -997,14 +1145,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 4) Correo enviado: subir los CVs y los anexos a SharePoint y persistir la long list
             //    para que el solicitante pueda revisarla. Se reutiliza la carpeta de reclutamiento
             //    (gth_sustento_folder), organizada en una subcarpeta por requerimiento.
-            var carpeta = await ResolverCarpetaLongListAsync(ctx.Codigo);
+            var carpeta = await ResolverCarpetaRequerimientoAsync(ctx.Codigo);
 
             var persist = new List<LongListCandidatoPersistDto>(candidatos.Count);
             var indice = 0;
             foreach (var c in candidatos)
             {
                 indice++;
-                var cvSubida = await SubirLongListArchivoAsync(
+                var cvSubida = await SubirArchivoRequerimientoAsync(
                     carpeta, "cv", ctx.Codigo, $"{indice}", c.CvFileName, c.CvContent!, c.CvContentType);
 
                 var item = new LongListCandidatoPersistDto
@@ -1021,7 +1169,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 foreach (var anexo in c.Anexos)
                 {
                     posAnexo++;
-                    var subida = await SubirLongListArchivoAsync(
+                    var subida = await SubirArchivoRequerimientoAsync(
                         carpeta, "anexo", ctx.Codigo, $"{indice}_{posAnexo}",
                         anexo.FileName, anexo.Content!, anexo.ContentType);
 
@@ -1042,8 +1190,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return await _repo.GuardarLongListCandidatos(requerimientoId, persist, userId);
         }
 
-        /// <summary>Resuelve la carpeta de reclutamiento (gth_sustento_folder) y la subcarpeta del requerimiento.</summary>
-        private async Task<ShareLinkResolveDto> ResolverCarpetaLongListAsync(string codigo)
+        /// <summary>
+        /// Resuelve la carpeta de reclutamiento (gth_sustento_folder) y la subcarpeta del
+        /// requerimiento, donde van TODOS sus archivos: los CVs y anexos de la long list y los del
+        /// informe de la entrevista. La subcarpeta se sigue llamando "Long list {codigo}" porque
+        /// las de producción ya existen con ese nombre y renombrarlas dejaría huérfanos los
+        /// enlaces guardados.
+        /// </summary>
+        private async Task<ShareLinkResolveDto> ResolverCarpetaRequerimientoAsync(string codigo)
         {
             var folderUrl = await _repo.GetSustentoFolderUrl();
             if (string.IsNullOrWhiteSpace(folderUrl))
@@ -1070,11 +1224,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Sube un archivo de la long list (CV o anexo) a la carpeta indicada y devuelve el
-        /// resultado. <paramref name="pos"/> va como texto porque el CV se numera por candidato
-        /// ("3") y el anexo por candidato y posición ("3_2").
+        /// Sube un archivo del requerimiento (CV, anexo o archivo del informe) a la carpeta
+        /// indicada y devuelve el resultado. <paramref name="pos"/> va como texto porque el CV se
+        /// numera por candidato ("3"), el anexo por candidato y posición ("3_2") y los del informe
+        /// por id de candidato.
         /// </summary>
-        private async Task<SharePointUploadResultDto> SubirLongListArchivoAsync(
+        private async Task<SharePointUploadResultDto> SubirArchivoRequerimientoAsync(
             ShareLinkResolveDto carpeta, string prefijo, string codigo, string pos,
             string origFileName, byte[] content, string contentType)
         {
@@ -1091,15 +1246,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     autoRenameOnLock: true);
 
                 if (result?.WebUrl is null)
-                    throw new AbrilException("No se pudo subir un archivo de la long list a SharePoint.", 502);
+                    throw new AbrilException("No se pudo subir un archivo del requerimiento a SharePoint.", 502);
 
                 return result;
             }
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló la subida de un archivo de la long list ({Prefijo}) del requerimiento {Codigo}", prefijo, codigo);
-                throw new AbrilException("Error al subir los archivos de la long list a SharePoint.", 502);
+                _logger.LogError(ex, "Falló la subida de un archivo ({Prefijo}) del requerimiento {Codigo}", prefijo, codigo);
+                throw new AbrilException("Error al subir los archivos a SharePoint.", 502);
             }
         }
 

@@ -17,6 +17,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Deduplica sin distinguir mayúsculas y, si un mismo buzón está en ambas listas, se queda
         /// solo en Para — mismo criterio que la pantalla de configuración.
+        ///
+        /// El principal fijo se salta cuando la pantalla lo apagó
+        /// (<see cref="SolicitudDestinatariosDto.PrincipalAutomaticoActivo"/>): el correo sale solo
+        /// con los destinatarios configurados y, si no quedó ninguno, cada llamador decide qué
+        /// hacer con las listas vacías.
         /// </summary>
         public static (List<string> Para, List<string> Copias) Combinar(
             string? principalFijo, SolicitudDestinatariosDto configurados)
@@ -30,7 +35,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) para.Add(e);
             }
 
-            Agregar(principalFijo);
+            if (configurados.PrincipalAutomaticoActivo) Agregar(principalFijo);
             foreach (var e in configurados.EmailsPara) Agregar(e);
 
             var copias = configurados.EmailsCopias

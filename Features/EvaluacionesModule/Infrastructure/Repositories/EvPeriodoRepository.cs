@@ -20,6 +20,29 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             return await ctx.EvPeriodos.FirstOrDefaultAsync(p => p.Activo);
         }
 
+        public async Task<EvPeriodo?> GetUltimoAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            var mesAnterior = hoy.AddMonths(-1);
+
+            // El resumen siempre muestra el mes calendario anterior al actual (el último que ya
+            // cerró por completo) — no el registro con mayor (anio, mes) de la tabla, que puede
+            // incluir períodos futuros o de prueba sembrados de antemano (p. ej. para poblar la
+            // tendencia histórica de gráficos) y que aún no tienen evaluaciones reales.
+            var periodo = await ctx.EvPeriodos
+                .FirstOrDefaultAsync(p => p.Mes == mesAnterior.Month && p.Anio == mesAnterior.Year);
+            if (periodo != null) return periodo;
+
+            // Si por algún motivo no existe el período del mes anterior, cae al más reciente
+            // que ya haya empezado (nunca uno futuro).
+            return await ctx.EvPeriodos
+                .Where(p => p.Anio < hoy.Year || (p.Anio == hoy.Year && p.Mes <= hoy.Month))
+                .OrderByDescending(p => p.Anio)
+                .ThenByDescending(p => p.Mes)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<List<EvPeriodo>> GetAllAsync()
         {
             using var ctx = _factory.CreateDbContext();

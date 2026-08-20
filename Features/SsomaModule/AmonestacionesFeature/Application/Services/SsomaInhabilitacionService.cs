@@ -103,6 +103,41 @@ public class SsomaInhabilitacionService
     }
 
     /// <summary>
+    /// Llamar después de corregir una amonestación (edición manual). A diferencia de
+    /// EvaluarTrasBmonestacionAsync (que solo puede bloquear, nunca desbloquear), esta
+    /// recalcula desde cero y bloquea o desbloquea según corresponda — porque una corrección
+    /// puede mover los puntos en cualquier dirección.
+    /// </summary>
+    public async Task ReevaluarAsync(int workerId, int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+        if (worker is null) return;
+
+        var puntosNetos = await GetPuntosNetosAsync(workerId);
+        var estaInhabilitado = worker.Estado == "INHABILITADO_SSOMA";
+
+        if (puntosNetos >= PUNTOS_BLOQUEO && !estaInhabilitado)
+        {
+            await BloquearAsync(ctx, worker, "PUNTOS",
+                $"Trabajador acumuló {puntosNetos} puntos de infracción tras corrección (límite: {PUNTOS_BLOQUEO}).",
+                puntosNetos, userId);
+        }
+        else if (puntosNetos < PUNTOS_BLOQUEO && estaInhabilitado)
+        {
+            // Solo se desbloquea automáticamente si el bloqueo activo fue por puntos —
+            // un retiro definitivo o una inhabilitación manual no se levantan por esta vía.
+            var activa = await ctx.SsomaInhabilitaciones
+                .Where(i => i.WorkerId == workerId && i.FechaFin == null)
+                .OrderByDescending(i => i.FechaInicio)
+                .FirstOrDefaultAsync();
+            if (activa?.Tipo == "PUNTOS")
+                await DesbloquearAsync(ctx, worker, escuelitaId: null, userId, puntosNetos);
+        }
+    }
+
+    /// <summary>
     /// Llamar después de registrar un curso de Escuelita.
     /// Desbloquea si los puntos netos bajan de 10.
     /// </summary>
@@ -246,7 +281,7 @@ public class SsomaInhabilitacionService
     }
 
     private static async Task DesbloquearAsync(AppDbContext ctx, Worker worker,
-        int escuelitaId, int userId, int puntosNetos)
+        int? escuelitaId, int userId, int puntosNetos)
     {
         // Cerrar inhabilitación activa
         var inhabilitacionActiva = await ctx.SsomaInhabilitaciones
@@ -268,7 +303,9 @@ public class SsomaInhabilitacionService
         {
             WorkerId    = worker.Id,
             TipoEvento  = "DesbloqueoSsoma",
-            Descripcion = $"Trabajador desbloqueado tras Escuelita Abril. Puntos netos actuales: {puntosNetos}.",
+            Descripcion = escuelitaId.HasValue
+                ? $"Trabajador desbloqueado tras Escuelita Abril. Puntos netos actuales: {puntosNetos}."
+                : $"Trabajador desbloqueado tras corrección de amonestación. Puntos netos actuales: {puntosNetos}.",
             UsuarioId   = userId > 0 ? userId : null,
             CreatedAt   = DateTime.UtcNow,
         });

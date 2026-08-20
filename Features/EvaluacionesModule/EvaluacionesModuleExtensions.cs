@@ -18,6 +18,9 @@ namespace Abril_Backend.Features.Evaluaciones
             services.AddScoped<IEvAsignacionSupervisorRepository, EvAsignacionSupervisorRepository>();
             services.AddScoped<IEvAsignacionSupervisorService, EvAsignacionSupervisorService>();
             services.AddScoped<IEvContratistaRepository, EvContratistaRepository>();
+            services.AddScoped<IEvSupervisorContratistaRepository, EvSupervisorContratistaRepository>();
+            services.AddScoped<IEvJefeSsomaRepository, EvJefeSsomaRepository>();
+            services.AddScoped<IEvPrevencionistaRepository, EvPrevencionistaRepository>();
             return services;
         }
     }

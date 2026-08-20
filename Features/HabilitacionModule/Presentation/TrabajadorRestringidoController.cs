@@ -27,6 +27,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             _logger = logger;
         }
 
+        private int GetUserId() =>
+            int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+
         [HttpGet]
         public async Task<IActionResult> GetAll(
             [FromQuery] bool soloActivos = true,
@@ -49,13 +52,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (!UsuarioTienePermiso())
                     return StatusCode(403, new { message = "No tiene permisos para realizar esta acción." });
 
-                if (string.IsNullOrWhiteSpace(dto.Motivo))
-                    return BadRequest(new { message = "El motivo es requerido." });
+                // No basta con "no vacío": exigimos un mínimo de contenido real para que el motivo
+                // no quede en una frase genérica sin la razón real de la restricción.
+                if (string.IsNullOrWhiteSpace(dto.Motivo) || dto.Motivo.Trim().Length < 15)
+                    return BadRequest(new { message = "El motivo es requerido y debe describir la razón real (mínimo 15 caracteres), no solo una clasificación genérica." });
 
                 if (string.IsNullOrWhiteSpace(dto.Dni) && string.IsNullOrWhiteSpace(dto.ApellidoNombre))
                     return BadRequest(new { message = "Debe proporcionar DNI o nombre del trabajador." });
 
-                var result = await _service.CreateAsync(dto);
+                dto.Tipo ??= "MANUAL";
+                var result = await _service.CreateAsync(dto, GetUserId());
                 return StatusCode(201, result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

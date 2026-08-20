@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId);
         Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId);
         Task Update(int id, EmoUpdateDto dto, int? userId);
+        Task CompletarLecturaAbril(int id, DateOnly fechaLectura, string urlResultado, int? userId);
         Task UpdateEstado(int id, string estado, int? userId);
     }
 }

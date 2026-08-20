@@ -9,5 +9,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Restringidos
         public string? ProyectoOrigen { get; set; }
         public string? RestringidoPor { get; set; }
         public DateOnly? FechaRestriccion { get; set; }
+        /// <summary>SANCION | DESCANSO_MEDICO | MANUAL. Si no se envía, el repositorio guarda "MANUAL".</summary>
+        public string? Tipo { get; set; }
     }
 }

@@ -22,6 +22,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public bool Asistio { get; set; }
         public int Orden { get; set; }
 
+        /// <summary>Si true, puede editar el acta igual que su creador (Update/Reprogramar/CambiarEstado/
+        /// Eliminar y CRUD de acuerdos). Pensado para cuando el creador se enferma o no puede asistir.
+        /// Solo tiene efecto si el participante tiene WorkerId (no aplica a invitados externos).</summary>
+        public bool EsCoautor { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

@@ -23,6 +23,16 @@ public class AmonestacionController : ControllerBase
         _logger  = logger;
     }
 
+    // Corregir una amonestación ya creada (puntos, motivo, tipo) es delicado: afecta el
+    // puntaje/inhabilitación del trabajador y el historial disciplinario. Por ahora se
+    // restringe a un único correo, mismo criterio que EmailAutorizadoParaBorrar en
+    // TrabajadorRestringidoController — cuando haya más de una persona corrigiendo,
+    // esto debería pasar a un rol/permiso propio en vez de un email hardcodeado.
+    private const string EmailAutorizadoParaEditar = "sjustiniani@abril.pe";
+
+    private bool PuedeEditar() =>
+        string.Equals(User.FindFirst(ClaimTypes.Email)?.Value, EmailAutorizadoParaEditar, StringComparison.OrdinalIgnoreCase);
+
     private int GetUserId() =>
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
@@ -120,10 +130,29 @@ public class AmonestacionController : ControllerBase
             var actual = await _service.GetDetalleAsync(id);
             if (actual is null) return NotFound(new { message = "Amonestación no encontrada." });
             if (!EsPropioDeContratista(actual.EmpresaId)) return Forbid();
-            return Ok(await _service.ConfirmarAsync(id));
+            return Ok(await _service.ConfirmarAsync(id, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Confirmar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    /// <summary>Corrige una amonestación ya creada (puntos, motivo, tipo mal capturados). Acceso restringido — ver PuedeEditar().</summary>
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> Editar(int id, [FromBody] AmonestacionEditRequest req)
+    {
+        try
+        {
+            if (!PuedeEditar())
+                return StatusCode(403, new { message = "No tiene permisos para corregir amonestaciones." });
+
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "Amonestación no encontrada." });
+
+            await _service.EditarAsync(id, req, GetUserId());
+            return Ok(new { message = "Amonestación corregida correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Editar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/pdf")]

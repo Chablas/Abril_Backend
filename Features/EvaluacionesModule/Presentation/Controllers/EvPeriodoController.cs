@@ -34,6 +34,20 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvPeriodoController.GetActivo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Último período registrado, esté o no abierto para evaluar. Para pantallas de solo lectura (dashboards/resúmenes).</summary>
+        [HttpGet("ultimo")]
+        public async Task<IActionResult> GetUltimo()
+        {
+            try
+            {
+                var p = await _repo.GetUltimoAsync();
+                if (p == null) return NotFound(new { message = "No hay períodos registrados." });
+                return Ok(MapToDto(p));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvPeriodoController.GetUltimo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {

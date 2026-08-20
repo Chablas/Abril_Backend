@@ -6,7 +6,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
     {
         Task<ReunionPaginaInicialDto> GetPaginaInicial(ReunionFiltroRequest filtro, int userId);
         Task<PagedResultDto<ReunionListItemDto>> GetReuniones(ReunionFiltroRequest filtro, int userId);
-        Task<ReunionDetalleDto> GetDetalle(int reunionId);
+        Task<ReunionDetalleDto> GetDetalle(int reunionId, int userId);
         Task<int> Create(ReunionCreateRequest request, int userId);
         Task<List<TrabajadorAbrilDto>> BuscarTrabajadoresPorFiltro(int? areaScopeId, List<int>? puestoIds, int? projectId);
         Task<List<CatalogoDto>> GetPuestos();
@@ -22,9 +22,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request);
         Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
+        Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId);
         Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);
         Task ReprogramarAcuerdo(int reunionAcuerdoId, AcuerdoReprogramarRequest request, int userId);
-        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, int userId);
+        Task MarcarAcuerdoCumplido(int reunionAcuerdoId, AcuerdoMarcarCumplidoRequest request, int userId);
 
         // ── Recurrencia ────────────────────────────────────────────────────
         Task<TemaRecurrenciaDto> GetRecurrenciaTema(int reunionTemaId);

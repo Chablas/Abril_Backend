@@ -16,7 +16,11 @@ public static class ActasReunionPdfService
     private static readonly string TextMain = "#1A1A2E";
     private static readonly string TextMuted = "#5A6275";
 
-    public static byte[] GenerarPdf(ReunionDetalleDto d)
+    // ── Encabezado estandarizado (mismo formato que Convalidación/Amonestaciones) ──
+    private const string Codigo = "SIG-FO-17";
+    private const string Titulo = "ACTA DE REUNIÓN";
+
+    public static byte[] GenerarPdf(ReunionDetalleDto d, byte[]? logoBytes)
     {
         return Document.Create(container =>
         {
@@ -26,7 +30,7 @@ public static class ActasReunionPdfService
                 page.Margin(1.2f, Unit.Centimetre);
                 page.DefaultTextStyle(x => x.FontSize(9).FontFamily("Arial").FontColor(TextMain));
 
-                page.Header().Element(c => ComposeHeader(c, d));
+                page.Header().Element(c => ComposeHeader(c, logoBytes));
                 page.Content().PaddingTop(8).Element(c => ComposeBody(c, d));
                 page.Footer().AlignCenter().Text(t =>
                 {
@@ -37,16 +41,63 @@ public static class ActasReunionPdfService
         }).GeneratePdf();
     }
 
-    private static void ComposeHeader(IContainer c, ReunionDetalleDto d)
+    private static void ComposeHeader(IContainer container, byte[]? logoBytes)
     {
-        c.Background(Primary).Padding(12).Row(row =>
+        container.Border(0.5f).BorderColor(Border).Row(row =>
         {
-            row.RelativeItem().Column(col =>
+            // Logo — centrado H y V dentro del área fija (idéntico a Convalidación/Amonestaciones).
+            row.ConstantItem(90).AlignMiddle().AlignCenter().Padding(4).Element(logoEl =>
             {
-                col.Item().Text("ACTA DE REUNIÓN").Bold().FontSize(16).FontColor(Colors.White);
-                col.Item().Text($"N° {d.Numero} — {d.Tema}").FontSize(10).FontColor(Colors.White);
+                if (logoBytes != null)
+                    logoEl.AlignMiddle().AlignCenter().Image(logoBytes).FitArea();
+                else
+                    logoEl.AlignMiddle().AlignCenter().Text("ABRIL").Bold().FontSize(8).AlignCenter();
             });
-            row.ConstantItem(110).AlignRight().Text("SIG-FO-17").FontColor(Colors.White).FontSize(8);
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            row.RelativeItem().AlignMiddle().AlignCenter()
+                .Text(Titulo).Bold().FontSize(11).AlignCenter();
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            // Columna derecha — Código/Versión/Fecha + Elab/Rev/Apro.
+            row.ConstantItem(120).Column(metaCol =>
+            {
+                void MetaRow(string label, string valor, bool last = false)
+                {
+                    metaCol.Item()
+                        .BorderBottom(last ? 0f : 0.5f)
+                        .Padding(2).Row(r =>
+                    {
+                        r.AutoItem().Text(label).Bold().FontSize(7);
+                        r.ConstantItem(2);
+                        r.RelativeItem().Text(valor).FontSize(7);
+                    });
+                }
+                MetaRow("Código:", Codigo);
+                MetaRow("Versión:", "01");
+                MetaRow("Fecha:", "02/11/2023");
+
+                metaCol.Item().BorderTop(0.5f).Row(subRow =>
+                {
+                    foreach (var (lbl, val, last) in new[]
+                    {
+                        ("Elab.:", "AGP", false),
+                        ("Rev.:",  "GP",  false),
+                        ("Apro.:", "GG",  true ),
+                    })
+                    {
+                        var cell = subRow.RelativeItem().Padding(2);
+                        if (!last) cell = cell.BorderRight(0.5f);
+                        cell.Text(t =>
+                        {
+                            t.Span(lbl + " ").Bold().FontSize(5.5f);
+                            t.Span(val).FontSize(5.5f);
+                        });
+                    }
+                });
+            });
         });
     }
 
@@ -54,6 +105,8 @@ public static class ActasReunionPdfService
     {
         c.Column(col =>
         {
+            col.Item().Text($"N° {d.Numero} — {d.Tema}").Bold().FontSize(13).FontColor(PrimaryDark);
+            col.Item().PaddingTop(6);
             col.Item().Element(cc => DatosGenerales(cc, d));
             col.Item().PaddingTop(10);
             SectionHeader(col, "PARTICIPANTES");

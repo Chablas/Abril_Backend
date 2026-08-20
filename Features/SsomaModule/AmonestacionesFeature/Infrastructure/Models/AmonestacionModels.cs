@@ -69,6 +69,8 @@ public class SsomaAmonestacion
     public int? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+    /// <summary>Usuario que corrigió el registro vía el endpoint de edición (acceso restringido). Null = nunca editado.</summary>
+    public int? UpdatedBy { get; set; }
     public bool State { get; set; } = true;
 
     // Navegación

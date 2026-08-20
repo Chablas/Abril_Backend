@@ -11,6 +11,9 @@ public interface IAmonestacionService
     Task<AmonestacionDashboardDto> GetDashboardAsync(int? empresaIdContratista = null);
     Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId);
     Task<(byte[]? Bytes, string? RedirectUrl)> GetPdfAsync(int id);
-    Task<AmonestacionCreadaDto> ConfirmarAsync(int id);
+    Task<AmonestacionCreadaDto> ConfirmarAsync(int id, int userId);
     Task CerrarAsync(int id, AmonestacionCerrarRequest req);
+
+    /// <summary>Corrige una amonestación ya creada (acceso restringido a nivel de controller). Reevalúa la inhabilitación del trabajador tras el cambio.</summary>
+    Task EditarAsync(int id, AmonestacionEditRequest req, int userId);
 }

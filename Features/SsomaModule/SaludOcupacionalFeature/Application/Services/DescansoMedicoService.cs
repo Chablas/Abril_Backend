@@ -81,6 +81,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             if (descanso?.WorkerId > 0)
             {
+                // Tipo=DESCANSO_MEDICO: bloquea el acceso a obra igual que antes, pero queda
+                // marcado como bloqueo temporal, no como sanción — así la pantalla de
+                // Amonestaciones/Inhabilitados (que es de sanciones) no lo muestra mezclado.
                 await _restringido.CreateAsync(new TrabajadorRestringidoCreateDto
                 {
                     WorkerId       = descanso.WorkerId,
@@ -88,8 +91,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     ApellidoNombre = descanso.WorkerNombre,
                     Motivo         = "Descanso médico aprobado",
                     FechaRestriccion = DateOnly.FromDateTime(DateTime.Today),
-                    RestringidoPor = "SSOMA"
-                });
+                    Tipo           = "DESCANSO_MEDICO",
+                }, userId);
             }
         }
 

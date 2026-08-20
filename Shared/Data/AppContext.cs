@@ -277,6 +277,16 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvContratistaPlantilla> EvContratistaPlantillas => Set<EvContratistaPlantilla>();
         public DbSet<EvEvaluacionContratista> EvEvaluacionesContratista => Set<EvEvaluacionContratista>();
         public DbSet<EvEvaluacionContratistaDetalle> EvEvaluacionesContratistaDetalle => Set<EvEvaluacionContratistaDetalle>();
+        public DbSet<EvSupervisorContratistaPlantilla> EvSupervisorContratistaPlantillas => Set<EvSupervisorContratistaPlantilla>();
+        public DbSet<EvEvaluacionSupervisorContratista> EvEvaluacionesSupervisorContratista => Set<EvEvaluacionSupervisorContratista>();
+        public DbSet<EvEvaluacionSupervisorContratistaDetalle> EvEvaluacionesSupervisorContratistaDetalle => Set<EvEvaluacionSupervisorContratistaDetalle>();
+        public DbSet<EvJefeSsomaPlantilla> EvJefeSsomaPlantillas => Set<EvJefeSsomaPlantilla>();
+        public DbSet<EvEvaluacionJefeSsoma> EvEvaluacionesJefeSsoma => Set<EvEvaluacionJefeSsoma>();
+        public DbSet<EvEvaluacionJefeSsomaDetalle> EvEvaluacionesJefeSsomaDetalle => Set<EvEvaluacionJefeSsomaDetalle>();
+        public DbSet<EvEvaluacionJefeSsomaCumplimiento> EvEvaluacionesJefeSsomaCumplimiento => Set<EvEvaluacionJefeSsomaCumplimiento>();
+        public DbSet<EvPrevencionistaPlantilla> EvPrevencionistaPlantillas => Set<EvPrevencionistaPlantilla>();
+        public DbSet<EvEvaluacionPrevencionista> EvEvaluacionesPrevencionista => Set<EvEvaluacionPrevencionista>();
+        public DbSet<EvEvaluacionPrevencionistaDetalle> EvEvaluacionesPrevencionistaDetalle => Set<EvEvaluacionPrevencionistaDetalle>();
         public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
         public DbSet<SsomaPaso> SsomaPasos { get; set; }
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
@@ -560,6 +570,19 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsProgramacionEmo>()
                 .Property(e => e.Origen)
                 .HasDefaultValue("Manual");
+
+            // Un trabajador no puede tener dos programaciones "activas" (no terminales) del
+            // mismo tipo de EMO a la vez. Create() y el auto-programador ya validan esto en
+            // memoria antes de insertar, pero eso no cierra la ventana de carrera entre el
+            // chequeo y el INSERT (dos requests casi simultáneos — cron + manual, o doble
+            // click — pueden pasar ambos la validación antes de que el primero confirme). Este
+            // índice es la garantía real, igual que ux_tareo_worker_fecha_tipo en
+            // ArquitecturaComercialTareoRepository.
+            modelBuilder.Entity<SsProgramacionEmo>()
+                .HasIndex(p => new { p.WorkerId, p.TipoEmoId })
+                .IsUnique()
+                .HasDatabaseName("ux_programacion_emo_worker_tipo_activa")
+                .HasFilter("state = true AND estado NOT IN ('Completado', 'Cancelado', 'Rechazado por Clínica', 'No se presentó')");
 
             modelBuilder.Entity<ResidentReportIncidenceImage>()
                 .HasOne(i => i.ResidentReportIncidence)

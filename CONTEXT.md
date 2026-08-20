@@ -5734,3 +5734,81 @@ Ambos idempotentes, aplicados directo con psql. Las migraciones EF correspondien
 - Frontend de Fase 2a/2b/3 — no se tocó en esta sesión (era solo backend).
 - Revisar si el push a `master` debía saltar la regla de protección de rama de GitHub (ver punto 1).
 - Decidir si el rol "Gerencia/Dirección" del spec original amerita crearse en `role` a futuro, o si `AdministradorSistema`+`AdministradorUdp` queda como gate definitivo del Portafolio.
+
+## Sesión 2026-08-17
+
+Sesión corta: se actualizó `victor-backend` con lo último de `master` (44 archivos de GTH: Onboarding, Reclutamiento con doble aprobación GG, Actas de Reunión con agenda/recordatorios, Tareo de Arquitectura Comercial — todo de otras sesiones/ramas, fast-forward sin conflictos, build 0 errores) y se agregó el seed de la Fase 3 del Portafolio BIM.
+
+- Nuevo `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql`: siembra `feature.feature_key = 'planeamiento-bim.portafolio'` y su `role_feature` para `AdministradorSistema` (role_id 1) + `AdministradorUdp` (role_id 2), sin `UsuarioUdp` — coincide con el gate ya implementado en `PlaneamientoBimPortafolioController` (ver sesión anterior, punto 5).
+- El pedido de frontend (Fase 3 + Procura simplificado, `DESIGN-VICTOR.md`) se redirigió a la sesión de `Abril-Frontend` — este repo es solo backend.
+
+### Pendiente
+- **El seed `20260817_PlaneamientoBimPortafolioFeatureSeed.sql` NO se corrió contra producción todavía.** Se revisó contra los checks D2/D3 pedidos: D3 (SELECT de `feature_id`, sin ID hardcodeado) OK; D2 usa `NOT EXISTS` en vez de `ON CONFLICT DO NOTHING` — funcionalmente idempotente igual, pero no es el patrón literal pedido (posible razón: `ON CONFLICT` exige una constraint UNIQUE que puede no existir en `feature_key`/`role_feature`). Quedó pendiente de confirmación del usuario antes de ejecutar por el túnel SSH.
+- Frontend de Fase 3 (Dashboard de Portafolio + export PDF) y Procura simplificado — pendiente en `Abril-Frontend`.
+
+## Sesión 2026-08-19 — Lectura de EMO por médico interno de Abril + coautores en Actas de Reunión
+
+### 1) EMOs: lectura a cargo del médico ocupacional de Abril (no la clínica)
+Hasta ahora la lectura de un EMO (`fecha_lectura` + `url_resultado`) siempre la subía la clínica al completar el EMO. Se necesitaba distinguir los EMOs cuya lectura la hace el médico interno de Abril Grupo Inmobiliario en vez de la clínica, y darle a ese médico una cola propia para completarla.
+
+- Columna nueva `worker_emos.requiere_lectura_abril` (boolean, default false) — `Migrations_Manual/2026-08-18_worker_emos_requiere_lectura_abril.sql`, aplicar manual vía psql/pgAdmin (no EF). "Pendiente de lectura por Abril" = `requiere_lectura_abril = true AND url_resultado IS NULL` (mismo criterio que ya usaba el filtro existente "Sin Lectura EMO").
+- El flag se puede marcar desde dos lugares: la clínica al completar el EMO (`EmoCreateDto.RequiereLecturaAbril`) o el personal interno al editar un EMO existente (`EmoUpdateDto.RequiereLecturaAbril`).
+- Nuevo endpoint `POST /emos/{emoId}/lectura-abril` (`EmoController.CompletarLecturaAbril`) — sube el PDF a SharePoint, y delega a `EmoRepository.CompletarLecturaAbril` que guarda `FechaLectura`/`UrlResultado` y corre `SincronizarEntregableEmoAsync` (la misma sincronización de habilitaciones — `ss_hab_trabajador` item LecturaEmo → "Aprobado" — que ya corrían `Create()`/`Update()`). Antes, subir un documento de tipo "Lectura" vía el endpoint genérico `SubirDocumento` NO corría esa sincronización; este nuevo endpoint sí, para que "aprobar" siga el mismo proceso que cuando la clínica lo hace.
+- `EmoPorTrabajadorFilterDto.PendienteLecturaAbril` + filtro correspondiente en `EmoRepository.ListPorTrabajador`, para alimentar la subtab nueva del frontend.
+- Frontend (ver Abril-Frontend, misma sesión): checkbox "Será leído por el médico de Abril Grupo Inmobiliario" en Completar EMO (clínica) y Editar EMO (interno); subtab "Pendientes de lectura (médico Abril)" en la pantalla EMOs; modal Documentos EMO detecta el caso pendiente y muestra fecha + botón "Subir y aprobar" que pega al endpoint nuevo.
+
+### 2) Actas de Reunión: coautores de acuerdos + flag `es_informativo`
+Dos migraciones manuales nuevas, sin aplicar todavía contra prod (quedan pendientes, avisar antes de dar por cerrado):
+- `Migrations_Manual/2026-08-18_reunion_participante_coautor.sql`
+- `Migrations_Manual/2026-08-19_reunion_acuerdo_es_informativo.sql`
+
+Tocados: `ReunionAcuerdo`, `ReunionParticipante`, `ActasReunionRepository` (+220 líneas), `ActasReunionService`, `ActasReunionController`, `ActasReunionDtos`.
+
+### 3) Evaluaciones — ajustes menores
+`EvPeriodoRepository`, `EvContratistaRepository`, `EvDashboardController`, `EvPeriodoController` — cambios acarreados de sesión(es) anterior(es), no hay detalle adicional registrado en esta sesión.
+
+### Verificado
+- Build: `dotnet build Abril-Backend.csproj` → 0 errores, solo warnings preexistentes (CS8618 en DTOs de Adjudicaciones, no relacionados a esta sesión).
+- No se probó en runtime (el usuario tenía el backend corriendo en otra terminal, bloqueando el build hasta detenerlo).
+
+### Pendiente
+- Aplicar las 3 migraciones SQL nuevas contra la base real (el usuario las corre manualmente, no `dotnet ef database update`): `2026-08-18_reunion_participante_coautor.sql`, `2026-08-18_worker_emos_requiere_lectura_abril.sql`, `2026-08-19_reunion_acuerdo_es_informativo.sql`.
+- Frontend correspondiente (Abril-Frontend) va en commit separado de esta misma sesión.
+- Excluido a propósito de este push: rama `curso-prueba-loto` del repo `plataforma-cursos` (piloto de material interactivo LOTO, no tocar git/deploy todavía).
+
+## Sesión 2026-08-19 (continuación) — Actualización de rama, sin cambios de código
+
+Sesión corta: se trajo `origin/master` a `victor-backend` (`git fetch` + `git merge origin/master`) y se resolvió un conflicto en `CONTEXT.md` — no era un conflicto real de código, sino dos entradas de sesión cronológicas independientes (17 y 19 de agosto) que se concatenaron en orden. Build post-merge: 0 errores. `master` local también quedó sincronizado con `origin/master` (`git fetch origin master:master`).
+
+Además se confirmó al usuario, a pedido, el contenido exacto y completo del seed `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql` (40 líneas, 2 `INSERT` idempotentes vía `NOT EXISTS` — feature `planeamiento-bim.portafolio` + `role_feature` para roles 1 y 2) para que lo corra manualmente en pgAdmin. Sigue pendiente de ejecución contra producción (ver sesión anterior).
+
+No hubo cambios de código en esta sesión.
+
+## Sesión 2026-08-20 — Evaluaciones SSOMA: 3 flujos nuevos (backend completo, frontend flujo A)
+
+Pedido del usuario (Jefe SSOMA): evaluar a los supervisores de campo de los contratistas, que su equipo (Coordinador SSOMA=70, Prevencionista=72) lo evalúe a él de forma anónima y obligatoria, y que los contratistas evalúen a los Prevencionistas/Coordinadores SSOMA asignados a su proyecto. Diseño confirmado con el usuario antes de implementar (incluye que sí quiere ver promedio+comentarios agregados del Flujo B, nunca la identidad del evaluador).
+
+### Backend — `Features/EvaluacionesModule/` (10 tablas nuevas, 3 controllers)
+- **Flujo A** (`EvSupervisorContratistaController`, ruta `api/v1/evaluaciones/supervisores-contratista`): evaluador = rol 70/72 vía `[Authorize(Roles=...)]`; `/ver` y `/dashboard` solo rol 9. Evaluado = persona en `ss_contratista_usuario` con rol de sistema 74 (Contratista Supervisor de Campo), resuelta por proyecto vía `worker_vinculaciones` del evaluador (mismo patrón que ya usa `EvContratistaRepository`).
+- **Flujo B** (`EvJefeSsomaController`, ruta `.../jefe-ssoma`): anónimo y obligatorio. `ev_evaluacion_jefe_ssoma` (nota/comentario, SIN `evaluador_user_id`) y `ev_evaluacion_jefe_ssoma_cumplimiento` (solo `evaluador_user_id` + `completado_at`, para trackear quién falta) son dos tablas separadas sin FK entre sí — se insertan juntas en una sola transacción (`EvJefeSsomaRepository.RegistrarAsync`) pero nada en el esquema permite unir autor con respuesta. `/resultados` y `/pendientes` solo rol 9.
+- **Flujo C** (`EvPrevencionistaController`, ruta `.../prevencionistas`): evaluador = sesión contratista existente (`tipo=CONTRATISTA`, `[Authorize(Roles=Roles.Contratista)]`, lee claims `empresaId`/`proyectoIds` del JWT ya emitido por `ContratistaAuthService`). Sí guarda identidad del evaluador (empresa + `ss_contratista_usuario_id`) porque el Jefe SSOMA la necesita en `/dashboard`; el anonimato es solo de cara al evaluado — `/mi-perfil` nunca selecciona esas columnas.
+- `AppDbContext`: 10 `DbSet` nuevos agregados — **ojo**: estos ya quedaron commiteados y pusheados a `origin/master` accidentalmente dentro de un commit ajeno (`4e378b8 "fix: EMO sabados Staff..."`), de otra sesión que corrió `git add -A` sobre el mismo archivo mientras esta sesión trabajaba. Sin impacto (DbSet no se ejecuta hasta usarse, y nada más de este trabajo estaba commiteado en ese momento), pero avisado al usuario.
+- Migración manual `Migrations_Manual/2026-08-20_evaluaciones_ssoma_supervisores_jefe_prevencionistas.sql` (10 tablas + 3 plantillas con 5 criterios sembrados cada una) — **ya corrida y verificada por el usuario**.
+- Migración manual `Migrations_Manual/2026-08-20_evaluaciones_supervisores_contratista_feature_seed.sql` (feature+role_feature para las 2 rutas del Flujo A) — pendiente de correr.
+- Bug real corregido en el camino: `EvPrevencionistaRepository` usaba `ValueTuple` como tipo de retorno de dos queries Dapper (`QueryAsync<(int,int)>` / `QueryAsync<(decimal?,string?)>`), que Dapper no sabe mapear — reemplazado por records (`YaEvaluadoRaw`, `NotaComentarioRaw`).
+
+### Frontend — solo Flujo A implementado
+`pages/evaluar-supervisor-contratista/` (clon de `evaluar-contratista`, escala 0-4 por criterio) y `pages/ver-evaluacion-supervisores/` (tabla consolidada, solo Jefe SSOMA), + `dtos/ev-supervisor-contratista.model.ts` + `services/ev-supervisor-contratista.service.ts`. Rutas registradas en `evaluaciones.routes.ts` y sidebar en `navigation.service.ts`.
+
+**Descubrimiento importante**: el acceso a rutas de Evaluaciones no usa `data.roles` estático (aunque `roleGuard` lo soporta como fallback) sino el sistema dinámico `feature`/`role_feature` vía `featureKey`, igual que el resto del módulo — de ahí la migración de feature seed de arriba.
+
+### Verificado
+- `dotnet build Abril-Backend.csproj`: 0 errores de compilación (solo warnings preexistentes). Los 2 "errores" de MSB3027/MSB3021 al final son por el .exe bloqueado porque el usuario tenía el backend corriendo en otra terminal — no son errores de código.
+- `npm run build` (frontend): 0 errores, solo warnings preexistentes de CommonJS de terceros.
+- No probado en navegador ni con datos reales todavía.
+
+### Pendiente (frontend)
+- **Flujo B**: pantalla "Evaluar al Jefe SSOMA" (para 70/72) + pantalla de resultados (solo rol 9, promedio + comentarios sin autor + lista de pendientes). Falta decidir mecanismo de "obligatorio" (¿banner de bloqueo como charlas SSOMA, o solo recordatorio?).
+- **Flujo C**: pantalla de evaluación dentro del portal `dashboard-contratista` (ya existe, ya resuelve `empresaId`/`proyectoIds` del JWT contratista) + `/mi-perfil` para el propio Prevencionista/Coordinador + dashboard consolidado para el Jefe SSOMA.
+- Feature seeds de B y C (mismo patrón que el de A).
+- Aplicar la migración de feature seed de A pendiente arriba.

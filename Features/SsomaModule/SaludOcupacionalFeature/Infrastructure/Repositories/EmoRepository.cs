@@ -181,6 +181,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (filter.SinInterconsulta)
                 q = q.Where(x => ctx.SsInterconsulta.Any(ic =>
                     ic.WorkerId == x.w.Id && ic.Estado != "Cancelada" && ic.UrlInforme == null));
+            if (filter.PendienteLecturaAbril)
+                q = q.Where(x => x.ue != null && x.ue.RequiereLecturaAbril && x.ue.UrlResultado == null);
 
             var page = filter.Page < 1 ? 1 : filter.Page;
             var pageSize = filter.PageSize <= 0 ? 50 : Math.Min(filter.PageSize, 200);
@@ -232,6 +234,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlAptitud = x.ue != null ? x.ue.UrlAptitud : null,
                     UrlEmoCompleto = x.ue != null ? x.ue.UrlEmoCompleto : null,
                     UrlResultado = x.ue != null ? x.ue.UrlResultado : null,
+                    RequiereLecturaAbril = x.ue != null && x.ue.RequiereLecturaAbril,
                     RequiereInterconsulta = x.ue != null && x.ue.RequiereInterconsulta,
                     // Se busca por WorkerId (la interconsulta más reciente del trabajador), no por
                     // el EmoId del EMO activo actual: cuando se registra un EMO de seguimiento que
@@ -420,6 +423,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UrlResultado = row.e.UrlResultado,
                 UrlAptitud = row.e.UrlAptitud,
                 UrlEmoCompleto = row.e.UrlEmoCompleto,
+                RequiereLecturaAbril = row.e.RequiereLecturaAbril,
                 Estado = row.e.Estado,
                 Notas = row.e.Notas,
                 Activo = row.e.Activo,
@@ -539,6 +543,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 NumeroInforme = dto.NumeroInforme,
                 FechaLectura = dto.FechaLectura,
                 UrlResultado = dto.UrlResultado,
+                RequiereLecturaAbril = dto.RequiereLecturaAbril,
                 Notas = dto.Notas,
                 Estado = esApto ? "Vigente" : "Observado",
                 Activo = true,
@@ -800,6 +805,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.RequiereInterconsulta = dto.RequiereInterconsulta;
             emo.NumeroInforme = dto.NumeroInforme;
             emo.UrlResultado = dto.UrlResultado;
+            emo.RequiereLecturaAbril = dto.RequiereLecturaAbril;
             emo.Notas = dto.Notas;
             emo.Estado = esApto ? "Vigente" : "Observado";
             emo.UpdatedAt = DateTimeOffset.UtcNow;
@@ -876,6 +882,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 await SincronizarEntregableEmoAsync(ctx, emo, worker);
             }
 
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Completa la lectura de un EMO marcado como RequiereLecturaAbril: guarda la fecha y el
+        /// archivo, y corre la misma sincronización de habilitaciones (SincronizarEntregableEmoAsync)
+        /// que Create()/Update() — el mismo proceso que sigue una clínica al subir su lectura.
+        /// </summary>
+        public async Task CompletarLecturaAbril(int id, DateOnly fechaLectura, string urlResultado, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == id)
+                ?? throw new AbrilException("EMO no encontrado.", 404);
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            emo.FechaLectura = fechaLectura;
+            emo.UrlResultado = urlResultado;
+            emo.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await SincronizarEntregableEmoAsync(ctx, emo, worker);
             await ctx.SaveChangesAsync();
         }
 

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Datos de la vista de GTH ("Reclutamiento"): tarjetas de resumen, embudo del pipeline y tabla
@@ -80,9 +80,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Fecha en que llegó la solicitud (created) en hora Perú (UTC-5). Columna "Fecha llegada".</summary>
         public DateTime FechaLlegada { get; set; }
-
-        /// <summary>Fecha requerida de ingreso (solo fecha). Columna "Fecha requerida".</summary>
-        public DateOnly FechaRequeridaIngreso { get; set; }
 
         /// <summary>Prioridad asignada (id del catálogo gth_prioridad). Null si no tiene. Columna "Prioridad".</summary>
         public int? PrioridadId { get; set; }

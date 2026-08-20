@@ -1,5 +1,6 @@
 using Microsoft.OpenApi;
 using Abril_Backend.Shared.Realtime;
+using Abril_Backend.Shared.Services.Email.Configuration;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
@@ -127,9 +128,23 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     options.AddInterceptors(sp.GetRequiredService<AuditoriaInterceptor>());
 });
 
+// Configuración del servicio de correo. Los remitentes viven en Email:Senders indexados por
+// clave, así que agregar un buzón nuevo es agregar una entrada al appsettings, sin tocar código.
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+builder.Services.AddSingleton<IEmailSenderResolver, EmailSenderResolver>();
+
+// Token de aplicacion de Graph, cacheado. Singleton para que el cache sirva a todo el proceso.
+builder.Services.AddSingleton<IGraphAppTokenProvider, GraphAppTokenProvider>();
+
 if (emailProvider == "SendGrid")
 {
     builder.Services.AddSingleton<IEmailService, SendGridEmailService>();
+} else if (emailProvider == "Graph")
+{
+    builder.Services.AddHttpClient<IEmailService, GraphAppMailService>(client =>
+    {
+        client.BaseAddress = new Uri("https://graph.microsoft.com/");
+    });
 } else if (emailProvider == "PowerAutomate")
 {
     builder.Services.AddSingleton<IEmailService, PowerAutomateEmailService>();
@@ -214,10 +229,6 @@ builder.Services.AddScoped<PersonRepository>();
 builder.Services.AddScoped<ProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
-builder.Services.Configure<EmailSettings>(
-    builder.Configuration.GetSection("Email:EmailSettings")
-);
-
 builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection("FrontendSettings"));
 // Cliente único hacia la API de Decolecta (RENIEC + SUNAT) con rotación de tokens desde
 // la tabla decolecta_token: el token ya no va fijo en DefaultRequestHeaders porque
@@ -386,6 +397,11 @@ builder.Services.AddExceptionHandler<Abril_Backend.Shared.Exceptions.DatabaseExc
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+
+// Fuerza la construcción del resolver al arrancar: si Email:DefaultSender no existe en
+// Email:Senders, o un remitente no tiene Address, la app no levanta en vez de descubrirlo
+// recién cuando alguien intenta enviar un correo.
+app.Services.GetRequiredService<IEmailSenderResolver>();
 
 // PdfSharpCore trae un proveedor de imágenes incompatible con ImageSharp 3.x (lanza
 // MissingMethodException al dibujar cualquier imagen en un PDF, p. ej. la firma de facturas).

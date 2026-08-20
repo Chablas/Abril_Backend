@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models;
@@ -312,7 +312,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                              .Select(x => x.DocumentIdentityCode)
                              .FirstOrDefault()
                           ?? fo.NumeroDocumento,
-                    FechaRequeridaIngreso = r.FechaRequeridaIngreso,
                     JefeDirecto = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
                     // La firma que el postulante dibuja en el enlace público se guarda en su ficha de
                     // la base maestra, así que sin ficha el envío no puede salir. Se busca igual que
@@ -382,8 +381,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 Empresa         = apto.Empresa,
                 ProyectoObra    = apto.ProyectoObra,
                 Correo          = destino.ToLowerInvariant(),
-                // Sin fecha pactada se usa la que el solicitante pidió en el requerimiento.
-                FechaIngreso    = fechaIngreso ?? apto.FechaRequeridaIngreso,
+                // La fecha la pacta GTH en el modal: el requerimiento ya no trae ninguna propuesta.
+                FechaIngreso    = fechaIngreso,
                 JefeDirecto     = apto.JefeDirecto,
             };
         }

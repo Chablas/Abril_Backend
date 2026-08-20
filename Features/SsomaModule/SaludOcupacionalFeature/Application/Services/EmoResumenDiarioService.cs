@@ -112,7 +112,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 {
                     var subject = $"Resumen Vigilancia Médica — {hoy:dd/MM/yyyy}";
                     var body = BuildBody(hoy, result, filas);
-                    await _emailService.SendAsync(to: destinatarios, subject: subject, body: body, isHtml: true, fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    await _emailService.SendAsync(to: destinatarios, subject: subject, body: body, isHtml: true, sender: SaludOcupacionalEmailConstants.SenderKey);
                     emailEnviado = true;
                 }
                 catch (Exception ex)

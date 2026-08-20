@@ -252,7 +252,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     body: body,
                     isHtml: true,
                     cc: cc.Count > 0 ? cc : null,
-                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    sender: SaludOcupacionalEmailConstants.SenderKey);
             }
             catch (Exception ex)
             {

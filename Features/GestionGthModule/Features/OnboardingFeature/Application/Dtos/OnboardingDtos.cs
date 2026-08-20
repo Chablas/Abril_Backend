@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos
 {
     /// <summary>
     /// Todo lo que necesita la pantalla de Onboarding al entrar, en una sola petición: tarjetas de
@@ -201,9 +201,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// modal lo bloquea antes de enviar nada.
         /// </summary>
         public string? Dni { get; set; }
-
-        /// <summary>Fecha requerida de ingreso del requerimiento: es la que se propone en el modal.</summary>
-        public DateOnly? FechaRequeridaIngreso { get; set; }
 
         /// <summary>Jefe directo (el solicitante de la vacante), para mostrarlo en el resumen del modal.</summary>
         public string? JefeDirecto { get; set; }

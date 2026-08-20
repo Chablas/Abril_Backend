@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>SLA referencial del proceso, en días.</summary>
         public int SlaDias { get; set; }
 
-        /// <summary>Descripción corta mostrada como ayuda al seleccionar el tipo.</summary>
+        /// <summary>Descripción corta del tipo. Ya no se muestra en la UI; se conserva la columna.</summary>
         public string? Descripcion { get; set; }
 
         public int Orden { get; set; }

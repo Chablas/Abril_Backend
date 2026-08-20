@@ -182,9 +182,27 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 .FirstOrDefaultAsync(t => t.Id == dto.TipoId && t.State && t.Active && t.DisponibleMiSalud)
                 ?? throw new AbrilException("El tipo de descanso seleccionado no es válido.", 400);
 
+            // Todo descanso pertenece a un caso clínico (ss_descanso_medico.caso_id es NOT NULL).
+            // El trabajador que autorreporta desde Mi Salud no declara si su descanso extiende un
+            // caso ya abierto — no tiene por qué saberlo — así que siempre se le abre un caso nuevo;
+            // si resulta ser la continuación de otro, SSOMA lo mueve al caso correcto desde
+            // Revisión de Descansos (ver DescansoMedicoRepository.VincularCaso).
+            var caso = new SsDescansoCaso
+            {
+                WorkerId      = workerId,
+                FechaApertura = dto.FechaInicio,
+                Estado        = "Abierto",
+                CreatedAt     = DateTimeOffset.UtcNow,
+                UpdatedAt     = DateTimeOffset.UtcNow,
+                State         = true,
+            };
+            ctx.SsDescansoCaso.Add(caso);
+
             var entity = new SsDescansoMedico
             {
                 WorkerId               = workerId,
+                // CasoId se resuelve vía esta navegación al guardar (el caso aún no tiene id).
+                Caso                   = caso,
                 TipoId                 = tipo.Id,
                 FechaInicio            = dto.FechaInicio,
                 FechaFin               = dto.FechaFin,

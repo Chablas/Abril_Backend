@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>Opción genérica {id, nombre} para desplegables del formulario.</summary>
     public class OpcionDto
@@ -26,17 +26,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// </summary>
     public class ReclutamientoFormDataDto
     {
+        /// <summary>
+        /// Área a mostrar en el campo "Área del solicitante": el nombre del nodo de
+        /// <see cref="AreaScopeId"/>, o de su primer ancestro que no sea una gerencia. Se resuelve
+        /// desde el árbol de áreas y no desde <c>workers.area</c>, que es texto plano congelado.
+        /// Null solo cuando el usuario no tiene ficha de trabajador o su ficha no tiene área.
+        /// </summary>
         public string? AreaNombre { get; set; }
+
+        /// <summary>Nodo de <c>area_scope</c> del solicitante; es el que define el subárbol de <see cref="TrabajadoresArea"/> y a qué gerente se le notifica.</summary>
         public int? AreaScopeId { get; set; }
         public int MaxVacantes { get; set; } = 10;
         public List<OpcionDto> Puestos { get; set; } = new();
-
-        /// <summary>
-        /// Categorías vigentes para el modo "Puesto personalizado": el solicitante escribe el puesto
-        /// y elige de aquí su categoría (la real del trabajador, ver <c>gth_requerimiento.categoria_id</c>).
-        /// </summary>
-        public List<OpcionDto> Categorias { get; set; } = new();
-
         public List<TipoRequerimientoOpcionDto> TiposRequerimiento { get; set; } = new();
         public List<OpcionDto> Proyectos { get; set; } = new();
 

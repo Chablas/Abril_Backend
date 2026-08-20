@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application
 {
     /// <summary>
     /// Códigos estables de los tipos de correo configurables del módulo de Reclutamiento
@@ -47,6 +47,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string FormularioCompletado = "FORMULARIO_COMPLETADO";
 
         /// <summary>
+        /// Correo de "formulario del postulante enviado" (va al postulante). Lo dispara GTH desde
+        /// la bandeja, uno por uno o en lote, y lleva el enlace público del formulario. El
+        /// destinatario principal es SIEMPRE el postulante; la configuración solo aporta
+        /// principales adicionales y copias.
+        /// </summary>
+        public const string FormularioEnvio = "FORMULARIO_ENVIO";
+
+        /// <summary>
+        /// Correo de "correcciones del formulario" (va al postulante). Sale cuando GTH rechaza un
+        /// formulario ya llenado: lleva las observaciones y el MISMO enlace del envío original.
+        /// Es otro correo que el de invitación —otro asunto y otro cuerpo—, por eso se configura
+        /// aparte de <see cref="FormularioEnvio"/>.
+        /// </summary>
+        public const string FormularioCorreccion = "FORMULARIO_CORRECCION";
+
+        /// <summary>
         /// Correo de "invitación a la entrevista" (va al postulante citado). El destinatario
         /// principal es SIEMPRE el postulante; la configuración solo aporta principales adicionales
         /// y copias, por si GTH quiere quedarse con el registro de cada citación.
@@ -54,10 +70,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string Entrevista = "ENTREVISTA";
 
         /// <summary>
+        /// Correo de "gracias por participar" (va al candidato que no continúa). Sale desde dos
+        /// lados con el mismo cuerpo: cuando GTH marca a un candidato como "no continúa" en la
+        /// bandeja y cuando el solicitante rechaza a un finalista. Es un solo correo, así que un
+        /// solo tipo gobierna ambos. El destinatario principal es SIEMPRE el candidato.
+        /// </summary>
+        public const string Agradecimiento = "AGRADECIMIENTO";
+
+        /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
         /// <c>long-list</c> / <c>decision-long-list</c> / <c>decision-finalista</c> /
-        /// <c>formulario-completado</c> / <c>entrevista</c>) al código estable. Devuelve null si el
-        /// slug no corresponde a un tipo conocido.
+        /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
+        /// <c>entrevista</c> / <c>agradecimiento</c>) al código estable. Devuelve null si el slug
+        /// no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
@@ -67,8 +92,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             "long-list"              => LongList,
             "decision-long-list"     => LongListDecision,
             "decision-finalista"     => FinalistaDecision,
+            "formulario-envio"       => FormularioEnvio,
             "formulario-completado"  => FormularioCompletado,
+            "formulario-correccion"  => FormularioCorreccion,
             "entrevista"             => Entrevista,
+            "agradecimiento"         => Agradecimiento,
             _ => null,
         };
     }

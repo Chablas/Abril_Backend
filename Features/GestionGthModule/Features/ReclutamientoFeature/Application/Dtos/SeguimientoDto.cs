@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Detalle de seguimiento de un requerimiento (modal "Estado del reclutamiento"): cabecera con
@@ -19,8 +19,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? ProyectoObra { get; set; }
         public string? Justificacion { get; set; }
 
-        /// <summary>Fecha requerida de ingreso (solo fecha).</summary>
-        public DateOnly FechaRequeridaIngreso { get; set; }
+        /// <summary>
+        /// Salario bruto mensual declarado para la vacante, en soles. Null en los requerimientos
+        /// anteriores a que se pidiera el dato.
+        /// </summary>
+        public decimal? SalarioBrutoMensual { get; set; }
 
         /// <summary>Fecha de envío (created) en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }

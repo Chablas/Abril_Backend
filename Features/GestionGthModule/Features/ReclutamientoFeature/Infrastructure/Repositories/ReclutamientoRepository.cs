@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
@@ -7,7 +7,6 @@ using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
@@ -22,6 +21,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Los timestamps se guardan en UTC y se sirven al frontend en hora de Perú.</summary>
         private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Nombre del <c>area_type</c> de las gerencias, el único tipo que NO sirve como "Área del
+        /// solicitante" (ver <see cref="ResolveAreaNombreInternal"/>). Se compara por nombre y no
+        /// por id porque los ids de <c>area_type</c> no están verificados como iguales en dev y
+        /// prod; es el mismo criterio que usan Revisores de Áreas y Lecciones Aprendidas.
+        /// </summary>
+        private const string AreaTypeGerencia = "Área de Gerencia";
+
+        /// <summary>
+        /// Primera clave del <c>pg_advisory_xact_lock(int, int)</c> que serializa la generación del
+        /// correlativo de <c>gth_requerimiento</c>; la segunda es el año. Los advisory locks de
+        /// Postgres viven en un espacio global compartido por toda la base, así que el número solo
+        /// tiene que ser distinto del que use cualquier otro candado del sistema — hoy este es el
+        /// único, y por eso no hay una tabla de constantes donde ponerlo.
+        /// </summary>
+        private const int CorrelativoLockNamespace = 8471;
 
         /// <summary>
         /// Fila cruda del formulario del postulante en el detalle de GTH. Es una clase con nombre
@@ -293,16 +309,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Where(p => p.State && p.Active)
                 .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
                 .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
-                .ToListAsync();
-
-            // Para el modo "Puesto personalizado": el solicitante escribe el puesto y le asigna una
-            // de estas categorías (la real del trabajador, no la que trae el puesto del catálogo).
-            // Solo las marcadas para esta pantalla: acá se contrata planilla de Abril, así que las
-            // categorías de obra (Operario, Peón, Oficial…) solo cargarían el desplegable.
-            dto.Categorias = await ctx.Categoria
-                .Where(c => c.State && c.Active && c.VisibleSolicitudPersonal)
-                .OrderBy(c => c.Orden).ThenBy(c => c.Nombre)
-                .Select(c => new OpcionDto { Id = c.CategoriaId, Nombre = c.Nombre })
                 .ToListAsync();
 
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
@@ -713,7 +719,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto          = p.Nombre,
                     ProyectoObra    = pr.ProjectDescription,
                     r.CreatedDateTime,
-                    r.FechaRequeridaIngreso,
                     PrioridadId     = prio != null ? (int?)prio.GthPrioridadId : null,
                     PrioridadNombre = prio != null ? prio.Nombre : null,
                     EstadoCodigo    = e.Codigo,
@@ -729,7 +734,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto                = x.Puesto,
                 ProyectoObra          = x.ProyectoObra,
                 FechaLlegada          = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                FechaRequeridaIngreso = x.FechaRequeridaIngreso,
                 PrioridadId           = x.PrioridadId,
                 PrioridadNombre       = x.PrioridadNombre,
                 EstadoCodigo          = x.EstadoCodigo,
@@ -866,7 +870,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ProyectoObra = pr.ProjectDescription,
                     TrabajadorReemplazado = wr == null ? null
                         : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
-                    r.FechaRequeridaIngreso,
+                    r.SalarioBrutoMensual,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
                     r.GthResponsableProcesoId,
@@ -896,7 +900,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Id          = t.GthTipoProcesoId,
                     Nombre      = t.Nombre,
                     SlaDias     = t.SlaDias,
-                    Descripcion = t.Descripcion,
                 })
                 .ToListAsync();
 
@@ -1085,8 +1088,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra          = head.ProyectoObra,
                 TipoRequerimiento     = head.Tipo,
                 TrabajadorReemplazado = head.TrabajadorReemplazado,
+                SalarioBrutoMensual   = head.SalarioBrutoMensual,
                 Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
-                FechaRequeridaIngreso = head.FechaRequeridaIngreso,
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
                 Asignacion = new AsignacionGthDto
@@ -1744,6 +1747,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (req == null)
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
+            // Publicar cierra la asignación interna: de acá en adelante el requerimiento se
+            // trabaja con responsable, SLA, prioridad y razón social ya definidos, así que los
+            // cuatro son obligatorios antes de avanzar la fase.
+            var faltantes = new List<string>();
+            if (req.GthResponsableProcesoId == null) faltantes.Add("el responsable del proceso");
+            if (req.GthTipoProcesoId == null)        faltantes.Add("el tipo de proceso");
+            if (req.GthPrioridadId == null)          faltantes.Add("la prioridad interna");
+            if (req.ContributorId == null)           faltantes.Add("la razón social activa");
+            if (faltantes.Count > 0)
+                throw new AbrilException($"Antes de publicar debes seleccionar {string.Join(", ", faltantes)}.", 400);
+
             var deseados = canalIds.Distinct().ToList();
             if (deseados.Count > 0)
             {
@@ -1883,7 +1897,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto           = p.Nombre,
                     Area             = r.Solicitud!.AreaNombre,
                     ProyectoObra     = pr.ProjectDescription,
-                    r.FechaRequeridaIngreso,
                     EstadoCodigo     = e.Codigo,
                     EstadoNombre     = e.Nombre,
                     EstadoOrden      = e.Orden,
@@ -1911,7 +1924,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto                = info.Puesto,
                 Area                  = info.Area,
                 ProyectoObra          = info.ProyectoObra,
-                FechaRequeridaIngreso = info.FechaRequeridaIngreso,
                 SlaDias               = info.SlaDias,
                 SolicitanteEmail      = info.SolicitanteEmail,
             };
@@ -2066,7 +2078,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Area              = r.Solicitud!.AreaNombre,
                     ProyectoObra      = pr.ProjectDescription,
                     r.Solicitud.Justificacion,
-                    r.FechaRequeridaIngreso,
+                    r.SalarioBrutoMensual,
                     r.CreatedDateTime,
                     EstadoCodigo      = e.Codigo,
                     EstadoNombre      = e.Nombre,
@@ -2121,7 +2133,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Area                  = head.Area,
                 ProyectoObra          = head.ProyectoObra,
                 Justificacion         = head.Justificacion,
-                FechaRequeridaIngreso = head.FechaRequeridaIngreso,
+                SalarioBrutoMensual   = head.SalarioBrutoMensual,
                 Enviado               = head.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
@@ -2340,9 +2352,63 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             var w = await ctx.Worker
                 .Where(x => x.Person != null && x.Person.UserId == userId)
-                .Select(x => new { x.Id, x.Area, x.AreaScopeId })
+                .Select(x => new { x.Id, x.AreaScopeId })
                 .FirstOrDefaultAsync();
-            return (w?.Area, w?.AreaScopeId, w?.Id);
+            if (w == null) return (null, null, null);
+
+            return (await ResolveAreaNombreInternal(ctx, w.AreaScopeId), w.AreaScopeId, w.Id);
+        }
+
+        /// <summary>
+        /// Nombre del área que se muestra como "Área del solicitante" y que queda guardado en
+        /// <c>gth_solicitud.area_nombre</c>. Sale del árbol (<c>area_scope</c> → <c>area_item</c>)
+        /// y ya NO de <c>workers.area</c>: esa columna es texto plano del padrón viejo que dejó de
+        /// mantenerse, así que a un trabajador de "Tecnología de la Información" le seguía
+        /// diciendo "Proyectos".
+        ///
+        /// Se sube por el árbol desde el nodo del trabajador hasta el primero que no sea de tipo
+        /// "Área de Gerencia", es decir la primera "Área Estándar" de su rama. El walk-up hace
+        /// falta porque los gerentes no cuelgan de un área estándar sino directamente del nodo de
+        /// su gerencia (mismo motivo que en <see cref="GetGerenteDeArea"/>); cuando toda la rama
+        /// es de gerencia — el caso del gerente mismo — se devuelve el nombre de esa gerencia, que
+        /// es su área real: devolver null dejaría el campo en "(No se pudo identificar tu área)"
+        /// justo para quien la tiene bien registrada.
+        /// </summary>
+        private static async Task<string?> ResolveAreaNombreInternal(AppDbContext ctx, int? areaScopeId)
+        {
+            if (areaScopeId is not > 0) return null;
+
+            // El árbol es una tabla chica: se arma en memoria, igual que en GetGerenteDeArea.
+            // No se filtra por at.State a propósito: un tipo de área dado de baja no debe cortar
+            // el recorrido, solo deja de contar como "Área de Gerencia".
+            var nodos = await (
+                from s in ctx.AreaScope.AsNoTracking()
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                join at in ctx.AreaType.AsNoTracking() on ai.AreaTypeId equals at.AreaTypeId
+                where s.State && ai.State
+                select new
+                {
+                    s.AreaScopeId,
+                    s.AreaScopeParentId,
+                    ai.AreaItemName,
+                    at.AreaTypeName,
+                }).ToListAsync();
+
+            var nodoById = nodos.ToDictionary(n => n.AreaScopeId);
+
+            string? nodoPropio = null;                 // respaldo para la rama toda de gerencia
+            var visitados = new HashSet<int>();        // el HashSet corta ciclos por si el árbol quedó mal
+            int? actual = areaScopeId;
+            while (actual != null && visitados.Add(actual.Value) &&
+                   nodoById.TryGetValue(actual.Value, out var nodo))
+            {
+                nodoPropio ??= nodo.AreaItemName;
+                if (!string.Equals(nodo.AreaTypeName, AreaTypeGerencia, StringComparison.OrdinalIgnoreCase))
+                    return nodo.AreaItemName;
+                actual = nodo.AreaScopeParentId;
+            }
+
+            return nodoPropio;
         }
 
         public async Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId)
@@ -2365,31 +2431,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(p => (int?)p.GthPrioridadId)
                 .FirstOrDefaultAsync();
 
-            // Validar que los ids referenciados existan y estén vigentes. Los puestos solo se
-            // validan contra el catálogo cuando la vacante lo eligió del desplegable: las de
-            // "Puesto personalizado" traen nombre + categoría y su puesto se resuelve más abajo.
-            var puestoIds  = vacantes.Where(v => !v.PuestoPersonalizado)
-                                     .Select(v => v.PuestoId!.Value).Distinct().ToList();
-            var categoriaIds = vacantes.Where(v => v.PuestoPersonalizado)
-                                       .Select(v => v.CategoriaId!.Value).Distinct().ToList();
+            // Validar que los ids referenciados existan y estén vigentes. Todo puesto sale del
+            // catálogo: el formulario ya no puede dar de alta puestos nuevos.
+            var puestoIds  = vacantes.Select(v => v.PuestoId!.Value).Distinct().ToList();
             var tipoIds    = vacantes.Select(v => v.TipoRequerimientoId).Distinct().ToList();
             var projectIds = vacantes.Select(v => v.ProjectId).Distinct().ToList();
 
-            if (puestoIds.Count > 0)
-            {
-                var puestosOk = await ctx.Puesto.CountAsync(p => puestoIds.Contains(p.PuestoId) && p.State && p.Active);
-                if (puestosOk != puestoIds.Count)
-                    throw new AbrilException("Uno o más puestos seleccionados no son válidos.", 400);
-            }
-
-            if (categoriaIds.Count > 0)
-            {
-                // Mismo filtro que el desplegable: si no se ofrece acá, tampoco se acepta.
-                var categoriasOk = await ctx.Categoria.CountAsync(
-                    c => categoriaIds.Contains(c.CategoriaId) && c.State && c.Active && c.VisibleSolicitudPersonal);
-                if (categoriasOk != categoriaIds.Count)
-                    throw new AbrilException("Una o más categorías seleccionadas no son válidas.", 400);
-            }
+            var puestosOk = await ctx.Puesto.CountAsync(p => puestoIds.Contains(p.PuestoId) && p.State && p.Active);
+            if (puestosOk != puestoIds.Count)
+                throw new AbrilException("Uno o más puestos seleccionados no son válidos.", 400);
 
             // Los tipos se traen (y no solo se cuentan) porque su código decide si la vacante es un
             // reemplazo y, con eso, si hay que exigir el trabajador reemplazado.
@@ -2440,10 +2490,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }
             }
 
-            // El alta de los puestos personalizados y la de la solicitud van juntas: si la solicitud
-            // falla, el catálogo no se queda con puestos que nadie pidió. La transacción se abre
-            // dentro de la execution strategy porque el provider corre con EnableRetryOnFailure y
-            // no admite transacciones iniciadas por fuera de ella.
+            // La solicitud y sus requerimientos entran en una sola transacción, y el correlativo
+            // anual se lee y se consume adentro con un candado por año (ver más abajo), así que dos
+            // solicitudes simultáneas no pueden quedarse con el mismo código. La transacción se abre
+            // dentro de la execution strategy porque el provider corre con EnableRetryOnFailure y no
+            // admite transacciones iniciadas por fuera.
             var now = DateTimeOffset.UtcNow;
             var codigos = new List<string>(vacantes.Count);
 
@@ -2460,10 +2511,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 await using var tx = await ctx.Database.BeginTransactionAsync();
 
-                var puestosPersonalizados = await ResolverPuestosPersonalizados(ctx, vacantes, userId);
+                // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5). El máximo se
+                // busca SOLO dentro del año, así que el correlativo se reinicia solo al cambiar de
+                // año: el 31/12 se cierra en REQ-2026-9874 y el 01/01 arranca en REQ-2027-0001 sin
+                // que haya que correr nada. El año se toma en hora Perú y no en UTC para que el
+                // corte sea la medianoche de acá y no las 19:00 del 31/12.
+                var anio = now.ToOffset(PeruOffset).Year;
 
-                // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5).
-                var anio = now.ToOffset(TimeSpan.FromHours(-5)).Year;
+                // Candado por año antes de leer el máximo. La transacción sola NO alcanza: en READ
+                // COMMITTED dos solicitudes simultáneas leen el mismo máximo, arman el mismo código
+                // y la segunda muere con violación del índice único de `codigo` — que no es un error
+                // transitorio, así que la execution strategy tampoco lo reintenta. El candado lo
+                // suelta Postgres al cerrar la transacción, y al ser por año no serializa los
+                // registros de años distintos.
+                await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({CorrelativoLockNamespace}, {anio})");
+
                 var maxNumero = await ctx.GthRequerimiento
                     .Where(r => r.Anio == anio)
                     .Select(r => (int?)r.Numero)
@@ -2484,18 +2547,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         Codigo                   = codigo,
                         Anio                     = anio,
                         Numero                   = maxNumero,
-                        PuestoId                 = v.PuestoPersonalizado
-                                                       ? puestosPersonalizados[NormalizarPuestoNombre(v.PuestoNombre!)]
-                                                       : v.PuestoId!.Value,
-                        // El par (puesto, categoría) de la vacante: solo se guarda la categoría cuando el
-                        // solicitante la declaró. Con puesto del desplegable queda null y quien contrate
-                        // al seleccionado cae a puesto.categoria_id.
-                        CategoriaId              = v.PuestoPersonalizado ? v.CategoriaId : null,
+                        PuestoId                 = v.PuestoId!.Value,
                         GthTipoRequerimientoId   = v.TipoRequerimientoId,
                         // Ya normalizado arriba: null en todo lo que no sea un reemplazo.
                         ReemplazaWorkerId        = v.ReemplazaWorkerId,
                         ProjectId                = v.ProjectId,
-                        FechaRequeridaIngreso    = v.FechaRequeridaIngreso,
+                        // Ya validado y redondeado a 2 decimales en el servicio.
+                        SalarioBrutoMensual      = v.SalarioBrutoMensual,
                         GthEstadoRequerimientoId = estadoInicialId,
                         GthPrioridadId           = prioridadMediaId,
                         CreatedDateTime          = now,
@@ -2516,72 +2574,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Codigos     = codigos,
             };
         }
-
-        /// <summary>
-        /// Resuelve el <c>puesto_id</c> de las vacantes marcadas como "Puesto personalizado",
-        /// devolviendo un mapa {nombre normalizado → puesto_id}.
-        ///
-        /// Si el nombre ya existe en el catálogo se reutiliza esa fila tal cual (el índice
-        /// <c>ix_puesto_nombre_vivo</c> no admite dos puestos vivos con el mismo nombre, y
-        /// administrar el catálogo es tarea de Habilitación → catálogos, no de este formulario):
-        /// la categoría que eligió el solicitante no se le sobrescribe, porque la del puesto es solo
-        /// una guía y la que manda queda en <c>gth_requerimiento.categoria_id</c>.
-        /// Si no existe, se da de alta con la categoría elegida.
-        /// </summary>
-        private static async Task<Dictionary<string, int>> ResolverPuestosPersonalizados(
-            AppDbContext ctx, List<VacanteCreateDto> vacantes, int? userId)
-        {
-            var resultado = new Dictionary<string, int>();
-
-            // Dos vacantes de la misma solicitud pueden pedir el mismo puesto nuevo: se da de alta
-            // una sola vez.
-            var nombres = vacantes
-                .Where(v => v.PuestoPersonalizado)
-                .Select(v => NormalizarPuestoNombre(v.PuestoNombre!))
-                .Distinct()
-                .ToList();
-            if (nombres.Count == 0) return resultado;
-
-            var existentes = await ctx.Puesto
-                .Where(p => p.State && nombres.Contains(p.Nombre))
-                .Select(p => new { p.PuestoId, p.Nombre })
-                .ToListAsync();
-            foreach (var p in existentes) resultado[p.Nombre] = p.PuestoId;
-
-            var nuevos = nombres.Where(n => !resultado.ContainsKey(n)).ToList();
-            if (nuevos.Count == 0) return resultado;
-
-            var maxOrden = await ctx.Puesto.MaxAsync(p => (int?)p.Orden) ?? 0;
-            var creados = new List<Puesto>(nuevos.Count);
-            foreach (var nombre in nuevos)
-            {
-                var categoriaId = vacantes
-                    .First(v => v.PuestoPersonalizado && NormalizarPuestoNombre(v.PuestoNombre!) == nombre)
-                    .CategoriaId;
-                var puesto = new Puesto
-                {
-                    Nombre          = nombre,
-                    CategoriaId     = categoriaId,
-                    Orden           = ++maxOrden,
-                    CreatedDateTime = DateTime.UtcNow,
-                    CreatedUserId   = userId,
-                };
-                creados.Add(puesto);
-                ctx.Puesto.Add(puesto);
-            }
-            await ctx.SaveChangesAsync();
-
-            foreach (var p in creados) resultado[p.Nombre] = p.PuestoId;
-            return resultado;
-        }
-
-        /// <summary>
-        /// Normaliza el nombre de un puesto escrito a mano: MAYÚSCULAS (como todo el catálogo) y
-        /// espacios internos colapsados, para que "jefe  de  obra" no entre como una fila distinta
-        /// de "JEFE DE OBRA" — el índice único no distingue esos casos por sí solo.
-        /// </summary>
-        private static string NormalizarPuestoNombre(string nombre) =>
-            Regex.Replace(nombre.Trim(), @"\s+", " ").ToUpperInvariant();
     }
 
     /// <summary>

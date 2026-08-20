@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Detalle de un requerimiento para la vista de GTH (modal del ojo de la bandeja):
@@ -29,10 +29,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public string? TrabajadorReemplazado { get; set; }
 
+        /// <summary>
+        /// Salario bruto mensual que el área declaró para la vacante, en soles. Es el que Gerencia
+        /// General aprobó, así que es el punto de partida de la oferta. Null en los requerimientos
+        /// anteriores a que se pidiera el dato.
+        /// </summary>
+        public decimal? SalarioBrutoMensual { get; set; }
+
         /// <summary>Vacantes de este requerimiento (cada vacante genera un requerimiento → 1).</summary>
         public int Vacantes { get; set; } = 1;
-
-        public DateOnly FechaRequeridaIngreso { get; set; }
 
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
@@ -132,7 +137,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int SlaDias { get; set; }
-        public string? Descripcion { get; set; }
     }
 
     /// <summary>Opción del desplegable "Razón social activa", con sus cupos disponibles.</summary>

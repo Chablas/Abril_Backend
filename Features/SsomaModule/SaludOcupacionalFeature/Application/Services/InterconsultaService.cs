@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
@@ -12,9 +13,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static readonly HashSet<string> EstadosValidos = new() { "Pendiente", "Atendida", "Cancelada" };
         /// <summary>Ids de workers_obra_oficina_staff cuyo personal tiene correo corporativo propio.</summary>
         private static readonly HashSet<int> ObraOficinaConCorreoPropio = new(Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral);
-
-        /// <summary>Remitente para todos los correos de Salud Ocupacional (Interconsultas, EMO, etc.).</summary>
-        private const string RemitenteSaludOcupacional = "medicinaocupacionalnm@abril.pe";
 
         private readonly IInterconsultaRepository _repo;
         private readonly IEmailService _emailService;
@@ -83,7 +81,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         subject: $"Recordatorio de interconsulta pendiente - {item.WorkerNombre}",
                         body: BuildBodyIndividual(item),
                         isHtml: true,
-                        fromOverride: RemitenteSaludOcupacional);
+                        sender: SaludOcupacionalEmailConstants.SenderKey);
 
                     result.TotalEnviados++;
                     result.Detalles.Add($"Interconsulta {item.Id} ({item.WorkerNombre}) — enviado a {destinatarios.Count} destinatario(s).");
@@ -118,7 +116,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         subject: $"Interconsultas pendientes - {proyectoNombre}",
                         body: BuildBodyConsolidado(proyectoNombre, grupo.Key.ContributorNombre, grupo.ToList()),
                         isHtml: true,
-                        fromOverride: RemitenteSaludOcupacional);
+                        sender: SaludOcupacionalEmailConstants.SenderKey);
 
                     result.TotalEnviados += grupo.Count();
                     result.Detalles.Add($"{proyectoNombre} — enviado a {admin} ({grupo.Count()} trabajador(es) sin correo propio).");

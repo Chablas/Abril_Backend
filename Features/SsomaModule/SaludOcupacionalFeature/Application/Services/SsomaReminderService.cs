@@ -373,7 +373,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    sender: SaludOcupacionalEmailConstants.SenderKey);
 
                 alerta.EnviadoEmail  = true;
                 alerta.FechaEnvio    = DateTimeOffset.UtcNow;

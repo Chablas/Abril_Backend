@@ -566,7 +566,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     body: html,
                     isHtml: true,
                     cc: cc.Count > 0 ? cc : null,
-                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    sender: SaludOcupacionalEmailConstants.SenderKey);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;
             }
@@ -657,7 +657,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     body: html,
                     isHtml: true,
                     cc: cc.Count > 0 ? cc : null,
-                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    sender: SaludOcupacionalEmailConstants.SenderKey);
             }
             catch (Exception ex)
             {
@@ -727,7 +727,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     body: html,
                     isHtml: true,
                     cc: cc.Count > 0 ? cc : null,
-                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                    sender: SaludOcupacionalEmailConstants.SenderKey);
             }
             catch (Exception ex)
             {
@@ -921,7 +921,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         body: BuildBodyInasistenciaIndividual(infoIndividual, fecha),
                         isHtml: true,
                         cc: ccBase,
-                        fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                        sender: SaludOcupacionalEmailConstants.SenderKey);
                     result.TotalEnviados++;
                     result.Detalles.Add($"{item.WorkerNombre} — enviado a {destinatarios.Count} destinatario(s).");
                 }
@@ -971,7 +971,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         body: BuildBodyInasistenciaConsolidado(proyectoNombre, infosGrupo, fecha),
                         isHtml: true,
                         cc: ccBase,
-                        fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                        sender: SaludOcupacionalEmailConstants.SenderKey);
                     result.TotalEnviados += grupo.Count();
                     result.Detalles.Add($"{proyectoNombre} — enviado a {admin} ({grupo.Count()} trabajador(es)).");
                 }

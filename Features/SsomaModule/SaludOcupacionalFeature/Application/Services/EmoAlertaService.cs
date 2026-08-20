@@ -221,7 +221,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                             subject: subject,
                             body: body,
                             isHtml: true,
-                            fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                            sender: SaludOcupacionalEmailConstants.SenderKey);
 
                         foreach (var r in grupo)
                         {
@@ -282,7 +282,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         subject: subject,
                         body: body,
                         isHtml: true,
-                        fromOverride: SaludOcupacionalEmailConstants.Remitente);
+                        sender: SaludOcupacionalEmailConstants.SenderKey);
 
                     ctx.SsAlertaEmo.Add(new SsAlertaEmo
                     {

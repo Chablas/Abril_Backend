@@ -186,7 +186,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     TrabajadorReemplazado  = wr == null ? null
                         : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                     ProyectoObra           = pr.ProjectDescription,
-                    FechaRequeridaIngreso  = r.FechaRequeridaIngreso,
+                    SalarioBrutoMensual    = r.SalarioBrutoMensual,
                     AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                 }).ToListAsync();
@@ -979,7 +979,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         TrabajadorReemplazado  = wr == null ? null
                             : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                         ProyectoObra           = pr.ProjectDescription,
-                        FechaRequeridaIngreso  = r.FechaRequeridaIngreso,
+                        SalarioBrutoMensual    = r.SalarioBrutoMensual,
                         AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
                         AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                     },

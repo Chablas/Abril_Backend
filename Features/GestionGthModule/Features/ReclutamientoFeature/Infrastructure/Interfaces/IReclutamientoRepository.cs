@@ -7,7 +7,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         Task<ReclutamientoFormDataDto> GetFormData(int? userId);
 
-        /// <summary>Área (nombre + area_scope) del worker vinculado al usuario. (null, null) si no resuelve.</summary>
+        /// <summary>
+        /// Área (nombre + area_scope) del worker vinculado al usuario. (null, null, null) si no
+        /// resuelve. El nombre se deriva del árbol de áreas — el nodo de <c>area_scope_id</c> o su
+        /// primer ancestro que no sea gerencia — y no de <c>workers.area</c>, texto congelado.
+        /// </summary>
         Task<(string? AreaNombre, int? AreaScopeId, int? WorkerId)> ResolveSolicitante(int userId);
 
         /// <summary>

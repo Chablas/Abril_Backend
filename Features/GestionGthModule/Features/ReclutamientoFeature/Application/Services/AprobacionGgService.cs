@@ -1,13 +1,16 @@
-﻿using System.Security.Cryptography;
-using System.Text;
+﻿using System.Globalization;
+using System.Security.Cryptography;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Notificaciones.Dtos;
 using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
+using Layout = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailLayout;
+using Textos = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailTextos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
@@ -56,9 +59,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _configuration  = configuration;
             _logger         = logger;
         }
-
-        /// <summary>Color de la cabecera de los correos de reclutamiento (azul del logo de Abril).</summary>
-        private const string AzulAbril = "#005D9D";
 
         // ── Envío al Gerente General ──────────────────────────────────────────
         public async Task<bool> EnviarSolicitudAGerencia(int solicitudId, int? userId)
@@ -184,108 +184,58 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Línea "Reemplaza a {trabajador}" bajo el tipo, en la celda de la tabla de vacantes. Vacía
-        /// en las vacantes nuevas y en los requerimientos anteriores a que se pidiera ese dato: se
-        /// agrega a la misma celda para no cambiar las columnas de una tabla que ya se lee bien.
+        /// Salario bruto mensual de la vacante formateado en soles para la tabla de los correos a
+        /// los gerentes y a GTH (los dos que sí lo necesitan: uno lo aprueba y el otro arma la
+        /// oferta). Guion cuando la vacante es anterior a que se pidiera el dato.
         /// </summary>
-        private static string CeldaReemplazado(AprobacionGgVacanteDto v) =>
-            string.IsNullOrWhiteSpace(v.TrabajadorReemplazado)
-                ? ""
-                : $"""<br><span style="font-size:11px;color:#6b7280">Reemplaza a {System.Net.WebUtility.HtmlEncode(v.TrabajadorReemplazado)}</span>""";
+        private static string SalarioTexto(AprobacionGgVacanteDto v) =>
+            v.SalarioBrutoMensual.HasValue
+                ? $"S/ {v.SalarioBrutoMensual.Value.ToString("N2", CultureInfo.InvariantCulture)}"
+                : "—";
 
         /// <summary>
         /// Cuerpo del correo a los gerentes: la solicitud completa en una tabla + un acceso a la
         /// pantalla «Aprobaciones», donde cada uno decide vacante por vacante. Es UN solo correo
         /// con varios destinatarios (Gerente General y gerente del área), así que el texto no puede
-        /// hablarle a uno solo: dentro de la pantalla cada quien ve su propia casilla.
+        /// hablarle a uno solo: dentro de la pantalla cada quien ve su propia casilla. Por eso el
+        /// correo no explica el flujo de aprobación ni qué hace el botón — solo lleva los datos de
+        /// la solicitud y el acceso.
+        ///
+        /// El HTML vive en <see cref="AprobacionGgEmailTemplate"/>, con la misma identidad visual
+        /// que el correo de «EMO Confirmado».
         /// </summary>
         private string ConstruirCuerpoGerencia(AprobacionGgEnvioContextoDto ctx, bool esReenvio)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            // El origen de las imágenes es una clave aparte de App:FrontendUrl a propósito: Outlook
+            // no las descarga desde el cliente sino a través del proxy de imágenes de Microsoft, que
+            // nunca puede alcanzar un localhost. Con App:FrontendUrl (que en dev tiene que seguir
+            // apuntando a localhost para que el enlace del correo sea clicable) las imágenes salen
+            // siempre rotas al probar en local.
+            var assetsUrl = _configuration["App:EmailAssetsUrl"]
+                ?? _configuration["App:FrontendUrl"]
+                ?? "https://intranet.abril.pe";
 
-            var link = ConstruirLink(ctx.AprobacionId);
+            var vacantes = ctx.Vacantes
+                .Select(v => new AprobacionGgEmailTemplate.Vacante(
+                    Codigo:       v.Codigo,
+                    Puesto:       v.Puesto,
+                    Tipo:         v.TipoRequerimiento,
+                    Reemplazado:  v.TrabajadorReemplazado,
+                    ProyectoObra: string.IsNullOrWhiteSpace(v.ProyectoObra) ? "—" : v.ProyectoObra!,
+                    Salario:      SalarioTexto(v)))
+                .ToList();
 
-            var filas = new StringBuilder();
-            foreach (var v in ctx.Vacantes)
-            {
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
-                    </tr>
-                    """);
-            }
-
-            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
-
-            var justificacion = string.IsNullOrWhiteSpace(ctx.Justificacion)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Justificación:</b><br>{Esc(ctx.Justificacion)}</p>""";
-
-            var sustento = string.IsNullOrWhiteSpace(ctx.SustentoUrl)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Sustento adjunto:</b> <a href="{Esc(ctx.SustentoUrl)}">{Esc(ctx.SustentoNombre ?? "ver documento")}</a></p>""";
-
-            var recordatorio = esReenvio
-                ? """<p style="font-size:13px;color:#B45309"><b>Recordatorio:</b> esta solicitud sigue pendiente de tu aprobación.</p>"""
-                : "";
-
-            // El botón va dentro de una tabla: los clientes de correo no soportan flex/grid.
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:680px">
-                  <div style="background:{AzulAbril};padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Solicitud de personal por aprobar</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    {recordatorio}
-                    <p style="font-size:13px;margin-top:0">
-                      El área solicitante registró la siguiente solicitud de personal y necesita tu
-                      revisión. La aprobación de <b>Gerencia General</b> es la que la deja pasar a
-                      Gestión de Talento Humano; el <b>gerente del área</b> registra su visto bueno
-                      en la misma pantalla.
-                    </p>
-                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
-                    {solicitante}
-                    <p style="font-size:13px"><b>Vacantes solicitadas:</b> {ctx.Vacantes.Count}</p>
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Código</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Tipo</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Proyecto / Obra</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Ingreso requerido</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    {justificacion}
-                    {sustento}
-
-                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
-                      <tr>
-                        <td>
-                          <a href="{link}" style="background:{AzulAbril};color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar y aprobar</a>
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="font-size:12px;color:#555">
-                      El botón abre esta solicitud en <b>Abril One · Gestión GTH · Aprobaciones</b>, donde
-                      puedes aprobar todas las vacantes, aprobar solo algunas o rechazarlas. Si aún no
-                      has iniciado sesión, hazlo y te llevaremos directo a esta solicitud.
-                    </p>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:{AzulAbril};word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return AprobacionGgEmailTemplate.Construir(
+                new AprobacionGgEmailTemplate.Datos(
+                    Area:           string.IsNullOrWhiteSpace(ctx.Area) ? "—" : ctx.Area!,
+                    Solicitante:    ctx.SolicitanteNombre,
+                    Vacantes:       vacantes,
+                    Justificacion:  ctx.Justificacion,
+                    SustentoUrl:    ctx.SustentoUrl,
+                    SustentoNombre: ctx.SustentoNombre,
+                    Link:           ConstruirLink(ctx.AprobacionId),
+                    EsRecordatorio: esReenvio),
+                assetsUrl);
         }
 
         /// <summary>
@@ -640,156 +590,102 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Cuerpo del correo a TI: las vacantes aprobadas, con la fecha de ingreso requerida como
-        /// dato central — es la que le dice a TI para cuándo tiene que estar listo cada puesto. No
-        /// lleva justificación, comentario ni las vacantes rechazadas: eso es contexto de la
-        /// decisión y del reclutamiento, no del trabajo de TI.
+        /// Filas de la tabla de vacantes aprobadas. La línea "Reemplaza a {trabajador}" va bajo el
+        /// tipo, en la misma celda, para no agregar una columna a una tabla que ya se lee bien.
         /// </summary>
-        private static string ConstruirCuerpoTi(AprobacionGgDecisionContextoDto ctx)
+        /// <param name="conSalario">
+        /// false en el correo a TI: no participa del reclutamiento ni arma la oferta, así que la
+        /// banda salarial no es asunto suyo y su tabla tiene una columna menos.
+        /// </param>
+        private static List<IReadOnlyList<Layout.Celda>> FilasVacantes(
+            IReadOnlyList<AprobacionGgVacanteDto> vacantes, bool conSalario)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-
-            var filas = new StringBuilder();
-            foreach (var v in ctx.Aprobadas)
+            var filas = new List<IReadOnlyList<Layout.Celda>>(vacantes.Count);
+            foreach (var v in vacantes)
             {
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
-                    </tr>
-                    """);
+                var celdas = new List<Layout.Celda>
+                {
+                    new(Layout.Esc(v.Codigo), Negrita: true, Color: Layout.Azul, NoWrap: true),
+                    new(Layout.Esc(v.Puesto)),
+                    new(Layout.Esc(v.TipoRequerimiento) + Textos.Reemplaza(v.TrabajadorReemplazado)),
+                    new(Textos.OGuion(v.ProyectoObra)),
+                };
+                if (conSalario) celdas.Add(new(Layout.Esc(SalarioTexto(v)), Negrita: true, NoWrap: true));
+                filas.Add(celdas);
             }
-
-            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
-
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:680px">
-                  <div style="background:{AzulAbril};padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Vacantes aprobadas — aviso a TI</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      <b>Gerencia General aprobó</b> las siguientes vacantes y ya pasaron a reclutamiento.
-                      Les compartimos el detalle con anticipación para que puedan ir previendo lo que
-                      necesitará cada puesto (equipo, usuario, correo y accesos) para su fecha de ingreso.
-                    </p>
-                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
-                    {solicitante}
-                    <p style="font-size:13px"><b>Vacantes aprobadas:</b> {ctx.Aprobadas.Count}</p>
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Código</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Tipo</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Proyecto / Obra</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Ingreso requerido</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    <p style="font-size:12px;color:#555">
-                      La fecha de ingreso es la solicitada por el área: puede moverse según avance el
-                      proceso de selección. Gestión de Talento Humano confirmará la fecha definitiva de
-                      cada ingreso.
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return filas;
         }
 
-        /// <summary>Cuerpo del correo a GTH: las vacantes aprobadas por el GG (y las rechazadas como contexto).</summary>
-        private static string ConstruirCuerpoGth(AprobacionGgDecisionContextoDto ctx)
+        /// <summary>
+        /// Cuerpo del correo a TI: las vacantes aprobadas, para que puedan ir previendo lo que
+        /// necesitará cada puesto. No lleva justificación, comentario ni las vacantes rechazadas:
+        /// eso es contexto de la decisión y del reclutamiento, no del trabajo de TI. La fecha de
+        /// ingreso no se conoce en este punto — la confirma GTH al cerrar el proceso, y eso ya no
+        /// se dice en el correo: era una nota al pie que nadie accionaba.
+        /// </summary>
+        private string ConstruirCuerpoTi(AprobacionGgDecisionContextoDto ctx)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var l = Layout.Desde(_configuration);
 
-            var filas = new StringBuilder();
-            foreach (var v in ctx.Aprobadas)
+            var datos = new List<Layout.Fila>
             {
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{Esc(v.Codigo)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.Puesto)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.TipoRequerimiento)}{CeldaReemplazado(v)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{Esc(v.ProyectoObra)}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{v.FechaRequeridaIngreso:dd/MM/yyyy}</td>
-                    </tr>
-                    """);
-            }
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+            };
+            if (!string.IsNullOrWhiteSpace(ctx.SolicitanteNombre))
+                datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(ctx.SolicitanteNombre)));
 
-            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-ti", "Vacantes Aprobadas", "Para que TI vaya previendo equipo, usuario y accesos:"),
+                l.Tarjeta(datos),
+                l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
+                l.Tabla(Textos.ColumnasVacantes, FilasVacantes(ctx.Aprobadas, conSalario: false)));
+        }
 
-            var justificacion = string.IsNullOrWhiteSpace(ctx.Justificacion)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Justificación:</b><br>{Esc(ctx.Justificacion)}</p>""";
+        /// <summary>
+        /// Cuerpo del correo a GTH: las vacantes que aprobó Gerencia General, con el contexto de la
+        /// decisión (justificación, comentario del GG, visto bueno del gerente del área y sustento).
+        /// Las rechazadas van como franja y no como tabla: no generan trabajo para GTH, solo
+        /// explican por qué la solicitud llegó incompleta.
+        /// </summary>
+        private string ConstruirCuerpoGth(AprobacionGgDecisionContextoDto ctx)
+        {
+            var l = Layout.Desde(_configuration);
 
-            var sustento = string.IsNullOrWhiteSpace(ctx.SustentoUrl)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Sustento adjunto:</b> <a href="{Esc(ctx.SustentoUrl)}">{Esc(ctx.SustentoNombre ?? "ver documento")}</a></p>""";
-
-            var comentario = string.IsNullOrWhiteSpace(ctx.Comentario)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Comentario de Gerencia General:</b><br>{Esc(ctx.Comentario)}</p>""";
+            var datos = new List<Layout.Fila>
+            {
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+            };
+            if (!string.IsNullOrWhiteSpace(ctx.SolicitanteNombre))
+                datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(ctx.SolicitanteNombre)));
 
             // El visto bueno del gerente del área no condiciona nada, pero saber que opinó (y qué
             // opinó) le da contexto a GTH. Vacío si nunca llegó a registrarlo.
-            var vistoBuenoArea = string.IsNullOrWhiteSpace(ctx.GerenteAreaResumen)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Visto bueno del gerente del área:</b> {Esc(ctx.GerenteAreaResumen)}</p>""";
+            var contexto = new List<Layout.Fila>();
+            if (!string.IsNullOrWhiteSpace(ctx.Justificacion))
+                contexto.Add(new("req-justificacion", "Justificación", Layout.EscMultilinea(ctx.Justificacion)));
+            if (!string.IsNullOrWhiteSpace(ctx.Comentario))
+                contexto.Add(new("req-comentario", "Comentario de GG", Layout.EscMultilinea(ctx.Comentario)));
+            if (!string.IsNullOrWhiteSpace(ctx.GerenteAreaResumen))
+                contexto.Add(new("req-vistobueno", "Visto bueno del área", Layout.Esc(ctx.GerenteAreaResumen)));
+            if (!string.IsNullOrWhiteSpace(ctx.SustentoUrl))
+                contexto.Add(new("req-sustento", "Sustento adjunto",
+                    Textos.Enlace(ctx.SustentoUrl!, ctx.SustentoNombre ?? "Ver documento")));
 
-            // Las rechazadas se listan solo como contexto: no generan trabajo para GTH.
             var rechazadas = ctx.Rechazadas.Count == 0
                 ? ""
-                : $"""
-                    <p style="font-size:13px;color:#B91C1C">
-                      <b>No aprobadas ({ctx.Rechazadas.Count}):</b>
-                      {Esc(string.Join(", ", ctx.Rechazadas.Select(v => $"{v.Codigo} ({v.Puesto})")))}.
-                      Estas vacantes no continúan en el proceso.
-                    </p>
-                    """;
+                : l.Franja("req-rechazadas", Layout.Tono.Rojo,
+                    $"<b>No aprobadas ({ctx.Rechazadas.Count}):</b> "
+                    + Layout.Esc(string.Join(", ", ctx.Rechazadas.Select(v => $"{v.Codigo} ({v.Puesto})"))) + ".");
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:680px">
-                  <div style="background:{AzulAbril};padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Nueva solicitud de personal aprobada</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      <b>Gerencia General aprobó</b> las siguientes vacantes. Ya están en la bandeja de
-                      reclutamiento para iniciar el proceso.
-                    </p>
-                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
-                    {solicitante}
-                    <p style="font-size:13px"><b>Vacantes aprobadas:</b> {ctx.Aprobadas.Count}</p>
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Código</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Tipo</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Proyecto / Obra</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Ingreso requerido</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    {rechazadas}
-                    {justificacion}
-                    {comentario}
-                    {vistoBuenoArea}
-                    {sustento}
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-aprobada", "Solicitud Aprobada", "Gerencia General aprobó estas vacantes:"),
+                l.Tarjeta(datos),
+                l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
+                l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(ctx.Aprobadas, conSalario: true)),
+                rechazadas,
+                l.Tarjeta(contexto));
         }
     }
 }

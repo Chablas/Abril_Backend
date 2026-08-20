@@ -1,22 +1,20 @@
 using Abril_Backend.Infrastructure.Interfaces;
 using SendGrid;
 using SendGrid.Helpers.Mail;
-using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Shared.Services.Email.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Services
 {
     public class SendGridEmailService : IEmailService
     {
         private readonly string _apiKey;
-        private readonly string _fromEmail;
-        private readonly string _fromName;
+        private readonly IEmailSenderResolver _senderResolver;
 
-        public SendGridEmailService(IConfiguration config)
+        public SendGridEmailService(IConfiguration config, IEmailSenderResolver senderResolver)
         {
             _apiKey = config["Email:SendGrid:ApiKeySendGrid"];
-            _fromEmail = config["Email:EmailSettings:FromEmail"];
-            _fromName = config["Email:EmailSettings:FromName"];
+            _senderResolver = senderResolver;
         }
 
         public async Task SendAsync(
@@ -27,10 +25,11 @@ namespace Abril_Backend.Infrastructure.Services
             List<string>? cc = null,
             List<string>? bcc = null,
             List<EmailAttachment>? attachments = null,
-            string? fromOverride = null)
+            string? sender = null)
         {
             var client = new SendGridClient(_apiKey);
-            var from = new EmailAddress(fromOverride ?? _fromEmail, _fromName);
+            var resolved = _senderResolver.Resolve(sender);
+            var from = new EmailAddress(resolved.Address, resolved.DisplayName);
 
             var tos = to.Select(email => new EmailAddress(email)).ToList();
 
@@ -68,16 +67,6 @@ namespace Abril_Backend.Infrastructure.Services
                 throw new InvalidOperationException(
                     $"SendGrid rechazó el envío (HTTP {(int)response.StatusCode}): {errorBody}");
             }
-        }
-
-        public async Task SendAsync(
-            string to,
-            string subject,
-            string body,
-            bool isHtml,
-            List<EmailAttachment>? attachments = null)
-        {
-            await SendAsync(new List<string> { to }, subject, body, isHtml, null, null, attachments);
         }
     }
 }

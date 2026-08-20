@@ -1,10 +1,14 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Email.Configuration;
+using Layout = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailLayout;
+using Textos = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailTextos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
@@ -100,82 +104,47 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}?formulario={candidatoId}";
         }
 
+        /// <summary>
+        /// Aviso a GTH de que un postulante terminó (o corrigió) su formulario. El botón abre el
+        /// formulario de ESE postulante, que es donde se aprueba o se rechaza; si por lo que sea no
+        /// se pudo resolver el requerimiento, se cae a la indicación de buscarlo en la bandeja en
+        /// vez de mandar un enlace roto.
+        /// </summary>
         private string ConstruirCuerpoFormularioCompletado(FormularioCompletadoContextoDto ctx)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            static string Fila(string etiqueta, string? valor) =>
-                string.IsNullOrWhiteSpace(valor)
-                    ? string.Empty
-                    : $"""
-                        <tr>
-                          <td style="padding:6px 10px;font-size:12px;color:#6b7280;white-space:nowrap">{Esc(etiqueta)}</td>
-                          <td style="padding:6px 10px;font-size:13px;color:#1f2937"><b>{Esc(valor)}</b></td>
-                        </tr>
-                        """;
+            var l = Layout.Desde(_configuration);
 
-            var titulo = ctx.EsCorreccion
-                ? "Un postulante corrigió su formulario"
-                : "Un postulante completó su formulario";
+            var datos = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Textos.OGuion(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+                new("req-candidato", "Postulante", Textos.OGuion(ctx.CandidatoNombre)),
+            };
+            if (!string.IsNullOrWhiteSpace(ctx.CorreoPostulante))
+                datos.Add(new("req-correo", "Correo", Layout.Esc(ctx.CorreoPostulante)));
+            if (!string.IsNullOrWhiteSpace(ctx.NumeroCelular))
+                datos.Add(new("req-celular", "Celular", Layout.Esc(ctx.NumeroCelular)));
+            datos.Add(new("req-fecha", "Enviado el", ctx.CompletadoEn.ToString("dd/MM/yyyy HH:mm")));
 
-            var intro = ctx.EsCorreccion
-                ? "envió las correcciones de su formulario de información del postulante."
-                : "terminó de llenar su formulario de información del postulante.";
-
-            // El botón abre el formulario de ESTE postulante, así que se nombra por la acción que a
-            // GTH le toca hacer allí. Si por lo que sea no se pudo resolver el requerimiento, se cae
-            // a la indicación de siempre (buscarlo en la bandeja) en vez de mandar un enlace roto.
             var hayEnlace = ctx.RequerimientoId > 0 && ctx.CandidatoId > 0;
-            var link = hayEnlace ? ConstruirLinkRevisionFormulario(ctx.RequerimientoId, ctx.CandidatoId) : string.Empty;
+            var link = hayEnlace ? ConstruirLinkRevisionFormulario(ctx.RequerimientoId, ctx.CandidatoId) : "";
 
-            var cierre = hayEnlace
-                ? $"""
-                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
-                      <tr>
-                        <td>
-                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar formulario</a>
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="font-size:12px;color:#555">
-                      El botón abre este requerimiento en <b>Abril One · Gestión GTH · Reclutamiento</b>
-                      con el formulario del postulante ya abierto, para que lo revises y lo apruebes o
-                      lo rechaces. Si aún no has iniciado sesión, hazlo y te llevaremos directo a él.
-                    </p>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    """
-                : """
-                    <p style="font-size:12.5px;color:#555;margin-top:16px">
-                      Ya lo puedes revisar en <b>Gestión GTH → Reclutamiento</b>, en el detalle del
-                      requerimiento, con «Ver formulario», para aprobarlo o rechazarlo.
-                    </p>
-                    """;
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "El postulante" : Layout.Esc(ctx.CandidatoNombre);
+            var accion = ctx.EsCorreccion ? "corrigió" : "completó";
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">{titulo}</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      <b>{Esc(ctx.CandidatoNombre)}</b> {intro}
-                    </p>
-                    <table style="border-collapse:collapse;margin:14px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
-                      {Fila("Requerimiento", ctx.Codigo)}
-                      {Fila("Puesto", ctx.Puesto)}
-                      {Fila("Área", ctx.Area)}
-                      {Fila("Proyecto / obra", ctx.ProyectoObra)}
-                      {Fila("Postulante", ctx.CandidatoNombre)}
-                      {Fila("Correo", ctx.CorreoPostulante)}
-                      {Fila("Celular", ctx.NumeroCelular)}
-                      {Fila("Enviado el", ctx.CompletadoEn.ToString("dd/MM/yyyy HH:mm"))}
-                    </table>
-                    {cierre}
-                    <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-formulario",
+                    ctx.EsCorreccion ? "Formulario Corregido" : "Formulario Completado",
+                    $"<b>{nombre}</b> {accion} su formulario de postulante."),
+                l.Tarjeta(datos),
+                hayEnlace ? l.Boton("Revisar formulario", link) : "",
+                hayEnlace
+                    ? l.EnlaceDirecto(link)
+                    : l.Franja("req-aviso", Layout.Tono.Info,
+                        "Revísalo en <b>Gestión GTH → Reclutamiento</b>, con «Ver formulario»."));
         }
 
         public async Task<FormularioAccionResultDto> Enviar(int candidatoId, EnviarFormularioDto dto, int? userId)
@@ -193,7 +162,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // formulario ya quedó registrado y GTH puede reintentar el envío).
             try
             {
-                await EnviarCorreoFormularioAsync(ctx);
+                var dest = await ResolverDestinatariosFormularioAsync(ctx.EsRechazo);
+                await EnviarCorreoFormularioAsync(ctx, dest);
             }
             catch (Exception ex)
             {
@@ -263,6 +233,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var preparados = await _repo.PrepararEnvioMasivo(solicitudes, userId);
 
+                // Destinatarios configurados: se resuelven una sola vez para todo el lote y solo si
+                // el lote los usa. Un lote puede mezclar invitaciones y correcciones (cada una es un
+                // tipo de correo distinto), así que se guardan por separado.
+                SolicitudDestinatariosDto? destEnvio = null, destCorreccion = null;
+
                 // Los correos se envían uno por uno a propósito: el proveedor de correo es externo
                 // (SendGrid / PowerAutomate / SMTP) y dispararlos en paralelo arriesga throttling por un
                 // ahorro de segundos sobre una long list que suele ser de pocos candidatos.
@@ -281,7 +256,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                     try
                     {
-                        await EnviarCorreoFormularioAsync(p.Contexto);
+                        if (p.Contexto.EsRechazo)
+                            destCorreccion ??= await ResolverDestinatariosFormularioAsync(esRechazo: true);
+                        else
+                            destEnvio ??= await ResolverDestinatariosFormularioAsync(esRechazo: false);
+
+                        await EnviarCorreoFormularioAsync(
+                            p.Contexto, p.Contexto.EsRechazo ? destCorreccion! : destEnvio!);
+
                         resultados[p.CandidatoId] = new FormularioEnvioMasivoResultadoDto
                         {
                             CandidatoId = p.CandidatoId,
@@ -331,20 +313,42 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// rechazado repite el correo de correcciones —con las observaciones—, no el de invitación:
         /// para el postulante el rechazo sigue vigente. Lo comparten el envío individual y el masivo.
         /// </summary>
-        private Task EnviarCorreoFormularioAsync(EnviarFormularioContextoDto ctx)
+        /// <param name="dest">
+        /// Destinatarios configurados del tipo que corresponde (FORMULARIO_ENVIO o
+        /// FORMULARIO_CORRECCION). Se recibe ya resuelto y no se resuelve acá adrede: el envío
+        /// masivo llama a este método una vez por postulante y resolverlo adentro sería un
+        /// roundtrip a la BD por cada correo del lote.
+        /// </param>
+        private Task EnviarCorreoFormularioAsync(
+            EnviarFormularioContextoDto ctx, SolicitudDestinatariosDto dest)
         {
             var link = ConstruirLink(ctx.Token);
 
+            // El principal es SIEMPRE el postulante; la configuración solo suma principales extra
+            // y copias.
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
+
             return _email.SendAsync(
-                to:      new List<string> { ctx.Correo },
+                to:      principales,
                 subject: ctx.EsRechazo
                     ? $"Correcciones en tu formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario"
                     : $"Formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
                 body:    ctx.EsRechazo
                     ? ConstruirCuerpoRechazo(ctx.CandidatoNombre, ctx.Puesto, ctx.Motivo, link)
                     : ConstruirCuerpoEnvio(ctx.CandidatoNombre, ctx.Puesto, link),
-                isHtml:  true);
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                sender:  EmailSenders.Gth);
         }
+
+        /// <summary>
+        /// Destinatarios configurados del correo que le toca al contexto: el de correcciones
+        /// cuando el formulario viene rechazado y el de invitación en el resto de los casos.
+        /// </summary>
+        private Task<SolicitudDestinatariosDto> ResolverDestinatariosFormularioAsync(bool esRechazo) =>
+            _destinatarios.ResolverAsync(esRechazo
+                ? CorreoTipoReclutamiento.FormularioCorreccion
+                : CorreoTipoReclutamiento.FormularioEnvio);
 
         public Task<FormularioRevisionDto> GetRevision(int candidatoId) => _repo.GetRevision(candidatoId);
 
@@ -384,11 +388,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var message = $"Formulario rechazado. Se envió el detalle a {ctx.Correo} para que el postulante lo corrija.";
             try
             {
+                var dest = await ResolverDestinatariosFormularioAsync(esRechazo: true);
+                var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
+
                 await _email.SendAsync(
-                    to:      new List<string> { ctx.Correo },
+                    to:      principales,
                     subject: $"Correcciones en tu formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
                     body:    ConstruirCuerpoRechazo(ctx.CandidatoNombre, ctx.Puesto, ctx.Motivo, ConstruirLink(ctx.Token)),
-                    isHtml:  true);
+                    isHtml:  true,
+                    cc:      copias.Count > 0 ? copias : null,
+                    sender:  EmailSenders.Gth);
             }
             catch (Exception ex)
             {
@@ -408,83 +417,47 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Correo de rechazo del formulario: le indica al postulante qué observó GTH y lo invita a
-        /// corregirlo con el mismo enlace, que le abre el formulario con sus respuestas precargadas.
-        /// Lo usan tanto el rechazo en sí como el reenvío de un formulario que sigue rechazado.
+        /// Correo de rechazo del formulario: qué observó GTH y el mismo enlace del envío original,
+        /// que le abre el formulario con sus respuestas precargadas. Lo usan tanto el rechazo en sí
+        /// como el reenvío de un formulario que sigue rechazado.
         /// </summary>
-        private static string ConstruirCuerpoRechazo(string? candidatoNombre, string puesto, string? motivo, string link)
+        private string ConstruirCuerpoRechazo(string? candidatoNombre, string puesto, string? motivo, string link)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            var nombre = string.IsNullOrWhiteSpace(candidatoNombre) ? "postulante" : Esc(candidatoNombre);
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(candidatoNombre) ? "postulante" : candidatoNombre;
 
             // Las observaciones se escriben en un textarea: los saltos de línea se conservan.
             var observaciones = string.IsNullOrWhiteSpace(motivo)
-                ? string.Empty
-                : $"""
-                    <div style="margin:16px 0;border-left:4px solid #B91C1C;background:#FEF2F2;padding:12px 14px;border-radius:0 8px 8px 0">
-                      <p style="font-size:12px;font-weight:bold;color:#B91C1C;margin:0 0 4px;text-transform:uppercase;letter-spacing:.4px">Observaciones</p>
-                      <p style="font-size:13px;color:#7f1d1d;margin:0;line-height:1.5">{Esc(motivo).Replace("\n", "<br>")}</p>
-                    </div>
-                    """;
+                ? ""
+                : l.Franja("req-observaciones", Layout.Tono.Ambar,
+                    $"<b>Observaciones:</b><br />{Layout.EscMultilinea(motivo)}");
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Tu formulario necesita correcciones</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
-                    <p style="font-size:13px">
-                      Gracias por completar el formulario de postulante de <b>Abril Grupo Inmobiliario</b>
-                      para la posición <b>{Esc(puesto)}</b>. Al revisarlo encontramos algunos puntos que
-                      necesitamos que corrijas o completes antes de continuar con el proceso.
-                    </p>
-                    {observaciones}
-                    <p style="font-size:13px">
-                      Ingresa al siguiente enlace para actualizarlo. <b>No tienes que llenarlo desde cero</b>:
-                      el formulario se abre con toda la información que ya registraste y las observaciones se
-                      muestran en cada página, para que solo corrijas lo indicado y lo vuelvas a enviar.
-                    </p>
-                    <p style="margin:18px 0">
-                      <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px">Corregir formulario</a>
-                    </p>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-correccion", "Formulario por Corregir",
+                    $"Estimado(a) {Layout.Esc(nombre)}: hay puntos por corregir en tu formulario "
+                    + $"para <b>{Layout.Esc(puesto)}</b>."),
+                observaciones,
+                l.Parrafo(
+                    "El formulario se abre con toda la información que ya registraste: corrige solo lo "
+                    + "observado y vuelve a enviarlo."),
+                l.Boton("Corregir formulario", link),
+                l.EnlaceDirecto(link));
         }
 
         /// <summary>Correo de invitación: el primer envío del formulario (o el reenvío de uno no rechazado).</summary>
-        private static string ConstruirCuerpoEnvio(string? candidatoNombre, string puesto, string link)
+        private string ConstruirCuerpoEnvio(string? candidatoNombre, string puesto, string link)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            var nombre = string.IsNullOrWhiteSpace(candidatoNombre) ? "postulante" : Esc(candidatoNombre);
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(candidatoNombre) ? "postulante" : candidatoNombre;
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Formulario del postulante</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
-                    <p style="font-size:13px">
-                      Gracias por participar del proceso de selección en <b>Abril Grupo Inmobiliario</b>
-                      para la posición <b>{Esc(puesto)}</b>. Para continuar, completa el formulario de
-                      información del postulante en el siguiente enlace:
-                    </p>
-                    <p style="margin:18px 0">
-                      <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px">Completar formulario</a>
-                    </p>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-formulario", "Formulario de Postulante",
+                    $"Estimado(a) {Layout.Esc(nombre)}: completa tu formulario para la posición "
+                    + $"<b>{Layout.Esc(puesto)}</b>."),
+                l.Boton("Completar formulario", link),
+                l.EnlaceDirecto(link));
         }
     }
 }

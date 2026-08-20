@@ -173,7 +173,13 @@
         public string? TrabajadorReemplazado { get; set; }
 
         public string? ProyectoObra { get; set; }
-        public DateOnly FechaRequeridaIngreso { get; set; }
+
+        /// <summary>
+        /// Salario bruto mensual que el área declaró para la vacante, en soles: es parte de lo que
+        /// se está aprobando, así que va en el modal y en el correo. Null en las vacantes anteriores
+        /// a que se pidiera el dato.
+        /// </summary>
+        public decimal? SalarioBrutoMensual { get; set; }
 
         /// <summary>Visto bueno del gerente del área: true / false / null = no opinó.</summary>
         public bool? AprobadoGerenteArea { get; set; }

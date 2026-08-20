@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
 {
     /// <summary>
     /// Requerimiento independiente por vacante (tabla <c>gth_requerimiento</c>). Cada vacante de una
@@ -25,17 +25,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int PuestoId { get; set; }
 
         /// <summary>
-        /// FK a <c>categoria</c>: la categoría REAL que el solicitante declaró para esta vacante,
-        /// no la de <c>puesto.categoria_id</c> (esa es solo una guía derivada de los datos y no
-        /// tiene por qué coincidir, igual que en <c>workers</c>, donde <c>puesto_id</c> y
-        /// <c>categoria_id</c> son ejes independientes).
+        /// FK a <c>categoria</c>: la categoría REAL declarada para esta vacante, no la de
+        /// <c>puesto.categoria_id</c> (esa es solo una guía derivada de los datos y no tiene por qué
+        /// coincidir, igual que en <c>workers</c>, donde <c>puesto_id</c> y <c>categoria_id</c> son
+        /// ejes independientes).
         ///
-        /// Se llena cuando la vacante se registró con "Puesto personalizado" (el solicitante eligió
-        /// la categoría a mano). Null = no se declaró ninguna, y quien contrate al seleccionado
-        /// deberá caer a <c>puesto.categoria_id</c> del puesto del requerimiento.
-        ///
-        /// Es el par (puesto, categoría) que el onboarding copiará a <c>workers</c> si el candidato
-        /// termina siendo seleccionado.
+        /// Congelada para auditoría: la llenaba el modo "Puesto personalizado" del formulario de
+        /// solicitud, que se dio de baja (los puestos nuevos los da de alta GTH en el catálogo). En
+        /// los requerimientos nuevos queda null y quien contrate al seleccionado cae a
+        /// <c>puesto.categoria_id</c> del puesto del requerimiento.
         /// </summary>
         public int? CategoriaId { get; set; }
 
@@ -54,7 +52,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>FK a <c>project</c> (proyecto/obra destino de la vacante).</summary>
         public int ProjectId { get; set; }
 
-        public DateOnly FechaRequeridaIngreso { get; set; }
+        /// <summary>
+        /// Salario bruto mensual declarado para la vacante, en soles. Es un dato por vacante y no
+        /// por solicitud: dos vacantes de la misma solicitud pueden ser de puestos distintos y
+        /// cobrar distinto.
+        ///
+        /// El formulario lo exige, pero la columna es nullable: los requerimientos anteriores a
+        /// este campo no lo tienen y un NOT NULL dejaría el histórico inconsistente. Null =
+        /// registrado antes de que se pidiera el dato.
+        /// </summary>
+        public decimal? SalarioBrutoMensual { get; set; }
 
         public int GthEstadoRequerimientoId { get; set; }
 

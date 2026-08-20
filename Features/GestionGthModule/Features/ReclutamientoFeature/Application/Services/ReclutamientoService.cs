@@ -1,14 +1,17 @@
-﻿using System.Text;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Email.Configuration;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Layout = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailLayout;
+using Textos = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailTextos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
@@ -27,11 +30,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static readonly string[] AllowedSustentoExt = { ".pdf", ".doc", ".docx", ".xls", ".xlsx" };
 
         /// <summary>
-        /// Tope del nombre de un "Puesto personalizado". La columna <c>puesto.nombre</c> es text (sin
-        /// límite), pero el puesto se muestra en tablas, correos y PDFs: el corte evita que alguien
-        /// meta una descripción entera como si fuera un puesto.
+        /// Tope de la justificación general. La columna <c>gth_solicitud.justificacion</c> es text
+        /// (sin límite), pero el texto va completo en el cuerpo de los correos a los gerentes y a
+        /// GTH: el corte evita que un pegado accidental se convierta en un correo ilegible.
         /// </summary>
-        private const int MaxPuestoNombreLength = 120;
+        private const int MaxJustificacionLength = 4000;
+
+        /// <summary>
+        /// Tope del salario bruto mensual declarado por vacante. Es el que aguanta la columna
+        /// (<c>numeric(12,2)</c>) sin desbordar y, sobre todo, ataja el dedazo típico de escribir
+        /// el sueldo con los céntimos pegados (3500 00 → 350000).
+        /// </summary>
+        private const decimal MaxSalarioBrutoMensual = 1_000_000m;
 
         public ReclutamientoService(
             IReclutamientoRepository repo,
@@ -119,7 +129,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return;
                 }
 
-                var estado = ctx.Resultado.TodosRechazados ? "rechazó a todos los candidatos" : $"aprobó {ctx.Resultado.Aprobados} candidato(s)";
                 var subject = $"[Reclutamiento] Decisión de long list — {ctx.Codigo} · {ctx.Puesto}";
 
                 await _email.SendAsync(
@@ -148,86 +157,64 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}";
         }
 
+        /// <summary>
+        /// Cuerpo del correo a GTH con la decisión del solicitante sobre la long list. El botón
+        /// lleva siempre al detalle del requerimiento, pero se nombra por la acción que a GTH le
+        /// toca hacer allí, que depende del resultado.
+        /// </summary>
         private string ConstruirCuerpoDecision(int requerimientoId, LongListDecisionContextoDto ctx)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-
+            var l    = Layout.Desde(_configuration);
             var link = ConstruirLinkDetalleRequerimiento(requerimientoId);
-            var r = ctx.Resultado;
-            var filas = new StringBuilder();
-            for (int i = 0; i < ctx.Candidatos.Count; i++)
+            var r    = ctx.Resultado;
+
+            var datos = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Layout.Esc(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+            };
+            if (!string.IsNullOrWhiteSpace(ctx.SolicitanteNombre))
+                datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(ctx.SolicitanteNombre)));
+
+            var filas = new List<IReadOnlyList<Layout.Celda>>(ctx.Candidatos.Count);
+            for (var i = 0; i < ctx.Candidatos.Count; i++)
             {
                 var c = ctx.Candidatos[i];
-                var nombre = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
-                var puesto = string.IsNullOrWhiteSpace(c.Puesto) ? "—" : Esc(c.Puesto);
-                var (etiqueta, color) = c.Aprobado ? ("Aprobado", "#15803D") : ("Rechazado", "#B91C1C");
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{puesto}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:bold;color:{color}">{etiqueta}</td>
-                    </tr>
-                    """);
+                filas.Add(new List<Layout.Celda>
+                {
+                    new((i + 1).ToString()),
+                    new(string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Layout.Esc(c.Nombre), Negrita: true),
+                    new(Textos.OGuion(c.Puesto)),
+                    new(c.Aprobado ? "Aprobado" : "Rechazado", Negrita: true,
+                        Color: c.Aprobado ? Layout.VerdeOk : Layout.RojoNo),
+                });
             }
 
-            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
-                ? ""
-                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
-
-            // El botón lleva siempre al mismo sitio (el detalle del requerimiento), pero se nombra
-            // por la acción que a GTH le toca hacer allí, que depende del resultado.
-            var botonTexto = r.TodosRechazados ? "Preparar nueva long list" : "Continuar el proceso";
-
-            // Mensaje de cierre según el resultado.
-            var cierre = r.TodosRechazados
-                ? """<p style="font-size:13px;color:#B91C1C"><b>El solicitante rechazó a todos los candidatos.</b> El requerimiento vuelve a la etapa de long list: GTH debe preparar y enviar una nueva long list para su revisión.</p>"""
-                : $"""<p style="font-size:13px;color:#15803D"><b>El solicitante aprobó {r.Aprobados} candidato(s).</b> GTH continúa el proceso únicamente con los candidatos aprobados (envío de la plantilla del proceso y pruebas psicotécnicas).</p>""";
-
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:680px">
-                  <div style="background:#005D9D;padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Decisión de la long list</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      El solicitante revisó la long list y registró su decisión sobre los candidatos del
-                      siguiente requerimiento.
-                    </p>
-                    <p style="font-size:13px"><b>Requerimiento:</b> {Esc(ctx.Codigo)}</p>
-                    <p style="font-size:13px"><b>Puesto:</b> {Esc(ctx.Puesto)}</p>
-                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
-                    <p style="font-size:13px"><b>Proyecto / Obra:</b> {Esc(ctx.ProyectoObra)}</p>
-                    {solicitante}
-                    <p style="font-size:13px"><b>Resumen:</b> {r.Aprobados} aprobado(s) · {r.Rechazados} rechazado(s)</p>
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:10px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Decisión</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    {cierre}
-
-                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
-                      <tr>
-                        <td>
-                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">{botonTexto}</a>
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-decision", "Decisión de Long List", "Decisión del solicitante sobre la long list:"),
+                l.Tarjeta(datos),
+                r.TodosRechazados
+                    ? l.Franja("req-rechazadas", Layout.Tono.Rojo,
+                        "<b>Rechazó a todos los candidatos.</b> El requerimiento vuelve a la etapa de long list.")
+                    : l.Franja("req-check", Layout.Tono.Verde,
+                        $"<b>Aprobó {r.Aprobados} candidato(s)</b> de {ctx.Candidatos.Count}."),
+                l.Seccion("req-candidatos", $"Candidatos revisados ({ctx.Candidatos.Count})"),
+                l.Tabla(ColumnasDecisionCandidatos, filas),
+                l.Boton(r.TodosRechazados ? "Preparar nueva long list" : "Continuar el proceso", link),
+                l.EnlaceDirecto(link));
         }
+
+        /// <summary>Columnas de la tabla de candidatos decididos (suman los 580px de la tarjeta).</summary>
+        private static readonly IReadOnlyList<Layout.Columna> ColumnasDecisionCandidatos = new List<Layout.Columna>
+        {
+            new("#", 46, Layout.Alineacion.Centro),
+            new("Candidato", 200),
+            new("Puesto", 190),
+            new("Decisión", 144, Layout.Alineacion.Centro),
+        };
 
         public Task<BandejaReclutamientoDto> GetBandeja() => _repo.GetBandeja();
 
@@ -282,7 +269,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Destinatarios: el principal (Para) es SIEMPRE el postulante citado; la configuración
             // del correo de ENTREVISTA solo aporta principales adicionales y copias.
             var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Entrevista);
-            var (principales, copias) = CombinarDestinatarios(ctx.Resumen.CorreoEnvio, dest);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Resumen.CorreoEnvio, dest);
 
             // El correo es best-effort: la entrevista ya quedó programada, así que un fallo del
             // envío se informa en el mensaje en vez de tumbar la operación.
@@ -294,7 +281,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     subject: $"Entrevista — {ctx.Puesto} · Abril Grupo Inmobiliario",
                     body:    ConstruirCuerpoEntrevista(ctx),
                     isHtml:  true,
-                    cc:      copias.Count > 0 ? copias : null);
+                    cc:      copias.Count > 0 ? copias : null,
+                    sender:  EmailSenders.Gth);
             }
             catch (Exception ex)
             {
@@ -306,67 +294,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Arma las listas Para/CC de un correo cuyo destinatario principal es fijo (el postulante
-        /// citado, el solicitante de la long list) más lo que aporte la configuración. Deduplica sin
-        /// distinguir mayúsculas y, si un mismo buzón está en ambas listas, se queda solo en Para —
-        /// mismo criterio que la pantalla de configuración.
+        /// Citación a entrevista para el postulante: la fecha, la hora y el lugar, y nada más. Las
+        /// dos indicaciones que sí tiene que accionar (llegar antes, avisar si no puede) van en una
+        /// sola línea; el resto del texto que había acá era relleno.
         /// </summary>
-        private static (List<string> Para, List<string> Copias) CombinarDestinatarios(
-            string? principalFijo, SolicitudDestinatariosDto configurados)
+        private string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
         {
-            var para   = new List<string>();
-            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
 
-            void Agregar(string? email)
-            {
-                var e = email?.Trim();
-                if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) para.Add(e);
-            }
-
-            Agregar(principalFijo);
-            foreach (var e in configurados.EmailsPara) Agregar(e);
-
-            var copias = configurados.EmailsCopias
-                .Where(e => !string.IsNullOrWhiteSpace(e) && !vistos.Contains(e.Trim()))
-                .ToList();
-
-            return (para, copias);
-        }
-
-        /// <summary>Correo genérico de citación a entrevista (fecha, hora y lugar de la cita).</summary>
-        private static string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
-        {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : Esc(ctx.CandidatoNombre);
-            var fecha  = ctx.Resumen.Fecha.ToString("dd/MM/yyyy");
-
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Invitación a entrevista</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
-                    <p style="font-size:13px">
-                      Continuamos con tu proceso de selección en <b>Abril Grupo Inmobiliario</b> para la
-                      posición <b>{Esc(ctx.Puesto)}</b>. Te invitamos a la entrevista programada con los
-                      siguientes datos:
-                    </p>
-                    <table style="font-size:13px;border-collapse:collapse;margin:14px 0">
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Fecha</td><td style="padding:4px 0"><b>{fecha}</b></td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Hora</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.Hora)}</b></td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Lugar</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.LugarNombre)}</b></td></tr>
-                    </table>
-                    <p style="font-size:13px">
-                      Te pedimos llegar con 10 minutos de anticipación y traer tu documento de identidad.
-                      Si no pudieras asistir, responde este correo para reprogramar la cita.
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">
-                      Correo automático de Abril One · Gestión GTH · Reclutamiento · {Esc(ctx.Codigo)}.
-                    </p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-entrevista", "Invitación a Entrevista",
+                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la posición <b>{Layout.Esc(ctx.Puesto)}</b>.",
+                    ctx.Codigo),
+                l.Tarjeta(new List<Layout.Fila>
+                {
+                    new("req-fecha", "Fecha", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
+                    new("req-hora", "Hora", Layout.Esc(ctx.Resumen.Hora)),
+                    new("req-lugar", "Lugar", Textos.OGuion(ctx.Resumen.LugarNombre)),
+                }),
+                l.Franja("req-aviso", Layout.Tono.Info,
+                    "Llega 10 minutos antes con tu documento de identidad. Si no puedes asistir, responde este correo."));
         }
 
         // ── Evaluación de la entrevista y no continuidad ──────────────────────
@@ -404,11 +353,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var message = $"Correo de agradecimiento enviado a {ctx.Correo}. El candidato ya no continúa en el proceso.";
             try
             {
-                await _email.SendAsync(
-                    to:      new List<string> { ctx.Correo },
-                    subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
-                    body:    ConstruirCuerpoAgradecimiento(ctx),
-                    isHtml:  true);
+                await EnviarAgradecimientoAsync(ctx);
             }
             catch (Exception ex)
             {
@@ -420,48 +365,53 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Correo genérico de agradecimiento para el candidato que no continúa en el proceso. No
-        /// menciona motivos: solo agradece la participación y deja abierta la puerta a futuros
-        /// procesos.
+        /// Envía el correo de agradecimiento (tipo AGRADECIMIENTO). El destinatario principal es
+        /// SIEMPRE el candidato; la configuración de Reclutamiento solo aporta principales extra y
+        /// copias, por si GTH quiere quedarse con el registro de cada cierre.
+        ///
+        /// Lo comparten los dos lados desde los que sale el mismo correo: cuando GTH marca a un
+        /// candidato como "no continúa" y cuando el solicitante rechaza a un finalista. No atrapa
+        /// excepciones a propósito — cada llamador ya decide qué hacer si el envío falla.
         /// </summary>
-        private static string ConstruirCuerpoAgradecimiento(AgradecimientoEnvioContextoDto ctx)
+        private async Task EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : Esc(ctx.CandidatoNombre);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Agradecimiento);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Gracias por participar</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
-                    <p style="font-size:13px">
-                      Agradecemos el tiempo que dedicaste al proceso de selección de
-                      <b>Abril Grupo Inmobiliario</b> para la posición <b>{Esc(ctx.Puesto)}</b>, así como
-                      el interés que mostraste por formar parte de nuestro equipo.
-                    </p>
-                    <p style="font-size:13px">
-                      Luego de evaluar a todos los participantes, hemos decidido continuar el proceso con
-                      otros candidatos cuyo perfil se ajusta más a lo que la posición requiere en este
-                      momento. Esta decisión no desmerece tu experiencia ni tus capacidades profesionales.
-                    </p>
-                    <p style="font-size:13px">
-                      Conservaremos tus datos en nuestra base de postulantes para considerarte en futuras
-                      convocatorias que se ajusten a tu perfil. Te deseamos mucho éxito en tu desarrollo
-                      profesional.
-                    </p>
-                    <p style="font-size:13px;margin-bottom:0">
-                      Atentamente,<br />
-                      <b>Gestión de Talento Humano</b><br />
-                      Abril Grupo Inmobiliario
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">
-                      Correo automático de Abril One · Gestión GTH · Reclutamiento · {Esc(ctx.Codigo)}.
-                    </p>
-                  </div>
-                </div>
-                """;
+            await _email.SendAsync(
+                to:      principales,
+                subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                body:    ConstruirCuerpoAgradecimiento(ctx),
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                sender:  EmailSenders.Gth);
+        }
+
+        /// <summary>
+        /// Agradecimiento para el candidato que no continúa. No menciona motivos: agradece la
+        /// participación y deja abierta la puerta a futuros procesos.
+        ///
+        /// Es el único correo del módulo que sigue siendo texto corrido, y a propósito: una carta
+        /// de no continuidad resuelta con una tabla de datos se lee como un rechazo automático. Se
+        /// acortó de cuatro párrafos largos a tres cortos, pero no se vacía más.
+        /// </summary>
+        private string ConstruirCuerpoAgradecimiento(AgradecimientoEnvioContextoDto ctx)
+        {
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
+
+            return l.Documento(
+                new Layout.Cabecera("req-gracias", "Gracias por Participar", PieExtra: ctx.Codigo),
+                l.Parrafo($"Estimado(a) {Layout.Esc(nombre)}:"),
+                l.Parrafo(
+                    "Agradecemos el tiempo que dedicaste al proceso de selección de <b>Abril Grupo "
+                    + $"Inmobiliario</b> para la posición <b>{Layout.Esc(ctx.Puesto)}</b>. Decidimos continuar "
+                    + "con otros candidatos cuyo perfil se ajusta más a lo que la posición requiere en este "
+                    + "momento; esta decisión no desmerece tu experiencia ni tus capacidades."),
+                l.Parrafo(
+                    "Conservaremos tus datos en nuestra base de postulantes para considerarte en futuras "
+                    + "convocatorias que se ajusten a tu perfil. Te deseamos mucho éxito."),
+                l.Parrafo("<b>Gestión de Talento Humano</b><br />Abril Grupo Inmobiliario"));
         }
 
         public async Task<RevisionFinalistasDto> GetRevisionFinalistas(int requerimientoId, int? userId)
@@ -495,17 +445,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 try
                 {
-                    await _email.SendAsync(
-                        to:      new List<string> { ctx.CandidatoCorreo },
-                        subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
-                        body:    ConstruirCuerpoAgradecimiento(new AgradecimientoEnvioContextoDto
-                        {
-                            CandidatoNombre = res.CandidatoNombre,
-                            Puesto          = ctx.Puesto,
-                            Codigo          = ctx.Codigo,
-                            Correo          = ctx.CandidatoCorreo,
-                        }),
-                        isHtml:  true);
+                    await EnviarAgradecimientoAsync(new AgradecimientoEnvioContextoDto
+                    {
+                        CandidatoNombre = res.CandidatoNombre,
+                        Puesto          = ctx.Puesto,
+                        Codigo          = ctx.Codigo,
+                        Correo          = ctx.CandidatoCorreo,
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -560,43 +506,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        private static string ConstruirCuerpoDecisionFinalista(FinalistaDecisionContextoDto ctx, string accion)
+        /// <summary>
+        /// Cuerpo del correo a GTH con la decisión final del solicitante sobre un finalista. Lo que
+        /// sigue después de la decisión va en la franja, que es una línea: el detalle del proceso
+        /// se ve en la pantalla.
+        /// </summary>
+        private string ConstruirCuerpoDecisionFinalista(FinalistaDecisionContextoDto ctx, string accion)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var l   = Layout.Desde(_configuration);
+            var res = ctx.Resultado;
+            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
+                ? "El área solicitante"
+                : ctx.SolicitanteNombre;
 
-            var res         = ctx.Resultado;
-            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre) ? "El área solicitante" : Esc(ctx.SolicitanteNombre);
-            var color       = res.Aprobado ? "#15803D" : "#B91C1C";
-            var siguiente   = res.Aprobado
-                ? "El proceso de reclutamiento queda cerrado y el seleccionado pasa al proceso de onboarding."
+            var siguiente = res.Aprobado
+                ? "El proceso de reclutamiento queda cerrado y el seleccionado pasa a onboarding."
                 : res.TodosRechazados
-                    ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs para que GTH envíe una nueva long list."
+                    ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs."
                     : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Decisión de finalista</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      {solicitante} {accion} a un finalista del requerimiento
-                      <b>{Esc(ctx.Codigo)}</b> — <b>{Esc(ctx.Puesto)}</b>.
-                    </p>
-                    <table style="font-size:13px;border-collapse:collapse;margin:14px 0">
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Finalista</td><td style="padding:4px 0"><b>{Esc(res.CandidatoNombre)}</b></td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Decisión</td><td style="padding:4px 0"><b style="color:{color}">{(res.Aprobado ? "Aprobado" : "Rechazado")}</b></td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Área</td><td style="padding:4px 0">{Esc(ctx.Area) }</td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Proyecto/Obra</td><td style="padding:4px 0">{Esc(ctx.ProyectoObra)}</td></tr>
-                      <tr><td style="padding:4px 14px 4px 0;color:#555">Estado</td><td style="padding:4px 0">{Esc(res.EstadoNombre)}</td></tr>
-                    </table>
-                    <p style="font-size:13px">{siguiente}</p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">
-                      Correo automático de Abril One · Gestión GTH · Reclutamiento.
-                    </p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-finalista", "Decisión de Finalista",
+                    $"{Layout.Esc(solicitante)} {Layout.Esc(accion)} a un finalista:"),
+                l.Tarjeta(new List<Layout.Fila>
+                {
+                    new("req-codigo", "Requerimiento", Layout.Esc(ctx.Codigo)),
+                    new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                    new("req-candidato", "Finalista", Textos.OGuion(res.CandidatoNombre)),
+                    new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                    new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+                    new("req-estado", "Estado", Textos.OGuion(res.EstadoNombre)),
+                }),
+                res.Aprobado
+                    ? l.Franja("req-check", Layout.Tono.Verde, $"<b>Aprobado.</b> {siguiente}")
+                    : l.Franja("req-rechazadas", Layout.Tono.Rojo, $"<b>Rechazado.</b> {siguiente}"));
         }
 
         // ── Envío de la long list al solicitante ──────────────────────────────
@@ -643,7 +587,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
 
             // Para = solicitante primero + principales configurados; CC = copias que no estén en Para.
-            var (principales, copias) = CombinarDestinatarios(ctx.SolicitanteEmail, dest);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
                 throw new AbrilException(
@@ -681,7 +625,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     body:    ConstruirCuerpoLongList(requerimientoId, ctx, candidatos),
                     isHtml:  true,
                     cc:      copias.Count > 0 ? copias : null,
-                    attachments: adjuntos);
+                    attachments: adjuntos,
+                    sender:  EmailSenders.Gth);
             }
             catch (Exception ex)
             {
@@ -809,84 +754,59 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return $"{frontendUrl}/gestion-gth/solicitud-personal/long-list/{requerimientoId}";
         }
 
+        /// <summary>
+        /// Cuerpo del correo de la long list al solicitante. Los CVs y los informes van adjuntos al
+        /// correo; la tabla es el índice de lo que trae y el botón lleva a la pantalla donde se
+        /// aprueba o rechaza candidato por candidato.
+        /// </summary>
         private string ConstruirCuerpoLongList(
             int requerimientoId, LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-
+            var l    = Layout.Desde(_configuration);
             var link = ConstruirLinkRevisionLongList(requerimientoId);
 
-            var filas = new StringBuilder();
-            for (int i = 0; i < candidatos.Count; i++)
+            var datos = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Layout.Esc(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+            };
+            if (ctx.SlaDias.HasValue)
+                datos.Add(new("req-plazo", "Plazo estimado", $"{ctx.SlaDias} días"));
+
+            var filas = new List<IReadOnlyList<Layout.Celda>>(candidatos.Count);
+            for (var i = 0; i < candidatos.Count; i++)
             {
                 var c = candidatos[i];
-                var comentario = string.IsNullOrWhiteSpace(c.Comentario) ? "—" : Esc(c.Comentario);
-                var nombre     = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
-                var informe    = c.InformeContent != null && c.InformeContent.Length > 0 ? "Sí" : "No";
-                filas.Append($"""
-                    <tr>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{comentario}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{informe}</td>
-                    </tr>
-                    """);
+                filas.Add(new List<Layout.Celda>
+                {
+                    new((i + 1).ToString()),
+                    new(string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Layout.Esc(c.Nombre), Negrita: true),
+                    new(Textos.OGuion(c.Comentario)),
+                    new(c.InformeContent is { Length: > 0 } ? "Sí" : "No"),
+                });
             }
 
-            var sla = ctx.SlaDias.HasValue
-                ? $"""<p style="font-size:13px"><b>Plazo estimado del proceso:</b> {ctx.SlaDias} días</p>"""
-                : "";
-
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:680px">
-                  <div style="background:#005D9D;padding:12px 16px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">Long list de CVs para revisión</h2>
-                  </div>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">
-                      GTH culminó el filtro de CVs y comparte la <b>long list</b> del siguiente requerimiento
-                      para tu revisión. Los CVs (e informes, si los hay) van adjuntos a este correo.
-                    </p>
-                    <p style="font-size:13px"><b>Requerimiento:</b> {Esc(ctx.Codigo)}</p>
-                    <p style="font-size:13px"><b>Puesto:</b> {Esc(ctx.Puesto)}</p>
-                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area) }</p>
-                    <p style="font-size:13px"><b>Proyecto / Obra:</b> {Esc(ctx.ProyectoObra) }</p>
-                    <p style="font-size:13px"><b>Fecha requerida de ingreso:</b> {ctx.FechaRequeridaIngreso:dd/MM/yyyy}</p>
-                    {sla}
-                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:10px 0">
-                      <thead>
-                        <tr style="background:#f3f4f6">
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Comentario de GTH</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Informe</th>
-                        </tr>
-                      </thead>
-                      <tbody>{filas}</tbody>
-                    </table>
-                    <p style="font-size:13px">Total de candidatos en la long list: <b>{candidatos.Count}</b>.</p>
-
-                    <table cellpadding="0" cellspacing="0" style="margin:18px 0 14px">
-                      <tr>
-                        <td>
-                          <a href="{link}" style="background:#005D9D;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;font-size:14px;font-weight:bold">Revisar long list y CVs</a>
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="font-size:12px;color:#555">
-                      El botón abre esta long list en <b>Abril One · Gestión GTH · Solicitud de personal</b>,
-                      donde puedes ver cada CV y aprobar o rechazar candidato por candidato antes de enviarle
-                      tu decisión a GTH. Si aún no has iniciado sesión, hazlo y te llevaremos directo a esta
-                      long list.
-                    </p>
-                    <p style="font-size:12px;color:#555">Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <span style="color:#005D9D;word-break:break-all">{Esc(link)}</span>
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
-                  </div>
-                </div>
-                """;
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-longlist", "Long List de CVs",
+                    "GTH culminó el filtro de CVs. Los adjuntos van en este correo."),
+                l.Tarjeta(datos),
+                l.Seccion("req-candidatos", $"Candidatos ({candidatos.Count})"),
+                l.Tabla(ColumnasLongList, filas),
+                l.Boton("Revisar long list y CVs", link),
+                l.EnlaceDirecto(link));
         }
+
+        /// <summary>Columnas de la tabla de la long list (suman los 580px de la tarjeta).</summary>
+        private static readonly IReadOnlyList<Layout.Columna> ColumnasLongList = new List<Layout.Columna>
+        {
+            new("#", 46, Layout.Alineacion.Centro),
+            new("Candidato", 180),
+            new("Comentario de GTH", 264),
+            new("Informe", 90, Layout.Alineacion.Centro),
+        };
 
         public async Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId)
         {
@@ -946,31 +866,39 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto.Vacantes.Count > 10)
                 throw new AbrilException("Una solicitud permite un máximo de 10 vacantes.", 400);
 
+            // La justificación es el sustento que leen el gerente del área y Gerencia General para
+            // aprobar, así que sin ella la solicitud no se registra.
+            var justificacion = dto.Justificacion?.Trim();
+            if (string.IsNullOrWhiteSpace(justificacion))
+                throw new AbrilException("Debe escribir la justificación general de la solicitud.", 400);
+            if (justificacion.Length > MaxJustificacionLength)
+                throw new AbrilException(
+                    $"La justificación no puede superar los {MaxJustificacionLength} caracteres.", 400);
+
             for (int i = 0; i < dto.Vacantes.Count; i++)
             {
                 var v = dto.Vacantes[i];
                 var pos = i + 1;
 
-                // Dos modos excluyentes: puesto del catálogo, o "Puesto personalizado" (nombre libre
-                // + categoría elegida a mano, que el repositorio da de alta en el catálogo).
-                if (v.PuestoPersonalizado)
-                {
-                    if (string.IsNullOrWhiteSpace(v.PuestoNombre))
-                        throw new AbrilException($"Vacante {pos}: debe escribir el nombre del puesto personalizado.", 400);
-                    if (v.PuestoNombre.Trim().Length > MaxPuestoNombreLength)
-                        throw new AbrilException($"Vacante {pos}: el nombre del puesto no puede superar los {MaxPuestoNombreLength} caracteres.", 400);
-                    if (v.CategoriaId is null or <= 0)
-                        throw new AbrilException($"Vacante {pos}: debe seleccionar la categoría del puesto personalizado.", 400);
-                }
-                else if (v.PuestoId is null or <= 0)
-                {
+                // Único origen del puesto: el catálogo. El alta de puestos nuevos es tarea de GTH
+                // (catálogo de puestos), no de este formulario.
+                if (v.PuestoId is null or <= 0)
                     throw new AbrilException($"Vacante {pos}: debe seleccionar un puesto.", 400);
-                }
 
                 if (v.TipoRequerimientoId <= 0)   throw new AbrilException($"Vacante {pos}: debe seleccionar el tipo de requerimiento.", 400);
                 if (v.ProjectId <= 0)             throw new AbrilException($"Vacante {pos}: debe seleccionar un proyecto/obra.", 400);
-                if (v.FechaRequeridaIngreso == default)
-                    throw new AbrilException($"Vacante {pos}: debe indicar la fecha requerida de ingreso.", 400);
+
+                // Salario bruto mensual: obligatorio y positivo. El tope es el de la columna
+                // (numeric(12,2)) y ataja el dedazo de escribir el sueldo con céntimos pegados.
+                if (v.SalarioBrutoMensual is null or <= 0)
+                    throw new AbrilException($"Vacante {pos}: debe indicar el salario bruto mensual.", 400);
+                if (v.SalarioBrutoMensual > MaxSalarioBrutoMensual)
+                    throw new AbrilException(
+                        $"Vacante {pos}: el salario bruto mensual no puede superar S/ {MaxSalarioBrutoMensual:N2}.", 400);
+
+                // Se guarda con 2 decimales: la columna es numeric(12,2) y redondear acá deja el
+                // dato igual en la BD y en el correo que ve el gerente.
+                v.SalarioBrutoMensual = Math.Round(v.SalarioBrutoMensual.Value, 2, MidpointRounding.AwayFromZero);
             }
 
             // Área del solicitante: se deriva del usuario autenticado (no se confía en el cliente).
@@ -985,7 +913,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 AreaScopeId         = areaScopeId,
                 SolicitanteUserId   = userId,
                 SolicitanteWorkerId = workerId,
-                Justificacion       = string.IsNullOrWhiteSpace(dto.Justificacion) ? null : dto.Justificacion.Trim(),
+                Justificacion       = justificacion,
             };
 
             // Sustento (opcional): validar y subir a SharePoint ANTES de persistir.

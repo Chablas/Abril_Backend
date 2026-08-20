@@ -5,6 +5,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using System.Globalization;
 
@@ -68,7 +69,8 @@ namespace Abril_Backend.Application.Services
             ILessonReminderRepository lessonReminderRepository,
             IEmailGroupResolver emailGroupResolver,
             IConfiguration configuration,
-            ISsomaReminderService ssomaReminderService
+            ISsomaReminderService ssomaReminderService,
+            IEmailSenderResolver emailSenderResolver
         )
         {
             _emailService = emailService;
@@ -81,10 +83,9 @@ namespace Abril_Backend.Application.Services
 
             // Remitente institucional configurado (el mismo buzón desde el que se
             // envían los correos). Sirve de único To visible del aviso masivo.
-            var fromEmail = configuration["Email:EmailSettings:FromEmail"];
             _publicationAnnouncementTo = new List<string>
             {
-                string.IsNullOrWhiteSpace(fromEmail) ? "aprobaciones@abril.pe" : fromEmail
+                emailSenderResolver.Default.Address
             };
         }
 

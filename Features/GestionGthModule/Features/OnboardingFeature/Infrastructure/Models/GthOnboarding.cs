@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models
 {
     /// <summary>
     /// Onboarding de un nuevo colaborador (tabla <c>gth_onboarding</c>): la continuación del proceso
@@ -38,8 +38,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         public int GthOnboardingEstadoId { get; set; }
 
         /// <summary>
-        /// Fecha de ingreso pactada. Se propone con la <c>fecha_requerida_ingreso</c> del
-        /// requerimiento y GTH la puede ajustar al abrir el onboarding.
+        /// Fecha de ingreso pactada. La escribe GTH al abrir el onboarding: el requerimiento ya no
+        /// lleva una fecha requerida con la que proponerla.
         /// </summary>
         public DateOnly? FechaIngreso { get; set; }
 

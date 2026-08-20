@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
@@ -40,11 +40,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.Solicitud,
                     CorreoTipoReclutamiento.Ti,
                 },
+                // Todos los correos que salen desde la bandeja de GTH, en el orden del proceso.
+                // AGRADECIMIENTO también lo dispara el rechazo de un finalista desde Solicitud de
+                // Personal, pero es el MISMO correo al candidato: se configura una sola vez y acá,
+                // que es de donde sale en el resto de los casos.
                 ["reclutamiento"] = new[]
                 {
                     CorreoTipoReclutamiento.LongList,
+                    CorreoTipoReclutamiento.FormularioEnvio,
                     CorreoTipoReclutamiento.FormularioCompletado,
+                    CorreoTipoReclutamiento.FormularioCorreccion,
                     CorreoTipoReclutamiento.Entrevista,
+                    CorreoTipoReclutamiento.Agradecimiento,
                 },
             };
 

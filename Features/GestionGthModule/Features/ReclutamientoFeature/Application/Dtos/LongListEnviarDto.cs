@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Metadatos (campo <c>data</c>, JSON) del envío de la long list. Los archivos (CV e
@@ -80,7 +80,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Puesto { get; set; } = string.Empty;
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
-        public DateOnly FechaRequeridaIngreso { get; set; }
         /// <summary>SLA del tipo de proceso asignado (null si aún no se clasificó).</summary>
         public int? SlaDias { get; set; }
         /// <summary>

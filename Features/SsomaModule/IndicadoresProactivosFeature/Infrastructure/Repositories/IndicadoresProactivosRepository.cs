@@ -238,9 +238,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Where(o => o.ProyectoId == proyectoId && o.Fecha >= fechaIni && o.Fecha < fechaCorte)
             .SelectMany(o => o.Trabajadores.Select(t => new { o.Fecha, t.TrabajadorId, t.OptId }))
             .ToListAsync();
+        // Se guarda también AuditorWorkerId: una auditoría ATS cuenta para la empresa tanto si
+        // uno de sus trabajadores fue AUDITADO como si uno de sus supervisores fue quien AUDITÓ
+        // (mismo criterio ya aplicado a la lista de Auditoría de ATS y al bug ya corregido en
+        // RAC) — antes solo se contaba el lado auditado y las auditorías que un contratista
+        // ejecuta con su propio supervisor aparecían con Ejec: 0 para esa empresa.
         var atsMesRaw = await ctx.SsomaAuditoriaAts
             .Where(a => a.ProyectoId == proyectoId && a.Fecha >= fechaIniOnly && a.Fecha < fechaCorteOnly)
-            .Select(a => new { a.Fecha, WorkerId = a.AuditadoWorkerId })
+            .Select(a => new { a.Fecha, WorkerId = a.AuditadoWorkerId, AuditorWorkerId = a.AuditorWorkerId })
             .ToListAsync();
         var charlasMesRaw = await ctx.SsCharlaAsistencias
             .Where(a => a.Charla!.ProyectoId == proyectoId
@@ -257,6 +262,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // → se contaba como "Casa" por error (incidencia BERROCAL / CEDRO 33, jul-2026).
         var eventoWorkerIds = optMesRaw.Select(x => x.TrabajadorId)
             .Concat(atsMesRaw.Select(x => x.WorkerId))
+            .Concat(atsMesRaw.Select(x => x.AuditorWorkerId))
             .Concat(charlasMesRaw.Select(x => x.WorkerId))
             .Distinct().ToList();
         var vincHist = await ctx.WorkerVinculacion
@@ -333,7 +339,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 .Select(x => x.OptId).Distinct().Count();
 
             var atsCasa = atsMesRaw
-                .Count(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha)));
+                .Count(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha))
+                         || EsCasa(EmpresaDelTrabajadorEnFecha(x.AuditorWorkerId, x.Fecha)));
 
             var charlasCasa = charlasMesRaw
                 .Where(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.WorkerId, DateOnly.FromDateTime(x.Fecha))))
@@ -423,7 +430,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 .Select(x => x.OptId).Distinct().Count();
 
             var ats = atsMesRaw
-                .Count(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha) == emp.EmpresaId);
+                .Count(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha) == emp.EmpresaId
+                         || EmpresaDelTrabajadorEnFecha(x.AuditorWorkerId, x.Fecha) == emp.EmpresaId);
 
             var charlas = charlaContratistaMesRaw
                 .Where(x => x.EmpresaId == emp.EmpresaId)
@@ -503,11 +511,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .SelectMany(o => o.Trabajadores.Select(t => new { o.ProyectoId, o.Fecha, t.TrabajadorId, t.OptId }))
             .ToListAsync();
 
-        // 5. ATS por proyecto/trabajador
+        // 5. ATS por proyecto/trabajador. Se guarda también AuditorWorkerId: una auditoría
+        // cuenta para la empresa tanto si audita a uno de sus trabajadores como si el auditor
+        // es su propio supervisor (mismo criterio que la lista de Auditoría de ATS y el bug ya
+        // corregido en RAC).
         var atsBulk = await ctx.SsomaAuditoriaAts
             .Where(a => a.ProyectoId != null && proyIds.Contains(a.ProyectoId!.Value)
                      && a.Fecha >= iniOnly && a.Fecha < corteOnly)
-            .Select(a => new { ProyectoId = a.ProyectoId!.Value, WorkerId = a.AuditadoWorkerId, a.Fecha })
+            .Select(a => new { ProyectoId = a.ProyectoId!.Value, WorkerId = a.AuditadoWorkerId, AuditorWorkerId = a.AuditorWorkerId, a.Fecha })
             .ToListAsync();
 
         // 6. Charlas: días distintos con asistencia por proyecto/trabajador
@@ -643,7 +654,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                         && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, o.TrabajadorId, DateOnly.FromDateTime(o.Fecha))))
                     .Select(o => o.OptId).Distinct().Count();
                 var atsC = atsBulk.Count(a => a.ProyectoId == pid
-                    && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha)));
+                    && (EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha))
+                        || EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.AuditorWorkerId, a.Fecha))));
                 var charlasC = charlasBulk.Where(a => a.ProyectoId == pid
                         && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, DateOnly.FromDateTime(a.Fecha))))
                     .Select(a => a.Fecha).Distinct().Count();
@@ -679,7 +691,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                         && EmpresaDelTrabajadorEnFecha(pid, o.TrabajadorId, DateOnly.FromDateTime(o.Fecha)) == emp.EmpresaId)
                     .Select(o => o.OptId).Distinct().Count();
                 var atsE = atsBulk.Count(a => a.ProyectoId == pid
-                    && EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha) == emp.EmpresaId);
+                    && (EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha) == emp.EmpresaId
+                        || EmpresaDelTrabajadorEnFecha(pid, a.AuditorWorkerId, a.Fecha) == emp.EmpresaId));
                 var charlasE = charlaContratistaBulk
                     .Where(c => c.ProyectoId == pid && c.EmpresaId == emp.EmpresaId)
                     .Select(c => c.Fecha).Distinct().Count();

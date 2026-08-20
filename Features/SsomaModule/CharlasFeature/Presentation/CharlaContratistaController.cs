@@ -4,6 +4,7 @@ using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Presentation;
 
@@ -101,5 +102,45 @@ public class CharlaContratistaController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error incumplimientos charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    /// <summary>Vista para SSOMA/prevencionista: charlas de contratista pendientes de revisión (o filtradas por estado).</summary>
+    [HttpGet("revision")]
+    [RequireFeature("ssoma.charlas.aprobar")]
+    public async Task<IActionResult> GetRevision([FromQuery] string? estado, [FromQuery] int? proyectoId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        try
+        {
+            if (GetEmpresaIdContratista().HasValue) return Forbid(); // solo staff interno
+            return Ok(await _service.GetRevisionAsync(estado, proyectoId, page, pageSize));
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error revisión charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/aprobar")]
+    [RequireFeature("ssoma.charlas.aprobar")]
+    public async Task<IActionResult> Aprobar(int id)
+    {
+        try
+        {
+            if (GetEmpresaIdContratista().HasValue) return Forbid();
+            return Ok(await _service.AprobarAsync(id, GetUserId()));
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error aprobar charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/rechazar")]
+    [RequireFeature("ssoma.charlas.aprobar")]
+    public async Task<IActionResult> Rechazar(int id, [FromBody] RechazarCharlaContratistaDto dto)
+    {
+        try
+        {
+            if (GetEmpresaIdContratista().HasValue) return Forbid();
+            return Ok(await _service.RechazarAsync(id, dto.Motivo, GetUserId()));
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error rechazar charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 }

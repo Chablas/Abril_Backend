@@ -45,7 +45,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return await _repo.Create(dto);
         }
 
-        public async Task Update(int id, WorkerUpdateDto dto)
+        public async Task Update(int id, WorkerUpdateDto dto, bool puedeEditarDni)
         {
             var correos = await _emailValidator.ValidarYNormalizarAsync(
                 dto.EmailCorporativo, dto.EmailPersonal, id, EsCorporativo(dto.ContrataCasa, dto.ObraOficinaStaffId));
@@ -53,10 +53,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             dto.EmailCorporativo = correos.Corporativo;
             dto.EmailPersonal = correos.Personal;
 
-            await _repo.Update(id, dto);
+            await _repo.Update(id, dto, puedeEditarDni);
         }
 
-        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)
+        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto, bool puedeEditarDni)
         {
             // Este formulario no envía la clasificación del trabajador: se deduce de la guardada.
             var correos = await _emailValidator.ValidarYNormalizarAsync(
@@ -65,7 +65,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             dto.EmailCorporativo = correos.Corporativo;
             dto.EmailPersonal = correos.Personal;
 
-            await _repo.UpdateDatosBasicos(id, dto);
+            await _repo.UpdateDatosBasicos(id, dto, puedeEditarDni);
         }
 
         public Task Retirar(int id) => _repo.Retirar(id);

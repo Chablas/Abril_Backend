@@ -17,8 +17,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int? PropietarioEmpresaId { get; set; }
         public int ProyectoId { get; set; }
         public string? DatosEquipo { get; set; }
-        public string? EmailAdmin { get; set; }
-        public string? EmailSsoma { get; set; }
         public bool Activo { get; set; } = true;
         public int? IdLegacy { get; set; }
         public DateTime? CreatedAt { get; set; }

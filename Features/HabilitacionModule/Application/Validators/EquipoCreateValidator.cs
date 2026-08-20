@@ -9,9 +9,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
         {
             RuleFor(x => x.TipoEquipoId).GreaterThan(0);
             RuleFor(x => x.ProyectoId).GreaterThan(0);
-
-            RuleFor(x => x.EmailAdmin).EmailAddress()
-                .When(x => !string.IsNullOrEmpty(x.EmailAdmin));
         }
     }
 }

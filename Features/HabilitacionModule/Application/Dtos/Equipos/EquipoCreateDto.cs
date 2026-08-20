@@ -10,7 +10,5 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Equipos
         public string? Capacidad { get; set; }
         public int? PropietarioEmpresaId { get; set; }
         public int ProyectoId { get; set; }
-        public string? EmailAdmin { get; set; }
-        public string? EmailSsoma { get; set; }
     }
 }

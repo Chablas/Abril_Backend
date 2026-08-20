@@ -32,4 +32,21 @@ public class CharlaContratistaDto
     public string? EvidenciaUrl { get; set; }
     public string? EvidenciaNombre { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string Estado { get; set; } = "Enviado";
+    public string? AprobadoPorNombre { get; set; }
+    public DateTime? AprobadoEn { get; set; }
+    public string? MotivoRechazo { get; set; }
+    /// <summary>Solo poblado en la lista de revisión de SSOMA (no en "mi historial" del contratista).</summary>
+    public string? EmpresaNombre { get; set; }
+}
+
+public class RechazarCharlaContratistaDto
+{
+    public string Motivo { get; set; } = string.Empty;
+}
+
+public class CharlaContratistaRevisionResultDto
+{
+    public List<CharlaContratistaDto> Items { get; set; } = new();
+    public int Total { get; set; }
 }

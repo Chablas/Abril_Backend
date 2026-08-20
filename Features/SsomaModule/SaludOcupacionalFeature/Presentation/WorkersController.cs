@@ -6,6 +6,7 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -188,7 +189,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (string.IsNullOrWhiteSpace(dto.ApellidoNombre))
                     return BadRequest(new { message = "apellidoNombre es obligatorio." });
 
-                await _service.Update(id, dto);
+                await _service.Update(id, dto, User.IsInRole(Roles.AdministradorDeObra));
                 return Ok(new { message = "Trabajador actualizado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -207,7 +208,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (string.IsNullOrWhiteSpace(dto.NombreCompleto))
                     return BadRequest(new { message = "El nombre completo es obligatorio." });
 
-                await _service.UpdateDatosBasicos(id, dto);
+                await _service.UpdateDatosBasicos(id, dto, User.IsInRole(Roles.AdministradorDeObra));
                 return Ok(new { message = "Trabajador actualizado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

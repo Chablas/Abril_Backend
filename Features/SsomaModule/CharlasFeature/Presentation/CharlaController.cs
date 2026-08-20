@@ -195,6 +195,7 @@ public class CharlaController : ControllerBase
     }
 
     [HttpPut("capacitaciones/{id}/estado")]
+    [RequireFeature("ssoma.charlas.aprobar")]
     public async Task<IActionResult> CambiarEstado(int id, [FromQuery] int userId, [FromBody] CambiarEstadoDto dto)
     {
         try
@@ -303,6 +304,7 @@ public class CharlaController : ControllerBase
     }
 
     [HttpPut("{id:int}/aprobar")]
+    [RequireFeature("ssoma.charlas.aprobar")]
     public async Task<IActionResult> Aprobar(int id, [FromQuery] int userId)
     {
         try
@@ -315,6 +317,7 @@ public class CharlaController : ControllerBase
     }
 
     [HttpPut("{id:int}/rechazar")]
+    [RequireFeature("ssoma.charlas.aprobar")]
     public async Task<IActionResult> Rechazar(int id, [FromQuery] int userId, [FromBody] RechazarCharlaDto dto)
     {
         try

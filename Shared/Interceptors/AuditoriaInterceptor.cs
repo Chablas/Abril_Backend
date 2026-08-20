@@ -12,7 +12,9 @@ namespace Abril_Backend.Shared.Interceptors
         {
             "ss_hab_trabajador", "ss_hab_empresa", "ss_hab_equipo",
             "ss_sctr_vidaley", "ss_equipo",
-            "ss_induccion", "ss_eval_supervisor"
+            "ss_induccion", "ss_eval_supervisor",
+            "vecino_licencia_control_tipo", "vecino_licencia_control",
+            "vecino_licencia_control_historial", "vecino_licencia_control_destinatario"
         };
 
         private readonly IServiceScopeFactory _scopeFactory;
@@ -74,9 +76,11 @@ namespace Abril_Backend.Shared.Interceptors
                 };
 
                 var registroId = 0;
-                if (entry.Properties.Any(p => p.Metadata.Name == "Id"))
+                var pkProperty = entry.Properties.FirstOrDefault(p => p.Metadata.IsPrimaryKey())
+                    ?? entry.Properties.FirstOrDefault(p => p.Metadata.Name == "Id");
+                if (pkProperty != null)
                 {
-                    var idVal = entry.Property("Id").CurrentValue;
+                    var idVal = pkProperty.CurrentValue;
                     registroId = idVal switch
                     {
                         int i => i,

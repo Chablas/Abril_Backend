@@ -13,4 +13,9 @@ public interface ICharlaContratistaService
 
     /// <summary>Para SSOMA/admin: incumplimientos de una fecha (tareados que no subieron charla).</summary>
     Task<List<CharlaContratistaPendienteDto>> GetIncumplimientosAsync(DateOnly fecha, int? proyectoId);
+
+    /// <summary>Para SSOMA/prevencionista: charlas de contratistas pendientes (o filtradas por estado) para revisar.</summary>
+    Task<CharlaContratistaRevisionResultDto> GetRevisionAsync(string? estado, int? proyectoId, int page, int pageSize);
+    Task<CharlaContratistaDto> AprobarAsync(int id, int userId);
+    Task<CharlaContratistaDto> RechazarAsync(int id, string motivo, int userId);
 }

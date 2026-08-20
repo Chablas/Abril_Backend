@@ -42,14 +42,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public string? ArchivoUrl { get; set; }
         public string? OriginalFileName { get; set; }
         public DateOnly? FechaVencimiento { get; set; }
-        public DateOnly? FechaRecordatorio { get; set; }
-        public int? DiasAntes { get; set; }
-        public DateTime? RecordatorioEnviadoDateTime { get; set; }
 
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
         public int? UpdatedUserId { get; set; }
+        public bool Active { get; set; }
+        public bool State { get; set; }
+    }
+
+    /// <summary>
+    /// Un recordatorio de una licencia (N días antes de vencer). Una licencia puede tener
+    /// varios activos a la vez (ej. 30, 15, 7 y 2 días antes); cada uno se envía y se marca
+    /// una sola vez, independiente de los demás.
+    /// </summary>
+    public class VecinoLicenciaControlRecordatorio
+    {
+        public int VecinoLicenciaControlRecordatorioId { get; set; }
+        public int VecinoLicenciaControlId { get; set; }
+        public int DiasAntes { get; set; }
+        public DateOnly FechaRecordatorio { get; set; }
+        public DateTime? EnviadoDateTime { get; set; }
+        public DateTime CreatedDateTime { get; set; }
+        public int CreatedUserId { get; set; }
         public bool Active { get; set; }
         public bool State { get; set; }
     }

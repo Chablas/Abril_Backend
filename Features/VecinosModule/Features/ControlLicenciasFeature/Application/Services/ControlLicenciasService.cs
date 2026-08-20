@@ -90,13 +90,11 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             if (!AllowedExtensions.Contains(extension))
                 throw new AbrilException("Formato no válido. Use PDF, Word, Excel o imagen.", 400);
 
-            if (dto.FechaRecordatorio > dto.FechaVencimiento)
-                throw new AbrilException("La fecha de recordatorio no puede ser posterior a la fecha de vencimiento.", 400);
-
-            var dias = dto.FechaVencimiento.DayNumber - dto.FechaRecordatorio.DayNumber;
-            if (dias < 0)
+            var diasAntes = (dto.DiasAntesRecordatorio ?? new List<int>()).Distinct().ToList();
+            if (diasAntes.Count == 0)
+                throw new AbrilException("Debe indicar al menos un recordatorio (días de antelación).", 400);
+            if (diasAntes.Any(d => d < 0))
                 throw new AbrilException("Los días de antelación no pueden ser negativos.", 400);
-            dto.DiasAntes = dias;
 
             var container = _containerResolver.GetVecinoEntregablesContainerName();
 
@@ -110,8 +108,20 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             }
 
             await _repository.UploadLicencia(projectId, tipoId, archivoUrl, file.FileName,
-                dto.FechaVencimiento, dto.FechaRecordatorio, dto.DiasAntes, userId);
+                dto.FechaVencimiento, diasAntes, userId);
         }
+
+        public async Task<VecinoLicenciaRecordatorioDto> AddRecordatorio(int projectId, int tipoId, VecinoLicenciaRecordatorioCreateDto dto, int userId)
+        {
+            if (!await _repository.TipoAplicaAProyecto(projectId, tipoId))
+                throw new AbrilException("El tipo de licencia no corresponde a este proyecto.", 400);
+            if (dto.DiasAntes < 0)
+                throw new AbrilException("Los días de antelación no pueden ser negativos.", 400);
+
+            return await _repository.AddRecordatorio(projectId, tipoId, dto.DiasAntes, userId);
+        }
+
+        public Task DeleteRecordatorio(int recordatorioId, int userId) => _repository.DeleteRecordatorio(recordatorioId, userId);
 
         public async Task SetNoAplica(int projectId, int tipoId, bool noAplica, int userId)
         {
@@ -150,27 +160,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var result = new RecordatoriosResultDto();
             var emailsPorProyecto = new Dictionary<int, List<string>>();
 
-            foreach (var licencia in pendientes)
+            foreach (var recordatorio in pendientes)
             {
                 try
                 {
-                    if (!emailsPorProyecto.TryGetValue(licencia.ProjectId, out var emails))
+                    if (!emailsPorProyecto.TryGetValue(recordatorio.ProjectId, out var emails))
                     {
                         // Residente/Coordinador SSOMA/Administración salen de la ficha del proyecto
                         // (mismo criterio que EMOs); los adicionales (ej. Jefe SSOMA) son a mano.
-                        var automaticos = await _repository.ResolverDestinatariosAutomaticos(licencia.ProjectId);
-                        var adicionales = await _repository.GetDestinatariosAdicionales(licencia.ProjectId);
+                        var automaticos = await _repository.ResolverDestinatariosAutomaticos(recordatorio.ProjectId);
+                        var adicionales = await _repository.GetDestinatariosAdicionales(recordatorio.ProjectId);
                         emails = automaticos.Concat(adicionales).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        emailsPorProyecto[licencia.ProjectId] = emails;
+                        emailsPorProyecto[recordatorio.ProjectId] = emails;
                     }
 
                     if (emails.Count == 0)
                         continue; // Proyecto sin destinatarios resueltos: no hay a quién avisar.
 
-                    var diasRestantes = licencia.FechaVencimiento.DayNumber - hoy.DayNumber;
+                    var diasRestantes = recordatorio.FechaVencimiento.DayNumber - hoy.DayNumber;
                     var subject = diasRestantes >= 0
-                        ? $"Recordatorio: la licencia \"{licencia.TipoDescripcion}\" vence el {licencia.FechaVencimiento:dd/MM/yyyy}"
-                        : $"Alerta: la licencia \"{licencia.TipoDescripcion}\" venció el {licencia.FechaVencimiento:dd/MM/yyyy}";
+                        ? $"Recordatorio: la licencia \"{recordatorio.TipoDescripcion}\" vence el {recordatorio.FechaVencimiento:dd/MM/yyyy}"
+                        : $"Alerta: la licencia \"{recordatorio.TipoDescripcion}\" venció el {recordatorio.FechaVencimiento:dd/MM/yyyy}";
 
                     var detalleDias = diasRestantes > 1 ? $"Faltan <b>{diasRestantes} días</b> para su vencimiento."
                         : diasRestantes == 1 ? "Vence <b>mañana</b>."
@@ -180,14 +190,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     var body = $"""
                         <p>Estimados,</p>
                         <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
-                        <p>La licencia <b>{licencia.TipoDescripcion}</b> vence el <b>{licencia.FechaVencimiento:dd/MM/yyyy}</b>. {detalleDias}</p>
+                        <p>La licencia <b>{recordatorio.TipoDescripcion}</b> vence el <b>{recordatorio.FechaVencimiento:dd/MM/yyyy}</b>. {detalleDias}</p>
                         <p>Puede revisarla en la intranet:
                         <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
                         <p>Este es un mensaje automático, por favor no responder.</p>
                         """;
 
                     await _emailService.SendAsync(emails, subject, body, isHtml: true);
-                    await _repository.MarcarRecordatorioEnviado(licencia.VecinoLicenciaControlId);
+                    await _repository.MarcarRecordatorioEnviado(recordatorio.VecinoLicenciaControlRecordatorioId);
 
                     result.LicenciasProcesadas++;
                     result.CorreosEnviados += emails.Count;
@@ -195,7 +205,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 catch (Exception ex)
                 {
                     // Un fallo puntual no debe frenar el resto de recordatorios del día.
-                    result.Errores.Add($"Licencia {licencia.VecinoLicenciaControlId} (proyecto {licencia.ProjectId}): {ex.Message}");
+                    result.Errores.Add($"Recordatorio {recordatorio.VecinoLicenciaControlRecordatorioId} (proyecto {recordatorio.ProjectId}): {ex.Message}");
                 }
             }
 

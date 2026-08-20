@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId);
         Task<VecinoLicenciaTipoDto> AddTipo(int projectId, VecinoLicenciaTipoCreateDto dto, int userId);
         Task UploadLicencia(int projectId, int tipoId, VecinoLicenciaUploadDto dto, IFormFile file, int userId);
+        Task<VecinoLicenciaRecordatorioDto> AddRecordatorio(int projectId, int tipoId, VecinoLicenciaRecordatorioCreateDto dto, int userId);
+        Task DeleteRecordatorio(int recordatorioId, int userId);
         Task SetNoAplica(int projectId, int tipoId, bool noAplica, int userId);
         Task<List<VecinoLicenciaHistorialItemDto>> GetHistorial(int projectId, int tipoId);
 

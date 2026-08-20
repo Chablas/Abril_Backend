@@ -30,10 +30,17 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         /// <summary>
         /// Sube/reemplaza el documento vigente de un tipo para un proyecto. Si ya había un archivo,
-        /// la versión anterior se archiva en el historial antes de sobrescribir.
+        /// la versión anterior se archiva en el historial antes de sobrescribir. Crea un recordatorio
+        /// por cada valor de <paramref name="diasAntesRecordatorio"/>.
         /// </summary>
         Task UploadLicencia(int projectId, int tipoId, string archivoUrl, string? originalFileName,
-            DateOnly fechaVencimiento, DateOnly fechaRecordatorio, int diasAntes, int userId);
+            DateOnly fechaVencimiento, List<int> diasAntesRecordatorio, int userId);
+
+        /// <summary>Agrega un recordatorio adicional a la licencia vigente de un tipo.</summary>
+        Task<VecinoLicenciaRecordatorioDto> AddRecordatorio(int projectId, int tipoId, int diasAntes, int userId);
+
+        /// <summary>Elimina (soft delete) un recordatorio puntual.</summary>
+        Task DeleteRecordatorio(int recordatorioId, int userId);
 
         /// <summary>Marca/desmarca "No aplica" para un tipo de un proyecto.</summary>
         Task SetNoAplica(int projectId, int tipoId, bool noAplica, int userId);
@@ -58,9 +65,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>Correos adicionales de un proyecto (sin los automáticos), para el envío del cron.</summary>
         Task<List<string>> GetDestinatariosAdicionales(int projectId);
 
-        /// <summary>Licencias con archivo cargado cuya fecha de recordatorio ya llegó y no se ha avisado, de todos los proyectos.</summary>
-        Task<List<(int VecinoLicenciaControlId, int ProjectId, string TipoDescripcion, DateOnly FechaVencimiento)>> GetPendientesRecordatorio(DateOnly hoy);
+        /// <summary>Recordatorios de licencias con archivo cargado cuya fecha ya llegó y no se han avisado, de todos los proyectos.</summary>
+        Task<List<VecinoLicenciaRecordatorioPendienteDto>> GetPendientesRecordatorio(DateOnly hoy);
 
-        Task MarcarRecordatorioEnviado(int vecinoLicenciaControlId);
+        Task MarcarRecordatorioEnviado(int recordatorioId);
     }
 }

@@ -46,14 +46,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public string? ArchivoUrl { get; set; }
         public string? OriginalFileName { get; set; }
         public DateOnly? FechaVencimiento { get; set; }
-        public DateOnly? FechaRecordatorio { get; set; }
-        public int? DiasAntes { get; set; }
-        public DateTime? RecordatorioEnviadoDateTime { get; set; }
-        /// <summary>Días de antelación por defecto del tipo, para prellenar el formulario de subida.</summary>
+        /// <summary>Días de antelación por defecto del tipo, para sugerir el primer recordatorio al subir.</summary>
         public int? DiasAntesDefault { get; set; }
+
+        /// <summary>Recordatorios activos de la licencia vigente (puede haber varios, ej. 30/15/7/2 días antes).</summary>
+        public List<VecinoLicenciaRecordatorioDto> Recordatorios { get; set; } = new();
 
         /// <summary>Cantidad de versiones anteriores archivadas en el historial.</summary>
         public int VersionesHistorial { get; set; }
+    }
+
+    /// <summary>Un recordatorio (N días antes de vencer) de una licencia.</summary>
+    public class VecinoLicenciaRecordatorioDto
+    {
+        public int VecinoLicenciaControlRecordatorioId { get; set; }
+        public int DiasAntes { get; set; }
+        public DateOnly FechaRecordatorio { get; set; }
+        public bool Enviado { get; set; }
+    }
+
+    /// <summary>Agrega un recordatorio adicional a la licencia vigente de un tipo.</summary>
+    public class VecinoLicenciaRecordatorioCreateDto
+    {
+        public int DiasAntes { get; set; }
     }
 
     public class VecinoLicenciaPlantillaResponseDto
@@ -66,8 +81,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     public class VecinoLicenciaUploadDto
     {
         public DateOnly FechaVencimiento { get; set; }
-        public DateOnly FechaRecordatorio { get; set; }
-        public int DiasAntes { get; set; }
+        /// <summary>Días de antelación de cada recordatorio a crear (ej. [30, 15, 7, 2]). Al menos uno.</summary>
+        public List<int> DiasAntesRecordatorio { get; set; } = new();
     }
 
     public class VecinoLicenciaNoAplicaDto
@@ -122,6 +137,16 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         public List<VecinoLicenciaDestinatarioAutomaticoDto> Automaticos { get; set; } = new();
         public List<VecinoLicenciaDestinatarioDto> Adicionales { get; set; } = new();
+    }
+
+    /// <summary>Un recordatorio pendiente de envío, con el contexto necesario para armar el correo.</summary>
+    public class VecinoLicenciaRecordatorioPendienteDto
+    {
+        public int VecinoLicenciaControlRecordatorioId { get; set; }
+        public int ProjectId { get; set; }
+        public string TipoDescripcion { get; set; } = null!;
+        public DateOnly FechaVencimiento { get; set; }
+        public int DiasAntes { get; set; }
     }
 
     /// <summary>Resultado del procesamiento del cron de recordatorios (todos los proyectos).</summary>

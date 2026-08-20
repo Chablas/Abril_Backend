@@ -519,6 +519,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // responde. El token no se toca: si lo completa después, vuelve a caer como COMPLETADO.
             if (aprobado && !estabaCompletado)
                 throw new AbrilException("Solo puedes aprobar un formulario que el postulante ya completó.", 409);
+
+            // El enlace del formulario sigue vigente después de rechazarlo, así que un postulante
+            // al que GTH ya sacó del proceso puede volver a enviarlo y reaparecer como "Por
+            // revisar". Aprobarlo ahí lo devolvería al proceso después de haberle mandado el
+            // correo de fin de proceso: se corta acá.
+            if (aprobado)
+            {
+                var fueraDelProceso = await (
+                    from ev in ctx.GthCandidatoEvaluacion
+                    where ev.GthCandidatoId == candidatoId && ev.State
+                    join res in ctx.GthCandidatoResultado
+                        on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                    select res.Codigo).FirstOrDefaultAsync();
+
+                if (fueraDelProceso == ResultadoCandidatoFormulario.NoPaso)
+                    throw new AbrilException(
+                        "Este postulante ya quedó fuera del proceso: no se puede aprobar su formulario.", 409);
+            }
             if (!aprobado && !estabaCompletado && actual?.Codigo != EstadoFormularioPostulante.Enviado)
                 throw new AbrilException("Solo puedes rechazar un formulario que ya se le envió al postulante.", 409);
 
@@ -772,6 +790,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>Códigos estables del estado del formulario del postulante (espejo de gth_postulante_formulario_estado.codigo).</summary>
+    /// <summary>
+    /// Código del resultado con el que un candidato queda fuera del proceso (espejo de
+    /// <c>gth_candidato_resultado.codigo</c>). Es el mismo catálogo que usa
+    /// <c>ReclutamientoRepository</c>; acá solo hace falta este valor.
+    /// </summary>
+    internal static class ResultadoCandidatoFormulario
+    {
+        public const string NoPaso = "NO_PASO";
+    }
+
     internal static class EstadoFormularioPostulante
     {
         public const string Enviado    = "ENVIADO";

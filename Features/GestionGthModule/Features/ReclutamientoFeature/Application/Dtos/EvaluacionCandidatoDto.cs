@@ -53,6 +53,34 @@
         /// <summary>Fase nueva del requerimiento. Null si la fase no se movió.</summary>
         public string? EstadoCodigo { get; set; }
         public string? EstadoNombre { get; set; }
+
+        /// <summary>
+        /// Datos para el correo que le avisa al solicitante que tiene un finalista por decidir
+        /// (tipo FINALISTA_ENVIO). Viene siempre: el envío es best-effort y lo decide el servicio.
+        /// </summary>
+        public FinalistaEnvioContextoDto Envio { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Datos que necesita el servicio para armar el correo de "finalista enviado al solicitante".
+    /// El destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
+    /// configuración de Reclutamiento solo aporta principales adicionales y copias.
+    /// </summary>
+    public class FinalistaEnvioContextoDto
+    {
+        public int RequerimientoId { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
+        public string? Area { get; set; }
+        public string? ProyectoObra { get; set; }
+
+        /// <summary>Correo del solicitante. Null si el usuario no tiene uno cargado.</summary>
+        public string? SolicitanteEmail { get; set; }
+
+        public string CandidatoNombre { get; set; } = string.Empty;
+
+        /// <summary>El informe que GTH acaba de guardar (los tres comentarios).</summary>
+        public EvaluacionResumenDto Evaluacion { get; set; } = new();
     }
 
     /// <summary>Resultado de guardar la evaluación o de enviar el correo de agradecimiento.</summary>
@@ -157,10 +185,30 @@
         public string? SolicitanteNombre { get; set; }
 
         /// <summary>
-        /// Correo del finalista rechazado, al que se le envía el agradecimiento. Vacío cuando la
+        /// Correo del finalista rechazado, al que se le envía el fin de proceso. Vacío cuando la
         /// decisión fue aprobarlo (no se le escribe al candidato desde aquí).
         /// </summary>
         public string CandidatoCorreo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Finalistas que se quedaron sin elegir al aprobar a otro: el puesto ya quedó cubierto,
+        /// así que se cierran como rechazados y reciben el mismo correo de fin de proceso. Vacío
+        /// cuando la decisión fue rechazar (ahí el proceso sigue abierto para los demás).
+        /// </summary>
+        public List<FinalistaNoElegidoDto> NoElegidos { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Finalista que quedó fuera porque el solicitante eligió a otro. Solo lo que hace falta para
+    /// escribirle: su nombre y el correo con el que se le contactó durante el proceso.
+    /// </summary>
+    public class FinalistaNoElegidoDto
+    {
+        public int CandidatoId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Correo del candidato. Vacío si no tiene uno cargado (no se le escribe).</summary>
+        public string Correo { get; set; } = string.Empty;
     }
 
     /// <summary>Un finalista con el informe que GTH registró tras su entrevista.</summary>

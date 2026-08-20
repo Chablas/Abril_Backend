@@ -636,7 +636,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return l.Documento(
                 new Layout.Cabecera(
-                    "req-ti", "Vacantes Aprobadas", "Para que TI vaya previendo equipo, usuario y accesos:"),
+                    "req-ti", "Vacantes Aprobadas", "Gerencia General aprobó estas vacantes:"),
                 l.Tarjeta(datos),
                 l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
                 l.Tabla(Textos.ColumnasVacantes, FilasVacantes(ctx.Aprobadas, conSalario: false)));
@@ -645,8 +645,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Cuerpo del correo a GTH: las vacantes que aprobó Gerencia General, con el contexto de la
         /// decisión (justificación, comentario del GG, visto bueno del gerente del área y sustento).
-        /// Las rechazadas van como franja y no como tabla: no generan trabajo para GTH, solo
-        /// explican por qué la solicitud llegó incompleta.
+        /// Lo que el GG no aprobó no se menciona: no genera trabajo para GTH y el conteo del
+        /// asunto ya se refiere solo a lo aprobado.
         /// </summary>
         private string ConstruirCuerpoGth(AprobacionGgDecisionContextoDto ctx)
         {
@@ -672,19 +672,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 contexto.Add(new("req-sustento", "Sustento adjunto",
                     Textos.Enlace(ctx.SustentoUrl!, ctx.SustentoNombre ?? "Ver documento")));
 
-            var rechazadas = ctx.Rechazadas.Count == 0
-                ? ""
-                : l.Franja("req-rechazadas", Layout.Tono.Rojo,
-                    $"<b>No aprobadas ({ctx.Rechazadas.Count}):</b> "
-                    + Layout.Esc(string.Join(", ", ctx.Rechazadas.Select(v => $"{v.Codigo} ({v.Puesto})"))) + ".");
-
             return l.Documento(
                 new Layout.Cabecera(
                     "req-aprobada", "Solicitud Aprobada", "Gerencia General aprobó estas vacantes:"),
                 l.Tarjeta(datos),
                 l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
                 l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(ctx.Aprobadas, conSalario: true)),
-                rechazadas,
                 l.Tarjeta(contexto));
         }
     }

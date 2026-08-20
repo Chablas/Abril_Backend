@@ -5783,3 +5783,32 @@ Sesión corta: se trajo `origin/master` a `victor-backend` (`git fetch` + `git m
 Además se confirmó al usuario, a pedido, el contenido exacto y completo del seed `Migrations/Manual/20260817_PlaneamientoBimPortafolioFeatureSeed.sql` (40 líneas, 2 `INSERT` idempotentes vía `NOT EXISTS` — feature `planeamiento-bim.portafolio` + `role_feature` para roles 1 y 2) para que lo corra manualmente en pgAdmin. Sigue pendiente de ejecución contra producción (ver sesión anterior).
 
 No hubo cambios de código en esta sesión.
+
+## Sesión 2026-08-20 — Evaluaciones SSOMA: 3 flujos nuevos (backend completo, frontend flujo A)
+
+Pedido del usuario (Jefe SSOMA): evaluar a los supervisores de campo de los contratistas, que su equipo (Coordinador SSOMA=70, Prevencionista=72) lo evalúe a él de forma anónima y obligatoria, y que los contratistas evalúen a los Prevencionistas/Coordinadores SSOMA asignados a su proyecto. Diseño confirmado con el usuario antes de implementar (incluye que sí quiere ver promedio+comentarios agregados del Flujo B, nunca la identidad del evaluador).
+
+### Backend — `Features/EvaluacionesModule/` (10 tablas nuevas, 3 controllers)
+- **Flujo A** (`EvSupervisorContratistaController`, ruta `api/v1/evaluaciones/supervisores-contratista`): evaluador = rol 70/72 vía `[Authorize(Roles=...)]`; `/ver` y `/dashboard` solo rol 9. Evaluado = persona en `ss_contratista_usuario` con rol de sistema 74 (Contratista Supervisor de Campo), resuelta por proyecto vía `worker_vinculaciones` del evaluador (mismo patrón que ya usa `EvContratistaRepository`).
+- **Flujo B** (`EvJefeSsomaController`, ruta `.../jefe-ssoma`): anónimo y obligatorio. `ev_evaluacion_jefe_ssoma` (nota/comentario, SIN `evaluador_user_id`) y `ev_evaluacion_jefe_ssoma_cumplimiento` (solo `evaluador_user_id` + `completado_at`, para trackear quién falta) son dos tablas separadas sin FK entre sí — se insertan juntas en una sola transacción (`EvJefeSsomaRepository.RegistrarAsync`) pero nada en el esquema permite unir autor con respuesta. `/resultados` y `/pendientes` solo rol 9.
+- **Flujo C** (`EvPrevencionistaController`, ruta `.../prevencionistas`): evaluador = sesión contratista existente (`tipo=CONTRATISTA`, `[Authorize(Roles=Roles.Contratista)]`, lee claims `empresaId`/`proyectoIds` del JWT ya emitido por `ContratistaAuthService`). Sí guarda identidad del evaluador (empresa + `ss_contratista_usuario_id`) porque el Jefe SSOMA la necesita en `/dashboard`; el anonimato es solo de cara al evaluado — `/mi-perfil` nunca selecciona esas columnas.
+- `AppDbContext`: 10 `DbSet` nuevos agregados — **ojo**: estos ya quedaron commiteados y pusheados a `origin/master` accidentalmente dentro de un commit ajeno (`4e378b8 "fix: EMO sabados Staff..."`), de otra sesión que corrió `git add -A` sobre el mismo archivo mientras esta sesión trabajaba. Sin impacto (DbSet no se ejecuta hasta usarse, y nada más de este trabajo estaba commiteado en ese momento), pero avisado al usuario.
+- Migración manual `Migrations_Manual/2026-08-20_evaluaciones_ssoma_supervisores_jefe_prevencionistas.sql` (10 tablas + 3 plantillas con 5 criterios sembrados cada una) — **ya corrida y verificada por el usuario**.
+- Migración manual `Migrations_Manual/2026-08-20_evaluaciones_supervisores_contratista_feature_seed.sql` (feature+role_feature para las 2 rutas del Flujo A) — pendiente de correr.
+- Bug real corregido en el camino: `EvPrevencionistaRepository` usaba `ValueTuple` como tipo de retorno de dos queries Dapper (`QueryAsync<(int,int)>` / `QueryAsync<(decimal?,string?)>`), que Dapper no sabe mapear — reemplazado por records (`YaEvaluadoRaw`, `NotaComentarioRaw`).
+
+### Frontend — solo Flujo A implementado
+`pages/evaluar-supervisor-contratista/` (clon de `evaluar-contratista`, escala 0-4 por criterio) y `pages/ver-evaluacion-supervisores/` (tabla consolidada, solo Jefe SSOMA), + `dtos/ev-supervisor-contratista.model.ts` + `services/ev-supervisor-contratista.service.ts`. Rutas registradas en `evaluaciones.routes.ts` y sidebar en `navigation.service.ts`.
+
+**Descubrimiento importante**: el acceso a rutas de Evaluaciones no usa `data.roles` estático (aunque `roleGuard` lo soporta como fallback) sino el sistema dinámico `feature`/`role_feature` vía `featureKey`, igual que el resto del módulo — de ahí la migración de feature seed de arriba.
+
+### Verificado
+- `dotnet build Abril-Backend.csproj`: 0 errores de compilación (solo warnings preexistentes). Los 2 "errores" de MSB3027/MSB3021 al final son por el .exe bloqueado porque el usuario tenía el backend corriendo en otra terminal — no son errores de código.
+- `npm run build` (frontend): 0 errores, solo warnings preexistentes de CommonJS de terceros.
+- No probado en navegador ni con datos reales todavía.
+
+### Pendiente (frontend)
+- **Flujo B**: pantalla "Evaluar al Jefe SSOMA" (para 70/72) + pantalla de resultados (solo rol 9, promedio + comentarios sin autor + lista de pendientes). Falta decidir mecanismo de "obligatorio" (¿banner de bloqueo como charlas SSOMA, o solo recordatorio?).
+- **Flujo C**: pantalla de evaluación dentro del portal `dashboard-contratista` (ya existe, ya resuelve `empresaId`/`proyectoIds` del JWT contratista) + `/mi-perfil` para el propio Prevencionista/Coordinador + dashboard consolidado para el Jefe SSOMA.
+- Feature seeds de B y C (mismo patrón que el de A).
+- Aplicar la migración de feature seed de A pendiente arriba.

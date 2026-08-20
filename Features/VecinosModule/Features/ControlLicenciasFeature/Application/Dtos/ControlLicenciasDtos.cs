@@ -96,7 +96,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public string? CreatedUserName { get; set; }
     }
 
-    /// <summary>Correo destinatario de recordatorios por rol, para un proyecto.</summary>
+    /// <summary>Correo resuelto automáticamente desde la ficha del proyecto (Residente, Coordinador SSOMA, Administración) — mismo criterio que EMOs.</summary>
+    public class VecinoLicenciaDestinatarioAutomaticoDto
+    {
+        public string Rol { get; set; } = null!;
+        public string? Email { get; set; }
+    }
+
+    /// <summary>Correo adicional configurado a mano para un proyecto (ej. Jefe SSOMA cuando aplique).</summary>
     public class VecinoLicenciaDestinatarioDto
     {
         public int VecinoLicenciaControlDestinatarioId { get; set; }
@@ -108,6 +115,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         public string Rol { get; set; } = null!;
         public string Email { get; set; } = null!;
+    }
+
+    /// <summary>Destinatarios de un proyecto: automáticos (ficha del proyecto) + adicionales configurados a mano.</summary>
+    public class VecinoLicenciaDestinatariosResponseDto
+    {
+        public List<VecinoLicenciaDestinatarioAutomaticoDto> Automaticos { get; set; } = new();
+        public List<VecinoLicenciaDestinatarioDto> Adicionales { get; set; } = new();
     }
 
     /// <summary>Resultado del procesamiento del cron de recordatorios (todos los proyectos).</summary>

@@ -41,13 +41,22 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>Historial de versiones anteriores de la licencia vigente de un tipo en un proyecto.</summary>
         Task<List<VecinoLicenciaHistorialItemDto>> GetHistorial(int projectId, int tipoId);
 
-        /// <summary>Destinatarios de recordatorio configurados para un proyecto (por rol).</summary>
-        Task<List<VecinoLicenciaDestinatarioDto>> GetDestinatarios(int projectId);
+        /// <summary>
+        /// Destinatarios de un proyecto: automáticos (Residente/Coordinador SSOMA/Administración,
+        /// resueltos desde la ficha del proyecto — mismo criterio que EMOs) + adicionales a mano.
+        /// </summary>
+        Task<VecinoLicenciaDestinatariosResponseDto> GetDestinatarios(int projectId);
+
+        /// <summary>Solo los correos automáticos ya resueltos (para el envío del cron).</summary>
+        Task<List<string>> ResolverDestinatariosAutomaticos(int projectId);
 
         Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, string rol, string email, int userId);
 
-        /// <summary>Elimina (soft delete) un destinatario; queda registrado en auditoría quién lo borró.</summary>
+        /// <summary>Elimina (soft delete) un destinatario adicional; queda registrado en auditoría quién lo borró.</summary>
         Task DeleteDestinatario(int destinatarioId, int userId);
+
+        /// <summary>Correos adicionales de un proyecto (sin los automáticos), para el envío del cron.</summary>
+        Task<List<string>> GetDestinatariosAdicionales(int projectId);
 
         /// <summary>Licencias con archivo cargado cuya fecha de recordatorio ya llegó y no se ha avisado, de todos los proyectos.</summary>
         Task<List<(int VecinoLicenciaControlId, int ProjectId, string TipoDescripcion, DateOnly FechaVencimiento)>> GetPendientesRecordatorio(DateOnly hoy);

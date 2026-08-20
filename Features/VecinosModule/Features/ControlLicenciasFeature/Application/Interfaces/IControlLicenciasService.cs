@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         Task<VecinoLicenciaTipoDto> UpdateTipo(int tipoId, VecinoLicenciaTipoBaseUpsertDto dto, int userId);
         Task DeleteTipo(int tipoId, int userId);
 
-        Task<List<VecinoLicenciaDestinatarioDto>> GetDestinatarios(int projectId);
+        Task<VecinoLicenciaDestinatariosResponseDto> GetDestinatarios(int projectId);
         Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, VecinoLicenciaDestinatarioUpsertDto dto, int userId);
         Task DeleteDestinatario(int destinatarioId, int userId);
 

@@ -123,7 +123,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         public Task<List<VecinoLicenciaHistorialItemDto>> GetHistorial(int projectId, int tipoId) => _repository.GetHistorial(projectId, tipoId);
 
-        public Task<List<VecinoLicenciaDestinatarioDto>> GetDestinatarios(int projectId) => _repository.GetDestinatarios(projectId);
+        public Task<VecinoLicenciaDestinatariosResponseDto> GetDestinatarios(int projectId) => _repository.GetDestinatarios(projectId);
 
         public async Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, VecinoLicenciaDestinatarioUpsertDto dto, int userId)
         {
@@ -148,22 +148,24 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var pendientes = await _repository.GetPendientesRecordatorio(hoy);
 
             var result = new RecordatoriosResultDto();
-            var destinatariosPorProyecto = new Dictionary<int, List<VecinoLicenciaDestinatarioDto>>();
+            var emailsPorProyecto = new Dictionary<int, List<string>>();
 
             foreach (var licencia in pendientes)
             {
                 try
                 {
-                    if (!destinatariosPorProyecto.TryGetValue(licencia.ProjectId, out var destinatarios))
+                    if (!emailsPorProyecto.TryGetValue(licencia.ProjectId, out var emails))
                     {
-                        destinatarios = await _repository.GetDestinatarios(licencia.ProjectId);
-                        destinatariosPorProyecto[licencia.ProjectId] = destinatarios;
+                        // Residente/Coordinador SSOMA/Administración salen de la ficha del proyecto
+                        // (mismo criterio que EMOs); los adicionales (ej. Jefe SSOMA) son a mano.
+                        var automaticos = await _repository.ResolverDestinatariosAutomaticos(licencia.ProjectId);
+                        var adicionales = await _repository.GetDestinatariosAdicionales(licencia.ProjectId);
+                        emails = automaticos.Concat(adicionales).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        emailsPorProyecto[licencia.ProjectId] = emails;
                     }
 
-                    if (destinatarios.Count == 0)
-                        continue; // Proyecto sin destinatarios configurados: no hay a quién avisar.
-
-                    var emails = destinatarios.Select(d => d.Email).Distinct().ToList();
+                    if (emails.Count == 0)
+                        continue; // Proyecto sin destinatarios resueltos: no hay a quién avisar.
 
                     var diasRestantes = licencia.FechaVencimiento.DayNumber - hoy.DayNumber;
                     var subject = diasRestantes >= 0

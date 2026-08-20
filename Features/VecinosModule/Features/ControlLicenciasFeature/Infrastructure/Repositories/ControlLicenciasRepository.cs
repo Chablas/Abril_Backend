@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 {
                     if (row.FechaVencimiento < hoy)
                         descripcion = "Vencido";
-                    else if (row.FechaRecordatorio != null && row.FechaRecordatorio <= hoy)
+                    else if (row.FechaRecordatorio != null && FechaEfectivaEnvio(row.FechaRecordatorio.Value) <= hoy)
                         descripcion = "Por vencer";
                 }
 
@@ -330,10 +330,62 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             }).ToList();
         }
 
-        public async Task<List<VecinoLicenciaDestinatarioDto>> GetDestinatarios(int projectId)
+        /// <summary>
+        /// Residente, Coordinador SSOMA y Administración de un proyecto, resueltos desde su
+        /// propia ficha (project.residente_workers_id → workers.email_corporativo,
+        /// project.email_coord_ssoma, project.email_coord_admin) — mismo criterio que EMOs:
+        /// nunca un correo escrito a mano, siempre el dato maestro del proyecto.
+        /// </summary>
+        private async Task<List<VecinoLicenciaDestinatarioAutomaticoDto>> ResolverAutomaticos(AppDbContext ctx, int projectId)
+        {
+            var proyecto = await (
+                from p in ctx.Project.AsNoTracking()
+                where p.ProjectId == projectId
+                join rw in ctx.Worker.AsNoTracking() on p.ResidenteWorkersId equals rw.Id into rwj
+                from residente in rwj.DefaultIfEmpty()
+                select new
+                {
+                    EmailResidente = residente != null ? residente.EmailCorporativo : null,
+                    p.EmailCoordSsoma,
+                    p.EmailCoordAdmin,
+                })
+                .FirstOrDefaultAsync();
+
+            return new List<VecinoLicenciaDestinatarioAutomaticoDto>
+            {
+                new() { Rol = "Residente", Email = proyecto?.EmailResidente },
+                new() { Rol = "Coordinador SSOMA", Email = proyecto?.EmailCoordSsoma },
+                new() { Rol = "Administración", Email = proyecto?.EmailCoordAdmin },
+            };
+        }
+
+        public async Task<List<string>> ResolverDestinatariosAutomaticos(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var automaticos = await ResolverAutomaticos(ctx, projectId);
+            return automaticos
+                .Where(a => !string.IsNullOrWhiteSpace(a.Email))
+                .Select(a => a.Email!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public async Task<List<string>> GetDestinatariosAdicionales(int projectId)
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.VecinoLicenciaControlDestinatario
+                .Where(d => d.ProjectId == projectId && d.State && d.Active)
+                .Select(d => d.Email)
+                .ToListAsync();
+        }
+
+        public async Task<VecinoLicenciaDestinatariosResponseDto> GetDestinatarios(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var automaticos = await ResolverAutomaticos(ctx, projectId);
+
+            var adicionales = await ctx.VecinoLicenciaControlDestinatario
                 .Where(d => d.ProjectId == projectId && d.State && d.Active)
                 .OrderBy(d => d.Rol)
                 .Select(d => new VecinoLicenciaDestinatarioDto
@@ -343,6 +395,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     Email = d.Email,
                 })
                 .ToListAsync();
+
+            return new VecinoLicenciaDestinatariosResponseDto { Automaticos = automaticos, Adicionales = adicionales };
         }
 
         public async Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, string rol, string email, int userId)
@@ -384,20 +438,34 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             await ctx.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Si la fecha de recordatorio cae sábado o domingo, se adelanta al viernes anterior:
+        /// nadie revisa el correo en fin de semana, así que el aviso debe salir en día hábil.
+        /// </summary>
+        private static DateOnly FechaEfectivaEnvio(DateOnly fecha) => fecha.DayOfWeek switch
+        {
+            DayOfWeek.Saturday => fecha.AddDays(-1),
+            DayOfWeek.Sunday => fecha.AddDays(-2),
+            _ => fecha,
+        };
+
         public async Task<List<(int VecinoLicenciaControlId, int ProjectId, string TipoDescripcion, DateOnly FechaVencimiento)>> GetPendientesRecordatorio(DateOnly hoy)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var pendientes = await ctx.VecinoLicenciaControl
+            // Se trae un rango un poco más amplio (hasta 2 días adelante) porque un recordatorio
+            // del sábado o domingo próximo ya debe salir hoy si hoy es el viernes anterior.
+            var candidatos = await ctx.VecinoLicenciaControl
                 .Where(r => r.State && r.Active
                     && r.ArchivoUrl != null
                     && r.RecordatorioEnviadoDateTime == null
-                    && r.FechaRecordatorio != null && r.FechaRecordatorio <= hoy)
+                    && r.FechaRecordatorio != null && r.FechaRecordatorio <= hoy.AddDays(2))
                 .Join(ctx.VecinoLicenciaControlTipo, r => r.VecinoLicenciaControlTipoId, t => t.VecinoLicenciaControlTipoId,
-                    (r, t) => new { r.VecinoLicenciaControlId, r.ProjectId, t.Descripcion, r.FechaVencimiento })
+                    (r, t) => new { r.VecinoLicenciaControlId, r.ProjectId, t.Descripcion, r.FechaVencimiento, r.FechaRecordatorio })
                 .ToListAsync();
 
-            return pendientes
+            return candidatos
+                .Where(p => FechaEfectivaEnvio(p.FechaRecordatorio!.Value) <= hoy)
                 .Select(p => (p.VecinoLicenciaControlId, p.ProjectId, p.Descripcion, p.FechaVencimiento!.Value))
                 .ToList();
         }

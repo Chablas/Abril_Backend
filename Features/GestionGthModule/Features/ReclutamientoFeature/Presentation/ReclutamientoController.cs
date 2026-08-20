@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
@@ -500,9 +500,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Vista de GTH: envía la long list al solicitante. Multipart: <c>data</c> = JSON con los
-        /// candidatos (nombre, fuente, comentario y las claves de sus archivos); los CVs e informes
-        /// viajan como form files con esas claves (ej. <c>cv_0</c>, <c>informe_0</c>). Envía el correo
-        /// configurado (tipo LONG_LIST) con los adjuntos y avanza el requerimiento a LONG_LIST_ENVIADA.
+        /// candidatos (nombre, comentario, la clave de su CV y las de sus anexos); los archivos
+        /// viajan como form files con esas claves (ej. <c>cv_0</c>, <c>anexo_0_0</c>). Envía el
+        /// correo configurado (tipo LONG_LIST) con los adjuntos y avanza el requerimiento a
+        /// LONG_LIST_ENVIADA.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/long-list/enviar")]
@@ -528,7 +529,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (meta?.Candidatos == null || meta.Candidatos.Count == 0)
                     return BadRequest(new { message = "Debes cargar al menos un candidato para enviar la long list." });
 
-                // Enlaza cada candidato con sus archivos del multipart (por la clave del form file).
+                // Enlaza cada candidato con su CV y sus anexos del multipart (por la clave del
+                // form file). El CV es obligatorio; los anexos son opcionales y pueden ser varios.
                 var candidatos = new List<LongListCandidatoArchivoDto>(meta.Candidatos.Count);
                 foreach (var m in meta.Candidatos)
                 {
@@ -536,24 +538,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     if (cv == null || cv.Length == 0)
                         return BadRequest(new { message = "Cada candidato debe tener su CV adjunto." });
 
-                    var candidato = new LongListCandidatoArchivoDto
+                    var anexos = new List<LongListArchivoDto>(m.AnexoKeys?.Count ?? 0);
+                    foreach (var key in m.AnexoKeys ?? new List<string>())
+                    {
+                        var archivo = string.IsNullOrWhiteSpace(key) ? null : Request.Form.Files[key];
+                        if (archivo == null || archivo.Length == 0)
+                            return BadRequest(new { message = "Un anexo del portafolio llegó vacío. Vuelve a cargarlo." });
+
+                        anexos.Add(new LongListArchivoDto
+                        {
+                            FileName    = archivo.FileName,
+                            ContentType = archivo.ContentType ?? "application/octet-stream",
+                            Content     = await ToBytesAsync(archivo),
+                        });
+                    }
+
+                    candidatos.Add(new LongListCandidatoArchivoDto
                     {
                         Nombre        = m.Nombre,
                         Comentario    = m.Comentario,
                         CvFileName    = cv.FileName,
                         CvContentType = cv.ContentType ?? "application/octet-stream",
                         CvContent     = await ToBytesAsync(cv),
-                    };
-
-                    var informe = string.IsNullOrWhiteSpace(m.InformeKey) ? null : Request.Form.Files[m.InformeKey];
-                    if (informe != null && informe.Length > 0)
-                    {
-                        candidato.InformeFileName    = informe.FileName;
-                        candidato.InformeContentType = informe.ContentType ?? "application/octet-stream";
-                        candidato.InformeContent     = await ToBytesAsync(informe);
-                    }
-
-                    candidatos.Add(candidato);
+                        Anexos        = anexos,
+                    });
                 }
 
                 var estado = await _service.EnviarLongList(id, candidatos, userId);

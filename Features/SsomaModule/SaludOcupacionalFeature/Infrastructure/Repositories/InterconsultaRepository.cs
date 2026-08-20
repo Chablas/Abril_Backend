@@ -1,4 +1,4 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
@@ -40,7 +40,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from m in mj.DefaultIfEmpty()
                 // Esta pantalla es solo para personal de Abril activo: excluye contratistas
                 // (contrata_casa != "Casa") y trabajadores retirados.
-                where w.ContrataCasa == "Casa" && w.Estado != "RETIRADO"
+                where w.ContrataCasa == "Casa" && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
                 select new
                 {
                     i,

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +44,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var fichas = await (
                 from w in ctx.Worker.AsNoTracking()
                 join p in ctx.Person.AsNoTracking() on w.PersonId equals p.PersonId
-                where p.UserId == userId.Value && w.Estado == "ACTIVO"
+                where p.UserId == userId.Value && w.WorkersEstadoId == WorkersEstadoIds.Activo
                 select new { w.CategoriaId, w.AreaScopeId }
             ).ToListAsync();
 

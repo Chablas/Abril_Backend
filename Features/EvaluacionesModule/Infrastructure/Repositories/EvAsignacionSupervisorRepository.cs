@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p        ON p.person_id = w.person_id
                   LEFT JOIN app_user u ON u.user_id   = p.user_id
-                  WHERE w.estado != 'Retirado'
+                  WHERE w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                     AND (u.active = true OR u.user_id IS NULL)
                     AND (
                       (w.subarea = 'Unidad de Proyectos' AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral} AND w.area = 'Proyectos')

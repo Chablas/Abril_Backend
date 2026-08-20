@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
@@ -7,6 +7,7 @@ using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Applica
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Infrastructure.Repositories
 {
@@ -298,7 +299,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             };
 
             return await _context.Worker
-                .Where(w => w.Estado == "ACTIVO" && w.Subarea == subarea)
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == subarea)
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new ResponsableLookupDto
                 {

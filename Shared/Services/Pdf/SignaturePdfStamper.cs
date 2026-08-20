@@ -1,6 +1,6 @@
-using PdfSharpCore.Drawing;
-using PdfSharpCore.Pdf;
-using PdfSharpCore.Pdf.IO;
+using PdfSharp.Drawing;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
 
@@ -97,7 +97,8 @@ namespace Abril_Backend.Shared.Services.Pdf
 
             using (var gfx = XGraphics.FromPdfPage(page))
             {
-                using (var pageImg = XImage.FromStream(() => new MemoryStream(pngBytes)))
+                using (var pageStream = new MemoryStream(pngBytes))
+                using (var pageImg = XImage.FromStream(pageStream))
                     gfx.DrawImage(pageImg, 0, 0, pageW, pageH);
 
                 DrawSignatureBottomRight(gfx, signaturePng, pageW, pageH);
@@ -110,7 +111,11 @@ namespace Abril_Backend.Shared.Services.Pdf
 
         private static void DrawSignatureBottomRight(XGraphics gfx, byte[] signaturePng, double pageW, double pageH)
         {
-            using var sig = XImage.FromStream(() => new MemoryStream(signaturePng));
+            // PDFsharp 6 recibe el Stream directamente (en PdfSharpCore era un Func<Stream>).
+            // El XImage ya tiene la imagen decodificada en memoria, así que el stream puede
+            // cerrarse en el mismo scope sin afectar al dibujado ni al Save posterior.
+            using var sigStream = new MemoryStream(signaturePng);
+            using var sig = XImage.FromStream(sigStream);
 
             double w = SignatureWidthPt;
             double h = SignatureWidthPt * sig.PixelHeight / sig.PixelWidth;

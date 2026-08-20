@@ -1,9 +1,10 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Repositories
 {
@@ -39,7 +40,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
             // Trabajadores activos asignados directamente a cada nodo (workers.area_scope_id).
             var workerCounts = await _context.Worker
-                .Where(w => w.AreaScopeId != null && w.Estado == "ACTIVO")
+                .Where(w => w.AreaScopeId != null && w.WorkersEstadoId == WorkersEstadoIds.Activo)
                 .GroupBy(w => w.AreaScopeId!.Value)
                 .Select(g => new { AreaScopeId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.AreaScopeId, g => g.Count);
@@ -61,7 +62,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
         {
             return await (
                 from w in _context.Worker
-                where w.AreaScopeId == areaScopeId && w.Estado == "ACTIVO"
+                where w.AreaScopeId == areaScopeId && w.WorkersEstadoId == WorkersEstadoIds.Activo
                 join p in _context.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join wc in _context.Categoria on w.CategoriaId equals wc.CategoriaId into wcj

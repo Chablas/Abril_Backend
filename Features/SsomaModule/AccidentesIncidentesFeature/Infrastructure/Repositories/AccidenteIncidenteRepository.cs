@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
@@ -49,7 +49,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             FROM workers w
             JOIN person p ON p.person_id = w.person_id
             LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
-            WHERE w.estado = 'ACTIVO' ORDER BY p.full_name;
+            WHERE w.workers_estado_id = {WorkersEstadoIds.Activo} ORDER BY p.full_name;
             SELECT psc.project_id, c.contributor_id
             FROM project_sub_contractor psc JOIN contractor c ON c.contractor_id = psc.contractor_id WHERE c.active = true;
             """;
@@ -849,7 +849,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             )
             SELECT DISTINCT w.email_corporativo
             FROM workers w
-            WHERE w.estado = 'ACTIVO'
+            WHERE w.workers_estado_id = {WorkersEstadoIds.Activo}
               AND w.email_corporativo ILIKE '%@abril.pe'
               AND w.contrata_casa = 'Casa'
               AND w.email_corporativo IS NOT NULL

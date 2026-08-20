@@ -5812,3 +5812,30 @@ Pedido del usuario (Jefe SSOMA): evaluar a los supervisores de campo de los cont
 - **Flujo C**: pantalla de evaluación dentro del portal `dashboard-contratista` (ya existe, ya resuelve `empresaId`/`proyectoIds` del JWT contratista) + `/mi-perfil` para el propio Prevencionista/Coordinador + dashboard consolidado para el Jefe SSOMA.
 - Feature seeds de B y C (mismo patrón que el de A).
 - Aplicar la migración de feature seed de A pendiente arriba.
+
+## Sesión 2026-08-20 — Migración PdfSharpCore 1.3.67 → PDFsharp 6.2.4
+
+### Motivo: bug real en producción
+Al generar el paquete de contrato de la adjudicación **id 1** (JS MUEBLES Y DISEÑO SAC, GRAN MANZANO, contrato N° 32) el paso 4 fallaba con `Error generando paquete: Object with ID 32 0 resolved with negative position`.
+
+Causa: la cotización adjunta (`PPTO 217 RV-1 TORRE A MUEBLES... .pdf`, exportada de Excel 2019) es un PDF 1.7 con tabla de referencias cruzadas en formato *stream* (`/Type /XRef`) cuya lista de objetos libres tiene huecos: `0(gen 65535) → 32 → 357 → 359 → 361 → 364(fin)`. El objeto 32 es un hueco de esa lista y **nada del documento lo referencia** (verificado descomprimiendo el `/ObjStm`). El PDF es válido y cualquier visor lo abre; PdfSharpCore registraba esas entradas libres con posición negativa y al importar las páginas lanzaba `PositionNotFoundException`.
+
+Disparador exacto: **huecos libres en la xref**, no los object streams. De los 3 PDFs de esa adjudicación: cotización (xref stream + 4 huecos) fallaba; ficha técnica (xref stream, 261 objetos comprimidos, sin huecos) y orden de servicio (tabla xref clásica) pasaban.
+
+Por qué solo afecta a los adjuntos: los `.docx`/`.xlsx` se bajan con `?format=pdf` y los convierte Graph → PDF limpio. Los adjuntos que ya son `.pdf` se bajan crudos (`AlreadyPdf` en `GenerateContractPackageAsync`) y van directo a la librería. Hoy hay ~64 PDFs así en prod (24 cotizaciones, 13 fichas técnicas, 27 órdenes de servicio), todos expuestos al mismo fallo.
+
+**Descartado**: forzar `?format=pdf` para todo. Graph devuelve **406 Not Acceptable** al convertir PDF→PDF, así que el atajo `AlreadyPdf` es necesario.
+
+### Cambios
+- `Abril-Backend.csproj`: `PdfSharpCore` 1.3.67 → `PDFsharp` 6.2.4.
+- `ProjectSubContractorService.cs`: `using PdfSharpCore.Pdf[.IO]` → `using PdfSharp.Pdf[.IO]`. `MergePdfs`, `InsertPdfAfterMarker` y `RotatePdfPages` no cambiaron de lógica (la API de `PdfReader.Open` / `AddPage` / `page.Rotate` es igual).
+- `SignaturePdfStamper.cs`: usings + **único cambio de API real**: en PDFsharp 6 `XImage.FromStream` recibe un `Stream`, no un `Func<Stream>`. Se pasa un `MemoryStream` en `using`; el `XImage` ya tiene la imagen decodificada, así que cerrar el stream antes del `Save` no afecta (verificado).
+- **Eliminado `Shared/Services/Pdf/ImageSharp3ImageSource.cs`** y su registro en `Program.cs`. Existía solo para parchear el proveedor de imágenes de PdfSharpCore (compilado contra ImageSharp v1, lanzaba `MissingMethodException` con ImageSharp 3.x). PDFsharp 6 decodifica imágenes nativamente y además genera `/SMask` en vez del hack BMP 32bpp + `/Mask`, o sea **mejor fidelidad de transparencia** en la firma.
+- `SixLabors.ImageSharp` 3.1.12 se mantiene: ahora es dependencia **directa** de `SignaturePdfStamper.StampImageAsPdf` (normaliza png/jpg/webp y saca dimensiones), ya no un override para tapar CVEs transitivos. Esto deja obsoleta la nota de la línea ~1410.
+
+### Verificado
+- `dotnet build`: **0 errores**.
+- Árbol de dependencias limpio: desaparecieron `MigraDocCore` y el `SixLabors.ImageSharp` 1.0.4 transitivo → **los 7 CVEs de ImageSharp ya no aparecen** (el único NU1903 restante es `Microsoft.OpenApi` 2.3.0, preexistente y ajeno).
+- Contra PDFsharp 6.2.4, con los archivos reales bajados de SharePoint: `Import` + `AddPage` + `Save` OK en los 3 PDFs (incluida la cotización que rompía), `Modify` + `page.Rotate` OK sobre la cotización, `XGraphics.FromPdfPage` + `DrawImage` OK con transparencia `/SMask`, y `XUnit.FromPoint` + setters de `page.Width/Height` OK.
+- Sin `XFont`/`DrawString` en el proyecto → no hace falta registrar `GlobalFontSettings.FontResolver` (PDFsharp 6 solo lo exige para dibujar texto).
+- No probado end-to-end en el navegador: falta que el usuario regenere el paquete de la adjudicación 1.

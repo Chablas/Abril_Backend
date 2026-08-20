@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
@@ -85,7 +85,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Persiste la long list (reemplaza los candidatos vigentes del requerimiento por el nuevo
-        /// conjunto, con sus CVs/informes ya subidos a SharePoint) y avanza el requerimiento a
+        /// conjunto, con sus CVs ya subidos a SharePoint) y avanza el requerimiento a
         /// LONG_LIST_ENVIADA (idempotente si ya lo está). Se llama tras enviar el correo con éxito.
         /// Devuelve el estado resultante.
         /// </summary>
@@ -144,7 +144,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// correo. Devuelve el contexto para armar el correo.
         /// </summary>
         Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
-            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId);
+            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId,
+            string nuevoToken);
+
+        /// <summary>
+        /// Registra la respuesta del candidato a su citación (CONFIRMADA / RECHAZADA) a partir del
+        /// token público del correo. Idempotente: volver a pulsar el mismo botón deja todo igual y
+        /// lo avisa con <c>YaHabiaRespondidoLoMismo</c> para no reenviarle a GTH un aviso repetido;
+        /// pulsar el otro botón sí cambia la respuesta (el candidato se puede arrepentir). Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el token no
+        /// corresponde a ninguna entrevista vigente y 500 si falta el catálogo de respuestas.
+        /// </summary>
+        Task<EntrevistaRespuestaContextoDto> RegistrarRespuestaEntrevista(string token, string respuestaCodigo);
 
         /// <summary>
         /// Guarda la evaluación de la entrevista de un candidato (comentarios del informe),

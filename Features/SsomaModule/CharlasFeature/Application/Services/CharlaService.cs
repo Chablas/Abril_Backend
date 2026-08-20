@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
@@ -30,7 +30,7 @@ public class CharlaService : ICharlaService
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
-            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo) // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
             .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
             .Select(w => w.Id)
             .FirstOrDefaultAsync();
@@ -99,7 +99,7 @@ public class CharlaService : ICharlaService
                 && w.CategoriaId == CategoriaIds.Supervisor
                 && (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                     || w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
-                && w.Estado == "ACTIVO")
+                && w.WorkersEstadoId == WorkersEstadoIds.Activo)
             .Select(w => w.Id)
             .ToListAsync();
 
@@ -133,7 +133,7 @@ public class CharlaService : ICharlaService
             .Include(w => w.CategoriaCatalogo)
             .Include(w => w.PuestoCatalogo)
             .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
-                && w.Estado == "ACTIVO"
+                && w.WorkersEstadoId == WorkersEstadoIds.Activo
                 && ctx.WorkerVinculacion.Any(v =>
                     v.WorkerId == w.Id
                     && v.ProyectoId == proyectoId
@@ -316,7 +316,7 @@ public class CharlaService : ICharlaService
 
         var workers = await ctx.Worker
             .Include(w => w.Person)
-            .Where(w => workerIds.Contains(w.Id) && w.Estado == "ACTIVO")
+            .Where(w => workerIds.Contains(w.Id) && w.WorkersEstadoId == WorkersEstadoIds.Activo)
             .ToListAsync();
 
         var workerIdsFiltrados = workers.Select(w => w.Id).ToList();
@@ -470,7 +470,7 @@ public class CharlaService : ICharlaService
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
-            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo) // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
             .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
             .Select(w => w.Id)
             .FirstOrDefaultAsync();
@@ -489,7 +489,7 @@ public class CharlaService : ICharlaService
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
-            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo) // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
             .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
             .Select(w => w.Id)
             .FirstOrDefaultAsync();
@@ -968,7 +968,7 @@ public class CharlaService : ICharlaService
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
-            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo) // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
             .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
             .Select(w => w.Id)
             .FirstOrDefaultAsync();
@@ -1016,7 +1016,7 @@ public class CharlaService : ICharlaService
         var staff = await ctx.Worker
             .Include(w => w.Person)
             .Include(w => w.PuestoCatalogo)
-            .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
+            .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo)
             .ToListAsync();
 
         if (staff.Count == 0) return new DashPersonalResultDto([], []);
@@ -1121,7 +1121,7 @@ public class CharlaService : ICharlaService
         var staffPorProyecto = await ctx.WorkerProyecto
             .Where(wp => proyectoIds.Contains(wp.ProyectoId)
                 && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Join(ctx.Worker.Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO"),
+            .Join(ctx.Worker.Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo),
                 wp => wp.WorkerId, w => w.Id, (wp, w) => wp.ProyectoId)
             .GroupBy(pid => pid)
             .Select(g => new { ProyectoId = g.Key, Count = g.Count() })

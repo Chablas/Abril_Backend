@@ -1,4 +1,4 @@
-using Abril_Backend.Shared.Constants;
+﻿using Abril_Backend.Shared.Constants;
 using System.Globalization;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
@@ -322,7 +322,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (!soloObreros)
             {
                 return await ctx.Worker
-                    .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
+                    .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == "Arquitectura Comercial")
                     .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                     .Select(w => new SupervisorAcDTO
                     {
@@ -353,7 +353,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Join(ctx.Project.Where(p => p.ProjectDescription != null && p.ProjectDescription.ToLower() == "arquitectura comercial"), v => v.ProyectoId, p => p.ProjectId, (v, p) => v.WorkerId);
 
             return await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO" && workerIdsConProyectoAcActual.Contains(w.Id))
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && workerIdsConProyectoAcActual.Contains(w.Id))
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new SupervisorAcDTO
                 {

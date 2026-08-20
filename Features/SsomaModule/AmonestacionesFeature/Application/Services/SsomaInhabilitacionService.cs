@@ -1,10 +1,11 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 
@@ -81,7 +82,7 @@ public class SsomaInhabilitacionService
             if (worker is null) return;
 
             // Ya está inhabilitado — no hacer nada
-            if (worker.Estado == "INHABILITADO_SSOMA") return;
+            if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma) return;
 
             var puntosNetos = await GetPuntosNetosAsync(workerId);
             bool esRetiroDefinitivo = tipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO;
@@ -116,7 +117,7 @@ public class SsomaInhabilitacionService
         if (worker is null) return;
 
         var puntosNetos = await GetPuntosNetosAsync(workerId);
-        var estaInhabilitado = worker.Estado == "INHABILITADO_SSOMA";
+        var estaInhabilitado = worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma;
 
         if (puntosNetos >= PUNTOS_BLOQUEO && !estaInhabilitado)
         {
@@ -148,7 +149,7 @@ public class SsomaInhabilitacionService
             using var ctx = _factory.CreateDbContext();
 
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
-            if (worker is null || worker.Estado != "INHABILITADO_SSOMA") return;
+            if (worker is null || worker.WorkersEstadoId != WorkersEstadoIds.InhabilitadoSsoma) return;
 
             var puntosNetos = await GetPuntosNetosAsync(workerId);
 
@@ -217,7 +218,7 @@ public class SsomaInhabilitacionService
         var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
             ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-        if (worker.Estado == "INHABILITADO_SSOMA")
+        if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
             throw new AbrilException("El trabajador ya se encuentra inhabilitado.", 409);
 
         await BloquearAsync(ctx, worker, "MANUAL", motivo, null, userId);
@@ -236,7 +237,7 @@ public class SsomaInhabilitacionService
 
         inh.FechaFin        = DateTimeOffset.UtcNow;
         inh.DesbloqueadoPor = userId > 0 ? userId : null;
-        worker.Estado       = "ACTIVO";
+        worker.WorkersEstadoId = WorkersEstadoIds.Activo;
         worker.UpdatedAt    = DateTimeOffset.UtcNow;
 
         ctx.WorkerEvento.Add(new WorkerEvento
@@ -256,7 +257,7 @@ public class SsomaInhabilitacionService
     private static async Task BloquearAsync(AppDbContext ctx, Worker worker,
         string tipo, string motivo, int? puntos, int userId)
     {
-        worker.Estado     = "INHABILITADO_SSOMA";
+        worker.WorkersEstadoId = WorkersEstadoIds.InhabilitadoSsoma;
         worker.UpdatedAt  = DateTimeOffset.UtcNow;
 
         ctx.SsomaInhabilitaciones.Add(new SsomaInhabilitacion
@@ -296,7 +297,7 @@ public class SsomaInhabilitacionService
             inhabilitacionActiva.EscuelitaId      = escuelitaId;
         }
 
-        worker.Estado    = "ACTIVO";
+        worker.WorkersEstadoId = WorkersEstadoIds.Activo;
         worker.UpdatedAt = DateTimeOffset.UtcNow;
 
         ctx.WorkerEvento.Add(new WorkerEvento

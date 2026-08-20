@@ -1,7 +1,8 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 
@@ -86,7 +87,7 @@ public class SsomaEscuelitaService
 
         var inhabilitado = await ctx.Worker
             .Where(w => w.Id == workerId)
-            .Select(w => w.Estado == "INHABILITADO_SSOMA")
+            .Select(w => w.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
             .FirstOrDefaultAsync();
 
         return cursos.Select(c => new EscuelitaItemDto(

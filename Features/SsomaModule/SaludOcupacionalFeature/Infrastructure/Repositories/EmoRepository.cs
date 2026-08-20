@@ -1,4 +1,4 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -133,7 +133,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from proy in proyJ.DefaultIfEmpty()
                 select new { w, ue, t, vv, em, eop, proy };
 
-            q = q.Where(x => x.em != null && x.em.EsAbril);
+            // Opt-in explicito de las fichas de pre-ingreso: un finalista aprobado no tiene
+            // vinculacion (no firmo contrato), asi que el filtro de empresa Abril lo dejaba
+            // fuera. Es justo la gente a la que GTH tiene que programarle el EMO de Ingreso
+            // antes de contratarla, y esta es la unica pantalla donde aparece: en el resto del
+            // sistema la ausencia de vinculacion la sigue manteniendo invisible.
+            q = q.Where(x => (x.em != null && x.em.EsAbril)
+                          || x.w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado);
+
+            if (filter.WorkerId.HasValue)
+                q = q.Where(x => x.w.Id == filter.WorkerId.Value);
 
             // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
             // (alineada con app-search-input del front: "perez juan" coincide con "JUAN PÉREZ").
@@ -210,8 +219,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
                     DocumentIdentityTypeId = x.w.Person != null ? x.w.Person.DocumentIdentityTypeId : null,
                     Cumpleanos = x.w.Person != null ? x.w.Person.FechaNacimiento : null,
-                    EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
-                    Empresa = x.em != null ? x.em.ContributorName : null,
+                    // Sin vinculacion (finalista aprobado) se cae al contributor de la ficha, que
+                    // es la razon social del requerimiento: si no, la fila sale sin empresa.
+                    EmpresaId = x.vv != null ? x.vv.EmpresaId : x.w.ContributorId,
+                    Empresa = x.em != null ? x.em.ContributorName
+                            : (x.w.Contributor != null ? x.w.Contributor.ContributorName : null),
                     EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,
                     ProyectoNombre = x.proy != null ? x.proy.ProjectDescription : null,
                     ObraOficinaStaffId = x.w.ObraOficinaStaffId,
@@ -224,6 +236,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     PuestoId = x.w.PuestoId,
                     EmailCorporativo = x.w.EmailCorporativo,
                     EmailPersonal = x.w.Person != null ? x.w.Person.Email : null,
+                    EsFinalistaAprobado = x.w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,

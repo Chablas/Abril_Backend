@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
@@ -101,7 +101,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                                     AND eas.supervisor_worker_id = w.id
                                     AND eas.activo              = true
                       WHERE rw.categoria_id = {CategoriaIds.Residente}
-                        AND rw.estado   != 'Retirado'
+                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
                             WHERE er.evaluado_user_id  = rp.user_id
@@ -131,7 +131,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.categoria_id = {CategoriaIds.Residente}
-                        AND rw.estado      != 'Retirado'
+                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
                   )
@@ -142,7 +142,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.categoria_id = {CategoriaIds.Residente}
-                        AND rw.estado      != 'Retirado'
+                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
                         AND NOT EXISTS (

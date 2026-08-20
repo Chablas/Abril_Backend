@@ -70,6 +70,15 @@
         public const string Entrevista = "ENTREVISTA";
 
         /// <summary>
+        /// Correo de "respuesta del candidato a la entrevista" (va a GTH). Lo dispara el propio
+        /// candidato al pulsar Confirmar o Rechazar en el correo de invitación. El destinatario
+        /// principal es SIEMPRE el área de GTH (<c>area_scope.email</c> de su nodo, el mismo buzón
+        /// que resuelve <see cref="CorreoDestinatarioCodigo.GthArea"/>), así que la configuración
+        /// solo aporta principales adicionales y copias.
+        /// </summary>
+        public const string EntrevistaRespuesta = "ENTREVISTA_RESPUESTA";
+
+        /// <summary>
         /// Correo de "gracias por participar" (va al candidato que no continúa). Sale desde dos
         /// lados con el mismo cuerpo: cuando GTH marca a un candidato como "no continúa" en la
         /// bandeja y cuando el solicitante rechaza a un finalista. Es un solo correo, así que un
@@ -81,8 +90,8 @@
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
         /// <c>long-list</c> / <c>decision-long-list</c> / <c>decision-finalista</c> /
         /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
-        /// <c>entrevista</c> / <c>agradecimiento</c>) al código estable. Devuelve null si el slug
-        /// no corresponde a un tipo conocido.
+        /// <c>entrevista</c> / <c>entrevista-respuesta</c> / <c>agradecimiento</c>) al código
+        /// estable. Devuelve null si el slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
@@ -96,6 +105,7 @@
             "formulario-completado"  => FormularioCompletado,
             "formulario-correccion"  => FormularioCorreccion,
             "entrevista"             => Entrevista,
+            "entrevista-respuesta"   => EntrevistaRespuesta,
             "agradecimiento"         => Agradecimiento,
             _ => null,
         };

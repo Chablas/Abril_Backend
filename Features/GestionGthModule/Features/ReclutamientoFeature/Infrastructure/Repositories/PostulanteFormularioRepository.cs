@@ -91,6 +91,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var esCorreccion = actual?.Codigo == EstadoFormularioPostulante.Rechazado;
             var now = DateTimeOffset.UtcNow;
 
+            // Página 0
+            f.ConsentimientoDatosPersonales = r.ConsentimientoDatosPersonales;
             // Página 1
             f.NombresCompletos        = Trim(r.NombresCompletos);
             f.FechaNacimiento         = r.FechaNacimiento;
@@ -462,6 +464,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 dto.Datos = new FormularioDatosDto
                 {
+                    ConsentimientoDatosPersonales = f2.ConsentimientoDatosPersonales,
                     NombresCompletos       = f2.NombresCompletos,
                     FechaNacimiento        = f2.FechaNacimiento,
                     EstadoCivil            = row.EstadoCivil,
@@ -734,6 +737,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         private static PostulanteFormularioRespuestasDto MapRespuestas(GthPostulanteFormulario f) => new()
         {
+            ConsentimientoDatosPersonales = f.ConsentimientoDatosPersonales,
             NombresCompletos       = f.NombresCompletos,
             FechaNacimiento        = f.FechaNacimiento,
             EstadoCivilId          = f.GthEstadoCivilId,

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Quién obtuvo el puesto de un requerimiento: el candidato que el área solicitante aprobó en
@@ -40,5 +40,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// consulta. Null si el requerimiento nunca tuvo responsable asignado.
         /// </summary>
         public string? ResponsableGth { get; set; }
+
+        /// <summary>
+        /// Ficha de pre-ingreso del seleccionado en <c>workers</c>. Es el id con el que GTH salta
+        /// a SSOMA · Salud Ocupacional · EMOs a programarle el examen de ingreso. Null si el
+        /// candidato no llegó a tener formulario del postulante aprobado (sin ficha en
+        /// <c>person</c> no hay de dónde colgarla).
+        /// </summary>
+        public int? WorkerId { get; set; }
+
+        /// <summary>
+        /// true mientras el EMO de Ingreso siga sin programarse. Es lo que mantiene el
+        /// requerimiento en la fase EMO_INGRESO y lo que enciende el botón en el detalle de GTH.
+        /// </summary>
+        public bool EmoIngresoPendiente { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -139,7 +139,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     LIMIT 1
                 )
                 WHERE w.categoria_id = {CategoriaIds.Residente}
-                  AND w.estado   != 'Retirado'
+                  AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                   AND u.active    = true";
 
             bool esOficinaProyectos = Eq(evaluador.ObraOficina, "Oficina Central")

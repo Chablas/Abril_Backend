@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
@@ -134,9 +134,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
 
             if (soloRetirados)
-                baseQuery = baseQuery.Where(x => x.Worker.Estado == "RETIRADO");
+                baseQuery = baseQuery.Where(x => x.Worker.WorkersEstadoId == WorkersEstadoIds.Retirado);
             else
-                baseQuery = baseQuery.Where(x => x.Worker.Estado == null || x.Worker.Estado != "RETIRADO");
+                baseQuery = baseQuery.Where(x => WorkersEstadoIds.NoRetirados.Contains(x.Worker.WorkersEstadoId));
 
             // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
             // (alineada con app-search-input del front: "perez juan" coincide con "JUAN PÉREZ").
@@ -353,7 +353,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ContrataCasa = r.Worker.ContrataCasa,
                     ObraOficinaStaffId = r.Worker.ObraOficinaStaffId,
                     ObraOficina = ObraOficinaStaffIds.Nombre(r.Worker.ObraOficinaStaffId),
-                    EstadoWorker = r.Worker.Estado ?? "ACTIVO",
+                    EstadoWorker = WorkersEstadoIds.Codigo(r.Worker.WorkersEstadoId) ?? "ACTIVO",
                     TieneEmo = emoMap.ContainsKey(r.Worker.Id),
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
@@ -772,10 +772,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
-            if (worker.Estado == "INHABILITADO_SSOMA")
+            if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
-            if (worker.Estado == "RETIRADO")
+            if (worker.WorkersEstadoId == WorkersEstadoIds.Retirado)
                 throw new AbrilException("El trabajador está retirado. Use la opción de Reingreso en vez de Cambiar obra.", 400);
 
             // No se permite un nuevo cambio de obra/razón social/puesto mientras haya una
@@ -1247,7 +1247,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
-            if (worker.Estado == "INHABILITADO_SSOMA")
+            if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
             // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
@@ -1261,7 +1261,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 var otroActivo = await ctx.Worker
                     .Where(w => w.Id != workerId
-                             && w.Estado == "ACTIVO"
+                             && w.WorkersEstadoId == WorkersEstadoIds.Activo
                              && w.Person != null
                              && w.Person.DocumentIdentityCode != null
                              && w.Person.DocumentIdentityCode.ToUpper() == dniReingreso.ToUpper())
@@ -1284,7 +1284,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
-            worker.Estado = "ACTIVO";
+            worker.WorkersEstadoId = WorkersEstadoIds.Activo;
             worker.FechaRetiro = null;
             worker.UpdatedAt = now;
 
@@ -1781,7 +1781,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
             w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea);
             if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
-            if (dto.Estado is not null) w.Estado = dto.Estado;
+            // El DTO sigue recibiendo el codigo en texto por compatibilidad con quien ya
+            // llamaba al endpoint; se traduce al catalogo y un valor desconocido se ignora
+            // en vez de escribir basura en la ficha.
+            if (dto.Estado is not null)
+            {
+                var estadoDtoId = await ctx.WorkersEstado
+                    .Where(e => e.State && e.Codigo == dto.Estado.Trim().ToUpper())
+                    .Select(e => (int?)e.WorkersEstadoId)
+                    .FirstOrDefaultAsync();
+                if (estadoDtoId.HasValue) w.WorkersEstadoId = estadoDtoId.Value;
+            }
             if (dto.HabilitadoObra.HasValue) w.HabilitadoObra = dto.HabilitadoObra;
             if (dto.Sctr.HasValue) w.Sctr = dto.Sctr;
             if (dto.CondicionMedica is not null) w.CondicionMedica = dto.CondicionMedica;
@@ -1933,7 +1943,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             ObraOficinaStaffId = w.ObraOficinaStaffId,
             ObraOficina = ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId),
             Jefatura = w.Jefatura,
-            Estado = w.Estado,
+            Estado = WorkersEstadoIds.Codigo(w.WorkersEstadoId),
             HabilitadoObra = w.HabilitadoObra,
             Sctr = w.Sctr,
             CondicionMedica = w.CondicionMedica,
@@ -1950,7 +1960,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            worker.Estado = "RETIRADO";
+            worker.WorkersEstadoId = WorkersEstadoIds.Retirado;
             worker.FechaRetiro = fechaRetiro;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -2031,7 +2041,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var now = DateTimeOffset.UtcNow;
             foreach (var w in workers)
             {
-                w.Estado = "RETIRADO";
+                w.WorkersEstadoId = WorkersEstadoIds.Retirado;
                 w.FechaRetiro = fechaRetiro;
                 w.UpdatedAt = now;
             }
@@ -2154,7 +2164,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
-            if (worker.Estado == "INHABILITADO_SSOMA")
+            if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -2360,7 +2370,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             // 1. Todos los workers con estado ACTIVO
             var activoIds = await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO")
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo)
                 .Select(w => w.Id)
                 .ToListAsync();
 

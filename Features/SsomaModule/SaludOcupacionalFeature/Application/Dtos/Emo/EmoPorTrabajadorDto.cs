@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
+﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
 {
     public class EmoPorTrabajadorDto
     {
@@ -34,6 +34,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? EmailCorporativo { get; set; }
         /// <summary>Correo personal / de contacto (person.email, para prellenar el modal de edición).</summary>
         public string? EmailPersonal { get; set; }
+        /// <summary>
+        /// true cuando la fila no es un trabajador todavia, sino la ficha de pre-ingreso de un
+        /// finalista que el solicitante aprobo en Reclutamiento y que sigue sin firmar contrato.
+        /// El front la marca aparte y solo le deja programar el EMO de tipo Ingreso.
+        /// </summary>
+        public bool EsFinalistaAprobado { get; set; }
+
         public bool TieneEmo { get; set; }
         public int? EmoId { get; set; }
         public string? TipoEmo { get; set; }

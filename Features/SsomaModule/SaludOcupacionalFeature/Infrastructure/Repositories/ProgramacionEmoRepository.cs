@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configuracion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
@@ -62,7 +62,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 q = q.Where(x => x.p.State);
                 q = q.Where(x => x.em != null && x.em.EsAbril);
-                q = q.Where(x => x.w.Estado == null || x.w.Estado != "RETIRADO");
+                // Se excluyen los estados de salida (retirado y el finalista que no llego a
+                // ingresar), no "todo lo que no sea trabajador": un FINALISTA_APROBADO tiene
+                // que verse aca, porque su EMO de Ingreso es justamente lo que GTH le programa
+                // antes de que firme. La empresa la trae la propia programacion (p.EmpresaId),
+                // no la vinculacion, asi que la fila aparece aunque todavia no tenga contrato.
+                q = q.Where(x => x.w.WorkersEstadoId != WorkersEstadoIds.Retirado
+                              && x.w.WorkersEstadoId != WorkersEstadoIds.NoIngreso);
 
                 // La clínica no puede procesar trabajadores con interconsulta pendiente.
                 // El médico SSOMA (IncluirConInterconsulta = true) ve todas sin excepción.
@@ -291,6 +297,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 progBloqueante.UpdatedAt = DateTimeOffset.UtcNow;
             }
 
+            // Ficha de pre-ingreso (finalista aprobado de Reclutamiento): el unico examen que
+            // tiene sentido antes de firmar es el de Ingreso. Se valida en el backend y no solo
+            // ocultando opciones en el desplegable, porque el endpoint es publico a la app.
+            var esFinalistaAprobado = worker.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado;
+            if (esFinalistaAprobado)
+            {
+                var tipoEsIngreso = await ctx.SsEmoTipo
+                    .AnyAsync(t => t.Id == dto.TipoEmoId && t.Nombre.ToLower() == "ingreso");
+                if (!tipoEsIngreso)
+                    throw new AbrilException(
+                        "A un finalista aprobado solo se le puede programar el EMO de Ingreso: "
+                        + "todavia no tiene contrato firmado.", 400);
+            }
+
             var empresaId = dto.EmpresaId;
             if (empresaId == null)
             {
@@ -301,6 +321,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     .Select(v => (int?)v.EmpresaId)
                     .FirstOrDefaultAsync();
             }
+            // Un finalista no tiene vinculacion todavia, asi que la empresa sale del contributor
+            // que le copio el requerimiento. Sin esto la programacion quedaria sin empresa y no
+            // aparecia en la pantalla de Programaciones, que filtra por empresa Abril.
+            empresaId ??= worker.ContributorId;
 
             var ent = new SsProgramacionEmo
             {
@@ -333,9 +357,50 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
             }
 
+            if (esFinalistaAprobado)
+                await CerrarRequerimientoEmoIngresoAsync(ctx, worker.PersonId);
+
             await EnviarNotificacionCreacionAsync(ctx, ent, worker);
 
             return ent.Id;
+        }
+
+        /// <summary>
+        /// Cierra el requerimiento de Reclutamiento que dejo a esta persona como finalista
+        /// aprobado. Aprobar al finalista ya no cierra el proceso: lo deja en EMO_INGRESO
+        /// esperando justamente esta programacion, asi que es aca donde termina.
+        ///
+        /// Es best-effort a proposito: si algo no calza (la persona no viene de un proceso de
+        /// reclutamiento, o el requerimiento ya no esta en esa fase) no se toca nada y la
+        /// programacion del EMO igual queda creada. Nunca se hace fallar una cita medica ya
+        /// agendada por el estado de un requerimiento.
+        /// </summary>
+        private static async Task CerrarRequerimientoEmoIngresoAsync(AppDbContext ctx, int? personId)
+        {
+            if (personId == null) return;
+
+            var req = await (
+                from f in ctx.GthPostulanteFormulario
+                where f.State && f.PersonId == personId
+                join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
+                where c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                where r.State
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo == "EMO_INGRESO"
+                orderby r.GthRequerimientoId descending
+                select r).FirstOrDefaultAsync();
+            if (req == null) return;
+
+            var cerrado = await ctx.GthEstadoRequerimiento
+                .Where(e => e.Codigo == "CERRADO" && e.State)
+                .Select(e => (int?)e.GthEstadoRequerimientoId)
+                .FirstOrDefaultAsync();
+            if (cerrado == null) return;
+
+            req.GthEstadoRequerimientoId = cerrado.Value;
+            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
         }
 
         private static bool IsUniqueViolation(DbUpdateException ex) =>

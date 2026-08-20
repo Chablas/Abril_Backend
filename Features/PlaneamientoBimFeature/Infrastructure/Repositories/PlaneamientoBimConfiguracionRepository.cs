@@ -1,10 +1,11 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositories
 {
@@ -82,7 +83,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
 
             return await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Planeamiento BIM")
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == "Planeamiento BIM")
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new ResponsableBimLookupDto
                 {

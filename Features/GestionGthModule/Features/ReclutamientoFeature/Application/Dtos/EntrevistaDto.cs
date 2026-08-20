@@ -39,6 +39,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Momento del último envío de la invitación (hora de Perú). Null si aún no se envió.</summary>
         public DateTime? EnviadoEn { get; set; }
+
+        /// <summary>
+        /// Respuesta del candidato a la citación (CONFIRMADA / RECHAZADA), la que dio desde los
+        /// botones del correo. Null mientras no responda — que no es lo mismo que rechazar.
+        /// </summary>
+        public string? RespuestaCodigo { get; set; }
+
+        /// <summary>Nombre visible de la respuesta ("Confirmada por el candidato"). Null si aún no responde.</summary>
+        public string? RespuestaNombre { get; set; }
+
+        /// <summary>Momento en que el candidato respondió (hora de Perú). Null si aún no responde.</summary>
+        public DateTime? RespondidoEn { get; set; }
     }
 
     /// <summary>Resultado de programar/reprogramar una entrevista: mensaje + estado resultante para refrescar la fila.</summary>
@@ -55,5 +67,66 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Puesto { get; set; } = string.Empty;
         public string Codigo { get; set; } = string.Empty;
         public EntrevistaResumenDto Resumen { get; set; } = new();
+
+        /// <summary>
+        /// Enlace al mapa del lugar (<c>gth_lugar_entrevista.maps_url</c>), para que el postulante
+        /// sepa dónde encontrarnos. Null en los lugares que no lo tienen cargado: ahí el correo
+        /// muestra solo el nombre del lugar.
+        /// </summary>
+        public string? LugarMapsUrl { get; set; }
+
+        /// <summary>
+        /// Token de acceso público con el que se arman los enlaces de los botones Confirmar y
+        /// Rechazar del correo. Se genera nuevo en cada envío.
+        /// </summary>
+        public string Token { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Contexto de la respuesta del candidato a su citación: lo que necesita el servicio para
+    /// avisarle a GTH y lo que la página pública le muestra al candidato después de responder.
+    /// </summary>
+    public class EntrevistaRespuestaContextoDto
+    {
+        public string CandidatoNombre { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
+        public string Codigo { get; set; } = string.Empty;
+
+        /// <summary>Área solicitante del requerimiento (para el aviso a GTH).</summary>
+        public string? Area { get; set; }
+
+        /// <summary>Correo desde el que responde el candidato (al que se le envió la invitación).</summary>
+        public string CorreoCandidato { get; set; } = string.Empty;
+
+        /// <summary>Id del requerimiento, para que el aviso a GTH enlace a su bandeja.</summary>
+        public int RequerimientoId { get; set; }
+
+        /// <summary>La cita, ya con la respuesta aplicada.</summary>
+        public EntrevistaResumenDto Resumen { get; set; } = new();
+
+        /// <summary>
+        /// true si el candidato volvió a pulsar el mismo botón (mismo enlace abierto dos veces).
+        /// El aviso a GTH no se reenvía en ese caso: no cambió nada que contar.
+        /// </summary>
+        public bool YaHabiaRespondidoLoMismo { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que ve el candidato en la página pública después de pulsar Confirmar o Rechazar: su
+    /// respuesta y la cita, para que la pantalla confirme sobre qué entrevista respondió.
+    /// </summary>
+    public class EntrevistaRespuestaPublicaDto
+    {
+        /// <summary>CONFIRMADA o RECHAZADA.</summary>
+        public string RespuestaCodigo { get; set; } = string.Empty;
+
+        public string CandidatoNombre { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
+        public DateOnly Fecha { get; set; }
+
+        /// <summary>Hora en formato "HH:mm" (24h).</summary>
+        public string Hora { get; set; } = string.Empty;
+
+        public string LugarNombre { get; set; } = string.Empty;
     }
 }

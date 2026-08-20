@@ -68,6 +68,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// </summary>
     public class PostulanteFormularioRespuestasDto
     {
+        // Página 0 · Consentimiento de protección de datos
+        /// <summary>Autoriza el tratamiento de sus datos personales (Ley N.° 29733). Obligatorio para enviar.</summary>
+        public bool? ConsentimientoDatosPersonales { get; set; }
+
         // Página 1 · Datos personales
         public string? NombresCompletos { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
@@ -263,6 +267,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// </summary>
     public class FormularioDatosDto
     {
+        // Página 0
+        public bool? ConsentimientoDatosPersonales { get; set; }
+
         // Página 1
         public string? NombresCompletos { get; set; }
         public DateOnly? FechaNacimiento { get; set; }

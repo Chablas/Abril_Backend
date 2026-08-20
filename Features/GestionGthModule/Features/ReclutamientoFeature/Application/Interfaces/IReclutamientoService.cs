@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces
 {
@@ -71,7 +71,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Envía la long list al solicitante: avanza el requerimiento a LONG_LIST_ENVIADA y manda
-        /// el correo a los destinatarios configurados (tipo LONG_LIST) con los CVs/informes adjuntos.
+        /// el correo a los destinatarios configurados (tipo LONG_LIST) con los CVs adjuntos.
         /// Devuelve el estado resultante.
         /// </summary>
         Task<EstadoRequerimientoResultDto> EnviarLongList(int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId);
@@ -91,6 +91,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// informa en el mensaje para que GTH reintente.
         /// </summary>
         Task<EntrevistaAccionResultDto> GuardarEntrevista(int candidatoId, EntrevistaGuardarDto dto, int? userId);
+
+        /// <summary>
+        /// Registra la respuesta del candidato a su citación desde los botones Confirmar/Rechazar
+        /// del correo (endpoint público por token) y le avisa a GTH. El aviso es best-effort: la
+        /// respuesta ya quedó registrada, así que un fallo del correo interno no le muestra un
+        /// error al candidato. <paramref name="respuesta"/> acepta el verbo del enlace
+        /// (<c>confirmar</c> / <c>rechazar</c>) o el código del catálogo.
+        /// </summary>
+        Task<EntrevistaRespuestaPublicaDto> ResponderEntrevista(string token, string respuesta);
 
         /// <summary>
         /// Guarda la evaluación de la entrevista de un candidato: los tres comentarios del informe

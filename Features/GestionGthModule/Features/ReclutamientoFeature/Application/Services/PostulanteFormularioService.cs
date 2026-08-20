@@ -53,6 +53,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("Enlace del formulario no válido.", 400);
             if (respuestas == null)
                 throw new AbrilException("No se recibieron los datos del formulario.", 400);
+            // El consentimiento de protección de datos es la condición para tratar todo lo demás:
+            // sin él no hay formulario que guardar, así que se corta antes de tocar la base.
+            if (respuestas.ConsentimientoDatosPersonales != true)
+                throw new AbrilException("Debes autorizar el tratamiento de tus datos personales para enviar el formulario.", 400);
+
+            // Nadie sale de una empresa antes de entrar. El formulario ya lo bloquea en pantalla,
+            // pero es un endpoint anónimo: la regla se vuelve a exigir acá.
+            if (respuestas.FechaInicio.HasValue && respuestas.FechaTermino.HasValue
+                && respuestas.FechaTermino.Value < respuestas.FechaInicio.Value)
+                throw new AbrilException(
+                    "La fecha de término de la experiencia laboral no puede ser anterior a la fecha de inicio.", 400);
 
             var ctx = await _repo.GuardarRespuestasByToken(token.Trim(), respuestas);
 

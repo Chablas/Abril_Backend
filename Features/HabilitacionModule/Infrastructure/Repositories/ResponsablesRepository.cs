@@ -1,8 +1,9 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Abril, no contratistas — mismo criterio que InterconsultaRepository.List.
             var trabajadores = await ctx.Worker
                 .Where(w => w.ContrataCasa == "Casa"
-                         && w.Estado != "RETIRADO"
+                         && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
                          && w.EmailCorporativo != null && w.EmailCorporativo != "")
                 .Select(w => new ResponsableWorkerOptionDto
                 {

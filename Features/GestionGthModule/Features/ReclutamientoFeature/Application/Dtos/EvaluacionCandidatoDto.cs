@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Body del PUT que guarda la evaluación de la entrevista de un candidato: los tres
@@ -133,6 +133,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Nombre del finalista decidido (para el mensaje al usuario).</summary>
         public string CandidatoNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Ficha de pre-ingreso creada para el seleccionado en <c>workers</c>. Es el id con el que
+        /// el front arma el enlace a SSOMA · Salud Ocupacional · EMOs para programarle el examen
+        /// de ingreso. Null cuando se rechazo al finalista, o cuando el candidato todavia no tiene
+        /// formulario del postulante aprobado (no hay ficha en <c>person</c> de donde colgarla).
+        /// </summary>
+        public int? WorkerId { get; set; }
     }
 
     /// <summary>Datos que necesita el servicio para armar los correos de la decisión final.</summary>

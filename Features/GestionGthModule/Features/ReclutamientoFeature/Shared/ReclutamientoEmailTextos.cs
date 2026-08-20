@@ -39,13 +39,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         };
 
         /// <summary>
+        /// Línea secundaria (gris, chica) bajo el dato principal de una celda. Devuelve vacío si no
+        /// hay texto, para poder concatenarla sin preguntar. Fija <c>font-weight:400</c> porque
+        /// también se cuelga de celdas en negrita, donde si no heredaría el grosor y dejaría de
+        /// leerse como dato secundario.
+        /// </summary>
+        public static string Subtexto(string? texto) =>
+            string.IsNullOrWhiteSpace(texto)
+                ? ""
+                : $"<br /><span style='font-size:11px;line-height:16px;font-weight:400;color:{ReclutamientoEmailLayout.TextoBajada}'>{ReclutamientoEmailLayout.Esc(texto)}</span>";
+
+        /// <summary>
         /// Línea "Reemplaza a {trabajador}" bajo el tipo, dentro de la misma celda. Vacía en las
         /// vacantes nuevas y en los requerimientos anteriores a que se pidiera ese dato.
         /// </summary>
         public static string Reemplaza(string? trabajador) =>
-            string.IsNullOrWhiteSpace(trabajador)
-                ? ""
-                : $"<br /><span style='font-size:11px;line-height:16px;color:{ReclutamientoEmailLayout.TextoBajada}'>Reemplaza a {ReclutamientoEmailLayout.Esc(trabajador)}</span>";
+            string.IsNullOrWhiteSpace(trabajador) ? "" : Subtexto($"Reemplaza a {trabajador}");
 
         /// <summary>Enlace dentro de una celda o de una fila de tarjeta (verde de acción, subrayado).</summary>
         public static string Enlace(string url, string texto) =>

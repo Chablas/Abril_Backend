@@ -403,12 +403,6 @@ var app = builder.Build();
 // recién cuando alguien intenta enviar un correo.
 app.Services.GetRequiredService<IEmailSenderResolver>();
 
-// PdfSharpCore trae un proveedor de imágenes incompatible con ImageSharp 3.x (lanza
-// MissingMethodException al dibujar cualquier imagen en un PDF, p. ej. la firma de facturas).
-// Se reemplaza por uno que usa las APIs de ImageSharp 3.x y conserva la transparencia.
-MigraDocCore.DocumentObjectModel.MigraDoc.DocumentObjectModel.Shapes.ImageSource.ImageSourceImpl
-    = new Abril_Backend.Shared.Services.Pdf.ImageSharp3ImageSource();
-
 app.UseCors("AllowAngular");
 app.UseExceptionHandler();
 app.UseStaticFiles();

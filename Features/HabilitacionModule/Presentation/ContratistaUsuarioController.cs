@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuarios;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -87,7 +88,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 var query = ctx.Worker
                     .Include(w => w.Person)
                     .Where(w => workerIdsVinculadosActivos.Contains(w.Id)
-                             && (w.Estado == "ACTIVO" || w.Estado == "Activo")
+                             && w.WorkersEstadoId == WorkersEstadoIds.Activo
                              && !workerIdsConUsuario.Contains(w.Id));
 
                 if (!string.IsNullOrWhiteSpace(search))

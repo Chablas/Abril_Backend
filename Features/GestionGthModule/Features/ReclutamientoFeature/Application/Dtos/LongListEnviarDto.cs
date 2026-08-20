@@ -1,9 +1,9 @@
 ﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
-    /// Metadatos (campo <c>data</c>, JSON) del envío de la long list. Los archivos (CV e
-    /// informe) viajan aparte en el multipart y se enlazan por <see cref="LongListCandidatoMetaDto.CvKey"/>
-    /// / <see cref="LongListCandidatoMetaDto.InformeKey"/> (nombre del campo del form file).
+    /// Metadatos (campo <c>data</c>, JSON) del envío de la long list. El CV viaja aparte en el
+    /// multipart y se enlaza por <see cref="LongListCandidatoMetaDto.CvKey"/> (nombre del campo
+    /// del form file).
     /// </summary>
     public class LongListEnviarMetaDto
     {
@@ -25,8 +25,20 @@
         /// <summary>Nombre del campo del multipart con el CV de este candidato (ej. "cv_0").</summary>
         public string? CvKey { get; set; }
 
-        /// <summary>Nombre del campo del multipart con el informe (opcional) de este candidato.</summary>
-        public string? InformeKey { get; set; }
+        /// <summary>
+        /// Nombres de los campos del multipart con el portafolio/anexos de este candidato
+        /// (ej. <c>anexo_0_0</c>, <c>anexo_0_1</c>). Vacío si no cargó ninguno: los anexos son
+        /// opcionales, a diferencia del CV.
+        /// </summary>
+        public List<string> AnexoKeys { get; set; } = new();
+    }
+
+    /// <summary>Un archivo del multipart ya leído a memoria (CV o anexo).</summary>
+    public class LongListArchivoDto
+    {
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = "application/octet-stream";
+        public byte[] Content { get; set; } = Array.Empty<byte>();
     }
 
     /// <summary>
@@ -42,14 +54,12 @@
         public string CvContentType { get; set; } = "application/octet-stream";
         public byte[] CvContent { get; set; } = Array.Empty<byte>();
 
-        /// <summary>Informe adjunto (opcional).</summary>
-        public string? InformeFileName { get; set; }
-        public string? InformeContentType { get; set; }
-        public byte[]? InformeContent { get; set; }
+        /// <summary>Portafolio/anexos del candidato, en el orden en que GTH los cargó.</summary>
+        public List<LongListArchivoDto> Anexos { get; set; } = new();
     }
 
     /// <summary>
-    /// Candidato de la long list ya con sus archivos subidos a SharePoint (urls resueltas por el
+    /// Candidato de la long list ya con su CV subido a SharePoint (urls resueltas por el
     /// servicio). Es lo que persiste el repositorio en <c>gth_candidato</c>.
     /// </summary>
     public class LongListCandidatoPersistDto
@@ -62,10 +72,22 @@
         public string? CvItemId { get; set; }
         public string? CvDriveId { get; set; }
 
-        public string? InformeNombre { get; set; }
-        public string? InformeUrl { get; set; }
-        public string? InformeItemId { get; set; }
-        public string? InformeDriveId { get; set; }
+        /// <summary>Anexos ya subidos, en el orden de carga (van a <c>gth_candidato_anexo</c>).</summary>
+        public List<LongListAnexoPersistDto> Anexos { get; set; } = new();
+    }
+
+    /// <summary>Un anexo del candidato ya subido a SharePoint, listo para persistir.</summary>
+    public class LongListAnexoPersistDto
+    {
+        /// <summary>Nombre con el que quedó en SharePoint.</summary>
+        public string? Nombre { get; set; }
+
+        /// <summary>Nombre con el que GTH lo subió (el que se muestra y el que viaja en el correo).</summary>
+        public string? NombreOriginal { get; set; }
+
+        public string? Url { get; set; }
+        public string? ItemId { get; set; }
+        public string? DriveId { get; set; }
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
@@ -94,6 +95,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             ctx.GthCandidato.Where(c => c.State && c.NumeroLongList == ctx.GthCandidato
                 .Where(x => x.GthRequerimientoId == c.GthRequerimientoId && x.State)
                 .Max(x => x.NumeroLongList));
+
+        /// <summary>
+        /// Portafolio/anexos vivos de los candidatos indicados, agrupados por candidato y en orden
+        /// de carga. Una sola consulta para toda la long list (nunca una por candidato). Vacío si
+        /// no hay candidatos.
+        /// </summary>
+        private static async Task<Dictionary<int, List<CandidatoAnexoDto>>> QueryAnexos(
+            AppDbContext ctx, List<int> candidatoIds)
+        {
+            if (candidatoIds.Count == 0) return new Dictionary<int, List<CandidatoAnexoDto>>();
+
+            var filas = await ctx.GthCandidatoAnexo
+                .Where(a => a.State && candidatoIds.Contains(a.GthCandidatoId))
+                .OrderBy(a => a.Orden).ThenBy(a => a.GthCandidatoAnexoId)
+                .Select(a => new
+                {
+                    a.GthCandidatoId,
+                    Anexo = new CandidatoAnexoDto
+                    {
+                        AnexoId = a.GthCandidatoAnexoId,
+                        // El nombre original es el que GTH reconoce; el de SharePoint lleva el
+                        // código del requerimiento y un timestamp.
+                        Nombre  = a.NombreOriginal ?? a.Nombre,
+                        Url     = a.Url,
+                    },
+                })
+                .ToListAsync();
+
+            return filas
+                .GroupBy(f => f.GthCandidatoId)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.Anexo).ToList());
+        }
 
         /// <summary>Evaluaciones vigentes de los candidatos indicados (vacío si no hay candidatos).</summary>
         private static async Task<List<EvaluacionRawRow>> QueryEvaluaciones(AppDbContext ctx, List<int> candidatoIds)
@@ -266,16 +299,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
                     .FirstOrDefaultAsync();
 
+            // Ficha de pre-ingreso del seleccionado. Se llega por person_id (el formulario del
+            // postulante ya escribio la data maestra al aprobarse), que es el unico enlace entre
+            // el candidato y su ficha: no hace falta una columna nueva en ninguna de las dos.
+            var ficha = await (
+                from f in ctx.GthPostulanteFormulario
+                where f.GthCandidatoId == raw.GthCandidatoId && f.State && f.PersonId != null
+                join w in ctx.Worker on f.PersonId equals w.PersonId
+                orderby w.Id descending
+                select new { w.Id, w.WorkersEstadoId }).FirstOrDefaultAsync();
+
+            // Pendiente solo mientras la ficha siga siendo de pre-ingreso Y no tenga la cita
+            // creada: si ya firmo y paso a ACTIVO, o si la programacion ya existe, no hay nada
+            // que hacer desde el detalle del requerimiento.
+            var emoPendiente = ficha != null
+                && ficha.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                && !await ctx.SsProgramacionEmo.AnyAsync(pe => pe.WorkerId == ficha.Id && pe.State);
+
             return new SeleccionadoDto
             {
-                CandidatoId     = raw.GthCandidatoId,
-                Nombre          = raw.Nombre,
-                Puesto          = raw.Puesto,
-                CvNombre        = raw.CvNombre,
-                CvUrl           = raw.CvUrl,
-                SeleccionadoEn  = raw.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
-                SeleccionadoPor = seleccionadoPor,
-                ResponsableGth  = raw.ResponsableGth,
+                CandidatoId         = raw.GthCandidatoId,
+                Nombre              = raw.Nombre,
+                Puesto              = raw.Puesto,
+                CvNombre            = raw.CvNombre,
+                CvUrl               = raw.CvUrl,
+                SeleccionadoEn      = raw.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
+                SeleccionadoPor     = seleccionadoPor,
+                ResponsableGth      = raw.ResponsableGth,
+                WorkerId            = ficha?.Id,
+                EmoIngresoPendiente = emoPendiente,
             };
         }
 
@@ -559,11 +611,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Comentario    = c.Comentario,
                     CvNombre      = c.CvNombre,
                     CvUrl         = c.CvUrl,
-                    InformeNombre = c.InformeNombre,
-                    InformeUrl    = c.InformeUrl,
                     EstadoCodigo  = est.Codigo,
                     EstadoNombre  = est.Nombre,
                 }).ToListAsync();
+
+            // Portafolio/anexos de todos los candidatos en una sola consulta (no una por
+            // candidato), igual que las evaluaciones de los finalistas.
+            var anexos = await QueryAnexos(ctx, candidatos.Select(c => c.CandidatoId).ToList());
+            foreach (var c in candidatos)
+                if (anexos.TryGetValue(c.CandidatoId, out var suyos)) c.Anexos = suyos;
 
             return new RevisionLongListDto
             {
@@ -928,7 +984,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // tienen categoría maestra sí consumen (no son practicantes).
             var ocupados = await ctx.Worker
                 .Where(w => w.ContributorId != null
-                            && w.Estado != "RETIRADO"
+                            && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
                             && ObraOficinaStaffIds.ConsumenCupoRazonSocial.Contains(w.ObraOficinaStaffId ?? 0)
                             && w.CategoriaMaestraId != CategoriaMaestraIds.PracticantePrePro)
                 .GroupBy(w => w.ContributorId!.Value)
@@ -1028,6 +1084,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         from en in ctx.GthEntrevista
                         where en.State && candidatoIds.Contains(en.GthCandidatoId)
                         join l in ctx.GthLugarEntrevista on en.GthLugarEntrevistaId equals l.GthLugarEntrevistaId
+                        // La respuesta del candidato es opcional (null mientras no conteste), así
+                        // que va en left join: con un join normal desaparecerían del modal las
+                        // entrevistas que todavía están esperando respuesta.
+                        join rp in ctx.GthEntrevistaRespuesta
+                            on en.GthEntrevistaRespuestaId equals rp.GthEntrevistaRespuestaId into resp
+                        from rp in resp.DefaultIfEmpty()
                         select new
                         {
                             en.GthCandidatoId,
@@ -1037,15 +1099,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                             LugarNombre = l.Nombre,
                             en.CorreoEnvio,
                             en.EnviadoDateTime,
+                            RespuestaCodigo = rp != null ? rp.Codigo : null,
+                            RespuestaNombre = rp != null ? rp.Nombre : null,
+                            en.RespuestaDateTime,
                         }).ToListAsync())
                     .ToDictionary(x => x.GthCandidatoId, x => new EntrevistaResumenDto
                     {
-                        Fecha       = x.Fecha,
-                        Hora        = x.Hora.ToString("HH\\:mm"),
-                        LugarId     = x.GthLugarEntrevistaId,
-                        LugarNombre = x.LugarNombre,
-                        CorreoEnvio = x.CorreoEnvio,
-                        EnviadoEn   = x.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
+                        Fecha           = x.Fecha,
+                        Hora            = x.Hora.ToString("HH\\:mm"),
+                        LugarId         = x.GthLugarEntrevistaId,
+                        LugarNombre     = x.LugarNombre,
+                        CorreoEnvio     = x.CorreoEnvio,
+                        EnviadoEn       = x.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
+                        RespuestaCodigo = x.RespuestaCodigo,
+                        RespuestaNombre = x.RespuestaNombre,
+                        RespondidoEn    = x.RespuestaDateTime?.ToOffset(PeruOffset).DateTime,
                     });
 
             // Evaluación de la entrevista de cada candidato (0..1 vigente por candidato): puntajes,
@@ -1201,7 +1269,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
-            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId)
+            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId,
+            string nuevoToken)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1248,6 +1317,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Hora                 = hora,
                     GthLugarEntrevistaId = lugarId,
                     CorreoEnvio          = correo,
+                    Token                = nuevoToken,
                     EnviadoDateTime      = now,
                     EnviadoUserId        = userId,
                     CreatedDateTime      = now,
@@ -1267,6 +1337,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 entrevista.EnviadoUserId        = userId;
                 entrevista.UpdatedDateTime      = now;
                 entrevista.UpdatedUserId        = userId;
+
+                // Cada envío lleva su propio token y borra la respuesta anterior: lo que el
+                // candidato confirmó fue la cita vieja, así que una reprogramación le vuelve a
+                // preguntar y los botones del correo anterior dejan de responder.
+                entrevista.Token                    = nuevoToken;
+                entrevista.GthEntrevistaRespuestaId = null;
+                entrevista.RespuestaDateTime        = null;
             }
 
             await ctx.SaveChangesAsync();
@@ -1276,6 +1353,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatoNombre = cand.Nombre,
                 Puesto          = cand.Puesto,
                 Codigo          = cand.Codigo,
+                LugarMapsUrl    = lugar.MapsUrl,
+                Token           = nuevoToken,
                 Resumen = new EntrevistaResumenDto
                 {
                     Fecha       = fecha,
@@ -1284,6 +1363,85 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     LugarNombre = lugar.Nombre,
                     CorreoEnvio = correo,
                     EnviadoEn   = now.ToOffset(PeruOffset).DateTime,
+                },
+            };
+        }
+
+        // ── Respuesta del candidato a su citación (pública, por token) ────────
+        public async Task<EntrevistaRespuestaContextoDto> RegistrarRespuestaEntrevista(
+            string token, string respuestaCodigo)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entrevista = await ctx.GthEntrevista.FirstOrDefaultAsync(e => e.Token == token && e.State);
+            if (entrevista == null)
+                throw new AbrilException(
+                    "El enlace de la entrevista no es válido o ya no está disponible. Si tu entrevista fue "
+                    + "reprogramada, responde desde el último correo que recibiste.", 404);
+
+            var respuesta = await ctx.GthEntrevistaRespuesta
+                .FirstOrDefaultAsync(r => r.Codigo == respuestaCodigo && r.State)
+                ?? throw new AbrilException(
+                    $"No está configurada la respuesta {respuestaCodigo} de la entrevista.", 500);
+
+            // Contexto del proceso: es lo que lleva el aviso a GTH (código, puesto, área) y lo que
+            // la página pública le muestra al candidato para que sepa sobre qué cita respondió.
+            // El lugar entra por SelectMany contra su id (y no por join contra `entrevista`, que es
+            // una entidad ya materializada y no parte de la consulta) con DefaultIfEmpty: si el
+            // lugar quedó de baja, la respuesta del candidato se registra igual y solo se queda
+            // sin el nombre del sitio.
+            var lugarId = entrevista.GthLugarEntrevistaId;
+            var contexto = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == entrevista.GthCandidatoId && c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                from l in ctx.GthLugarEntrevista
+                    .Where(x => x.GthLugarEntrevistaId == lugarId).DefaultIfEmpty()
+                select new
+                {
+                    c.Nombre,
+                    Puesto = p.Nombre,
+                    r.Codigo,
+                    r.GthRequerimientoId,
+                    Area = r.Solicitud!.AreaNombre,
+                    LugarNombre = l != null ? l.Nombre : null,
+                }).FirstOrDefaultAsync();
+            if (contexto == null)
+                throw new AbrilException("No se encontró el proceso al que corresponde esta entrevista.", 404);
+
+            // Abrir dos veces el mismo enlace no es una respuesta nueva: se conserva la fecha
+            // original y el llamador se ahorra mandarle a GTH un aviso que no cuenta nada nuevo.
+            var repetida = entrevista.GthEntrevistaRespuestaId == respuesta.GthEntrevistaRespuestaId;
+            if (!repetida)
+            {
+                var now = DateTimeOffset.UtcNow;
+                entrevista.GthEntrevistaRespuestaId = respuesta.GthEntrevistaRespuestaId;
+                entrevista.RespuestaDateTime        = now;
+                entrevista.UpdatedDateTime          = now;
+                await ctx.SaveChangesAsync();
+            }
+
+            return new EntrevistaRespuestaContextoDto
+            {
+                CandidatoNombre = contexto.Nombre,
+                Puesto          = contexto.Puesto,
+                Codigo          = contexto.Codigo,
+                Area            = contexto.Area,
+                CorreoCandidato = entrevista.CorreoEnvio,
+                RequerimientoId = contexto.GthRequerimientoId,
+                YaHabiaRespondidoLoMismo = repetida,
+                Resumen = new EntrevistaResumenDto
+                {
+                    Fecha           = entrevista.Fecha,
+                    Hora            = entrevista.Hora.ToString("HH\\:mm"),
+                    LugarId         = entrevista.GthLugarEntrevistaId,
+                    LugarNombre     = contexto.LugarNombre ?? string.Empty,
+                    CorreoEnvio     = entrevista.CorreoEnvio,
+                    EnviadoEn       = entrevista.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
+                    RespuestaCodigo = respuesta.Codigo,
+                    RespuestaNombre = respuesta.Nombre,
+                    RespondidoEn    = entrevista.RespuestaDateTime?.ToOffset(PeruOffset).DateTime,
                 },
             };
         }
@@ -1566,6 +1724,68 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        /// <summary>
+        /// Ficha de <c>workers</c> del finalista aprobado. Es lo que permite reusar todo el modulo
+        /// de EMOs tal cual: <c>worker_emos</c> y <c>ss_programacion_emos</c> cuelgan de
+        /// <c>workers.id</c>, asi que sin ficha no hay a quien programarle el examen de ingreso.
+        ///
+        /// La ficha nace SIN fila en <c>worker_vinculaciones</c>, y eso es deliberado: la
+        /// vinculacion es el contrato. Mientras no exista, el finalista queda fuera de la lista de
+        /// trabajadores de Habilitacion, de la auto-programacion de EMOs, de los dashboards y de
+        /// todo lo que exige vinculacion vigente con empresa Abril — sin tocar ninguna de esas
+        /// consultas. Lo unico que lo hace visible es el opt-in explicito de la pantalla de EMOs.
+        ///
+        /// La persona ya existe en <c>person</c> antes de llegar aca: aprobar el formulario del
+        /// postulante escribe la data maestra (ver PostulanteFormularioRepository.RegistrarDecision)
+        /// y eso ocurre antes de entrevistas, o sea antes de esta decision. Si no la encuentra
+        /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
+        /// vera el aviso de que falta el formulario.
+        ///
+        /// La entidad se agrega al ChangeTracker pero NO se guarda: la persiste el SaveChanges de
+        /// quien llama, junto con el cambio de estado del requerimiento.
+        /// </summary>
+        private static async Task<Worker?> ResolverFichaFinalistaAsync(
+            AppDbContext ctx, int candidatoId, GthRequerimiento req)
+        {
+            var personId = await ctx.GthPostulanteFormulario
+                .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
+                .Select(f => f.PersonId)
+                .FirstOrDefaultAsync();
+            if (personId == null) return null;
+
+            // Una persona puede tener varias fichas (reingresos). Si ya tiene una viva se reusa en
+            // vez de abrir otra: un trabajador de Abril que postula internamente sigue siendo el
+            // mismo worker, y un finalista que ya paso por aca no necesita ficha nueva.
+            // Se prioriza la de pre-ingreso, y si no la hay, la mas reciente.
+            var existente = await ctx.Worker
+                .Where(w => w.PersonId == personId
+                         && (w.WorkersEstadoId == WorkersEstadoIds.Activo
+                          || w.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma
+                          || w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado))
+                .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado ? 1 : 0)
+                .ThenByDescending(w => w.Id)
+                .FirstOrDefaultAsync();
+            if (existente != null) return existente;
+
+            var ahora = DateTimeOffset.UtcNow;
+            var ficha = new Worker
+            {
+                PersonId        = personId,
+                WorkersEstadoId = WorkersEstadoIds.FinalistaAprobado,
+                // Lo que ya se sabe del puesto sale del requerimiento; el resto (area, correo
+                // corporativo, obra/oficina) lo completa Onboarding cuando firme.
+                PuestoId        = req.PuestoId,
+                CategoriaId     = req.CategoriaId,
+                ContributorId   = req.ContributorId,
+                // Sin fecha de ingreso: todavia no ingreso.
+                FechaIngreso    = null,
+                CreatedAt       = ahora,
+                UpdatedAt       = ahora,
+            };
+            ctx.Worker.Add(ficha);
+            return ficha;
+        }
+
         public async Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
             int requerimientoId, int candidatoId, bool aprobado, int userId)
         {
@@ -1647,7 +1867,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }
             }
 
-            // Aprobar cierra el proceso de reclutamiento (el seleccionado pasa a onboarding).
+            // Aprobar ya NO cierra el proceso: lo deja en EMO_INGRESO, la fase en la que GTH le
+            // programa el examen medico de ingreso al seleccionado. Cierra recien cuando la cita
+            // queda programada (ver MarcarEmoIngresoProgramado).
             // Rechazar al último finalista en carrera devuelve el requerimiento a LONG_LIST para que
             // GTH prepare y envíe una nueva long list; los rechazados quedan grabados como historial.
             // Si aún quedan finalistas por decidir, se queda en SELECCION_JEFATURA.
@@ -1656,7 +1878,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado));
             var todosRechazados = !aprobado && !quedanEnCarrera;
 
-            var codigoEstado = aprobado ? EstadoReclutamiento.Cerrado
+            var codigoEstado = aprobado ? EstadoReclutamiento.EmoIngreso
                              : todosRechazados ? EstadoReclutamiento.LongList
                              : EstadoReclutamiento.SeleccionJefatura;
             var estadoDestino = await ctx.GthEstadoRequerimiento
@@ -1673,6 +1895,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
                 .FirstOrDefaultAsync();
 
+            // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
+            // decision, para que no exista una sin la otra.
+            var fichaFinalista = aprobado
+                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req)
+                : null;
+
             await ctx.SaveChangesAsync();
 
             return new FinalistaDecisionContextoDto
@@ -1684,6 +1912,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Aprobado        = aprobado,
                     TodosRechazados = todosRechazados,
                     CandidatoNombre = elegido.Nombre,
+                    WorkerId        = fichaFinalista?.Id,
                 },
                 Codigo            = head.Codigo,
                 Puesto            = head.Puesto,
@@ -1979,7 +2208,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //
             // No pueden convivir ambas cosas en una misma vuelta: la decisión de la long list se
             // registra para todos los candidatos de una sola vez.
+            // Con sus anexos (mismo viaje): si esta carga reemplaza a la anterior, los anexos de
+            // los candidatos que se dan de baja se dan de baja con ellos.
             var vigentes = await ctx.GthCandidato
+                .Include(c => c.Anexos)
                 .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
                 .ToListAsync();
 
@@ -2000,12 +2232,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     v.State           = false;
                     v.UpdatedDateTime = now;
                     v.UpdatedUserId   = userId;
+
+                    foreach (var a in v.Anexos.Where(a => a.State))
+                    {
+                        a.State           = false;
+                        a.UpdatedDateTime = now;
+                        a.UpdatedUserId   = userId;
+                    }
                 }
             }
 
             var orden = 1;
             foreach (var c in candidatos)
             {
+                // Los anexos entran por la navegación: EF inserta candidato + anexos en el mismo
+                // SaveChanges, así que no puede quedar un candidato guardado sin su portafolio.
+                var ordenAnexo = 1;
+                var anexos = c.Anexos.Select(a => new GthCandidatoAnexo
+                {
+                    Nombre          = string.IsNullOrWhiteSpace(a.Nombre) ? (a.NombreOriginal ?? "anexo") : a.Nombre!,
+                    NombreOriginal  = a.NombreOriginal,
+                    Url             = a.Url,
+                    ItemId          = a.ItemId,
+                    DriveId         = a.DriveId,
+                    Orden           = ordenAnexo++,
+                    CreatedDateTime = now,
+                    CreatedUserId   = userId,
+                    Active          = true,
+                    State           = true,
+                }).ToList();
+
                 ctx.GthCandidato.Add(new GthCandidato
                 {
                     GthRequerimientoId   = requerimientoId,
@@ -2016,13 +2272,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CvUrl                = c.CvUrl,
                     CvItemId             = c.CvItemId,
                     CvDriveId            = c.CvDriveId,
-                    InformeNombre        = c.InformeNombre,
-                    InformeUrl           = c.InformeUrl,
-                    InformeItemId        = c.InformeItemId,
-                    InformeDriveId       = c.InformeDriveId,
                     GthCandidatoEstadoId = estadoPendienteId,
                     Orden                = orden,
                     NumeroLongList       = numeroLongList,
+                    Anexos               = anexos,
                     CreatedDateTime      = now,
                     CreatedUserId        = userId,
                     Active               = true,
@@ -2307,7 +2560,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var candidatos = await (
                 from w in ctx.Worker.AsNoTracking()
                 where w.AreaScopeId != null && cadena.Contains(w.AreaScopeId.Value)
-                      && w.Estado == "ACTIVO"
+                      && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
                       && w.CategoriaId == CategoriaIds.Gerente
                 join s in ctx.AreaScope.AsNoTracking() on w.AreaScopeId equals s.AreaScopeId
@@ -2607,7 +2860,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string SeleccionJefatura = "SELECCION_JEFATURA";
 
         /// <summary>
-        /// Estado final: el solicitante aprobó al finalista, el proceso de reclutamiento termina y
+        /// El solicitante aprobó al finalista y GTH tiene que programarle el EMO de Ingreso antes
+        /// de cerrar. Aprobar deja el requerimiento acá (ya no en <see cref="Cerrado"/>): la ficha
+        /// de pre-ingreso del finalista ya existe en <c>workers</c> y desde el botón de esta fase
+        /// se salta a SSOMA · Salud Ocupacional · EMOs a programarle la cita.
+        /// </summary>
+        public const string EmoIngreso        = "EMO_INGRESO";
+
+        /// <summary>
+        /// Estado final: el EMO de ingreso quedó programado, el proceso de reclutamiento termina y
         /// el seleccionado pasa al proceso de onboarding (funcionalidad aparte).
         /// </summary>
         public const string Cerrado           = "CERRADO";

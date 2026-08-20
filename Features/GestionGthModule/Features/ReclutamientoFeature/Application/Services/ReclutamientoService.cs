@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
@@ -21,6 +22,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IAprobacionGgRepository  _aprobacionGgRepo;
         private readonly IAprobacionGgService     _aprobacionGg;
         private readonly ICorreoDestinatariosResolver _destinatarios;
+        private readonly ICorreoConfigRepository  _correoConfig;
         private readonly IGraphSharePointService  _sharePoint;
         private readonly IEmailService            _email;
         private readonly IConfiguration           _configuration;
@@ -48,6 +50,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             IAprobacionGgRepository aprobacionGgRepo,
             IAprobacionGgService aprobacionGg,
             ICorreoDestinatariosResolver destinatarios,
+            ICorreoConfigRepository correoConfig,
             IGraphSharePointService sharePoint,
             IEmailService email,
             IConfiguration configuration,
@@ -57,6 +60,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _aprobacionGgRepo = aprobacionGgRepo;
             _aprobacionGg     = aprobacionGg;
             _destinatarios    = destinatarios;
+            _correoConfig     = correoConfig;
             _sharePoint       = sharePoint;
             _email            = email;
             _configuration    = configuration;
@@ -264,7 +268,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto.LugarId <= 0)
                 throw new AbrilException("Selecciona el lugar de la entrevista.", 400);
 
-            var ctx = await _repo.GuardarEntrevista(candidatoId, dto.Fecha, hora, dto.LugarId, userId);
+            // Token de acceso público de los botones Confirmar / Rechazar del correo (hex,
+            // url-safe). Es nuevo en cada envío: los del correo anterior dejan de responder por
+            // una cita que ya cambió de fecha. Mismo formato que el del formulario del postulante.
+            var nuevoToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+
+            var ctx = await _repo.GuardarEntrevista(
+                candidatoId, dto.Fecha, hora, dto.LugarId, userId, nuevoToken);
 
             // Destinatarios: el principal (Para) es SIEMPRE el postulante citado; la configuración
             // del correo de ENTREVISTA solo aporta principales adicionales y copias.
@@ -294,14 +304,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Citación a entrevista para el postulante: la fecha, la hora y el lugar, y nada más. Las
-        /// dos indicaciones que sí tiene que accionar (llegar antes, avisar si no puede) van en una
-        /// sola línea; el resto del texto que había acá era relleno.
+        /// Citación a entrevista para el postulante: la fecha, la hora y el lugar, y los dos
+        /// botones con los que responde. La respuesta se pide con botones y no pidiéndole que
+        /// conteste el correo porque así queda registrada en el proceso: GTH la ve en el modal del
+        /// requerimiento en lugar de tener que revisar la bandeja del buzón.
+        ///
+        /// Los botones van solos, sin una franja que explique qué hacen: dicen «Confirmar» y
+        /// «Rechazar» y eso es todo lo que hay que saber (mismo criterio editorial que el resto de
+        /// la familia, ver <see cref="Layout"/>).
+        ///
+        /// El lugar lleva debajo el enlace al mapa cuando el lugar lo tiene cargado. Es un enlace y
+        /// no un mapa embebido a propósito: Outlook bloquea las imágenes remotas de terceros y una
+        /// imagen estática de Google Maps necesita una API key, así que el mapa saldría roto justo
+        /// donde más importa.
         /// </summary>
         private string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
         {
             var l = Layout.Desde(_configuration);
             var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
+
+            var lugar = Textos.OGuion(ctx.Resumen.LugarNombre);
+            if (!string.IsNullOrWhiteSpace(ctx.LugarMapsUrl))
+                lugar += $"<br />{Textos.Enlace(ctx.LugarMapsUrl!, "Ver en Google Maps")}";
 
             return l.Documento(
                 new Layout.Cabecera(
@@ -312,10 +336,143 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     new("req-fecha", "Fecha", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
                     new("req-hora", "Hora", Layout.Esc(ctx.Resumen.Hora)),
-                    new("req-lugar", "Lugar", Textos.OGuion(ctx.Resumen.LugarNombre)),
+                    new("req-lugar", "Lugar", lugar),
                 }),
-                l.Franja("req-aviso", Layout.Tono.Info,
-                    "Llega 10 minutos antes con tu documento de identidad. Si no puedes asistir, responde este correo."));
+                l.BotonesRespuesta(
+                    "Confirmar", ConstruirLinkRespuestaEntrevista(ctx.Token, "confirmar"),
+                    "Rechazar",  ConstruirLinkRespuestaEntrevista(ctx.Token, "rechazar")));
+        }
+
+        // ── Respuesta del candidato a su citación (pública, por token) ────────
+        /// <summary>
+        /// Enlace de un botón del correo: la página pública que registra la respuesta del
+        /// candidato. Es el mismo mecanismo que el enlace del formulario del postulante — sin
+        /// login, el token identifica la entrevista.
+        /// </summary>
+        private string ConstruirLinkRespuestaEntrevista(string token, string respuesta)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/postulante/entrevista?token={Uri.EscapeDataString(token)}&r={respuesta}";
+        }
+
+        public async Task<EntrevistaRespuestaPublicaDto> ResponderEntrevista(string token, string respuesta)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                throw new AbrilException("Enlace de la entrevista no válido.", 400);
+
+            var codigo = EntrevistaRespuestaCodigo.Normalizar(respuesta)
+                ?? throw new AbrilException("La respuesta a la entrevista no es válida.", 400);
+
+            var ctx = await _repo.RegistrarRespuestaEntrevista(token.Trim(), codigo);
+
+            // Aviso a GTH. Best-effort a propósito: la respuesta del candidato ya quedó registrada
+            // y visible en el modal del requerimiento, así que un fallo del correo interno no tiene
+            // por qué mostrarle un error a quien solo pulsó un botón desde su correo. Tampoco se
+            // reenvía cuando el candidato abre dos veces el mismo enlace: no cambió nada.
+            if (!ctx.YaHabiaRespondidoLoMismo)
+            {
+                try
+                {
+                    await NotificarRespuestaEntrevistaAGthAsync(ctx);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "No se pudo avisar a GTH la respuesta del candidato a la entrevista del requerimiento {Codigo}",
+                        ctx.Codigo);
+                }
+            }
+
+            return new EntrevistaRespuestaPublicaDto
+            {
+                RespuestaCodigo = codigo,
+                CandidatoNombre = ctx.CandidatoNombre,
+                Puesto          = ctx.Puesto,
+                Fecha           = ctx.Resumen.Fecha,
+                Hora            = ctx.Resumen.Hora,
+                LugarNombre     = ctx.Resumen.LugarNombre,
+            };
+        }
+
+        /// <summary>
+        /// Avisa a GTH que el candidato respondió su citación (tipo ENTREVISTA_RESPUESTA). El
+        /// destinatario principal es SIEMPRE el buzón del área de Gestión del Talento Humano, que
+        /// sale de <c>area_scope.email</c> de su nodo — el mismo que resuelve el destinatario
+        /// dinámico GTH_AREA, así que si el área cambia de correo en Configuración → Áreas, este
+        /// aviso lo sigue sin tocar código. La configuración del correo solo aporta principales
+        /// adicionales y copias.
+        /// </summary>
+        private async Task NotificarRespuestaEntrevistaAGthAsync(EntrevistaRespuestaContextoDto ctx)
+        {
+            var emailGth = await _correoConfig.GetEmailAreaGthAsync();
+            var dest     = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.EntrevistaRespuesta);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(emailGth, dest);
+
+            if (principales.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Respuesta de entrevista del requerimiento {Codigo}: el área de GTH no tiene correo "
+                    + "cargado en el árbol de áreas y el correo ENTREVISTA_RESPUESTA no tiene destinatarios "
+                    + "activos, así que el aviso no sale.", ctx.Codigo);
+                return;
+            }
+
+            var confirmo = ctx.Resumen.RespuestaCodigo == EntrevistaRespuestaCodigo.Confirmada;
+            var accion   = confirmo ? "confirmó" : "rechazó";
+
+            await _email.SendAsync(
+                to:      principales,
+                subject: $"[Reclutamiento] Entrevista {accion} — {ctx.Codigo} · {ctx.Puesto}",
+                body:    ConstruirCuerpoRespuestaEntrevista(ctx, confirmo),
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                sender:  EmailSenders.Gth);
+        }
+
+        /// <summary>
+        /// Aviso a GTH de la respuesta del candidato. Mismo criterio que el resto de correos
+        /// internos del módulo: la franja da el desenlace en una línea, la tarjeta trae los datos
+        /// de la cita y el botón lleva al requerimiento en la bandeja.
+        /// </summary>
+        private string ConstruirCuerpoRespuestaEntrevista(EntrevistaRespuestaContextoDto ctx, bool confirmo)
+        {
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre)
+                ? "El candidato"
+                : Layout.Esc(ctx.CandidatoNombre);
+
+            var filas = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Textos.OGuion(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-candidato", "Candidato", Textos.OGuion(ctx.CandidatoNombre)),
+                new("req-correo", "Correo", Textos.OGuion(ctx.CorreoCandidato)),
+                new("req-fecha", "Fecha de la cita", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
+                new("req-hora", "Hora", Textos.OGuion(ctx.Resumen.Hora)),
+                new("req-lugar", "Lugar", Textos.OGuion(ctx.Resumen.LugarNombre)),
+            };
+            if (ctx.Resumen.RespondidoEn.HasValue)
+                filas.Add(new("req-estado", "Respondió el",
+                    ctx.Resumen.RespondidoEn.Value.ToString("dd/MM/yyyy HH:mm")));
+
+            var franja = confirmo
+                ? l.Franja("req-check", Layout.Tono.Verde,
+                    $"<b>{nombre}</b> confirmó que asistirá a la entrevista.")
+                : l.Franja("req-rechazadas", Layout.Tono.Rojo,
+                    $"<b>{nombre}</b> avisó que no podrá asistir a la entrevista.");
+
+            var link = ctx.RequerimientoId > 0 ? ConstruirLinkDetalleRequerimiento(ctx.RequerimientoId) : "";
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-entrevista", "Respuesta a la Entrevista",
+                    $"<b>{nombre}</b> {(confirmo ? "confirmó" : "rechazó")} su entrevista para "
+                    + $"<b>{Layout.Esc(ctx.Puesto)}</b>."),
+                franja,
+                l.Tarjeta(filas),
+                string.IsNullOrEmpty(link) ? "" : l.Boton("Ver el requerimiento", link),
+                string.IsNullOrEmpty(link) ? "" : l.EnlaceDirecto(link));
         }
 
         // ── Evaluación de la entrevista y no continuidad ──────────────────────
@@ -463,7 +620,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             await NotificarDecisionFinalistaAGthAsync(ctx);
 
             res.Message = res.Aprobado
-                ? $"{res.CandidatoNombre} quedó seleccionado. El proceso de reclutamiento se cerró y GTH continuará con su onboarding."
+                ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y con eso se cierra el proceso."
                 : res.TodosRechazados
                     ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
                     : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento.";
@@ -548,9 +705,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // subieron a 3 GB para el total de la petición y a 3 GB para cada archivo individual. Los
         // topes de request de Kestrel/FormOptions (Program.cs) ya están en 10 GB, así que no limitan.
         // OJO: usar el sufijo L (long) — 3 * 1024^3 desborda un int.
-        private const long MaxLongListTotalBytes = 3L * 1024 * 1024 * 1024; // 3 GB en total (CVs + informes)
+        private const long MaxLongListTotalBytes = 3L * 1024 * 1024 * 1024; // 3 GB en total (CVs)
         private const long MaxLongListFileBytes  = 3L * 1024 * 1024 * 1024; // 3 GB por archivo individual
         private static readonly string[] AllowedLongListExt = { ".pdf", ".doc", ".docx" };
+
+        /// <summary>
+        /// Formatos aceptados en el "Portafolio/Anexos" del candidato. Es más amplio que el del CV
+        /// porque un portafolio suele venir en imágenes o en una presentación, no solo en PDF. No
+        /// se aceptan comprimidos (.zip/.rar): los filtros de correo de la organización los
+        /// bloquean y el envío de la long list es bloqueante, así que tumbarían todo el envío.
+        /// </summary>
+        private static readonly string[] AllowedLongListAnexoExt =
+            { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".jpg", ".jpeg", ".png", ".webp" };
+
+        /// <summary>
+        /// Tope de lo que puede pesar el conjunto de archivos que viaja ADJUNTO en el correo de la
+        /// long list (CVs + anexos). No es una política nuestra sino el límite del proveedor:
+        /// Graph rechaza el <c>sendMail</c> cuando el mensaje completo pasa de 4 MB y los adjuntos
+        /// van en base64, que infla ~4/3. Se valida acá, antes de subir nada, para que GTH vea qué
+        /// archivo achicar en vez del 502 genérico "no se pudo enviar el correo" al final del flujo.
+        /// </summary>
+        private const long MaxLongListCorreoBytes = 2_800_000; // ~2.8 MB reales ≈ 3.7 MB en base64
 
         public async Task<EstadoRequerimientoResultDto> EnviarLongList(
             int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId)
@@ -558,7 +733,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (candidatos == null || candidatos.Count == 0)
                 throw new AbrilException("Debes cargar al menos un candidato para enviar la long list.", 400);
 
-            // Validar archivos: cada candidato debe traer su CV; formato e informe (opcional) permitidos.
+            // Validar archivos: cada candidato debe traer su CV, en un formato permitido. Los
+            // anexos del portafolio son opcionales y admiten más formatos que el CV.
             long total = 0;
             for (int i = 0; i < candidatos.Count; i++)
             {
@@ -566,17 +742,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var pos = i + 1;
                 if (c.CvContent == null || c.CvContent.Length == 0)
                     throw new AbrilException($"Candidato {pos}: falta adjuntar el CV.", 400);
-                ValidarLongListArchivo($"CV del candidato {pos}", c.CvFileName, c.CvContent.Length);
+                ValidarLongListArchivo($"CV del candidato {pos}", c.CvFileName, c.CvContent.Length, AllowedLongListExt);
                 total += c.CvContent.Length;
 
-                if (c.InformeContent != null && c.InformeContent.Length > 0)
+                foreach (var anexo in c.Anexos)
                 {
-                    ValidarLongListArchivo($"informe del candidato {pos}", c.InformeFileName ?? "", c.InformeContent.Length);
-                    total += c.InformeContent.Length;
+                    if (anexo.Content == null || anexo.Content.Length == 0)
+                        throw new AbrilException($"Candidato {pos}: un anexo del portafolio llegó vacío.", 400);
+                    ValidarLongListArchivo(
+                        $"anexo «{anexo.FileName}» del candidato {pos}", anexo.FileName,
+                        anexo.Content.Length, AllowedLongListAnexoExt);
+                    total += anexo.Content.Length;
                 }
             }
             if (total > MaxLongListTotalBytes)
-                throw new AbrilException("El tamaño total de los CVs e informes supera el máximo permitido (3 GB).", 400);
+                throw new AbrilException("El tamaño total de los archivos supera el máximo permitido (3 GB).", 400);
+
+            // Tope real del envío: lo que acepta el proveedor de correo con los adjuntos adentro.
+            if (total > MaxLongListCorreoBytes)
+                throw new AbrilException(
+                    $"Los archivos pesan {FormatearMb(total)} en total y el correo admite hasta " +
+                    $"{FormatearMb(MaxLongListCorreoBytes)} entre CVs y anexos. Reduce o quita " +
+                    "algún anexo del portafolio antes de enviar la long list.", 400);
 
             // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
             var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
@@ -595,9 +782,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "destinatarios principales configurados. Verifica que el solicitante tenga " +
                     "un correo registrado o configúralos con el botón «Configuración».", 409);
 
-            // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
-            //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.
-            var adjuntos = new List<EmailAttachment>();
+            // 3) Enviar el correo con los CVs y los anexos adjuntos. Es BLOQUEANTE y va ANTES de
+            //    avanzar el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH
+            //    puede reintentar. Los anexos de cada candidato van detrás de su CV para que en la
+            //    lista de adjuntos del correo queden agrupados por candidato.
+            var adjuntos = new List<EmailAttachment>(candidatos.Count);
             foreach (var c in candidatos)
             {
                 adjuntos.Add(new EmailAttachment
@@ -606,13 +795,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ContentType = string.IsNullOrWhiteSpace(c.CvContentType) ? "application/octet-stream" : c.CvContentType,
                     Content     = c.CvContent!,
                 });
-                if (c.InformeContent != null && c.InformeContent.Length > 0)
+
+                foreach (var anexo in c.Anexos)
                 {
                     adjuntos.Add(new EmailAttachment
                     {
-                        FileName    = string.IsNullOrWhiteSpace(c.InformeFileName) ? "informe.pdf" : c.InformeFileName!,
-                        ContentType = string.IsNullOrWhiteSpace(c.InformeContentType) ? "application/octet-stream" : c.InformeContentType!,
-                        Content     = c.InformeContent!,
+                        FileName    = string.IsNullOrWhiteSpace(anexo.FileName) ? "anexo" : Path.GetFileName(anexo.FileName),
+                        ContentType = string.IsNullOrWhiteSpace(anexo.ContentType) ? "application/octet-stream" : anexo.ContentType,
+                        Content     = anexo.Content!,
                     });
                 }
             }
@@ -635,8 +825,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
             }
 
-            // 4) Correo enviado: subir los CVs/informes a SharePoint y persistir la long list para
-            //    que el solicitante pueda revisarla. Se reutiliza la carpeta de reclutamiento
+            // 4) Correo enviado: subir los CVs y los anexos a SharePoint y persistir la long list
+            //    para que el solicitante pueda revisarla. Se reutiliza la carpeta de reclutamiento
             //    (gth_sustento_folder), organizada en una subcarpeta por requerimiento.
             var carpeta = await ResolverCarpetaLongListAsync(ctx.Codigo);
 
@@ -646,7 +836,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 indice++;
                 var cvSubida = await SubirLongListArchivoAsync(
-                    carpeta, "cv", ctx.Codigo, indice, c.CvFileName, c.CvContent!, c.CvContentType);
+                    carpeta, "cv", ctx.Codigo, $"{indice}", c.CvFileName, c.CvContent!, c.CvContentType);
 
                 var item = new LongListCandidatoPersistDto
                 {
@@ -658,15 +848,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CvDriveId  = carpeta.DriveId,
                 };
 
-                if (c.InformeContent != null && c.InformeContent.Length > 0)
+                var posAnexo = 0;
+                foreach (var anexo in c.Anexos)
                 {
-                    var infSubida = await SubirLongListArchivoAsync(
-                        carpeta, "informe", ctx.Codigo, indice, c.InformeFileName ?? "informe.pdf",
-                        c.InformeContent, c.InformeContentType ?? "application/octet-stream");
-                    item.InformeNombre  = infSubida.FileName;
-                    item.InformeUrl     = infSubida.WebUrl;
-                    item.InformeItemId  = infSubida.ItemId;
-                    item.InformeDriveId = carpeta.DriveId;
+                    posAnexo++;
+                    var subida = await SubirLongListArchivoAsync(
+                        carpeta, "anexo", ctx.Codigo, $"{indice}_{posAnexo}",
+                        anexo.FileName, anexo.Content!, anexo.ContentType);
+
+                    item.Anexos.Add(new LongListAnexoPersistDto
+                    {
+                        Nombre         = subida.FileName,
+                        NombreOriginal = Path.GetFileName(anexo.FileName),
+                        Url            = subida.WebUrl,
+                        ItemId         = subida.ItemId,
+                        DriveId        = carpeta.DriveId,
+                    });
                 }
 
                 persist.Add(item);
@@ -703,9 +900,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Sube un archivo (CV o informe) de la long list a la carpeta indicada y devuelve el resultado.</summary>
+        /// <summary>
+        /// Sube un archivo de la long list (CV o anexo) a la carpeta indicada y devuelve el
+        /// resultado. <paramref name="pos"/> va como texto porque el CV se numera por candidato
+        /// ("3") y el anexo por candidato y posición ("3_2").
+        /// </summary>
         private async Task<SharePointUploadResultDto> SubirLongListArchivoAsync(
-            ShareLinkResolveDto carpeta, string prefijo, string codigo, int pos,
+            ShareLinkResolveDto carpeta, string prefijo, string codigo, string pos,
             string origFileName, byte[] content, string contentType)
         {
             var ext      = Path.GetExtension(origFileName);
@@ -733,14 +934,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        private static void ValidarLongListArchivo(string etiqueta, string fileName, long length)
+        private static void ValidarLongListArchivo(
+            string etiqueta, string fileName, long length, string[] extensionesPermitidas)
         {
             var ext = Path.GetExtension(fileName).ToLowerInvariant();
-            if (!AllowedLongListExt.Contains(ext))
-                throw new AbrilException($"El {etiqueta} tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
+            if (!extensionesPermitidas.Contains(ext))
+                throw new AbrilException(
+                    $"El {etiqueta} tiene un formato no permitido. Solo " +
+                    $"{string.Join(", ", extensionesPermitidas.Select(e => e.TrimStart('.').ToUpperInvariant()))}.", 400);
             if (length > MaxLongListFileBytes)
                 throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido (3 GB).", 400);
         }
+
+        /// <summary>Tamaño en MB con un decimal, para los mensajes de error de los adjuntos.</summary>
+        private static string FormatearMb(long bytes) =>
+            $"{bytes / 1024d / 1024d:0.#} MB";
 
         /// <summary>
         /// Enlace a la revisión de la long list dentro de «Solicitud de personal». Mismo mecanismo
@@ -755,9 +963,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Cuerpo del correo de la long list al solicitante. Los CVs y los informes van adjuntos al
+        /// Cuerpo del correo de la long list al solicitante. Los CVs y los anexos van adjuntos al
         /// correo; la tabla es el índice de lo que trae y el botón lleva a la pantalla donde se
         /// aprueba o rechaza candidato por candidato.
+        ///
+        /// Bajo cada candidato van los nombres de sus anexos: en el correo todos los adjuntos caen
+        /// en una sola lista plana, así que es la única forma de saber de quién es cada archivo.
         /// </summary>
         private string ConstruirCuerpoLongList(
             int requerimientoId, LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
@@ -779,12 +990,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             for (var i = 0; i < candidatos.Count; i++)
             {
                 var c = candidatos[i];
+                var nombre = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Layout.Esc(c.Nombre);
+                var anexos = c.Anexos.Count == 0
+                    ? ""
+                    : Textos.Subtexto("Anexos: " + string.Join(", ", c.Anexos.Select(a => Path.GetFileName(a.FileName))));
+
                 filas.Add(new List<Layout.Celda>
                 {
                     new((i + 1).ToString()),
-                    new(string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Layout.Esc(c.Nombre), Negrita: true),
+                    new(nombre + anexos, Negrita: true),
                     new(Textos.OGuion(c.Comentario)),
-                    new(c.InformeContent is { Length: > 0 } ? "Sí" : "No"),
                 });
             }
 
@@ -803,9 +1018,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static readonly IReadOnlyList<Layout.Columna> ColumnasLongList = new List<Layout.Columna>
         {
             new("#", 46, Layout.Alineacion.Centro),
-            new("Candidato", 180),
-            new("Comentario de GTH", 264),
-            new("Informe", 90, Layout.Alineacion.Centro),
+            new("Candidato", 200),
+            new("Comentario de GTH", 334),
         };
 
         public async Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId)

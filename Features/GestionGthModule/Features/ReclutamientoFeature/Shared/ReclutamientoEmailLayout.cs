@@ -336,6 +336,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 </tr>";
 
         /// <summary>
+        /// Par de botones lado a lado, para el correo que le pide al destinatario una respuesta
+        /// (confirmar / rechazar la entrevista). Cada uno lleva su color porque la respuesta es lo
+        /// que distingue a uno del otro: el verde de acción acepta y el rojo declina.
+        ///
+        /// Van en una tabla de dos celdas y no en dos <c>Boton</c> seguidos porque cada
+        /// <c>Boton</c> es su propia fila del documento y quedarían uno encima del otro; la celda
+        /// del medio es el separador (Outlook ignora los márgenes entre tablas hermanas).
+        /// </summary>
+        public string BotonesRespuesta(
+            string textoPrimario, string urlPrimaria, string textoSecundario, string urlSecundaria) => $@"
+<tr>
+<td align='center' style='padding:28px 30px 0 30px'>
+<table role='presentation' cellpadding='0' cellspacing='0' border='0' align='center' style='border-collapse:collapse'>
+<tr>
+<td align='center' bgcolor='{VerdeAccion}' style='background-color:{VerdeAccion};border-radius:10px'><a href='{Esc(urlPrimaria)}' style='display:inline-block;padding:14px 30px;font-family:{Fuente};font-size:15px;line-height:20px;font-weight:700;color:#FFFFFF;text-decoration:none'>{Esc(textoPrimario)}</a></td>
+<td width='14' style='width:14px;font-size:0;line-height:0'>&nbsp;</td>
+<td align='center' bgcolor='{RojoNo}' style='background-color:{RojoNo};border-radius:10px'><a href='{Esc(urlSecundaria)}' style='display:inline-block;padding:14px 30px;font-family:{Fuente};font-size:15px;line-height:20px;font-weight:700;color:#FFFFFF;text-decoration:none'>{Esc(textoSecundario)}</a></td>
+</tr>
+</table>
+</td>
+</tr>";
+
+        /// <summary>
         /// La URL en texto debajo del botón. Reemplaza al párrafo de "si el botón no funciona,
         /// copia y pega este enlace": el enlace a la vista basta y no hay que explicarlo.
         /// </summary>

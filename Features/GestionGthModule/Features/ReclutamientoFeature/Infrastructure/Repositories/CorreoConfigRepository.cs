@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
@@ -180,7 +180,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return await (
                 from w in ctx.Worker.AsNoTracking()
                 where w.CategoriaId == CategoriaIds.GerenteGeneral
-                      && w.Estado == "ACTIVO"
+                      && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
                 orderby w.Id descending
                 select new CorreoDestinatarioResueltoDto

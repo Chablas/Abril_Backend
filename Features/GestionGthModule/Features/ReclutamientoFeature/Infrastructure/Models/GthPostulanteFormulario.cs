@@ -63,6 +63,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Motivo del rechazo (opcional, solo cuando el formulario se rechaza).</summary>
         public string? MotivoRechazo { get; set; }
 
+        // ── Página 0 · Consentimiento de protección de datos ──────────────────
+        /// <summary>
+        /// Autoriza el tratamiento de sus datos personales (Ley N.° 29733). Es la primera página del
+        /// formulario y es obligatoria: sin ella no se puede avanzar ni enviar. Queda en null en los
+        /// formularios anteriores a este campo (no se puede dar por otorgado un consentimiento que
+        /// nunca se pidió).
+        /// </summary>
+        public bool? ConsentimientoDatosPersonales { get; set; }
+
         // ── Página 1 · Datos personales ───────────────────────────────────────
         public string? NombresCompletos { get; set; }
         public DateOnly? FechaNacimiento { get; set; }

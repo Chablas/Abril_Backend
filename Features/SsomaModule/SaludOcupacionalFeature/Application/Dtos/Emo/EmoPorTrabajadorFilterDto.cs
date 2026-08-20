@@ -1,7 +1,14 @@
-namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
+﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
 {
     public class EmoPorTrabajadorFilterDto
     {
+        /// <summary>
+        /// Una sola ficha. Lo usa el enlace desde Reclutamiento («Programar EMO de ingreso»):
+        /// sin esto, la ficha del finalista podia caer en cualquier pagina de las 900+ filas y
+        /// el modal se abriria sobre una lista que no lo muestra.
+        /// </summary>
+        public int? WorkerId { get; set; }
+
         public string? Search { get; set; }
         public string? Aptitud { get; set; }
         public string? Estado { get; set; }

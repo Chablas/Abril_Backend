@@ -1,11 +1,10 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
 {
     /// <summary>
     /// Candidato de la long list de un requerimiento (tabla <c>gth_candidato</c>). GTH carga los
     /// CVs previamente filtrados y, por cada uno, registra el nombre y un comentario interno; el
-    /// CV (y un informe opcional) se suben a SharePoint. El puesto no se captura: es el del
-    /// requerimiento y se guarda como snapshot. El solicitante los revisa desde su vista para
-    /// aprobar/rechazar.
+    /// CV se sube a SharePoint. El puesto no se captura: es el del requerimiento y se guarda como
+    /// snapshot. El solicitante los revisa desde su vista para aprobar/rechazar.
     ///
     /// Las columnas <see cref="ExperienciaAnios"/>, <see cref="Disponibilidad"/> y
     /// <see cref="GthCanalPublicacionId"/> quedaron OBSOLETAS: GTH pidió quitar esos campos de la
@@ -46,11 +45,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? CvItemId { get; set; }
         public string? CvDriveId { get; set; }
 
-        // ── Informe (opcional) subido a SharePoint ────────────────────────────
-        public string? InformeNombre { get; set; }
-        public string? InformeUrl { get; set; }
-        public string? InformeItemId { get; set; }
-        public string? InformeDriveId { get; set; }
+        /// <summary>
+        /// Portafolio/anexos del candidato: los N archivos opcionales que GTH sube además del CV.
+        /// Es navegación y no una consulta aparte para que la long list se guarde entera en un solo
+        /// SaveChanges (una transacción): si los anexos se insertaran después, un fallo dejaría al
+        /// candidato guardado sin ellos.
+        /// </summary>
+        public ICollection<GthCandidatoAnexo> Anexos { get; set; } = new List<GthCandidatoAnexo>();
 
         /// <summary>FK a <c>gth_candidato_estado</c>: estado de revisión (PENDIENTE por defecto).</summary>
         public int GthCandidatoEstadoId { get; set; }

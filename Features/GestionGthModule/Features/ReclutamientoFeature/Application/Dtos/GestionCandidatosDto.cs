@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Panel de la vista del solicitante ("Solicitud de Personal"), en una sola petición:
@@ -102,12 +102,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? CvNombre { get; set; }
         public string? CvUrl { get; set; }
 
-        /// <summary>Nombre y link del informe en SharePoint (opcional).</summary>
-        public string? InformeNombre { get; set; }
-        public string? InformeUrl { get; set; }
+        /// <summary>
+        /// Portafolio/anexos que GTH adjuntó al candidato además del CV, en orden de carga. Vacío
+        /// si no cargó ninguno (son opcionales).
+        /// </summary>
+        public List<CandidatoAnexoDto> Anexos { get; set; } = new();
 
         /// <summary>Estado de revisión (PENDIENTE / APROBADO / RECHAZADO).</summary>
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
+    }
+
+    /// <summary>Un archivo del "Portafolio/Anexos" de un candidato, como lo ve el solicitante.</summary>
+    public class CandidatoAnexoDto
+    {
+        public int AnexoId { get; set; }
+
+        /// <summary>Nombre con el que GTH lo subió (el de SharePoint si no se guardó el original).</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Link al archivo en SharePoint. Null si la subida no dejó url.</summary>
+        public string? Url { get; set; }
     }
 }

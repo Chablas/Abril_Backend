@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Habilitacion.Application.Dtos.Dashboard;
+﻿using Abril_Backend.Features.Habilitacion.Application.Dtos.Dashboard;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Dapper;
@@ -60,13 +60,15 @@ SELECT COUNT(DISTINCT w.id)
 FROM workers w
 JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
 WHERE w.contrata_casa = 'Contratista'
-  AND (w.estado IS NULL OR w.estado != 'RETIRADO');
+  AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
+                        WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'));
 
 SELECT COUNT(DISTINCT w.id)
 FROM workers w
 JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
 WHERE w.contrata_casa = 'Contratista'
-  AND (w.estado IS NULL OR w.estado != 'RETIRADO')
+  AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
+                        WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'))
   AND NOT EXISTS (
       SELECT 1 FROM ss_hab_trabajador ht
       WHERE ht.worker_id = w.id

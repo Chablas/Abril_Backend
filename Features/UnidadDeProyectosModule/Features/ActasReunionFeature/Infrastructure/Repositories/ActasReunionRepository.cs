@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Dtos;
@@ -8,6 +8,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories
 {
@@ -2246,7 +2247,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (areaScopeId.HasValue)
                 descendientes = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
 
-            var query = ctx.Worker.Where(w => w.PuestoId != null && w.Estado == "ACTIVO");
+            var query = ctx.Worker.Where(w => w.PuestoId != null && w.WorkersEstadoId == WorkersEstadoIds.Activo);
             if (descendientes != null)
                 query = query.Where(w => w.AreaScopeId != null && descendientes.Contains(w.AreaScopeId.Value));
 

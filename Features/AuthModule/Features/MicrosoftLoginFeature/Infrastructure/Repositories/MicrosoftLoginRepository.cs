@@ -1,10 +1,11 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Interfaces;
 using Abril_Backend.Features.AuthModule.MicrosoftProfile.Application.Dtos;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Repositories
 {
@@ -225,7 +226,7 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Worker
-                .Where(w => w.PersonId == personId && w.Estado == "Activo")
+                .Where(w => w.PersonId == personId && w.WorkersEstadoId == WorkersEstadoIds.Activo)
                 .Select(w => w.Area)
                 .FirstOrDefaultAsync();
         }

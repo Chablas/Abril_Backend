@@ -1,4 +1,4 @@
-using Abril_Backend.Features.CostsModule.Shared.Models;
+﻿using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
@@ -8,6 +8,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Services
 {
@@ -66,7 +67,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 var workerIds = workerEntregables.Keys.ToList();
 
                 var workers = await ctx.Worker
-                    .Where(w => workerIds.Contains(w.Id) && w.Estado != "RETIRADO" && w.Estado != "INHABILITADO_SSOMA")
+                    .Where(w => workerIds.Contains(w.Id) && w.WorkersEstadoId == WorkersEstadoIds.Activo)
                     .Include(w => w.Person)
                     .ToListAsync();
 
@@ -140,9 +141,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                             using var writeCtx = _factory.CreateDbContext();
 
                             var workerEnt = await writeCtx.Worker.FirstOrDefaultAsync(x => x.Id == w.WorkerId);
-                            if (workerEnt == null || workerEnt.Estado == "RETIRADO" || workerEnt.Estado == "INHABILITADO_SSOMA") continue;
+                            if (workerEnt == null || workerEnt.WorkersEstadoId != WorkersEstadoIds.Activo) continue;
 
-                            workerEnt.Estado = "RETIRADO";
+                            workerEnt.WorkersEstadoId = WorkersEstadoIds.Retirado;
                             workerEnt.FechaRetiro = hoy;
                             workerEnt.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -284,7 +285,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             {
                 var proximosWorkerIds = habProximosRaw.Select(x => x.WorkerId).Distinct().ToList();
                 workersProximos = await ctx.Worker
-                    .Where(w => proximosWorkerIds.Contains(w.Id) && w.Estado != "RETIRADO" && w.Estado != "INHABILITADO_SSOMA")
+                    .Where(w => proximosWorkerIds.Contains(w.Id) && w.WorkersEstadoId == WorkersEstadoIds.Activo)
                     .Include(w => w.Person)
                     .ToDictionaryAsync(w => w.Id);
                 var vincsProximos = await ctx.WorkerVinculacion

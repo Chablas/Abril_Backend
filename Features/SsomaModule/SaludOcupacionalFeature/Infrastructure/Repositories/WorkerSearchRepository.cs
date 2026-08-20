@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -9,6 +9,7 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using System.Data;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -109,10 +110,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     .Where(w => w.Person != null && w.Person.UserId == userId)
                     .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
                         v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
-                    // Ternario y no comparación directa: con estado NULL el "= 'ACTIVO'" da
-                    // NULL y Postgres ordena los NULL primero en un DESC, justo al revés de
-                    // lo que se busca acá.
-                    .ThenByDescending(w => w.Estado == "ACTIVO" ? 1 : 0)
+                    .ThenByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo ? 1 : 0)
                     .ThenByDescending(w => w.Id)
                     .Take(1);
             }
@@ -132,7 +130,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     w.EmailCorporativo,
                     Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                     Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
-                    w.Estado,
+                    w.WorkersEstadoId,
                     w.AniosExperiencia,
                     w.FechaIngreso,
                     w.ObraOficinaStaffId,
@@ -195,12 +193,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ObraOficinaStaffNombre = b.ObraOficinaStaffNombre,
                     EmpresaActualId = vin?.EmpresaId,
                     EmpresaActual = vin?.EmpresaNombre,
-                    Activo = !string.IsNullOrWhiteSpace(b.Estado)
-                             && b.Estado.Trim().Equals("ACTIVO", StringComparison.OrdinalIgnoreCase),
+                    Activo = b.WorkersEstadoId == WorkersEstadoIds.Activo,
                     AniosExperiencia = b.AniosExperiencia,
                     FechaIngreso = b.FechaIngreso,
                     InhabilitadoSsoma = inhabilitadosSet.Contains(b.Id)
-                                     || b.Estado == "INHABILITADO_SSOMA",
+                                     || b.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma,
                     EsAbril = vin?.EmpresaId.HasValue == true
                         && esAbrilPorEmpresa.TryGetValue(vin!.EmpresaId!.Value, out var ea) && ea
                 };
@@ -261,7 +258,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     LEFT JOIN person p ON p.person_id = w.person_id
                     WHERE @email::text IS NOT NULL
                       AND lower(btrim(w.email_corporativo)) = @email::text
-                      AND coalesce(w.estado, 'ACTIVO') <> 'RETIRADO'
+                      AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
+                                                   WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'))
                       AND (@workerId::int IS NULL OR w.id <> @workerId::int)
                     ORDER BY w.id
                     LIMIT 1
@@ -294,12 +292,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var dniUpper = dto.Dni.Trim().ToUpper();
 
-            var existeActivo = await ctx.Worker
-                .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
-                            && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
-                            && w.Estado == "ACTIVO");
-            if (existeActivo)
+            // Se mira el estado de la ficha, no solo ACTIVO: si la persona ya viene de
+            // Reclutamiento como finalista aprobado, su ficha existe y la va a heredar el
+            // onboarding al firmar. Dar de alta otra por acá dejaría dos fichas vivas para
+            // el mismo DNI, y el EMO de Ingreso ya programado colgaría de la equivocada.
+            var estadoFichaExistente = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
+                         && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
+                         && (w.WorkersEstadoId == WorkersEstadoIds.Activo
+                          || w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado))
+                .Select(w => (int?)w.WorkersEstadoId)
+                .FirstOrDefaultAsync();
+            if (estadoFichaExistente == WorkersEstadoIds.Activo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
+            if (estadoFichaExistente == WorkersEstadoIds.FinalistaAprobado)
+                throw new AbrilException(
+                    "Ese DNI ya tiene una ficha de finalista aprobado en Reclutamiento. "
+                    + "Se convierte en trabajador desde Onboarding al firmar el contrato, no dándolo de alta acá.", 409);
 
             var workerExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
@@ -585,7 +594,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var ahora = DateTimeOffset.UtcNow;
 
-            worker.Estado = "RETIRADO";
+            worker.WorkersEstadoId = WorkersEstadoIds.Retirado;
             worker.FechaRetiro = hoy;
             worker.UpdatedAt = ahora;
 

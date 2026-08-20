@@ -51,6 +51,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.FormularioCompletado,
                     CorreoTipoReclutamiento.FormularioCorreccion,
                     CorreoTipoReclutamiento.Entrevista,
+                    CorreoTipoReclutamiento.EntrevistaRespuesta,
                     CorreoTipoReclutamiento.Agradecimiento,
                 },
             };

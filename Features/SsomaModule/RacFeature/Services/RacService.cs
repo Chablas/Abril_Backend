@@ -1,10 +1,11 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.Rac.Dtos;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.Rac.Services;
 
@@ -293,7 +294,7 @@ public class RacService : IRacService
                     .Where(w => w.PersonId == persona.PersonId)
                     .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
                         v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
-                    .ThenByDescending(w => w.Estado == "ACTIVO" ? 1 : 0)
+                    .ThenByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo ? 1 : 0)
                     .ThenByDescending(w => w.Id)
                     .Select(w => new { Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre })
                     .FirstOrDefaultAsync();

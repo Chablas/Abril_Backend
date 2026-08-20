@@ -28,6 +28,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Correo del postulante al que se envió la invitación.</summary>
         public string CorreoEnvio { get; set; } = null!;
 
+        /// <summary>
+        /// Token de acceso público con el que el candidato confirma o rechaza la cita desde los
+        /// botones del correo, sin login (mismo mecanismo que el del formulario del postulante).
+        /// Único entre las filas vigentes. Se regenera en cada envío: al reprogramar, los botones
+        /// del correo anterior dejan de responder por una cita que ya cambió de fecha.
+        ///
+        /// Null en las entrevistas programadas antes de que existieran los botones.
+        /// </summary>
+        public string? Token { get; set; }
+
+        /// <summary>
+        /// FK a <c>gth_entrevista_respuesta</c>: CONFIRMADA o RECHAZADA. Null mientras el candidato
+        /// no responda — que es distinto de rechazar, así que no se rellena con un valor por defecto.
+        /// </summary>
+        public int? GthEntrevistaRespuestaId { get; set; }
+
+        /// <summary>Momento en que el candidato respondió. Null si aún no respondió.</summary>
+        public DateTimeOffset? RespuestaDateTime { get; set; }
+
         /// <summary>Momento del último envío de la invitación (se refresca al reprogramar).</summary>
         public DateTimeOffset? EnviadoDateTime { get; set; }
 

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
@@ -134,8 +134,26 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("jefatura")]
         public string? Jefatura { get; set; }
 
+        /// <summary>
+        /// CONGELADA: la reemplaza <see cref="WorkersEstadoId"/>. Un trigger de la
+        /// base la mantiene sincronizada desde la FK mientras quede SQL crudo que
+        /// la lea; se elimina en el deploy siguiente. No escribir ni filtrar por
+        /// ella en codigo nuevo.
+        /// </summary>
         [Column("estado")]
         public string? Estado { get; set; }
+
+        /// <summary>
+        /// Estado de la ficha (catalogo <c>workers_estado</c>). Ver
+        /// <see cref="Shared.Constants.WorkersEstadoIds"/>. Para "solo los que
+        /// llegaron a ingresar" usar <c>SoloTrabajadores()</c> en vez de comparar
+        /// ids a mano.
+        /// </summary>
+        [Column("workers_estado_id")]
+        public int WorkersEstadoId { get; set; }
+
+        [ForeignKey(nameof(WorkersEstadoId))]
+        public WorkersEstado? WorkersEstado { get; set; }
 
         [Column("habilitado_obra")]
         public bool? HabilitadoObra { get; set; }

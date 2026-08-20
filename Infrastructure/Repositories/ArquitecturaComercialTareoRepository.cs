@@ -1,9 +1,10 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Infrastructure.Repositories
 {
@@ -78,7 +79,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var obrerosIds = GetObrerosAcWorkerIdsQuery(ctx);
 
             var workers = await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO" && obrerosIds.Contains(w.Id))
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && obrerosIds.Contains(w.Id))
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new { w.Id, Nombre = w.Person != null ? w.Person.FullName : null })
                 .ToListAsync();

@@ -14,7 +14,8 @@ namespace Abril_Backend.Shared.Interceptors
             "ss_sctr_vidaley", "ss_equipo",
             "ss_induccion", "ss_eval_supervisor",
             "vecino_licencia_control_tipo", "vecino_licencia_control",
-            "vecino_licencia_control_historial", "vecino_licencia_control_destinatario"
+            "vecino_licencia_control_historial", "vecino_licencia_control_destinatario",
+            "vecino_licencia_control_recordatorio"
         };
 
         private readonly IServiceScopeFactory _scopeFactory;

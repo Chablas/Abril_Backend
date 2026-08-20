@@ -17,6 +17,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     {
         private static readonly string[] RolesAprobadoresSsoma = [Roles.AdministradorSsoma, Roles.AdministradorUdp];
         private static readonly string[] RolesAprobadoresAdmin = [Roles.AdministradorAdministracion, Roles.AdministradorUdp];
+        // El área de Calidad no tiene rol propio: aprueba con USUARIO DE ABRIL, el rol
+        // genérico que ya tienen asignado (ver "Entrevista con el Área de Calidad" en
+        // CategoriaIds.cs). Ojo: ese rol lo usan también otras áreas sin permisos
+        // especiales, así que cualquiera que lo tenga puede aprobar/rechazar estos
+        // entregables de Calidad, no solo el área de Calidad.
+        private static readonly string[] RolesAprobadoresCalidad = [Roles.UsuarioDeAbril, Roles.AdministradorUdp];
 
         private readonly IHabTrabajadorRepository _repo;
         private readonly ILogger<HabTrabajadorController> _logger;
@@ -192,7 +198,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     var responsable = await _repo.GetResponsableItemTrabajadorAsync(id);
                     var rolesPermitidos = string.Equals(responsable, "SSOMA", StringComparison.OrdinalIgnoreCase)
                         ? RolesAprobadoresSsoma
-                        : RolesAprobadoresAdmin;
+                        : string.Equals(responsable, "CALIDAD", StringComparison.OrdinalIgnoreCase)
+                            ? RolesAprobadoresCalidad
+                            : RolesAprobadoresAdmin;
                     var tienePermiso = User.FindAll(ClaimTypes.Role)
                         .Any(c => rolesPermitidos.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
                     if (!tienePermiso)

@@ -105,6 +105,41 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             }
         }
 
+        /// <summary>Agrega un recordatorio adicional (N días antes) a la licencia vigente de un tipo.</summary>
+        [HttpPost("proyectos/{projectId:int}/tipos/{tipoId:int}/recordatorios")]
+        public async Task<IActionResult> AddRecordatorio(int projectId, int tipoId, [FromBody] VecinoLicenciaRecordatorioCreateDto dto)
+        {
+            try
+            {
+                var recordatorio = await _service.AddRecordatorio(projectId, tipoId, dto, CurrentUserId());
+                return Ok(new { recordatorio, message = "Recordatorio agregado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS RECORDATORIO ADD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpDelete("recordatorios/{recordatorioId:int}")]
+        public async Task<IActionResult> DeleteRecordatorio(int recordatorioId)
+        {
+            try
+            {
+                await _service.DeleteRecordatorio(recordatorioId, CurrentUserId());
+                return Ok(new { message = "Recordatorio eliminado." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS RECORDATORIO DELETE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPatch("proyectos/{projectId:int}/tipos/{tipoId:int}/no-aplica")]
         public async Task<IActionResult> SetNoAplica(int projectId, int tipoId, [FromBody] VecinoLicenciaNoAplicaDto dto)
         {

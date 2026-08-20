@@ -58,18 +58,36 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 .Select(g => new { VecinoLicenciaControlId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.VecinoLicenciaControlId, g => g.Count);
 
+            var recordatorios = await ctx.VecinoLicenciaControlRecordatorio
+                .Where(r => r.State && r.Active && rowIds.Contains(r.VecinoLicenciaControlId))
+                .OrderBy(r => r.DiasAntes)
+                .ToListAsync();
+            var recordatoriosPorLicencia = recordatorios
+                .GroupBy(r => r.VecinoLicenciaControlId)
+                .ToDictionary(g => g.Key, g => g.Select(r => new VecinoLicenciaRecordatorioDto
+                {
+                    VecinoLicenciaControlRecordatorioId = r.VecinoLicenciaControlRecordatorioId,
+                    DiasAntes = r.DiasAntes,
+                    FechaRecordatorio = r.FechaRecordatorio,
+                    Enviado = r.EnviadoDateTime != null,
+                }).ToList());
+
             var items = tipos.Select(t =>
             {
                 var row = rows.FirstOrDefault(r => r.VecinoLicenciaControlTipoId == t.VecinoLicenciaControlTipoId);
                 var estadoId = row?.VecinoLicenciaControlEstadoId ?? pendienteId;
-                var descripcion = row != null ? estadoDesc[estadoId] : "Pendiente";
+                var descripcion = row != null
+                    ? (estadoDesc.TryGetValue(estadoId, out var desc) ? desc : "Pendiente")
+                    : "Pendiente";
+                var recordatoriosDeEsta = row != null && recordatoriosPorLicencia.TryGetValue(row.VecinoLicenciaControlId, out var rs)
+                    ? rs : new List<VecinoLicenciaRecordatorioDto>();
 
                 // Vencido/Por vencer se muestran solo como indicador visual; el estado guardado sigue siendo Cargado.
                 if (descripcion == "Cargado" && row?.FechaVencimiento != null)
                 {
                     if (row.FechaVencimiento < hoy)
                         descripcion = "Vencido";
-                    else if (row.FechaRecordatorio != null && FechaEfectivaEnvio(row.FechaRecordatorio.Value) <= hoy)
+                    else if (recordatoriosDeEsta.Any(r => FechaEfectivaEnvio(r.FechaRecordatorio) <= hoy))
                         descripcion = "Por vencer";
                 }
 
@@ -85,10 +103,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     ArchivoUrl = row?.ArchivoUrl,
                     OriginalFileName = row?.OriginalFileName,
                     FechaVencimiento = row?.FechaVencimiento,
-                    FechaRecordatorio = row?.FechaRecordatorio,
-                    DiasAntes = row?.DiasAntes,
-                    RecordatorioEnviadoDateTime = row?.RecordatorioEnviadoDateTime,
                     DiasAntesDefault = t.DiasAntesDefault,
+                    Recordatorios = recordatoriosDeEsta,
                     VersionesHistorial = row != null && historialCounts.TryGetValue(row.VecinoLicenciaControlId, out var c) ? c : 0,
                 };
             }).ToList();
@@ -232,9 +248,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         }
 
         public async Task UploadLicencia(int projectId, int tipoId, string archivoUrl, string? originalFileName,
-            DateOnly fechaVencimiento, DateOnly fechaRecordatorio, int diasAntes, int userId)
+            DateOnly fechaVencimiento, List<int> diasAntesRecordatorio, int userId)
         {
             using var ctx = _factory.CreateDbContext();
+            var now = DateTime.UtcNow;
 
             var cargadoId = await ctx.VecinoLicenciaControlEstado
                 .Where(e => e.Descripcion == "Cargado" && e.State)
@@ -242,20 +259,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 .FirstOrDefaultAsync();
 
             var row = await GetOrCreateRow(ctx, projectId, tipoId, userId, cargadoId);
+            var esReemplazo = row.VecinoLicenciaControlId != 0 && !string.IsNullOrEmpty(row.ArchivoUrl);
 
-            // Si ya había un archivo vigente, se archiva como versión anterior antes de sobrescribir.
-            if (row.VecinoLicenciaControlId != 0 && !string.IsNullOrEmpty(row.ArchivoUrl))
+            // Si ya había un archivo vigente, se archiva como versión anterior antes de sobrescribir
+            // (el recordatorio de esa versión se guarda como referencia: el primero de los que tenía).
+            if (esReemplazo)
             {
+                var recordatorioPrevio = await ctx.VecinoLicenciaControlRecordatorio
+                    .Where(r => r.VecinoLicenciaControlId == row.VecinoLicenciaControlId && r.State)
+                    .OrderBy(r => r.DiasAntes)
+                    .FirstOrDefaultAsync();
+
                 ctx.VecinoLicenciaControlHistorial.Add(new VecinoLicenciaControlHistorial
                 {
                     VecinoLicenciaControlId = row.VecinoLicenciaControlId,
-                    ArchivoUrl = row.ArchivoUrl,
+                    ArchivoUrl = row.ArchivoUrl!,
                     OriginalFileName = row.OriginalFileName,
                     FechaVencimiento = row.FechaVencimiento,
-                    FechaRecordatorio = row.FechaRecordatorio,
-                    DiasAntes = row.DiasAntes,
+                    FechaRecordatorio = recordatorioPrevio?.FechaRecordatorio,
+                    DiasAntes = recordatorioPrevio?.DiasAntes,
                     Motivo = "Reemplazado por un documento actualizado",
-                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
                     State = true,
@@ -265,11 +289,72 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             row.ArchivoUrl = archivoUrl;
             row.OriginalFileName = originalFileName;
             row.FechaVencimiento = fechaVencimiento;
-            row.FechaRecordatorio = fechaRecordatorio;
-            row.DiasAntes = diasAntes;
-            row.RecordatorioEnviadoDateTime = null; // nuevo documento ⇒ vuelve a estar pendiente de recordatorio.
             row.VecinoLicenciaControlEstadoId = cargadoId; // subir archivo ⇒ Cargado (sobrescribe "No aplica").
+            await ctx.SaveChangesAsync(); // asegura VecinoLicenciaControlId si la fila es nueva.
 
+            // Documento nuevo ⇒ los recordatorios anteriores quedan obsoletos; se reemplazan por los nuevos.
+            var previos = await ctx.VecinoLicenciaControlRecordatorio
+                .Where(r => r.VecinoLicenciaControlId == row.VecinoLicenciaControlId && r.State)
+                .ToListAsync();
+            foreach (var previo in previos)
+                previo.State = false;
+
+            foreach (var dias in diasAntesRecordatorio.Distinct())
+            {
+                ctx.VecinoLicenciaControlRecordatorio.Add(new VecinoLicenciaControlRecordatorio
+                {
+                    VecinoLicenciaControlId = row.VecinoLicenciaControlId,
+                    DiasAntes = dias,
+                    FechaRecordatorio = fechaVencimiento.AddDays(-dias),
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<VecinoLicenciaRecordatorioDto> AddRecordatorio(int projectId, int tipoId, int diasAntes, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await ctx.VecinoLicenciaControl
+                .FirstOrDefaultAsync(r => r.ProjectId == projectId && r.VecinoLicenciaControlTipoId == tipoId && r.State);
+            if (row is null || row.FechaVencimiento is null)
+                throw new InvalidOperationException("Primero sube el documento con su fecha de vencimiento.");
+
+            var recordatorio = new VecinoLicenciaControlRecordatorio
+            {
+                VecinoLicenciaControlId = row.VecinoLicenciaControlId,
+                DiasAntes = diasAntes,
+                FechaRecordatorio = row.FechaVencimiento.Value.AddDays(-diasAntes),
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.VecinoLicenciaControlRecordatorio.Add(recordatorio);
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLicenciaRecordatorioDto
+            {
+                VecinoLicenciaControlRecordatorioId = recordatorio.VecinoLicenciaControlRecordatorioId,
+                DiasAntes = recordatorio.DiasAntes,
+                FechaRecordatorio = recordatorio.FechaRecordatorio,
+                Enviado = false,
+            };
+        }
+
+        public async Task DeleteRecordatorio(int recordatorioId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var recordatorio = await ctx.VecinoLicenciaControlRecordatorio
+                .FirstOrDefaultAsync(r => r.VecinoLicenciaControlRecordatorioId == recordatorioId);
+            if (recordatorio is null) return;
+
+            recordatorio.State = false;
             await ctx.SaveChangesAsync();
         }
 
@@ -449,33 +534,50 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             _ => fecha,
         };
 
-        public async Task<List<(int VecinoLicenciaControlId, int ProjectId, string TipoDescripcion, DateOnly FechaVencimiento)>> GetPendientesRecordatorio(DateOnly hoy)
+        public async Task<List<VecinoLicenciaRecordatorioPendienteDto>> GetPendientesRecordatorio(DateOnly hoy)
         {
             using var ctx = _factory.CreateDbContext();
 
             // Se trae un rango un poco más amplio (hasta 2 días adelante) porque un recordatorio
             // del sábado o domingo próximo ya debe salir hoy si hoy es el viernes anterior.
-            var candidatos = await ctx.VecinoLicenciaControl
-                .Where(r => r.State && r.Active
-                    && r.ArchivoUrl != null
-                    && r.RecordatorioEnviadoDateTime == null
-                    && r.FechaRecordatorio != null && r.FechaRecordatorio <= hoy.AddDays(2))
-                .Join(ctx.VecinoLicenciaControlTipo, r => r.VecinoLicenciaControlTipoId, t => t.VecinoLicenciaControlTipoId,
-                    (r, t) => new { r.VecinoLicenciaControlId, r.ProjectId, t.Descripcion, r.FechaVencimiento, r.FechaRecordatorio })
+            var candidatos = await (
+                from rec in ctx.VecinoLicenciaControlRecordatorio
+                where rec.State && rec.Active && rec.EnviadoDateTime == null
+                    && rec.FechaRecordatorio <= hoy.AddDays(2)
+                join lic in ctx.VecinoLicenciaControl on rec.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
+                where lic.State && lic.Active && lic.ArchivoUrl != null
+                join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
+                select new
+                {
+                    rec.VecinoLicenciaControlRecordatorioId,
+                    rec.DiasAntes,
+                    rec.FechaRecordatorio,
+                    lic.ProjectId,
+                    t.Descripcion,
+                    FechaVencimiento = lic.FechaVencimiento!.Value,
+                })
                 .ToListAsync();
 
             return candidatos
-                .Where(p => FechaEfectivaEnvio(p.FechaRecordatorio!.Value) <= hoy)
-                .Select(p => (p.VecinoLicenciaControlId, p.ProjectId, p.Descripcion, p.FechaVencimiento!.Value))
+                .Where(p => FechaEfectivaEnvio(p.FechaRecordatorio) <= hoy)
+                .Select(p => new VecinoLicenciaRecordatorioPendienteDto
+                {
+                    VecinoLicenciaControlRecordatorioId = p.VecinoLicenciaControlRecordatorioId,
+                    ProjectId = p.ProjectId,
+                    TipoDescripcion = p.Descripcion,
+                    FechaVencimiento = p.FechaVencimiento,
+                    DiasAntes = p.DiasAntes,
+                })
                 .ToList();
         }
 
-        public async Task MarcarRecordatorioEnviado(int vecinoLicenciaControlId)
+        public async Task MarcarRecordatorioEnviado(int recordatorioId)
         {
             using var ctx = _factory.CreateDbContext();
-            var row = await ctx.VecinoLicenciaControl.FirstOrDefaultAsync(r => r.VecinoLicenciaControlId == vecinoLicenciaControlId);
-            if (row is null) return;
-            row.RecordatorioEnviadoDateTime = DateTime.UtcNow;
+            var recordatorio = await ctx.VecinoLicenciaControlRecordatorio
+                .FirstOrDefaultAsync(r => r.VecinoLicenciaControlRecordatorioId == recordatorioId);
+            if (recordatorio is null) return;
+            recordatorio.EnviadoDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
         }
     }

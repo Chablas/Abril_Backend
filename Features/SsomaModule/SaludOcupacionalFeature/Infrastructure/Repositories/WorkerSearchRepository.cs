@@ -369,6 +369,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 HabilitadoObra = dto.HabilitadoObra,
                 AniosExperiencia = dto.AniosExperiencia,
                 Estado = "ACTIVO",
+                WorkersEstadoId = WorkersEstadoIds.Activo,
                 CreatedAt = now,
                 UpdatedAt = now,
             };

@@ -97,24 +97,38 @@ public class CharlaContratistaService : ICharlaContratistaService
         page = page < 1 ? 1 : page;
         pageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
 
-        return await (
+        var query =
             from c in ctx.SsCharlaContratista
             join p in ctx.Project on c.ProyectoId equals p.ProjectId
             where c.State && c.EmpresaId == empresaId
             orderby c.Fecha descending, c.Id descending
-            select new CharlaContratistaDto
-            {
-                Id = c.Id,
-                ProyectoId = c.ProyectoId,
-                ProyectoNombre = p.ProjectDescription,
-                Fecha = c.Fecha,
-                Tema = c.Tema,
-                Descripcion = c.Descripcion,
-                EvidenciaUrl = c.EvidenciaUrl,
-                EvidenciaNombre = c.EvidenciaNombre,
-                CreatedAt = c.CreatedAt,
-            }
-        ).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            select new { c, p.ProjectDescription };
+
+        var rows = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+
+        var aprobadorIds = rows.Where(r => r.c.AprobadoPorId.HasValue).Select(r => r.c.AprobadoPorId!.Value).Distinct().ToList();
+        var aprobadores = aprobadorIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await ctx.User.Include(u => u.Person)
+                .Where(u => aprobadorIds.Contains(u.UserId))
+                .ToDictionaryAsync(u => u.UserId, u => u.Person?.FullName ?? string.Empty);
+
+        return rows.Select(r => new CharlaContratistaDto
+        {
+            Id = r.c.Id,
+            ProyectoId = r.c.ProyectoId,
+            ProyectoNombre = r.ProjectDescription,
+            Fecha = r.c.Fecha,
+            Tema = r.c.Tema,
+            Descripcion = r.c.Descripcion,
+            EvidenciaUrl = r.c.EvidenciaUrl,
+            EvidenciaNombre = r.c.EvidenciaNombre,
+            CreatedAt = r.c.CreatedAt,
+            Estado = r.c.Estado,
+            AprobadoPorNombre = r.c.AprobadoPorId.HasValue && aprobadores.TryGetValue(r.c.AprobadoPorId.Value, out var nombre) ? nombre : null,
+            AprobadoEn = r.c.AprobadoEn,
+            MotivoRechazo = r.c.MotivoRechazo,
+        }).ToList();
     }
 
     public async Task<CharlaContratistaDto> SubirAsync(int empresaId, CharlaContratistaUploadRequest req, int userId)
@@ -186,6 +200,7 @@ public class CharlaContratistaService : ICharlaContratistaService
             EvidenciaUrl = entidad.EvidenciaUrl,
             EvidenciaNombre = entidad.EvidenciaNombre,
             CreatedAt = entidad.CreatedAt,
+            Estado = entidad.Estado,
         };
     }
 
@@ -225,5 +240,124 @@ public class CharlaContratistaService : ICharlaContratistaService
             })
             .OrderBy(p => p.ProyectoNombre)
             .ToList();
+    }
+
+    // ── NEW: Revisión SSOMA / Prevencionista ─────────────────────────────────
+
+    public async Task<CharlaContratistaRevisionResultDto> GetRevisionAsync(string? estado, int? proyectoId, int page, int pageSize)
+    {
+        using var ctx = _factory.CreateDbContext();
+        page = page < 1 ? 1 : page;
+        pageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+
+        var query =
+            from c in ctx.SsCharlaContratista
+            join p in ctx.Project on c.ProyectoId equals p.ProjectId
+            join emp in ctx.Contributor on c.EmpresaId equals emp.ContributorId
+            where c.State
+            select new { c, p.ProjectDescription, emp.ContributorName };
+
+        if (!string.IsNullOrWhiteSpace(estado))
+            query = query.Where(x => x.c.Estado == estado);
+        if (proyectoId.HasValue)
+            query = query.Where(x => x.c.ProyectoId == proyectoId.Value);
+
+        var total = await query.CountAsync();
+
+        var rows = await query
+            .OrderByDescending(x => x.c.Fecha).ThenByDescending(x => x.c.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync();
+
+        var aprobadorIds = rows.Where(r => r.c.AprobadoPorId.HasValue).Select(r => r.c.AprobadoPorId!.Value).Distinct().ToList();
+        var aprobadores = aprobadorIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await ctx.User.Include(u => u.Person)
+                .Where(u => aprobadorIds.Contains(u.UserId))
+                .ToDictionaryAsync(u => u.UserId, u => u.Person?.FullName ?? string.Empty);
+
+        var items = rows.Select(r => new CharlaContratistaDto
+        {
+            Id = r.c.Id,
+            ProyectoId = r.c.ProyectoId,
+            ProyectoNombre = r.ProjectDescription,
+            EmpresaNombre = r.ContributorName,
+            Fecha = r.c.Fecha,
+            Tema = r.c.Tema,
+            Descripcion = r.c.Descripcion,
+            EvidenciaUrl = r.c.EvidenciaUrl,
+            EvidenciaNombre = r.c.EvidenciaNombre,
+            CreatedAt = r.c.CreatedAt,
+            Estado = r.c.Estado,
+            AprobadoPorNombre = r.c.AprobadoPorId.HasValue && aprobadores.TryGetValue(r.c.AprobadoPorId.Value, out var nombre) ? nombre : null,
+            AprobadoEn = r.c.AprobadoEn,
+            MotivoRechazo = r.c.MotivoRechazo,
+        }).ToList();
+
+        return new CharlaContratistaRevisionResultDto { Items = items, Total = total };
+    }
+
+    public async Task<CharlaContratistaDto> AprobarAsync(int id, int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var charla = await ctx.SsCharlaContratista.FirstOrDefaultAsync(c => c.Id == id && c.State)
+            ?? throw new AbrilException("Charla de contratista no encontrada.", 404);
+        if (charla.Estado != "Enviado")
+            throw new AbrilException("Solo se puede aprobar una charla en estado Enviado.", 400);
+
+        charla.Estado = "Aprobado";
+        charla.AprobadoPorId = userId;
+        charla.AprobadoEn = DateTime.UtcNow;
+        charla.MotivoRechazo = null;
+        await ctx.SaveChangesAsync();
+
+        return await MapConAprobadorAsync(ctx, charla);
+    }
+
+    public async Task<CharlaContratistaDto> RechazarAsync(int id, string motivo, int userId)
+    {
+        if (string.IsNullOrWhiteSpace(motivo))
+            throw new AbrilException("El motivo del rechazo es requerido.", 400);
+
+        using var ctx = _factory.CreateDbContext();
+        var charla = await ctx.SsCharlaContratista.FirstOrDefaultAsync(c => c.Id == id && c.State)
+            ?? throw new AbrilException("Charla de contratista no encontrada.", 404);
+        if (charla.Estado != "Enviado")
+            throw new AbrilException("Solo se puede rechazar una charla en estado Enviado.", 400);
+
+        charla.Estado = "Rechazado";
+        charla.AprobadoPorId = userId;
+        charla.AprobadoEn = DateTime.UtcNow;
+        charla.MotivoRechazo = motivo.Trim();
+        await ctx.SaveChangesAsync();
+
+        return await MapConAprobadorAsync(ctx, charla);
+    }
+
+    private static async Task<CharlaContratistaDto> MapConAprobadorAsync(AppDbContext ctx, SsCharlaContratista charla)
+    {
+        var proyectoNombre = await ctx.Project.Where(p => p.ProjectId == charla.ProyectoId)
+            .Select(p => p.ProjectDescription).FirstOrDefaultAsync() ?? "";
+        var aprobadorNombre = charla.AprobadoPorId.HasValue
+            ? await ctx.User.Include(u => u.Person).Where(u => u.UserId == charla.AprobadoPorId.Value)
+                .Select(u => u.Person.FullName).FirstOrDefaultAsync()
+            : null;
+
+        return new CharlaContratistaDto
+        {
+            Id = charla.Id,
+            ProyectoId = charla.ProyectoId,
+            ProyectoNombre = proyectoNombre,
+            Fecha = charla.Fecha,
+            Tema = charla.Tema,
+            Descripcion = charla.Descripcion,
+            EvidenciaUrl = charla.EvidenciaUrl,
+            EvidenciaNombre = charla.EvidenciaNombre,
+            CreatedAt = charla.CreatedAt,
+            Estado = charla.Estado,
+            AprobadoPorNombre = aprobadorNombre,
+            AprobadoEn = charla.AprobadoEn,
+            MotivoRechazo = charla.MotivoRechazo,
+        };
     }
 }

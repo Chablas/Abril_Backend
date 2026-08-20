@@ -17,8 +17,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<EmailCorporativoValidacionDto> ValidarEmailCorporativo(string? email, int? workerId, bool? esCorporativo);
 
         Task<int> Create(WorkerCreateDto dto);
-        Task Update(int id, WorkerUpdateDto dto);
-        Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto);
+        Task Update(int id, WorkerUpdateDto dto, bool puedeEditarDni);
+        Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto, bool puedeEditarDni);
         Task Retirar(int id);
     }
 }

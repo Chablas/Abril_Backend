@@ -6,6 +6,7 @@ using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -251,6 +252,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("tipos-equipo/admin")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
         public async Task<IActionResult> GetTiposEquipoAdmin()
         {
             try
@@ -263,6 +265,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("tipos-equipo")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
         public async Task<IActionResult> CrearTipoEquipo([FromBody] CatNombreRequest req)
         {
             try
@@ -277,6 +280,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPut("tipos-equipo/{id:int}")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
         public async Task<IActionResult> ActualizarTipoEquipo(int id, [FromBody] CatNombreRequest req)
         {
             try
@@ -291,6 +295,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPatch("tipos-equipo/{id:int}/toggle")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
         public async Task<IActionResult> ToggleTipoEquipo(int id, [FromBody] CatToggleRequest req)
         {
             try
@@ -300,6 +305,64 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ToggleTipoEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Ítems de equipo (entregables) ────────────────────────────
+
+        [HttpGet("items-equipo/admin")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
+        public async Task<IActionResult> GetItemsEquipoAdmin()
+        {
+            try
+            {
+                var items = await _repo.GetItemsEquipoTodosAsync();
+                return Ok(items.Select(MapItemEquipo).ToList());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en GetItemsEquipoAdmin"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("items-equipo")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
+        public async Task<IActionResult> CrearItemEquipo([FromBody] ItemEquipoUpsertRequest req)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.Nombre))
+                    return BadRequest(new { message = "El nombre es requerido." });
+                var item = await _repo.CrearItemEquipoAsync(req.Nombre.Trim(), req.RequiereVigencia, req.TipoEquipoId);
+                return Ok(MapItemEquipo(item));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CrearItemEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("items-equipo/{id:int}")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
+        public async Task<IActionResult> ActualizarItemEquipo(int id, [FromBody] ItemEquipoUpsertRequest req)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.Nombre))
+                    return BadRequest(new { message = "El nombre es requerido." });
+                var item = await _repo.ActualizarItemEquipoAsync(id, req.Nombre.Trim(), req.RequiereVigencia, req.TipoEquipoId);
+                return Ok(MapItemEquipo(item));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ActualizarItemEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("items-equipo/{id:int}/toggle")]
+        [RequireFeature("habilitacion.catalogos.equipos")]
+        public async Task<IActionResult> ToggleItemEquipo(int id, [FromBody] CatToggleRequest req)
+        {
+            try
+            {
+                await _repo.ToggleItemEquipoAsync(id, req.Activo);
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ToggleItemEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         // ── Configuración → Categorías y Puestos ─────────────────────
@@ -491,6 +554,17 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         private static TipoEquipoAdminDto MapTipoEquipo(SsTipoEquipo x) => new()
         {
             Id = x.Id, Nombre = x.Nombre, Orden = x.Orden, Activo = x.Activo
+        };
+
+        private static ItemEquipoAdminDto MapItemEquipo(SsItemEquipo x) => new()
+        {
+            Id = x.Id,
+            Nombre = x.Nombre,
+            RequiereVigencia = x.RequiereVigencia,
+            Orden = x.Orden,
+            Activo = x.Activo,
+            TipoEquipoId = x.TipoEquipoId,
+            TipoEquipoNombre = x.TipoEquipo?.Nombre,
         };
     }
 }

@@ -108,8 +108,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Capacidad = dto.Capacidad,
                 PropietarioEmpresaId = dto.PropietarioEmpresaId,
                 ProyectoId = dto.ProyectoId,
-                EmailAdmin = dto.EmailAdmin,
-                EmailSsoma = dto.EmailSsoma,
                 Activo = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -133,8 +131,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             entity.Capacidad = dto.Capacidad;
             entity.PropietarioEmpresaId = dto.PropietarioEmpresaId;
             entity.ProyectoId = dto.ProyectoId;
-            entity.EmailAdmin = dto.EmailAdmin;
-            entity.EmailSsoma = dto.EmailSsoma;
             entity.UpdatedAt = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();

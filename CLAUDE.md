@@ -85,7 +85,7 @@ Modules wired in `Program.cs` (each `AddXxxModule` call is the only thing regist
 - `EvaluacionesModule` (flat, no per-feature subfolder) — evaluations.
 - `UnidadDeProyectosModule` — `ActasReunionFeature`, `CronogramaActividades`, `MilestoneScheduleFeature`, `ProjectsDashboard`.
 - `MejoraContinuaModule` — `LessonsLearnedFeature`, `LessonsDashboardFeature`, `Configuracion`.
-- `VecinosModule` — `GestionVecinosFeature`, `ControlVencimientosFeature`, `CroquisFeature`.
+- `VecinosModule` — `GestionVecinosFeature`, `ControlLicenciasFeature`, `CroquisFeature`.
 - `AccountingModule` — `InvoicesFeature`, `Configuration`.
 - `BoletinModule` (flat) — `BirthdayClubFeature`.
 

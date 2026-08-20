@@ -48,6 +48,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<SsTipoEquipo> ActualizarTipoEquipoAsync(int id, string nombre);
         Task ToggleTipoEquipoAsync(int id, bool activo);
 
+        // Ítems de equipo (entregables) CRUD
+        /// <summary>Todos los ítems de equipo (activos e inactivos), con el nombre de su tipo si aplica solo a uno.</summary>
+        Task<List<SsItemEquipo>> GetItemsEquipoTodosAsync();
+        Task<SsItemEquipo> CrearItemEquipoAsync(string nombre, bool requiereVigencia, int? tipoEquipoId);
+        Task<SsItemEquipo> ActualizarItemEquipoAsync(int id, string nombre, bool requiereVigencia, int? tipoEquipoId);
+        Task ToggleItemEquipoAsync(int id, bool activo);
+
         // Puestos CRUD
         /// <summary>
         /// Puestos vivos para la pantalla de configuración, con su categoría y la cantidad

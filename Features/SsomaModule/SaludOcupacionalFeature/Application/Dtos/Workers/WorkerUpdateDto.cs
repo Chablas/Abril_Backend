@@ -3,6 +3,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
     public class WorkerUpdateDto
     {
         public string ApellidoNombre { get; set; } = string.Empty;
+        /// <summary>
+        /// Corrección de un DNI/CE mal digitado — mismo nombre de campo que <c>WorkerCreateDto.Dni</c>
+        /// porque el frontend reusa el mismo payload (WorkerUpsertDto) para crear y editar. Solo se
+        /// aplica si el llamador es Administrador de Obra (ver <c>WorkerSearchRepository.Update</c>)
+        /// — el formulario lo muestra de solo lectura para el resto de roles y no debería mandarlo,
+        /// pero el backend es quien realmente lo garantiza.
+        /// </summary>
+        public string? Dni { get; set; }
+        public string? TipoDocumento { get; set; }
         public string? Celular { get; set; }
         public string? EmailCorporativo { get; set; }
         /// <summary>Correo personal / de contacto. Va a <c>person.email</c> y puede repetirse.</summary>

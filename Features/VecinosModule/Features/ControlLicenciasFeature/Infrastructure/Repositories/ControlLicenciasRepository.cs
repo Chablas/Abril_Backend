@@ -1,0 +1,414 @@
+using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
+using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
+using Microsoft.EntityFrameworkCore;
+
+namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Repositories
+{
+    public class ControlLicenciasRepository : IControlLicenciasRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public ControlLicenciasRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        private static DateOnly Hoy() => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+
+        public async Task<List<ProjectOptionDto>> GetProyectos()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project
+                .Where(p => p.State && p.Active
+                    && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId
+                        && f.FuncionalidadId == ProyectoFiltroFuncionalidades.ControlLicencias && !f.Active))
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription })
+                .ToListAsync();
+        }
+
+        public async Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = Hoy();
+
+            var tipos = await ctx.VecinoLicenciaControlTipo
+                .Where(t => t.State && t.Active && (t.ProjectId == null || t.ProjectId == projectId))
+                .OrderBy(t => t.Orden)
+                .ToListAsync();
+
+            var estados = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.State && e.Active)
+                .OrderBy(e => e.VecinoLicenciaControlEstadoId)
+                .ToListAsync();
+            var estadoDesc = estados.ToDictionary(e => e.VecinoLicenciaControlEstadoId, e => e.Descripcion);
+            int pendienteId = estados.FirstOrDefault(e => e.Descripcion == "Pendiente")?.VecinoLicenciaControlEstadoId ?? 0;
+
+            var rows = await ctx.VecinoLicenciaControl
+                .Where(r => r.ProjectId == projectId && r.State)
+                .ToListAsync();
+            var rowIds = rows.Select(r => r.VecinoLicenciaControlId).ToList();
+
+            var historialCounts = await ctx.VecinoLicenciaControlHistorial
+                .Where(h => h.State && rowIds.Contains(h.VecinoLicenciaControlId))
+                .GroupBy(h => h.VecinoLicenciaControlId)
+                .Select(g => new { VecinoLicenciaControlId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.VecinoLicenciaControlId, g => g.Count);
+
+            var items = tipos.Select(t =>
+            {
+                var row = rows.FirstOrDefault(r => r.VecinoLicenciaControlTipoId == t.VecinoLicenciaControlTipoId);
+                var estadoId = row?.VecinoLicenciaControlEstadoId ?? pendienteId;
+                var descripcion = row != null ? estadoDesc[estadoId] : "Pendiente";
+
+                // Vencido/Por vencer se muestran solo como indicador visual; el estado guardado sigue siendo Cargado.
+                if (descripcion == "Cargado" && row?.FechaVencimiento != null)
+                {
+                    if (row.FechaVencimiento < hoy)
+                        descripcion = "Vencido";
+                    else if (row.FechaRecordatorio != null && row.FechaRecordatorio <= hoy)
+                        descripcion = "Por vencer";
+                }
+
+                return new VecinoLicenciaItemDto
+                {
+                    VecinoLicenciaControlId = row?.VecinoLicenciaControlId,
+                    VecinoLicenciaControlTipoId = t.VecinoLicenciaControlTipoId,
+                    TipoDescripcion = t.Descripcion,
+                    Orden = t.Orden,
+                    EsBase = t.ProjectId == null,
+                    VecinoLicenciaControlEstadoId = estadoId,
+                    EstadoDescripcion = descripcion,
+                    ArchivoUrl = row?.ArchivoUrl,
+                    OriginalFileName = row?.OriginalFileName,
+                    FechaVencimiento = row?.FechaVencimiento,
+                    FechaRecordatorio = row?.FechaRecordatorio,
+                    DiasAntes = row?.DiasAntes,
+                    RecordatorioEnviadoDateTime = row?.RecordatorioEnviadoDateTime,
+                    DiasAntesDefault = t.DiasAntesDefault,
+                    VersionesHistorial = row != null && historialCounts.TryGetValue(row.VecinoLicenciaControlId, out var c) ? c : 0,
+                };
+            }).ToList();
+
+            return new VecinoLicenciaPlantillaResponseDto
+            {
+                Items = items,
+                Estados = estados.Select(e => new CatalogOptionDto { Id = e.VecinoLicenciaControlEstadoId, Descripcion = e.Descripcion }).ToList(),
+            };
+        }
+
+        public async Task<bool> TipoAplicaAProyecto(int projectId, int tipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.VecinoLicenciaControlTipo
+                .AnyAsync(t => t.VecinoLicenciaControlTipoId == tipoId && t.State && t.Active
+                    && (t.ProjectId == null || t.ProjectId == projectId));
+        }
+
+        public Task<VecinoLicenciaTipoDto> AddTipo(int projectId, string descripcion, int? diasAntesDefault, int userId)
+            => CrearTipo(projectId, descripcion, diasAntesDefault, userId);
+
+        public Task<VecinoLicenciaTipoDto> AddTipoBase(string descripcion, int? diasAntesDefault, int userId)
+            => CrearTipo(null, descripcion, diasAntesDefault, userId);
+
+        private async Task<VecinoLicenciaTipoDto> CrearTipo(int? projectId, string descripcion, int? diasAntesDefault, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTime.UtcNow;
+
+            var maxOrden = await ctx.VecinoLicenciaControlTipo
+                .Where(t => t.State && (t.ProjectId == null || t.ProjectId == projectId))
+                .Select(t => (int?)t.Orden)
+                .MaxAsync() ?? 0;
+
+            var tipo = new VecinoLicenciaControlTipo
+            {
+                ProjectId = projectId,
+                Descripcion = descripcion,
+                Orden = maxOrden + 1,
+                DiasAntesDefault = diasAntesDefault,
+                CreatedDateTime = now,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.VecinoLicenciaControlTipo.Add(tipo);
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLicenciaTipoDto
+            {
+                VecinoLicenciaControlTipoId = tipo.VecinoLicenciaControlTipoId,
+                Descripcion = tipo.Descripcion,
+                Orden = tipo.Orden,
+                EsBase = tipo.ProjectId == null,
+                DiasAntesDefault = tipo.DiasAntesDefault,
+            };
+        }
+
+        public async Task<List<VecinoLicenciaTipoDto>> GetCatalogoBase()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.VecinoLicenciaControlTipo
+                .Where(t => t.State && t.Active && t.ProjectId == null)
+                .OrderBy(t => t.Orden)
+                .Select(t => new VecinoLicenciaTipoDto
+                {
+                    VecinoLicenciaControlTipoId = t.VecinoLicenciaControlTipoId,
+                    Descripcion = t.Descripcion,
+                    Orden = t.Orden,
+                    EsBase = true,
+                    DiasAntesDefault = t.DiasAntesDefault,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<VecinoLicenciaTipoDto> UpdateTipo(int tipoId, string descripcion, int? diasAntesDefault, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var tipo = await ctx.VecinoLicenciaControlTipo
+                .FirstOrDefaultAsync(t => t.VecinoLicenciaControlTipoId == tipoId && t.State);
+            if (tipo is null)
+                throw new InvalidOperationException("El tipo de licencia no existe.");
+
+            tipo.Descripcion = descripcion;
+            tipo.DiasAntesDefault = diasAntesDefault;
+            tipo.UpdatedDateTime = DateTime.UtcNow;
+            tipo.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLicenciaTipoDto
+            {
+                VecinoLicenciaControlTipoId = tipo.VecinoLicenciaControlTipoId,
+                Descripcion = tipo.Descripcion,
+                Orden = tipo.Orden,
+                EsBase = tipo.ProjectId == null,
+                DiasAntesDefault = tipo.DiasAntesDefault,
+            };
+        }
+
+        public async Task DeleteTipo(int tipoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var tipo = await ctx.VecinoLicenciaControlTipo
+                .FirstOrDefaultAsync(t => t.VecinoLicenciaControlTipoId == tipoId);
+            if (tipo is null) return;
+
+            tipo.State = false;
+            tipo.UpdatedDateTime = DateTime.UtcNow;
+            tipo.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Obtiene la fila vigente (proyecto + tipo) o crea una nueva en el contexto.</summary>
+        private static async Task<VecinoLicenciaControl> GetOrCreateRow(AppDbContext ctx, int projectId, int tipoId, int userId, int estadoIdSiNueva)
+        {
+            var row = await ctx.VecinoLicenciaControl
+                .FirstOrDefaultAsync(r => r.ProjectId == projectId && r.VecinoLicenciaControlTipoId == tipoId && r.State);
+
+            if (row == null)
+            {
+                row = new VecinoLicenciaControl
+                {
+                    ProjectId = projectId,
+                    VecinoLicenciaControlTipoId = tipoId,
+                    VecinoLicenciaControlEstadoId = estadoIdSiNueva,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                };
+                ctx.VecinoLicenciaControl.Add(row);
+            }
+            else
+            {
+                row.UpdatedDateTime = DateTime.UtcNow;
+                row.UpdatedUserId = userId;
+            }
+
+            return row;
+        }
+
+        public async Task UploadLicencia(int projectId, int tipoId, string archivoUrl, string? originalFileName,
+            DateOnly fechaVencimiento, DateOnly fechaRecordatorio, int diasAntes, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var cargadoId = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.Descripcion == "Cargado" && e.State)
+                .Select(e => e.VecinoLicenciaControlEstadoId)
+                .FirstOrDefaultAsync();
+
+            var row = await GetOrCreateRow(ctx, projectId, tipoId, userId, cargadoId);
+
+            // Si ya había un archivo vigente, se archiva como versión anterior antes de sobrescribir.
+            if (row.VecinoLicenciaControlId != 0 && !string.IsNullOrEmpty(row.ArchivoUrl))
+            {
+                ctx.VecinoLicenciaControlHistorial.Add(new VecinoLicenciaControlHistorial
+                {
+                    VecinoLicenciaControlId = row.VecinoLicenciaControlId,
+                    ArchivoUrl = row.ArchivoUrl,
+                    OriginalFileName = row.OriginalFileName,
+                    FechaVencimiento = row.FechaVencimiento,
+                    FechaRecordatorio = row.FechaRecordatorio,
+                    DiasAntes = row.DiasAntes,
+                    Motivo = "Reemplazado por un documento actualizado",
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
+
+            row.ArchivoUrl = archivoUrl;
+            row.OriginalFileName = originalFileName;
+            row.FechaVencimiento = fechaVencimiento;
+            row.FechaRecordatorio = fechaRecordatorio;
+            row.DiasAntes = diasAntes;
+            row.RecordatorioEnviadoDateTime = null; // nuevo documento ⇒ vuelve a estar pendiente de recordatorio.
+            row.VecinoLicenciaControlEstadoId = cargadoId; // subir archivo ⇒ Cargado (sobrescribe "No aplica").
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetNoAplica(int projectId, int tipoId, bool noAplica, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var estados = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoLicenciaControlEstadoId, e.Descripcion })
+                .ToListAsync();
+            int noAplicaId = estados.First(e => e.Descripcion == "No aplica").VecinoLicenciaControlEstadoId;
+            int cargadoId = estados.First(e => e.Descripcion == "Cargado").VecinoLicenciaControlEstadoId;
+            int pendienteId = estados.First(e => e.Descripcion == "Pendiente").VecinoLicenciaControlEstadoId;
+
+            var row = await GetOrCreateRow(ctx, projectId, tipoId, userId, pendienteId);
+            row.VecinoLicenciaControlEstadoId = noAplica
+                ? noAplicaId
+                : (string.IsNullOrEmpty(row.ArchivoUrl) ? pendienteId : cargadoId);
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<VecinoLicenciaHistorialItemDto>> GetHistorial(int projectId, int tipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await ctx.VecinoLicenciaControl
+                .FirstOrDefaultAsync(r => r.ProjectId == projectId && r.VecinoLicenciaControlTipoId == tipoId && r.State);
+            if (row == null) return new List<VecinoLicenciaHistorialItemDto>();
+
+            var historial = await ctx.VecinoLicenciaControlHistorial
+                .Where(h => h.VecinoLicenciaControlId == row.VecinoLicenciaControlId && h.State)
+                .OrderByDescending(h => h.CreatedDateTime)
+                .ToListAsync();
+
+            var userIds = historial.Select(h => h.CreatedUserId).Distinct().ToList();
+            var nombres = await ctx.Person
+                .Where(p => p.UserId != null && userIds.Contains(p.UserId!.Value))
+                .Select(p => new { p.UserId, p.FullName })
+                .ToListAsync();
+            var nombreDeUser = nombres
+                .Where(n => n.UserId.HasValue)
+                .GroupBy(n => n.UserId!.Value)
+                .ToDictionary(g => g.Key, g => g.First().FullName);
+
+            return historial.Select(h => new VecinoLicenciaHistorialItemDto
+            {
+                VecinoLicenciaControlHistorialId = h.VecinoLicenciaControlHistorialId,
+                ArchivoUrl = h.ArchivoUrl,
+                OriginalFileName = h.OriginalFileName,
+                FechaVencimiento = h.FechaVencimiento,
+                FechaRecordatorio = h.FechaRecordatorio,
+                DiasAntes = h.DiasAntes,
+                Motivo = h.Motivo,
+                CreatedDateTime = h.CreatedDateTime,
+                CreatedUserName = nombreDeUser.TryGetValue(h.CreatedUserId, out var n) ? n : null,
+            }).ToList();
+        }
+
+        public async Task<List<VecinoLicenciaDestinatarioDto>> GetDestinatarios(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.VecinoLicenciaControlDestinatario
+                .Where(d => d.ProjectId == projectId && d.State && d.Active)
+                .OrderBy(d => d.Rol)
+                .Select(d => new VecinoLicenciaDestinatarioDto
+                {
+                    VecinoLicenciaControlDestinatarioId = d.VecinoLicenciaControlDestinatarioId,
+                    Rol = d.Rol,
+                    Email = d.Email,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, string rol, string email, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTime.UtcNow;
+
+            var entity = new VecinoLicenciaControlDestinatario
+            {
+                ProjectId = projectId,
+                Rol = rol,
+                Email = email,
+                CreatedDateTime = now,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.VecinoLicenciaControlDestinatario.Add(entity);
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLicenciaDestinatarioDto
+            {
+                VecinoLicenciaControlDestinatarioId = entity.VecinoLicenciaControlDestinatarioId,
+                Rol = entity.Rol,
+                Email = entity.Email,
+            };
+        }
+
+        public async Task DeleteDestinatario(int destinatarioId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.VecinoLicenciaControlDestinatario
+                .FirstOrDefaultAsync(d => d.VecinoLicenciaControlDestinatarioId == destinatarioId);
+            if (entity is null) return;
+
+            entity.State = false;
+            entity.UpdatedDateTime = DateTime.UtcNow;
+            entity.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<(int VecinoLicenciaControlId, int ProjectId, string TipoDescripcion, DateOnly FechaVencimiento)>> GetPendientesRecordatorio(DateOnly hoy)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var pendientes = await ctx.VecinoLicenciaControl
+                .Where(r => r.State && r.Active
+                    && r.ArchivoUrl != null
+                    && r.RecordatorioEnviadoDateTime == null
+                    && r.FechaRecordatorio != null && r.FechaRecordatorio <= hoy)
+                .Join(ctx.VecinoLicenciaControlTipo, r => r.VecinoLicenciaControlTipoId, t => t.VecinoLicenciaControlTipoId,
+                    (r, t) => new { r.VecinoLicenciaControlId, r.ProjectId, t.Descripcion, r.FechaVencimiento })
+                .ToListAsync();
+
+            return pendientes
+                .Select(p => (p.VecinoLicenciaControlId, p.ProjectId, p.Descripcion, p.FechaVencimiento!.Value))
+                .ToList();
+        }
+
+        public async Task MarcarRecordatorioEnviado(int vecinoLicenciaControlId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var row = await ctx.VecinoLicenciaControl.FirstOrDefaultAsync(r => r.VecinoLicenciaControlId == vecinoLicenciaControlId);
+            if (row is null) return;
+            row.RecordatorioEnviadoDateTime = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+    }
+}

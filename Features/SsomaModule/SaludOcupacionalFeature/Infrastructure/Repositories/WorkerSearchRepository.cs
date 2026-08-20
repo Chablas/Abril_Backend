@@ -403,7 +403,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                                  .Select(x => (int?)x.SexoId).FirstOrDefaultAsync();
         }
 
-        public async Task Update(int id, WorkerUpdateDto dto)
+        public async Task Update(int id, WorkerUpdateDto dto, bool puedeEditarDni)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -419,6 +419,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? worker.Person.SexoId;
                 if (dto.FechaNacimiento.HasValue) worker.Person.FechaNacimiento = dto.FechaNacimiento;
                 if (dto.MostrarEnBoletin.HasValue) worker.Person.MostrarEnBoletin = dto.MostrarEnBoletin.Value;
+
+                if (!string.IsNullOrWhiteSpace(dto.Dni))
+                {
+                    var nuevoDoc = dto.Dni.Trim().ToUpper();
+                    if (!string.Equals(nuevoDoc, worker.Person.DocumentIdentityCode, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!puedeEditarDni)
+                            throw new AbrilException("Solo un Administrador de Obra puede modificar el número de documento.", 403);
+
+                        var duplicado = await ctx.Person.AnyAsync(p =>
+                            p.PersonId != worker.Person.PersonId
+                            && p.DocumentIdentityCode != null
+                            && p.DocumentIdentityCode.ToUpper() == nuevoDoc);
+                        if (duplicado)
+                            throw new AbrilException("Ya existe otra persona con ese número de documento.", 409);
+
+                        worker.Person.DocumentIdentityCode = nuevoDoc;
+                    }
+                }
             }
             worker.EmailCorporativo = dto.EmailCorporativo;
             worker.FechaIngreso = dto.FechaIngreso;
@@ -465,7 +484,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 await _jefePersonalizado.SetAsync(id, dto.JefePersonalizadoWorkerId);
         }
 
-        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)
+        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto, bool puedeEditarDni)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -488,6 +507,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var nuevoDoc = dto.NumeroDocumento.Trim().ToUpper();
                 if (!string.Equals(nuevoDoc, worker.Person.DocumentIdentityCode, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!puedeEditarDni)
+                        throw new AbrilException("Solo un Administrador de Obra puede modificar el número de documento.", 403);
+
                     var duplicado = await ctx.Person.AnyAsync(p =>
                         p.PersonId != worker.Person.PersonId
                         && p.DocumentIdentityCode != null

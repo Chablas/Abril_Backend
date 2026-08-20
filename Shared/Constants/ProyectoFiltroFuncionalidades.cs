@@ -34,5 +34,6 @@ namespace Abril_Backend.Shared.Constants
         /// lo motivó es Oficina Central (project_id 36).
         /// </summary>
         public const int HabilitacionInduccion = 14; // HABILITACION_INDUCCION
+        public const int ControlLicencias      = 15; // CONTROL_LICENCIAS — Vecinos: Control de Licencias
     }
 }

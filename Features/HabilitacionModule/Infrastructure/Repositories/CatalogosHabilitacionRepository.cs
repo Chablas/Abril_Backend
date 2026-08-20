@@ -116,6 +116,64 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
         }
 
+        public async Task<List<SsItemEquipo>> GetItemsEquipoTodosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsItemEquipo
+                .Include(x => x.TipoEquipo)
+                .OrderBy(x => x.TipoEquipoId == null ? 0 : 1) // genéricos primero
+                .ThenBy(x => x.TipoEquipo != null ? x.TipoEquipo.Nombre : null)
+                .ThenBy(x => x.Orden)
+                .ToListAsync();
+        }
+
+        public async Task<SsItemEquipo> CrearItemEquipoAsync(string nombre, bool requiereVigencia, int? tipoEquipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var nombreNorm = nombre.Trim();
+            if (await ctx.SsItemEquipo.AnyAsync(x => x.Nombre == nombreNorm && x.TipoEquipoId == tipoEquipoId))
+                throw new AbrilException("Ya existe un ítem con ese nombre para ese tipo de equipo.", 400);
+
+            var maxOrden = await ctx.SsItemEquipo.MaxAsync(x => (int?)x.Orden) ?? 0;
+            var item = new SsItemEquipo
+            {
+                Nombre = nombreNorm,
+                RequiereVigencia = requiereVigencia,
+                TipoEquipoId = tipoEquipoId,
+                Orden = maxOrden + 1,
+                Activo = true,
+            };
+            ctx.SsItemEquipo.Add(item);
+            await ctx.SaveChangesAsync();
+            return item;
+        }
+
+        public async Task<SsItemEquipo> ActualizarItemEquipoAsync(int id, string nombre, bool requiereVigencia, int? tipoEquipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var item = await ctx.SsItemEquipo.FirstOrDefaultAsync(x => x.Id == id)
+                ?? throw new AbrilException("Ítem de equipo no encontrado.", 404);
+
+            var nombreNorm = nombre.Trim();
+            if (await ctx.SsItemEquipo.AnyAsync(x => x.Nombre == nombreNorm && x.TipoEquipoId == tipoEquipoId && x.Id != id))
+                throw new AbrilException("Ya existe un ítem con ese nombre para ese tipo de equipo.", 400);
+
+            item.Nombre = nombreNorm;
+            item.RequiereVigencia = requiereVigencia;
+            item.TipoEquipoId = tipoEquipoId;
+            await ctx.SaveChangesAsync();
+            return item;
+        }
+
+        public async Task ToggleItemEquipoAsync(int id, bool activo)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var item = await ctx.SsItemEquipo.FirstOrDefaultAsync(x => x.Id == id)
+                ?? throw new AbrilException("Ítem de equipo no encontrado.", 404);
+            item.Activo = activo;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<List<SsCriterioEvaluacion>> GetCriteriosEvaluacionAsync()
         {
             using var ctx = _factory.CreateDbContext();

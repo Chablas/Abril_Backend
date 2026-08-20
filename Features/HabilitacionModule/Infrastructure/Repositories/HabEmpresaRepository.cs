@@ -114,8 +114,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         })
                         .ToList();
 
-                    var estadoGlobal = CalcularEstadoGlobal(meses.Select(m => m.Estado).ToList());
                     var regReciente = regsItem.OrderByDescending(r => r.Anio).ThenByDescending(r => r.Mes).First();
+                    var estadoGlobal = regReciente.Estado;
 
                     result.Add(new EmpresaEntregableDto
                     {
@@ -138,20 +138,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             return result;
-        }
-
-        private static string CalcularEstadoGlobal(List<string> estados)
-        {
-            if (estados.Count == 0) return "Falta";
-            if (estados.Any(e => e == "Rechazado")) return "Rechazado";
-            if (estados.Any(e => e == "Enviado")) return "Enviado";
-            if (estados.Any(e => e == "Falta")) return "Falta";
-            // "En Plazo" (mes marcado con una fecha límite acordada, aún sin documento) no debía
-            // caer nunca en la rama "Aprobado", pero tampoco estaba contemplado en ninguna rama
-            // anterior — el fallback final lo mandaba siempre a "Falta" sin importar lo guardado.
-            if (estados.Any(e => e == "En Plazo")) return "En Plazo";
-            if (estados.All(e => e == "Aprobado")) return "Aprobado";
-            return "Falta";
         }
 
         private static EmpresaEntregableDto MapToDto(SsHabEmpresa r, SsItemEmpresa item, List<EntregableMesDto> meses, List<EntregableMesArchivoDto> archivos)

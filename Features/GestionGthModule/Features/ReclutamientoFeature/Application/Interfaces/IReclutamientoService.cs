@@ -118,6 +118,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId);
 
         /// <summary>
+        /// Saca del proceso al postulante cuyo formulario quedó rechazado y le envía el correo de
+        /// fin de proceso. Es la salida del candidato antes de la entrevista: rechazar el
+        /// formulario solo le pide corregirlo, esto sí lo cierra. Mismo criterio best-effort que
+        /// <see cref="EnviarAgradecimiento"/>.
+        /// </summary>
+        Task<EvaluacionAccionResultDto> RechazarPostulante(int candidatoId, int? userId);
+
+        /// <summary>
         /// Informe de finalistas de un requerimiento del solicitante (vista "Finalistas enviados por
         /// GTH"). Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no
         /// existe o no le pertenece.

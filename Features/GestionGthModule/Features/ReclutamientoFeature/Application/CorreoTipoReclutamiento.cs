@@ -34,6 +34,14 @@
         public const string LongListDecision = "LONG_LIST_DECISION";
 
         /// <summary>
+        /// Correo de "finalista enviado al solicitante". Sale cuando GTH guarda el informe de la
+        /// entrevista de un candidato, que es el acto de mandarlo como finalista: el solicitante
+        /// tiene que entrar a decidir. El destinatario principal es SIEMPRE el solicitante que
+        /// registró la solicitud; la configuración solo aporta principales adicionales y copias.
+        /// </summary>
+        public const string FinalistaEnvio = "FINALISTA_ENVIO";
+
+        /// <summary>
         /// Correo de "decisión de finalista" (lo envía el solicitante al aprobar o rechazar a un
         /// finalista y va a GTH).
         /// </summary>
@@ -79,19 +87,22 @@
         public const string EntrevistaRespuesta = "ENTREVISTA_RESPUESTA";
 
         /// <summary>
-        /// Correo de "gracias por participar" (va al candidato que no continúa). Sale desde dos
-        /// lados con el mismo cuerpo: cuando GTH marca a un candidato como "no continúa" en la
-        /// bandeja y cuando el solicitante rechaza a un finalista. Es un solo correo, así que un
-        /// solo tipo gobierna ambos. El destinatario principal es SIEMPRE el candidato.
+        /// Correo de "fin de proceso" (va al candidato que no continúa). Sale desde cuatro lados
+        /// con el mismo cuerpo: cuando GTH rechaza al postulante tras rechazarle el formulario,
+        /// cuando lo marca como "no continúa" tras la entrevista, cuando el solicitante rechaza a
+        /// un finalista y cuando aprueba a uno y los demás quedan sin elegir. Es un solo correo,
+        /// así que un solo tipo gobierna los cuatro. El destinatario principal es SIEMPRE el
+        /// candidato.
         /// </summary>
         public const string Agradecimiento = "AGRADECIMIENTO";
 
         /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
-        /// <c>long-list</c> / <c>decision-long-list</c> / <c>decision-finalista</c> /
-        /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
-        /// <c>entrevista</c> / <c>entrevista-respuesta</c> / <c>agradecimiento</c>) al código
-        /// estable. Devuelve null si el slug no corresponde a un tipo conocido.
+        /// <c>long-list</c> / <c>decision-long-list</c> / <c>finalista-envio</c> /
+        /// <c>decision-finalista</c> / <c>formulario-envio</c> / <c>formulario-completado</c> /
+        /// <c>formulario-correccion</c> / <c>entrevista</c> / <c>entrevista-respuesta</c> /
+        /// <c>agradecimiento</c>) al código estable. Devuelve null si el slug no corresponde a un
+        /// tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
@@ -100,6 +111,7 @@
             "ti-vacantes"            => Ti,
             "long-list"              => LongList,
             "decision-long-list"     => LongListDecision,
+            "finalista-envio"        => FinalistaEnvio,
             "decision-finalista"     => FinalistaDecision,
             "formulario-envio"       => FormularioEnvio,
             "formulario-completado"  => FormularioCompletado,

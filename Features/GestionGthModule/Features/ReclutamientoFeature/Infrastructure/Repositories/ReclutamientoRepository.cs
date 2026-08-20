@@ -163,7 +163,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// resultado de su evaluación:
         ///
         ///   • resultado RECHAZADO  → el solicitante rechazó al finalista (decisión final).
-        ///   • resultado NO_PASO    → GTH lo descartó tras la entrevista (agradecimiento).
+        ///   • resultado NO_PASO    → GTH lo descartó, y la etapa la decide si llegó a tener cita:
+        ///                            sin entrevista fue en el formulario, con entrevista fue tras ella.
         ///   • estado RECHAZADO     → el solicitante lo rechazó al revisar la long list.
         ///
         /// Los candidatos que se dieron de baja sin decisión (una long list reemplazada antes de
@@ -196,8 +197,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Segundo roundtrip acotado en vez de un left join encadenado candidato→evaluación→
             // resultado: ese patrón EF Core no lo materializa bien (ver GetDetalleGth). Se une en
             // memoria por GthCandidatoId, que es 0..1 evaluación vigente por candidato.
-            var evaluaciones = (await QueryEvaluaciones(ctx, candidatos.Select(c => c.GthCandidatoId).ToList()))
-                .ToDictionary(x => x.GthCandidatoId);
+            var ids = candidatos.Select(c => c.GthCandidatoId).ToList();
+            var evaluaciones = (await QueryEvaluaciones(ctx, ids)).ToDictionary(x => x.GthCandidatoId);
+
+            // Quiénes llegaron a tener cita. Es lo que separa las dos salidas que decide GTH: al
+            // que se le rechazó el formulario nunca se le programó entrevista, así que etiquetarlo
+            // como rechazado "en entrevistas" sería mentira.
+            var conEntrevista = (await ctx.GthEntrevista
+                    .Where(e => e.State && ids.Contains(e.GthCandidatoId))
+                    .Select(e => e.GthCandidatoId)
+                    .Distinct()
+                    .ToListAsync())
+                .ToHashSet();
 
             var historial = new List<CandidatoRechazadoDto>();
             foreach (var x in candidatos)
@@ -212,8 +223,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     etapa = (EtapaRechazo.DecisionFinal, "Decisión final",
                              RechazadoPor.Solicitante, "Área solicitante", ev.DecisionDateTime);
                 else if (ev?.ResultadoCodigo == ResultadoCandidato.NoPaso)
-                    etapa = (EtapaRechazo.Entrevistas, "Entrevistas",
-                             RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime);
+                    etapa = conEntrevista.Contains(x.GthCandidatoId)
+                        ? (EtapaRechazo.Entrevistas, "Entrevistas",
+                           RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime)
+                        : (EtapaRechazo.Formulario, "Formulario",
+                           RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime);
                 else if (x.EstadoCodigo == EstadoCandidato.Rechazado)
                     etapa = (EtapaRechazo.LongList, "Long list",
                              RechazadoPor.Solicitante, "Área solicitante", x.DecisionDateTime);
@@ -1225,8 +1239,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("El solicitante aún no aprobó la long list de este requerimiento.", 400);
 
             // Requisitos para pasar a entrevistas (mismos que habilitan el botón en la vista de GTH):
-            // Multitest marcado en todos los candidatos aprobados, todos los formularios ya revisados
-            // (aprobados o rechazados) y al menos uno aprobado.
+            // todos los formularios ya revisados (aprobados o rechazados), al menos uno aprobado y
+            // el Multitest marcado en los candidatos que siguen en carrera.
             var candidatos = await (
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
@@ -1236,8 +1250,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (candidatos.Count == 0)
                 throw new AbrilException("No hay candidatos aprobados por el solicitante en este requerimiento.", 400);
-            if (candidatos.Any(c => !c.MultitestRealizado))
-                throw new AbrilException("Marca el Multitest de todos los candidatos antes de continuar.", 400);
 
             // Estado del formulario de cada candidato (segundo roundtrip acotado: el left join
             // encadenado formulario→estado no lo materializa bien EF Core, ver GetDetalleGth).
@@ -1255,6 +1267,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("Todos los formularios del postulante deben estar aprobados o rechazados antes de continuar.", 400);
             if (!estadosForm.Any(e => e == EstadoFormularioPostulante.Aprobado))
                 throw new AbrilException("Se necesita al menos un formulario del postulante aprobado para programar entrevistas.", 400);
+
+            // El Multitest solo se exige a quien sigue en carrera: al que se le rechazó el
+            // formulario ya no se le va a entrevistar, así que pedir su check dejaba trabado el
+            // paso a entrevistas por una prueba que ese postulante nunca va a rendir.
+            if (candidatos.Any(c => !c.MultitestRealizado
+                                    && estadoFormPorCandidato.GetValueOrDefault(c.GthCandidatoId)
+                                       != EstadoFormularioPostulante.Rechazado))
+                throw new AbrilException(
+                    "Marca el Multitest de todos los candidatos que siguen en el proceso antes de continuar.", 400);
 
             req.GthEstadoRequerimientoId = entrevistas.GthEstadoRequerimientoId;
             req.UpdatedDateTime          = DateTimeOffset.UtcNow;
@@ -1462,7 +1483,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string Codigo,
             string Correo,
             GthRequerimiento Requerimiento,
-            string EstadoCodigo);
+            string EstadoCodigo,
+            string? Area,
+            string? ProyectoObra,
+            string? SolicitanteEmail);
 
         /// <summary>
         /// Cabecera del candidato para evaluarlo: nombre, puesto/código y fase del requerimiento, y
@@ -1478,7 +1502,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
-                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, Req = r, EstadoCodigo = e.Codigo })
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId into prJoin
+                from pr in prJoin.DefaultIfEmpty()
+                join u in ctx.User on r.Solicitud!.SolicitanteUserId equals (int?)u.UserId into uJoin
+                from u in uJoin.DefaultIfEmpty()
+                select new
+                {
+                    c.Nombre,
+                    Puesto           = p.Nombre,
+                    r.Codigo,
+                    Req              = r,
+                    EstadoCodigo     = e.Codigo,
+                    Area             = r.Solicitud!.AreaNombre,
+                    ProyectoObra     = pr != null ? pr.ProjectDescription : null,
+                    SolicitanteEmail = u != null ? u.Email : null,
+                })
                 .FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
@@ -1491,7 +1529,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("Primero envía la invitación a la entrevista de este candidato.", 400);
 
             return new CandidatoEntrevistado(
-                cand.Nombre, cand.Puesto, cand.Codigo, correo, cand.Req, cand.EstadoCodigo);
+                cand.Nombre, cand.Puesto, cand.Codigo, correo, cand.Req, cand.EstadoCodigo,
+                cand.Area, cand.ProyectoObra, cand.SolicitanteEmail);
         }
 
         /// <summary>
@@ -1602,11 +1641,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await ctx.SaveChangesAsync();
 
+            var resumen = await BuildEvaluacionResumen(ctx, evaluacion);
+
             return new EvaluacionGuardadaDto
             {
-                Evaluacion   = await BuildEvaluacionResumen(ctx, evaluacion),
+                Evaluacion   = resumen,
                 EstadoCodigo = avanzoA?.Codigo,
                 EstadoNombre = avanzoA?.Nombre,
+                Envio = new FinalistaEnvioContextoDto
+                {
+                    RequerimientoId   = cand.Requerimiento.GthRequerimientoId,
+                    Codigo            = cand.Codigo,
+                    Puesto            = cand.Puesto,
+                    Area              = cand.Area,
+                    ProyectoObra      = cand.ProyectoObra,
+                    SolicitanteEmail  = cand.SolicitanteEmail,
+                    CandidatoNombre   = cand.Nombre,
+                    Evaluacion        = resumen,
+                },
             };
         }
 
@@ -1638,6 +1690,63 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto          = cand.Puesto,
                 Codigo          = cand.Codigo,
                 Correo          = cand.Correo,
+                Resumen         = await BuildEvaluacionResumen(ctx, evaluacion),
+            };
+        }
+
+        public async Task<AgradecimientoEnvioContextoDto> RegistrarRechazoPostulante(int candidatoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // A diferencia de RegistrarAgradecimiento no se pasa por GetCandidatoEntrevistado: este
+            // candidato nunca llegó a la entrevista, así que no tiene fila en gth_entrevista y el
+            // correo con el que se le escribió es el del formulario del postulante.
+            var cand = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == candidatoId && c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("Candidato no encontrado.", 404);
+
+            var formulario = await (
+                from f in ctx.GthPostulanteFormulario
+                where f.GthCandidatoId == candidatoId && f.State
+                join fe in ctx.GthPostulanteFormularioEstado
+                    on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                select new { f.CorreoEnvio, EstadoCodigo = fe.Codigo })
+                .FirstOrDefaultAsync();
+
+            // Solo se saca del proceso a quien ya tiene el formulario rechazado: mientras esté
+            // pendiente de revisión o corrección el postulante sigue en carrera, y el correo de
+            // fin de proceso contradiría al de correcciones que se le acaba de mandar.
+            if (formulario == null || formulario.EstadoCodigo != EstadoFormularioPostulante.Rechazado)
+                throw new AbrilException(
+                    "Solo se puede rechazar al postulante cuando su formulario quedó rechazado.", 400);
+
+            var noPasoId = await ctx.GthCandidatoResultado
+                .Where(r => r.Codigo == ResultadoCandidato.NoPaso && r.State)
+                .Select(r => (int?)r.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el resultado NO_PASO de la entrevista.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+            var evaluacion = await GetOrCreateEvaluacion(ctx, candidatoId, userId, now);
+
+            evaluacion.GthCandidatoResultadoId = noPasoId;
+            evaluacion.AgradecimientoCorreo    = formulario.CorreoEnvio;
+            evaluacion.AgradecimientoDateTime  = now;
+            evaluacion.AgradecimientoUserId    = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new AgradecimientoEnvioContextoDto
+            {
+                CandidatoNombre = cand.Nombre,
+                Puesto          = cand.Puesto,
+                Codigo          = cand.Codigo,
+                Correo          = formulario.CorreoEnvio,
                 Resumen         = await BuildEvaluacionResumen(ctx, evaluacion),
             };
         }
@@ -1850,20 +1959,71 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             elegido.Evaluacion.UpdatedDateTime         = now;
             elegido.Evaluacion.UpdatedUserId           = userId;
 
-            // Al rechazar también se le manda el correo de agradecimiento (el mismo que envía GTH),
-            // así que se registra su envío igual que en RegistrarAgradecimiento.
-            var correoCandidato = string.Empty;
-            if (!aprobado)
+            // Correos de los finalistas involucrados en la decisión: el rechazado (para su correo
+            // de fin de proceso) y, al aprobar, los que quedaron sin elegir. Se resuelven en una
+            // sola consulta a gth_entrevista, que es de donde sale el correo con el que se les
+            // escribió durante todo el proceso.
+            //
+            // Al aprobar a un finalista el puesto queda cubierto: los demás que seguían en carrera
+            // ya no tienen a qué esperar, así que se cierran acá mismo como RECHAZADO por el
+            // solicitante y reciben el mismo correo de fin de proceso que el rechazado
+            // explícitamente. Antes se quedaban en PASO para siempre, sin decisión y sin aviso.
+            // El Where arranca por `aprobado` (y no un if/else con dos ramas) para que el tipo
+            // anónimo de `finalistas` se siga infiriendo sin tener que nombrarlo.
+            var noElegidos = finalistas
+                .Where(f => aprobado
+                            && f.GthCandidatoId != candidatoId
+                            && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado))
+                .ToList();
+
+            var idsConCorreo = noElegidos.Select(f => f.GthCandidatoId).Append(candidatoId).ToList();
+            var correoPorCandidato = (await ctx.GthEntrevista
+                    .Where(e => e.State && idsConCorreo.Contains(e.GthCandidatoId))
+                    .Select(e => new { e.GthCandidatoId, e.CorreoEnvio })
+                    .ToListAsync())
+                .GroupBy(e => e.GthCandidatoId)
+                .ToDictionary(g => g.Key, g => g.First().CorreoEnvio);
+
+            // Deja registrado el envío del correo de fin de proceso en la evaluación y devuelve
+            // el correo al que va (vacío si el candidato no tiene uno cargado).
+            string MarcarFinDeProceso(GthCandidatoEvaluacion evaluacion, int candId)
             {
-                correoCandidato = await ctx.GthEntrevista
-                    .Where(e => e.GthCandidatoId == candidatoId && e.State)
-                    .Select(e => e.CorreoEnvio)
-                    .FirstOrDefaultAsync() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(correoCandidato))
+                var correo = correoPorCandidato.GetValueOrDefault(candId) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(correo)) return string.Empty;
+
+                evaluacion.AgradecimientoCorreo   = correo;
+                evaluacion.AgradecimientoDateTime = now;
+                evaluacion.AgradecimientoUserId   = userId;
+                return correo;
+            }
+
+            // Al rechazar también se le manda el correo de fin de proceso (el mismo que envía GTH),
+            // así que se registra su envío igual que en RegistrarAgradecimiento.
+            var correoCandidato = aprobado ? string.Empty : MarcarFinDeProceso(elegido.Evaluacion, candidatoId);
+
+            var noElegidosCtx = new List<FinalistaNoElegidoDto>(noElegidos.Count);
+            if (noElegidos.Count > 0)
+            {
+                var rechazadoId = await ctx.GthCandidatoResultado
+                    .Where(r => r.Codigo == ResultadoCandidato.Rechazado && r.State)
+                    .Select(r => (int?)r.GthCandidatoResultadoId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new AbrilException("No está configurado el resultado RECHAZADO de candidatos.", 500);
+
+                foreach (var f in noElegidos)
                 {
-                    elegido.Evaluacion.AgradecimientoCorreo   = correoCandidato;
-                    elegido.Evaluacion.AgradecimientoDateTime = now;
-                    elegido.Evaluacion.AgradecimientoUserId   = userId;
+                    f.Evaluacion.GthCandidatoResultadoId = rechazadoId;
+                    f.Evaluacion.DecisionDateTime        = now;
+                    f.Evaluacion.DecisionUserId          = userId;
+                    f.Evaluacion.UpdatedDateTime         = now;
+                    f.Evaluacion.UpdatedUserId           = userId;
+
+                    noElegidosCtx.Add(new FinalistaNoElegidoDto
+                    {
+                        CandidatoId = f.GthCandidatoId,
+                        Nombre      = f.Nombre,
+                        Correo      = MarcarFinDeProceso(f.Evaluacion, f.GthCandidatoId),
+                    });
                 }
             }
 
@@ -1920,6 +2080,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra      = head.ProyectoObra,
                 SolicitanteNombre = solicitanteNombre,
                 CandidatoCorreo   = correoCandidato,
+                NoElegidos        = noElegidosCtx,
             };
         }
 
@@ -2983,6 +3144,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         /// <summary>El solicitante lo rechazó al revisar la long list de CVs.</summary>
         public const string LongList      = "LONG_LIST";
+
+        /// <summary>
+        /// GTH lo sacó del proceso tras rechazarle el formulario del postulante, antes de
+        /// programarle entrevista (resultado NO_PASO + correo de fin de proceso, sin cita).
+        /// </summary>
+        public const string Formulario    = "FORMULARIO";
 
         /// <summary>GTH lo descartó tras la entrevista (resultado NO_PASO + agradecimiento).</summary>
         public const string Entrevistas   = "ENTREVISTAS";

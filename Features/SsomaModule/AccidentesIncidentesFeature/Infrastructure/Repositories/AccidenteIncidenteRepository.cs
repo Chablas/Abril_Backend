@@ -25,7 +25,10 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
     public async Task<FlashReportInicializarDto> GetInicializarAsync()
     {
-        const string sql = """
+        // Interpolada, no `const`: un `const string` se lleva el `{WorkersEstadoIds.Activo}` tal cual
+        // al servidor y Postgres revienta con un error de sintaxis en tiempo de ejecucion, sin que el
+        // compilador diga nada. El `$` obliga a que deje de ser const, asi que no puede volver a pasar.
+        var sql = $"""
             SELECT DISTINCT p.project_id AS id, p.project_description AS nombre, p.abbreviation AS abreviatura, p.email_coord_ssoma AS emailCoordsoma
             FROM project p
             LEFT JOIN ss_proyecto_habilitado h ON h.proyecto_id = p.project_id AND h.state = true AND h.active = true
@@ -830,7 +833,9 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         // Proyectos") pero area='' -> nunca entraba por el filtro de texto. Por eso el área se
         // resuelve subiendo por area_scope_parent_id hasta encontrar un nodo "%proyecto%", en vez
         // de depender de que el texto legacy esté sincronizado.
-        const string sql = """
+        // Interpolada por la misma razon que en GetInicializarAsync: con `const` el
+        // `{WorkersEstadoIds.Activo}` viaja literal a Postgres y la consulta falla al ejecutarse.
+        var sql = $"""
             WITH RECURSIVE area_scope_ancestros AS (
                 SELECT area_scope_id AS origen_id, area_scope_id, area_item_id, area_scope_parent_id
                 FROM area_scope

@@ -451,6 +451,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Vista de GTH: saca del proceso al postulante cuyo formulario quedó rechazado y le envía
+        /// el correo de fin de proceso, dejando su resultado en NO_PASO.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("candidato/{candidatoId:int}/rechazo-postulante")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> RechazarPostulante(int candidatoId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.RechazarPostulante(candidatoId, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.RechazarPostulante");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Informe de finalistas de un requerimiento del solicitante (modal "Finalistas enviados por
         /// GTH"): cabecera + finalistas con sus comentarios y CV, en una sola petición.
         /// </summary>

@@ -355,9 +355,6 @@
 
         /// <summary>Vacantes aprobadas en esta decisión: son las únicas que se le mandan a GTH.</summary>
         public List<AprobacionGgVacanteDto> Aprobadas { get; set; } = new();
-
-        /// <summary>Vacantes rechazadas en esta decisión (se listan en el correo a GTH como contexto).</summary>
-        public List<AprobacionGgVacanteDto> Rechazadas { get; set; } = new();
     }
 
     /// <summary>

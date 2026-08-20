@@ -179,6 +179,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<AgradecimientoEnvioContextoDto> RegistrarAgradecimiento(int candidatoId, int? userId);
 
         /// <summary>
+        /// Saca del proceso al postulante cuyo formulario quedó RECHAZADO: lo marca como NO_PASO y
+        /// registra la trazabilidad del correo de fin de proceso. Es el equivalente de
+        /// <see cref="RegistrarAgradecimiento"/> antes de la entrevista, así que el correo sale de
+        /// <c>gth_postulante_formulario</c> y no de <c>gth_entrevista</c>, que todavía no existe.
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el
+        /// candidato no existe y 400 si su formulario no está rechazado.
+        /// </summary>
+        Task<AgradecimientoEnvioContextoDto> RegistrarRechazoPostulante(int candidatoId, int? userId);
+
+        /// <summary>
         /// Informe de finalistas de un requerimiento del usuario (cabecera + candidatos evaluados
         /// que siguen en carrera, con sus comentarios y CV), en 1 roundtrip por bloque.
         /// Devuelve null si el requerimiento no existe o no le pertenece al usuario.

@@ -643,7 +643,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Comentario         = comentario,
                 GerenteAreaResumen = esGg ? gerenteAreaResumen : null,
                 Aprobadas          = vacantes.Where(v => decisionDeEsteNivel(v) == true).ToList(),
-                Rechazadas         = vacantes.Where(v => decisionDeEsteNivel(v) == false).ToList(),
             };
         }
 
@@ -936,7 +935,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Comentario         = comentarioLimpio,
                     GerenteAreaResumen = resumenAreaPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId),
                     Aprobadas          = aprobado ? vacantes : new List<AprobacionGgVacanteDto>(),
-                    Rechazadas         = aprobado ? new List<AprobacionGgVacanteDto>() : vacantes,
                 });
             }
 

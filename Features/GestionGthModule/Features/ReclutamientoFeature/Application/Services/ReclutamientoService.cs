@@ -426,7 +426,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 body:    ConstruirCuerpoRespuestaEntrevista(ctx, confirmo),
                 isHtml:  true,
                 cc:      copias.Count > 0 ? copias : null,
-                sender:  EmailSenders.Gth);
+                // Sale de aprobaciones@abril.pe y no del buzón de GTH: es un aviso INTERNO que
+                // llega justamente al buzón de GTH, y mandarlo desde ese mismo buzón lo dejaba
+                // como un correo que el área se escribe a sí misma. Los correos que van al
+                // candidato (invitación, correcciones, fin de proceso) sí siguen saliendo de GTH.
+                sender:  EmailSenders.Aprobaciones);
         }
 
         /// <summary>
@@ -491,13 +495,127 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "El resultado de entrevista, el informe psicotécnico y la recomendación GTH son obligatorios.", 400);
 
             var guardada = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
+
+            // Guardar el informe ES enviar al finalista, así que acá sale el aviso al solicitante
+            // (tipo FINALISTA_ENVIO). Best-effort: el finalista ya quedó enviado en la base y el
+            // solicitante lo ve igual en su panel, así que un fallo del correo se informa en el
+            // mensaje en vez de tumbar la operación.
+            var message = "Evaluación guardada.";
+            var envio   = await EnviarFinalistaAlSolicitanteAsync(guardada.Envio);
+            if (envio != null) message += " " + envio;
+
             return new EvaluacionAccionResultDto
             {
-                Message      = "Evaluación guardada.",
+                Message      = message,
                 Evaluacion   = guardada.Evaluacion,
                 EstadoCodigo = guardada.EstadoCodigo,
                 EstadoNombre = guardada.EstadoNombre,
             };
+        }
+
+        /// <summary>
+        /// Avisa al área solicitante que tiene un finalista por decidir (tipo FINALISTA_ENVIO). El
+        /// destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
+        /// configuración solo aporta principales adicionales y copias.
+        ///
+        /// Devuelve la frase que se le agrega al mensaje de la pantalla, o null si no hay nada que
+        /// contar. Nunca lanza: el finalista ya quedó enviado en la base.
+        /// </summary>
+        private async Task<string?> EnviarFinalistaAlSolicitanteAsync(FinalistaEnvioContextoDto ctx)
+        {
+            try
+            {
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaEnvio);
+                var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
+
+                if (principales.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "Finalista enviado del requerimiento {Codigo}: el solicitante no tiene correo cargado "
+                        + "y el correo FINALISTA_ENVIO no tiene destinatarios principales activos, así que el "
+                        + "aviso no sale.", ctx.Codigo);
+                    return "El solicitante no tiene un correo al que avisarle: revísalo en Configuración.";
+                }
+
+                await _email.SendAsync(
+                    to:      principales,
+                    subject: $"[Reclutamiento] Finalista por revisar — {ctx.Codigo} · {ctx.Puesto}",
+                    body:    ConstruirCuerpoFinalistaEnvio(ctx),
+                    isHtml:  true,
+                    cc:      copias.Count > 0 ? copias : null,
+                    sender:  EmailSenders.Gth);
+
+                return $"Se le avisó al solicitante ({principales[0]}).";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "No se pudo enviar el aviso de finalista al solicitante del requerimiento {Codigo}", ctx.Codigo);
+                return "No se pudo enviar el aviso al solicitante; vuelve a guardar el informe para reintentarlo.";
+            }
+        }
+
+        /// <summary>
+        /// Enlace al informe de finalistas dentro de la pantalla del solicitante, con el modal ya
+        /// abierto. Mismo mecanismo que el resto de correos del módulo: sin sesión, el
+        /// <c>authGuard</c> del frontend manda al login con esta URL como <c>returnUrl</c>.
+        /// </summary>
+        private string ConstruirLinkRevisionFinalistas(int requerimientoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/solicitud-personal/finalistas/{requerimientoId}";
+        }
+
+        /// <summary>
+        /// Cuerpo del correo de finalista al solicitante: quién es, de qué requerimiento y el
+        /// informe que GTH registró tras la entrevista. Los tres comentarios van en su propia
+        /// tarjeta porque son el motivo del correo — es con eso que el solicitante decide — y el
+        /// botón lleva a la pantalla donde aprueba o rechaza.
+        /// </summary>
+        private string ConstruirCuerpoFinalistaEnvio(FinalistaEnvioContextoDto ctx)
+        {
+            var l    = Layout.Desde(_configuration);
+            var link = ConstruirLinkRevisionFinalistas(ctx.RequerimientoId);
+            var ev   = ctx.Evaluacion;
+
+            var datos = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Textos.OGuion(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+                new("req-candidato", "Finalista", Textos.OGuion(ctx.CandidatoNombre)),
+            };
+
+            // Los comentarios se escriben en textareas: se conservan los saltos de línea. Los
+            // íconos son de fila (28px), no los de cabecera: en una tarjeta el aro grande se ve
+            // reescalado y desalineado respecto del resto de filas.
+            var informe = new List<Layout.Fila>();
+            if (!string.IsNullOrWhiteSpace(ev.ComentarioEntrevista))
+                informe.Add(new("req-comentario", "Resultado de entrevista",
+                    Layout.EscMultilinea(ev.ComentarioEntrevista)));
+            if (!string.IsNullOrWhiteSpace(ev.ComentarioPsicotecnico))
+                informe.Add(new("req-justificacion", "Informe psicotécnico",
+                    Layout.EscMultilinea(ev.ComentarioPsicotecnico)));
+            if (!string.IsNullOrWhiteSpace(ev.ComentarioRecomendacion))
+                informe.Add(new("req-vistobueno", "Recomendación GTH",
+                    Layout.EscMultilinea(ev.ComentarioRecomendacion)));
+
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre)
+                ? "Un candidato"
+                : Layout.Esc(ctx.CandidatoNombre);
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-finalista", "Finalista por Revisar",
+                    $"<b>{nombre}</b> pasó a finalista para <b>{Layout.Esc(ctx.Puesto)}</b>."),
+                l.Tarjeta(datos),
+                // Los tres comentarios son obligatorios, pero la sección se condiciona igual para
+                // que un informe vacío no deje un título colgado sin tarjeta debajo.
+                informe.Count > 0 ? l.Seccion("req-candidatos", "Informe de GTH") : "",
+                l.Tarjeta(informe),
+                l.Boton("Revisar y decidir", link),
+                l.EnlaceDirecto(link));
         }
 
         public async Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId)
@@ -521,14 +639,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return new EvaluacionAccionResultDto { Message = message, Evaluacion = ctx.Resumen };
         }
 
+        public async Task<EvaluacionAccionResultDto> RechazarPostulante(int candidatoId, int? userId)
+        {
+            var ctx = await _repo.RegistrarRechazoPostulante(candidatoId, userId);
+
+            // Mismo criterio que el agradecimiento tras la entrevista: el candidato ya quedó fuera
+            // del proceso en la base, así que un fallo del correo se informa en el mensaje (GTH
+            // puede reintentar) en vez de tumbar la operación.
+            var message = $"Se envió el correo de fin de proceso a {ctx.Correo}. El postulante ya no continúa.";
+            try
+            {
+                await EnviarAgradecimientoAsync(ctx);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo enviar el correo de fin de proceso del candidato {CandidatoId}", candidatoId);
+                message = "El postulante quedó fuera del proceso, pero no se pudo enviar el correo de fin de proceso. Vuelve a intentarlo.";
+            }
+
+            return new EvaluacionAccionResultDto { Message = message, Evaluacion = ctx.Resumen };
+        }
+
         /// <summary>
-        /// Envía el correo de agradecimiento (tipo AGRADECIMIENTO). El destinatario principal es
+        /// Envía el correo de fin de proceso (tipo AGRADECIMIENTO). El destinatario principal es
         /// SIEMPRE el candidato; la configuración de Reclutamiento solo aporta principales extra y
         /// copias, por si GTH quiere quedarse con el registro de cada cierre.
         ///
-        /// Lo comparten los dos lados desde los que sale el mismo correo: cuando GTH marca a un
-        /// candidato como "no continúa" y cuando el solicitante rechaza a un finalista. No atrapa
-        /// excepciones a propósito — cada llamador ya decide qué hacer si el envío falla.
+        /// Lo comparten los cuatro lados desde los que sale el mismo correo: cuando GTH rechaza al
+        /// postulante tras rechazarle el formulario, cuando lo marca como "no continúa" tras la
+        /// entrevista, cuando el solicitante rechaza a un finalista y cuando aprueba a uno y los
+        /// demás quedan sin elegir. No atrapa excepciones a propósito — cada llamador ya decide
+        /// qué hacer si el envío falla.
         /// </summary>
         private async Task EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
         {
@@ -545,30 +686,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Agradecimiento para el candidato que no continúa. No menciona motivos: agradece la
-        /// participación y deja abierta la puerta a futuros procesos.
+        /// Cierre del proceso para el candidato que no continúa. No menciona motivos: informa que
+        /// el proceso concluyó, agradece la participación y deja abierta la puerta a futuros
+        /// procesos.
         ///
         /// Es el único correo del módulo que sigue siendo texto corrido, y a propósito: una carta
-        /// de no continuidad resuelta con una tabla de datos se lee como un rechazo automático. Se
-        /// acortó de cuatro párrafos largos a tres cortos, pero no se vacía más.
+        /// de no continuidad resuelta con una tabla de datos se lee como un rechazo automático.
+        ///
+        /// El texto es el que redactó GTH y se transcribe tal cual (incluido el trato mezclado de
+        /// tú y usted): es una comunicación institucional al candidato, no una cadena de la app.
+        /// Lo único variable es el puesto, que ya viene en mayúsculas desde el catálogo.
         /// </summary>
         private string ConstruirCuerpoAgradecimiento(AgradecimientoEnvioContextoDto ctx)
         {
             var l = Layout.Desde(_configuration);
-            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
 
             return l.Documento(
-                new Layout.Cabecera("req-gracias", "Gracias por Participar", PieExtra: ctx.Codigo),
-                l.Parrafo($"Estimado(a) {Layout.Esc(nombre)}:"),
+                new Layout.Cabecera("req-gracias", "Fin de Proceso", PieExtra: ctx.Codigo),
+                l.Parrafo("Estimado postulante,"),
                 l.Parrafo(
-                    "Agradecemos el tiempo que dedicaste al proceso de selección de <b>Abril Grupo "
-                    + $"Inmobiliario</b> para la posición <b>{Layout.Esc(ctx.Puesto)}</b>. Decidimos continuar "
-                    + "con otros candidatos cuyo perfil se ajusta más a lo que la posición requiere en este "
-                    + "momento; esta decisión no desmerece tu experiencia ni tus capacidades."),
-                l.Parrafo(
-                    "Conservaremos tus datos en nuestra base de postulantes para considerarte en futuras "
-                    + "convocatorias que se ajusten a tu perfil. Te deseamos mucho éxito."),
-                l.Parrafo("<b>Gestión de Talento Humano</b><br />Abril Grupo Inmobiliario"));
+                    "Le informamos que el proceso de selección para el puesto de "
+                    + $"<b>{Layout.Esc(ctx.Puesto)}</b> ha concluido y, en esta oportunidad, no has sido "
+                    + "seleccionado. Agradecemos mucho tu interés, el tiempo dedicado y la disposición "
+                    + "mostrada durante todo el proceso. Con tu autorización, nos gustaría conservar su "
+                    + "información en nuestra base de datos para futuras oportunidades que se ajusten a "
+                    + "su perfil."),
+                l.Parrafo("Le deseamos el mayor de los éxitos en su desarrollo personal y profesional."),
+                l.Parrafo("¡Saludos cordiales!"),
+                l.Parrafo("Atentamente,<br /><b>Equipo de Gestión del Talento Humano</b>"));
         }
 
         public async Task<RevisionFinalistasDto> GetRevisionFinalistas(int requerimientoId, int? userId)
@@ -596,36 +741,60 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 requerimientoId, dto.CandidatoId, dto.Aprobado, userId.Value);
             var res = ctx.Resultado;
 
-            // 1) Al rechazar, el finalista recibe el mismo correo de agradecimiento que le envía GTH
+            // 1) Al rechazar, el finalista recibe el mismo correo de fin de proceso que le envía GTH
             //    a quien no supera la entrevista. Best-effort: la decisión ya quedó registrada.
-            if (!res.Aprobado && !string.IsNullOrWhiteSpace(ctx.CandidatoCorreo))
-            {
-                try
-                {
-                    await EnviarAgradecimientoAsync(new AgradecimientoEnvioContextoDto
-                    {
-                        CandidatoNombre = res.CandidatoNombre,
-                        Puesto          = ctx.Puesto,
-                        Codigo          = ctx.Codigo,
-                        Correo          = ctx.CandidatoCorreo,
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "No se pudo enviar el correo de agradecimiento al finalista rechazado {CandidatoId}", dto.CandidatoId);
-                }
-            }
+            if (!res.Aprobado)
+                await EnviarFinDeProcesoAsync(ctx, res.CandidatoNombre, ctx.CandidatoCorreo, dto.CandidatoId);
 
-            // 2) Notificar la decisión a GTH (tipo FINALISTA_DECISION), igual que la de long list.
+            // 2) Al aprobar, el puesto queda cubierto: los finalistas que seguían en carrera ya
+            //    quedaron cerrados como rechazados en la misma transacción, así que se les avisa
+            //    con el mismo correo. También best-effort, uno por uno: un fallo del proveedor con
+            //    un candidato no puede dejar sin aviso a los demás ni tumbar la decisión.
+            foreach (var noElegido in ctx.NoElegidos)
+                await EnviarFinDeProcesoAsync(ctx, noElegido.Nombre, noElegido.Correo, noElegido.CandidatoId);
+
+            // 3) Notificar la decisión a GTH (tipo FINALISTA_DECISION), igual que la de long list.
             await NotificarDecisionFinalistaAGthAsync(ctx);
 
+            var otros = ctx.NoElegidos.Count == 0
+                ? ""
+                : $" Se le avisó el fin del proceso a {ctx.NoElegidos.Count} postulante(s) que no fueron elegidos.";
+
             res.Message = res.Aprobado
-                ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y con eso se cierra el proceso."
+                ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y con eso se cierra el proceso.{otros}"
                 : res.TodosRechazados
-                    ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
-                    : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento.";
+                    ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
+                    : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso.";
 
             return res;
+        }
+
+        /// <summary>
+        /// Correo de fin de proceso a un candidato de este requerimiento, sin motivo y sin
+        /// bloquear: la decisión ya quedó registrada, así que un fallo del proveedor solo se
+        /// registra. No hace nada si el candidato no tiene correo cargado.
+        /// </summary>
+        private async Task EnviarFinDeProcesoAsync(
+            FinalistaDecisionContextoDto ctx, string? nombre, string correo, int candidatoId)
+        {
+            if (string.IsNullOrWhiteSpace(correo)) return;
+
+            try
+            {
+                await EnviarAgradecimientoAsync(new AgradecimientoEnvioContextoDto
+                {
+                    CandidatoNombre = nombre ?? string.Empty,
+                    Puesto          = ctx.Puesto,
+                    Codigo          = ctx.Codigo,
+                    Correo          = correo,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "No se pudo enviar el correo de fin de proceso al candidato {CandidatoId} del requerimiento {Codigo}",
+                    candidatoId, ctx.Codigo);
+            }
         }
 
         /// <summary>
@@ -677,7 +846,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : ctx.SolicitanteNombre;
 
             var siguiente = res.Aprobado
-                ? "El proceso de reclutamiento queda cerrado y el seleccionado pasa a onboarding."
+                ? "El seleccionado pasa a la programación de su EMO."
                 : res.TodosRechazados
                     ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs."
                     : "El proceso continúa con los finalistas que aún están pendientes de decisión.";

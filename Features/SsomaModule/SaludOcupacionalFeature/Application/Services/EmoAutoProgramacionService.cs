@@ -39,8 +39,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             using var ctx = _factory.CreateDbContext();
 
             // Parámetros configurables (defaults si no están en appsettings).
-            var ventanaDias      = _configuration.GetValue<int?>("EmoProgramacion:VentanaDias") ?? 14;
-            var diasHabilesAntes = _configuration.GetValue<int?>("EmoProgramacion:DiasHabilesAntes") ?? 4;
+            // VentanaDias sube de 14 a 18: con la regla de "2 sábados antes" para vencimientos
+            // Domingo/Lunes/Martes (ver SabadoObjetivo), la cita puede caer hasta 10 días antes
+            // del vencimiento — con ventana 14 el resumen a la clínica salía con apenas 4 días
+            // de aviso para ese grupo. Con 18 vuelve a quedar en ~7-10 días de aviso para todos
+            // los grupos (la fila se crea el mismo día en que el trabajador entra a la ventana).
+            var ventanaDias      = _configuration.GetValue<int?>("EmoProgramacion:VentanaDias") ?? 18;
+            // DiasHabilesAntes solo define la fecha para Oficina Central (Obra/Staff usan
+            // SabadoObjetivo, que no depende de este valor salvo como respaldo si no hay ningún
+            // sábado hábil en la ventana). 7 días hábiles en su calendario L-V da entre 9 y 11
+            // días calendario de anticipación según el día de vencimiento — mismo orden de
+            // magnitud que los ~10 días que ya se dejan para Obra/Staff.
+            var diasHabilesAntes = _configuration.GetValue<int?>("EmoProgramacion:DiasHabilesAntes") ?? 7;
             var pisoDiasHabiles  = _configuration.GetValue<int?>("EmoProgramacion:PisoDiasHabiles") ?? 2;
 
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
@@ -48,6 +58,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             // Feriados/días no laborables para que el cálculo de días hábiles los salte.
             var cal = await CargarCalendarioHabilAsync(ctx);
+
+            // "Ingreso" solo aplica una vez (el primer examen del trabajador); su renovación
+            // debe programarse como "Periódico Anual", nunca repetir "Ingreso" (bug real
+            // reportado: trabajadores con años en la empresa seguían saliendo programados como
+            // "Ingreso" en cada renovación, porque la cita nueva heredaba literalmente el tipo
+            // del EMO que vencía). Se resuelve por nombre, no por id: el catálogo ss_emo_tipos
+            // no viene de una migración versionada (se carga a mano en cada ambiente), así que
+            // el id no está garantizado a ser el mismo en dev/prod.
+            var periodicoAnualTipoId = await ctx.SsEmoTipo
+                .Where(t => t.Activo && t.Nombre.ToLower() == "periódico anual")
+                .Select(t => (int?)t.Id)
+                .FirstOrDefaultAsync();
+            if (periodicoAnualTipoId == null)
+                _logger.LogWarning("Auto-programación EMO: no se encontró el tipo 'Periódico Anual' en ss_emo_tipos — las renovaciones de Ingreso seguirán saliendo como Ingreso.");
 
             var candidatosRaw = await (
                 from e in ctx.WorkerEmo
@@ -114,6 +138,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 try
                 {
                     var tipoEmoId = c.Emo.TipoEmoId!.Value;
+                    var tipoEmoNombre = c.TipoEmoNombre;
+                    if (periodicoAnualTipoId.HasValue && string.Equals(c.TipoEmoNombre?.Trim(), "Ingreso", StringComparison.OrdinalIgnoreCase))
+                    {
+                        tipoEmoId = periodicoAnualTipoId.Value;
+                        tipoEmoNombre = "Periódico Anual";
+                    }
+
                     var clave = (c.Emo.WorkerId, tipoEmoId);
 
                     if (existentesSet.Contains(clave))
@@ -129,14 +160,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     var fechaMinima = cal.SumarDiasHabiles(hoy, pisoDiasHabiles, esOficina);
                     var fechaProg = fechaDesdeVencimiento > fechaMinima ? fechaDesdeVencimiento : fechaMinima;
 
-                    // Obreros solo pueden asistir al EMO en sábado. Se ajusta la fecha calculada
-                    // al sábado hábil (no feriado) más cercano, dentro de la ventana [fechaMinima, fv].
-                    // Si el vencimiento cae antes del próximo sábado disponible en esa ventana, se
-                    // deja la fecha calculada por días hábiles como respaldo (mejor programar tarde
-                    // que no programar).
-                    if (c.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Obra)
+                    // Obra y Staff solo pueden asistir al EMO en sábado (Oficina Central sigue en
+                    // día hábil normal). El sábado objetivo NO es "el más cercano a N días hábiles
+                    // antes": para vencimientos Domingo/Lunes/Martes ese criterio dejaba el examen
+                    // a 0-1 días hábiles del vencimiento, sin margen para levantar una
+                    // interconsulta antes de que venza (bug real reportado). SabadoObjetivo fija
+                    // 2 sábados antes para Dom/Lun/Mar y 1 sábado antes para Mié-Sáb — este último
+                    // grupo ya tenía margen suficiente y da exactamente el mismo sábado que antes.
+                    // Se ajusta igual al sábado hábil (no feriado) más cercano a ese objetivo,
+                    // dentro de la ventana [fechaMinima, fv]; si no hay ninguno, se deja la fecha
+                    // calculada por días hábiles como respaldo (mejor programar tarde que no
+                    // programar).
+                    if (c.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Obra
+                        || c.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     {
-                        var sabado = MejorSabadoEnRango(fechaProg, fechaMinima, fv, cal);
+                        var objetivoSabado = SabadoObjetivo(fv);
+                        var sabado = MejorSabadoEnRango(objetivoSabado, fechaMinima, fv, cal);
                         if (sabado != null) fechaProg = sabado.Value;
                     }
 
@@ -164,7 +203,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         c.WorkerNombre ?? $"Worker {c.Worker.Id}",
                         c.ContribNombre,
                         c.ProyectoNombre,
-                        c.TipoEmoNombre,
+                        tipoEmoNombre,
                         fechaProg));
 
                     result.Procesados++;
@@ -307,6 +346,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             }
 
             return mejor;
+        }
+
+        /// <summary>
+        /// Sábado "ideal" antes de <paramref name="fv"/> según el día de la semana del
+        /// vencimiento: 2 sábados antes para Domingo/Lunes/Martes (deja al menos un par de días
+        /// hábiles libres después del examen para levantar una interconsulta antes de que venza
+        /// el EMO); 1 sábado antes para Miércoles-Sábado (con ese margen ya alcanza). Nunca es
+        /// el propio sábado de vencimiento: si <paramref name="fv"/> cae sábado, el objetivo es
+        /// el sábado de la semana anterior, no el mismo día.
+        /// </summary>
+        private static DateOnly SabadoObjetivo(DateOnly fv)
+        {
+            var diasHastaSabadoAnterior = ((int)fv.DayOfWeek - (int)DayOfWeek.Saturday + 7) % 7;
+            if (diasHastaSabadoAnterior == 0) diasHastaSabadoAnterior = 7;
+            var sabadoInmediatoAnterior = fv.AddDays(-diasHastaSabadoAnterior);
+
+            var necesitaDosSemanas = fv.DayOfWeek is DayOfWeek.Sunday or DayOfWeek.Monday or DayOfWeek.Tuesday;
+            return necesitaDosSemanas ? sabadoInmediatoAnterior.AddDays(-7) : sabadoInmediatoAnterior;
         }
     }
 }

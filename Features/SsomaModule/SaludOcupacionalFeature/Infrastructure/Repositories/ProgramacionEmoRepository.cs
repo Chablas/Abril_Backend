@@ -320,18 +320,39 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.SsProgramacionEmo.Add(ent);
-            await ctx.SaveChangesAsync();
+
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                // El chequeo de progBloqueante de arriba no cierra la ventana de carrera entre
+                // el SELECT y este INSERT (cron + manual casi simultáneos, doble click, etc.).
+                // El índice único (ux_programacion_emo_worker_tipo_activa) es la garantía real.
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
 
             await EnviarNotificacionCreacionAsync(ctx, ent, worker);
 
             return ent.Id;
         }
 
+        private static bool IsUniqueViolation(DbUpdateException ex) =>
+            ex.InnerException?.Message.Contains("ux_programacion_emo_worker_tipo_activa", StringComparison.OrdinalIgnoreCase) == true
+            || ex.InnerException?.Message.Contains("23505", StringComparison.OrdinalIgnoreCase) == true;
+
         public async Task Update(int id, ProgramacionUpdateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
             var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
+
+            // Igual que en Create: si se está cambiando el tipo de EMO, no puede coincidir con
+            // otra programación activa del mismo trabajador (bug real: esto no se validaba y
+            // permitía crear duplicados editando el tipo de una fila existente).
+            if (dto.TipoEmoId != ent.TipoEmoId)
+                await ValidarSinDuplicadoActivoAsync(ctx, ent.WorkerId, dto.TipoEmoId, excluirId: ent.Id);
 
             ent.EmpresaId = dto.EmpresaId;
             ent.TipoEmoId = dto.TipoEmoId;
@@ -343,7 +364,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             ent.Notas = dto.Notas;
             ent.EmoResultadoId = dto.EmoResultadoId;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
+
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
+        }
+
+        /// <summary>
+        /// Misma regla que el índice único ux_programacion_emo_worker_tipo_activa, aplicada
+        /// antes de un UPDATE (el índice solo protege INSERT/UPDATE del propio índice, pero acá
+        /// conviene el mensaje 409 explícito en vez de esperar la excepción de Postgres).
+        /// </summary>
+        private static async Task ValidarSinDuplicadoActivoAsync(AppDbContext ctx, int workerId, int tipoEmoId, int excluirId)
+        {
+            var yaExiste = await ctx.SsProgramacionEmo.AnyAsync(p =>
+                p.Id != excluirId &&
+                p.State &&
+                p.WorkerId == workerId &&
+                p.TipoEmoId == tipoEmoId &&
+                p.Estado != "Completado" &&
+                p.Estado != "Cancelado" &&
+                p.Estado != "Rechazado por Clínica" &&
+                p.Estado != "No se presentó");
+
+            if (yaExiste)
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
         }
 
         // Estados que solo debe asignar el flujo de la clínica (Agenda → ClinicaAccion),
@@ -354,6 +404,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private static readonly HashSet<string> EstadosRequierenClinica = new()
         {
             "Aceptado por Clínica", "En Atención"
+        };
+
+        private static readonly HashSet<string> EstadosTerminales = new()
+        {
+            "Completado", "Cancelado", "Rechazado por Clínica", "No se presentó"
         };
 
         public async Task UpdateEstado(int id, string estado, int? emoResultadoId, int? userId)
@@ -370,10 +425,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     $"No se puede asignar el estado '{estado}' sin clínica y empresa asignadas. Use el flujo de la clínica (Agenda).",
                     400);
 
+            // Solo hace falta chequear duplicados al REABRIR una fila (terminal → no terminal):
+            // moverse entre estados no terminales de esta misma fila no puede crear un choque
+            // nuevo, porque esta fila ya era la que ocupaba esa llave worker+tipo.
+            if (EstadosTerminales.Contains(ent.Estado) && !EstadosTerminales.Contains(estado))
+                await ValidarSinDuplicadoActivoAsync(ctx, ent.WorkerId, ent.TipoEmoId, excluirId: ent.Id);
+
             ent.Estado = estado;
             if (emoResultadoId.HasValue) ent.EmoResultadoId = emoResultadoId;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
+
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
         }
 
         public async Task ClinicaAccion(int id, ProgramacionClinicaAccionDto dto, int? userId)
@@ -392,13 +461,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     // Corrección de Tipo de EMO antes de aceptar (o al reprogramar, que reusa
                     // esta misma acción): la clínica a veces programa el tipo equivocado y hoy
                     // no había forma de arreglarlo sin cancelar y crear de cero.
+                    var tipoDestino = ent.TipoEmoId;
                     if (dto.TipoEmoId.HasValue && dto.TipoEmoId.Value > 0 && dto.TipoEmoId.Value != ent.TipoEmoId)
                     {
                         var tipoExiste = await ctx.SsEmoTipo.AnyAsync(t => t.Id == dto.TipoEmoId.Value);
                         if (!tipoExiste)
                             throw new AbrilException("El tipo de EMO seleccionado no existe.", 400);
+                        tipoDestino = dto.TipoEmoId.Value;
                         ent.TipoEmoId = dto.TipoEmoId.Value;
                     }
+
+                    // "Aceptar" también se reusa para reprogramar una fila que ya estaba cerrada
+                    // (Rechazada/No se presentó/Cancelada): al reabrirla como no terminal, puede
+                    // chocar con otra programación activa del mismo trabajador/tipo que se haya
+                    // creado mientras tanto. Solo hace falta chequear si se está reabriendo — si
+                    // ya era no terminal, esta misma fila ya ocupaba esa llave.
+                    if (EstadosTerminales.Contains(ent.Estado))
+                        await ValidarSinDuplicadoActivoAsync(ctx, ent.WorkerId, tipoDestino, excluirId: ent.Id);
 
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
@@ -406,7 +485,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     else if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
                     if (dto.NuevaFecha.HasValue) ent.FechaProgramada = dto.NuevaFecha.Value;
                     ent.UpdatedAt = DateTimeOffset.UtcNow;
-                    await ctx.SaveChangesAsync();
+
+                    try
+                    {
+                        await ctx.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+                    {
+                        throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+                    }
+
                     await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
                     return;
                 case "Rechazar":
@@ -417,6 +505,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     await EnviarNotificacionRechazoAsync(ctx, ent, worker, dto.MotivoRechazo);
                     return;
                 case "CheckIn":
+                    // Mismo caso que "Aceptar": si esta fila estaba cerrada, reabrirla en "En
+                    // Atención" puede chocar con otra programación activa del trabajador/tipo.
+                    if (EstadosTerminales.Contains(ent.Estado))
+                        await ValidarSinDuplicadoActivoAsync(ctx, ent.WorkerId, ent.TipoEmoId, excluirId: ent.Id);
+
                     ent.Estado = "En Atención";
                     ent.CheckInHora = dto.CheckInHora ?? TimeOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
                     break;
@@ -460,7 +553,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
 
             ent.UpdatedAt = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
+
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
         }
 
         public async Task UndoCheckInAsync(int id)

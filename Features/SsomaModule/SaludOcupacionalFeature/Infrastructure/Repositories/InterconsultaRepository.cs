@@ -361,12 +361,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             // Mover la programación activa a "En Interconsulta" para que
             // no aparezca en la agenda normal hasta que la clínica suba el levantamiento.
+            // Excluye también "No se presentó": sin eso podía tomar una fila cerrada por
+            // inasistencia y reabrirla, chocando con otra programación activa del mismo
+            // trabajador/tipo creada mientras tanto (mismo bug de fondo que en
+            // ProgramacionEmoRepository — ver ese archivo).
             var prog = await ctx.SsProgramacionEmo
                 .Where(p => p.State
                          && p.WorkerId == dto.WorkerId
                          && p.Estado != "Completado"
                          && p.Estado != "Cancelado"
                          && p.Estado != "Rechazado por Clínica"
+                         && p.Estado != "No se presentó"
                          && p.Estado != "En Interconsulta")
                 .OrderByDescending(p => p.FechaProgramada)
                 .FirstOrDefaultAsync();
@@ -385,7 +390,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 lecturaEmo.UpdatedAt = DateTime.UtcNow;
             }
 
-            await ctx.SaveChangesAsync();
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolationProgramacion(ex))
+            {
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
+
             return ent.Id;
         }
 
@@ -515,8 +528,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
-            await ctx.SaveChangesAsync();
+            // Al resolver la interconsulta, prog/la nueva fila puede pasar a "En Atención" (no
+            // terminal) — si por lo que sea el trabajador ya tiene otra programación activa del
+            // mismo tipo, choca con ux_programacion_emo_worker_tipo_activa. Se traduce a un 409
+            // en vez de un 500 crudo, igual que ProgramacionEmoRepository.
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolationProgramacion(ex))
+            {
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+            }
         }
+
+        private static bool IsUniqueViolationProgramacion(DbUpdateException ex) =>
+            ex.InnerException?.Message.Contains("ux_programacion_emo_worker_tipo_activa", StringComparison.OrdinalIgnoreCase) == true
+            || ex.InnerException?.Message.Contains("23505", StringComparison.OrdinalIgnoreCase) == true;
 
         public async Task UpdateDerivacion(int id, InterconsultaDerivacionPatchDto dto, int? userId)
         {

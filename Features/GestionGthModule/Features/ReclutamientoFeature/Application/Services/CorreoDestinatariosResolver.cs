@@ -26,10 +26,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<SolicitudDestinatariosDto> ResolverAsync(string tipoCodigo, int? areaScopeId = null)
         {
-            var dto = new SolicitudDestinatariosDto();
+            var config = await _config.GetEnvioConfigAsync(tipoCodigo);
+
+            // El interruptor del principal automático es independiente del maestro: viaja siempre,
+            // incluso cuando el correo está apagado y no hay ninguna fila que resolver.
+            var dto = new SolicitudDestinatariosDto
+            {
+                PrincipalAutomaticoActivo = config.PrincipalAutomaticoActivo,
+            };
 
             // Correo apagado con el interruptor maestro → el repositorio no devuelve ninguna fila.
-            var filas = await _config.GetDestinatariosEnvioAsync(tipoCodigo);
+            var filas = config.Filas;
             if (filas.Count == 0) return dto;
 
             var codigosActivos = new HashSet<string>(

@@ -66,6 +66,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private sealed class EvaluacionRawRow
         {
             public int GthCandidatoId { get; set; }
+            /// <summary>Id de la evaluación: con él se le cuelgan sus archivos del informe.</summary>
+            public int GthCandidatoEvaluacionId { get; set; }
+            /// <summary>Archivos del informe (0..2). Se llenan aparte, en una sola consulta.</summary>
+            public List<EvaluacionArchivoDto> Archivos { get; set; } = new();
             public string? ComentarioEntrevista { get; set; }
             public string? ComentarioPsicotecnico { get; set; }
             public string? ComentarioRecomendacion { get; set; }
@@ -128,27 +132,81 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .ToDictionary(g => g.Key, g => g.Select(f => f.Anexo).ToList());
         }
 
-        /// <summary>Evaluaciones vigentes de los candidatos indicados (vacío si no hay candidatos).</summary>
-        private static async Task<List<EvaluacionRawRow>> QueryEvaluaciones(AppDbContext ctx, List<int> candidatoIds)
+        /// <summary>
+        /// Evaluaciones vigentes de los candidatos indicados, con los archivos de su informe
+        /// (vacío si no hay candidatos). Los archivos van en una segunda consulta acotada y no en
+        /// un left join encadenado: son 0..2 por evaluación y el join multiplicaría las filas de
+        /// los comentarios, que son textos largos.
+        /// </summary>
+        private static async Task<List<EvaluacionRawRow>> QueryEvaluaciones(
+            AppDbContext ctx, List<int> candidatoIds, bool incluirArchivos = true)
         {
             if (candidatoIds.Count == 0) return new List<EvaluacionRawRow>();
 
-            return await (
+            var evaluaciones = await (
                 from ev in ctx.GthCandidatoEvaluacion
                 where ev.State && candidatoIds.Contains(ev.GthCandidatoId)
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
                 select new EvaluacionRawRow
                 {
-                    GthCandidatoId          = ev.GthCandidatoId,
-                    ComentarioEntrevista    = ev.ComentarioEntrevista,
-                    ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
-                    ComentarioRecomendacion = ev.ComentarioRecomendacion,
-                    ResultadoCodigo         = res.Codigo,
-                    ResultadoNombre         = res.Nombre,
-                    AgradecimientoCorreo    = ev.AgradecimientoCorreo,
-                    AgradecimientoDateTime  = ev.AgradecimientoDateTime,
-                    DecisionDateTime        = ev.DecisionDateTime,
+                    GthCandidatoId           = ev.GthCandidatoId,
+                    GthCandidatoEvaluacionId = ev.GthCandidatoEvaluacionId,
+                    ComentarioEntrevista     = ev.ComentarioEntrevista,
+                    ComentarioPsicotecnico   = ev.ComentarioPsicotecnico,
+                    ComentarioRecomendacion  = ev.ComentarioRecomendacion,
+                    ResultadoCodigo          = res.Codigo,
+                    ResultadoNombre          = res.Nombre,
+                    AgradecimientoCorreo     = ev.AgradecimientoCorreo,
+                    AgradecimientoDateTime   = ev.AgradecimientoDateTime,
+                    DecisionDateTime         = ev.DecisionDateTime,
                 }).ToListAsync();
+
+            // El historial de rechazados no muestra los archivos: ahí se pide sin ellos para no
+            // pagar un roundtrip que nadie va a leer.
+            if (!incluirArchivos) return evaluaciones;
+
+            var archivos = await QueryEvaluacionArchivos(
+                ctx, evaluaciones.Select(e => e.GthCandidatoEvaluacionId).ToList());
+
+            foreach (var ev in evaluaciones)
+                ev.Archivos = archivos.GetValueOrDefault(ev.GthCandidatoEvaluacionId) ?? new List<EvaluacionArchivoDto>();
+
+            return evaluaciones;
+        }
+
+        /// <summary>
+        /// Archivos vivos del informe de las evaluaciones indicadas, agrupados por evaluación y en
+        /// el orden del catálogo (informe final primero). Una sola consulta para todas.
+        /// </summary>
+        private static async Task<Dictionary<int, List<EvaluacionArchivoDto>>> QueryEvaluacionArchivos(
+            AppDbContext ctx, List<int> evaluacionIds)
+        {
+            if (evaluacionIds.Count == 0) return new Dictionary<int, List<EvaluacionArchivoDto>>();
+
+            var filas = await (
+                from a in ctx.GthCandidatoEvaluacionArchivo
+                where a.State && evaluacionIds.Contains(a.GthCandidatoEvaluacionId)
+                join t in ctx.GthEvaluacionArchivoTipo
+                    on a.GthEvaluacionArchivoTipoId equals t.GthEvaluacionArchivoTipoId
+                orderby t.Orden, a.GthCandidatoEvaluacionArchivoId
+                select new
+                {
+                    a.GthCandidatoEvaluacionId,
+                    Archivo = new EvaluacionArchivoDto
+                    {
+                        ArchivoId  = a.GthCandidatoEvaluacionArchivoId,
+                        TipoCodigo = t.Codigo,
+                        TipoNombre = t.Nombre,
+                        // El nombre original es el que GTH reconoce; el de SharePoint lleva el
+                        // código del requerimiento y un timestamp.
+                        Nombre     = a.NombreOriginal ?? a.Nombre,
+                        Url        = a.Url,
+                    },
+                }).ToListAsync();
+
+            return filas
+                .GroupBy(f => f.GthCandidatoEvaluacionId)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.Archivo).ToList());
         }
 
         /// <summary>
@@ -198,7 +256,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // resultado: ese patrón EF Core no lo materializa bien (ver GetDetalleGth). Se une en
             // memoria por GthCandidatoId, que es 0..1 evaluación vigente por candidato.
             var ids = candidatos.Select(c => c.GthCandidatoId).ToList();
-            var evaluaciones = (await QueryEvaluaciones(ctx, ids)).ToDictionary(x => x.GthCandidatoId);
+            var evaluaciones = (await QueryEvaluaciones(ctx, ids, incluirArchivos: false))
+                .ToDictionary(x => x.GthCandidatoId);
 
             // Quiénes llegaron a tener cita. Es lo que separa las dos salidas que decide GTH: al
             // que se le rechazó el formulario nunca se le programó entrevista, así que etiquetarlo
@@ -356,6 +415,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             AgradecimientoCorreo    = x.AgradecimientoCorreo,
             AgradecimientoEnviadoEn = x.AgradecimientoDateTime?.ToOffset(PeruOffset).DateTime,
             DecididoEn              = x.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
+            Archivos                = x.Archivos,
         };
 
         public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
@@ -1585,6 +1645,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ResultadoNombre         = resultado.Nombre,
                 AgradecimientoCorreo    = e.AgradecimientoCorreo,
                 AgradecimientoEnviadoEn = e.AgradecimientoDateTime?.ToOffset(PeruOffset).DateTime,
+                Archivos                = (await QueryEvaluacionArchivos(
+                                              ctx, new List<int> { e.GthCandidatoEvaluacionId }))
+                                          .GetValueOrDefault(e.GthCandidatoEvaluacionId)
+                                          ?? new List<EvaluacionArchivoDto>(),
             };
         }
 
@@ -1623,6 +1687,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             evaluacion.ComentarioPsicotecnico  = Limpiar(dto.ComentarioPsicotecnico);
             evaluacion.ComentarioRecomendacion = Limpiar(dto.ComentarioRecomendacion);
 
+            // Archivos que GTH quitó de la pantalla: baja lógica (nada se borra). Los que no vengan
+            // acá se quedan como estaban, así que reguardar el informe no pierde lo ya subido.
+            var quitados = (dto.ArchivosQuitados ?? new List<string>())
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Select(c => c.Trim().ToUpperInvariant())
+                .ToList();
+            if (quitados.Count > 0 && evaluacion.GthCandidatoEvaluacionId != 0)
+            {
+                var aQuitar = await (
+                    from a in ctx.GthCandidatoEvaluacionArchivo
+                    where a.State && a.GthCandidatoEvaluacionId == evaluacion.GthCandidatoEvaluacionId
+                    join t in ctx.GthEvaluacionArchivoTipo
+                        on a.GthEvaluacionArchivoTipoId equals t.GthEvaluacionArchivoTipoId
+                    where quitados.Contains(t.Codigo.ToUpper())
+                    select a).ToListAsync();
+
+                foreach (var archivo in aQuitar)
+                {
+                    archivo.State           = false;
+                    archivo.UpdatedDateTime = now;
+                    archivo.UpdatedUserId   = userId;
+                }
+            }
+
             // Enviar al finalista también mueve el requerimiento a SELECCION_JEFATURA: GTH terminó
             // su parte y la decisión pasa al área solicitante. Solo avanza desde ENTREVISTAS —
             // editar el informe de otro finalista cuando el proceso ya cerró (alguien más obtuvo el
@@ -1646,6 +1734,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return new EvaluacionGuardadaDto
             {
                 Evaluacion   = resumen,
+                EvaluacionId = evaluacion.GthCandidatoEvaluacionId,
+                Codigo       = cand.Codigo,
                 EstadoCodigo = avanzoA?.Codigo,
                 EstadoNombre = avanzoA?.Nombre,
                 Envio = new FinalistaEnvioContextoDto
@@ -1660,6 +1750,65 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Evaluacion        = resumen,
                 },
             };
+        }
+
+        public async Task<List<EvaluacionArchivoDto>> GuardarEvaluacionArchivos(
+            int evaluacionId, List<EvaluacionArchivoPersistDto> archivos, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            if (archivos.Count == 0)
+                return (await QueryEvaluacionArchivos(ctx, new List<int> { evaluacionId }))
+                       .GetValueOrDefault(evaluacionId) ?? new List<EvaluacionArchivoDto>();
+
+            var codigos = archivos.Select(a => a.TipoCodigo.ToUpperInvariant()).ToList();
+
+            var tipos = await ctx.GthEvaluacionArchivoTipo
+                .Where(t => t.State && codigos.Contains(t.Codigo.ToUpper()))
+                .ToDictionaryAsync(t => t.Codigo.ToUpperInvariant(), t => t.GthEvaluacionArchivoTipoId);
+
+            var tipoIds = tipos.Values.ToList();
+
+            // Un archivo vivo por evaluación y tipo: el anterior se da de baja (nunca se borra) y
+            // el nuevo entra en su lugar.
+            var previos = await ctx.GthCandidatoEvaluacionArchivo
+                .Where(a => a.State && a.GthCandidatoEvaluacionId == evaluacionId
+                            && tipoIds.Contains(a.GthEvaluacionArchivoTipoId))
+                .ToListAsync();
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var previo in previos)
+            {
+                previo.State           = false;
+                previo.UpdatedDateTime = now;
+                previo.UpdatedUserId   = userId;
+            }
+
+            foreach (var archivo in archivos)
+            {
+                if (!tipos.TryGetValue(archivo.TipoCodigo.ToUpperInvariant(), out var tipoId))
+                    throw new AbrilException($"El tipo de archivo «{archivo.TipoCodigo}» no está configurado.", 500);
+
+                ctx.GthCandidatoEvaluacionArchivo.Add(new GthCandidatoEvaluacionArchivo
+                {
+                    GthCandidatoEvaluacionId   = evaluacionId,
+                    GthEvaluacionArchivoTipoId = tipoId,
+                    Nombre                     = archivo.Nombre,
+                    NombreOriginal             = archivo.NombreOriginal,
+                    Url                        = archivo.Url,
+                    ItemId                     = archivo.ItemId,
+                    DriveId                    = archivo.DriveId,
+                    CreatedDateTime            = now,
+                    CreatedUserId              = userId,
+                    Active                     = true,
+                    State                      = true,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return (await QueryEvaluacionArchivos(ctx, new List<int> { evaluacionId }))
+                   .GetValueOrDefault(evaluacionId) ?? new List<EvaluacionArchivoDto>();
         }
 
         public async Task<AgradecimientoEnvioContextoDto> RegistrarAgradecimiento(int candidatoId, int? userId)
@@ -1798,16 +1947,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.CvUrl,
                     Evaluacion = new EvaluacionRawRow
                     {
-                        GthCandidatoId          = c.GthCandidatoId,
-                        ComentarioEntrevista    = ev.ComentarioEntrevista,
-                        ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
-                        ComentarioRecomendacion = ev.ComentarioRecomendacion,
-                        ResultadoCodigo         = res.Codigo,
-                        ResultadoNombre         = res.Nombre,
-                        AgradecimientoCorreo    = ev.AgradecimientoCorreo,
-                        AgradecimientoDateTime  = ev.AgradecimientoDateTime,
+                        GthCandidatoId           = c.GthCandidatoId,
+                        GthCandidatoEvaluacionId = ev.GthCandidatoEvaluacionId,
+                        ComentarioEntrevista     = ev.ComentarioEntrevista,
+                        ComentarioPsicotecnico   = ev.ComentarioPsicotecnico,
+                        ComentarioRecomendacion  = ev.ComentarioRecomendacion,
+                        ResultadoCodigo          = res.Codigo,
+                        ResultadoNombre          = res.Nombre,
+                        AgradecimientoCorreo     = ev.AgradecimientoCorreo,
+                        AgradecimientoDateTime   = ev.AgradecimientoDateTime,
                     },
                 }).ToListAsync();
+
+            // Archivos del informe (informe final y evaluación de conocimientos) de todos los
+            // finalistas de una sola vez: es lo que el solicitante abre para decidir.
+            var archivos = await QueryEvaluacionArchivos(
+                ctx, candidatos.Select(x => x.Evaluacion.GthCandidatoEvaluacionId).ToList());
+
+            foreach (var x in candidatos)
+                x.Evaluacion.Archivos =
+                    archivos.GetValueOrDefault(x.Evaluacion.GthCandidatoEvaluacionId)
+                    ?? new List<EvaluacionArchivoDto>();
 
             return new RevisionFinalistasDto
             {

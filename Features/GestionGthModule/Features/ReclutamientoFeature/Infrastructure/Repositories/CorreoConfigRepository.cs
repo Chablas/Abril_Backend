@@ -26,21 +26,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var codigos = tipoCodigos.Select(c => c.ToUpperInvariant()).ToList();
 
-            var tipos = await ctx.GthCorreoTipo.AsNoTracking()
+            var tiposRaw = await ctx.GthCorreoTipo.AsNoTracking()
                 .Where(t => t.State && codigos.Contains(t.Codigo.ToUpper()))
                 .OrderBy(t => t.Orden).ThenBy(t => t.GthCorreoTipoId)
-                .Select(t => new CorreoConfigEventoDto
+                .Select(t => new
                 {
-                    Id                  = t.GthCorreoTipoId,
-                    Codigo              = t.Codigo,
-                    Nombre              = t.Nombre,
-                    Descripcion         = t.Descripcion,
-                    Active              = t.Active,
-                    PrincipalAutomatico = t.PrincipalAutomatico,
-                    Orden               = t.Orden,
+                    Evento = new CorreoConfigEventoDto
+                    {
+                        Id                  = t.GthCorreoTipoId,
+                        Codigo              = t.Codigo,
+                        Nombre              = t.Nombre,
+                        Descripcion         = t.Descripcion,
+                        Active              = t.Active,
+                        PrincipalAutomatico = t.PrincipalAutomatico,
+                        Orden               = t.Orden,
+                    },
+                    t.PrincipalAutomaticoActive,
+                    t.PrincipalAutomaticoNombre,
                 })
                 .ToListAsync();
-            if (tipos.Count == 0) return new CorreoConfigDto();
+            if (tiposRaw.Count == 0) return new CorreoConfigDto();
+
+            var tipos = tiposRaw.Select(t => t.Evento).ToList();
 
             var tipoIds = tipos.Select(t => t.Id).ToList();
 
@@ -124,32 +131,90 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             var porTipo = filas.ToLookup(f => f.GthCorreoTipoId, f => f.Fila);
-            foreach (var tipo in tipos)
-                tipo.Destinatarios = porTipo[tipo.Id].ToList();
+            foreach (var t in tiposRaw)
+            {
+                var destinatarios = porTipo[t.Evento.Id].ToList();
+
+                // El destinatario que pone el sistema va como una fila más y de primera: en la
+                // pantalla es un destinatario como cualquier otro (se prende y se apaga), aunque no
+                // salga de gth_correo_destinatario sino del propio tipo de correo.
+                if (t.Evento.PrincipalAutomatico)
+                    destinatarios.Insert(0, new CorreoDestinatarioFilaDto
+                    {
+                        DestinatarioId     = 0,
+                        Nombre             = string.IsNullOrWhiteSpace(t.PrincipalAutomaticoNombre)
+                                                ? "Destinatario que asigna el sistema"
+                                                : t.PrincipalAutomaticoNombre,
+                        EsCopia            = false,
+                        Active             = t.PrincipalAutomaticoActive,
+                        Editable           = false,
+                        Eliminable         = false,
+                        EsPrincipalSistema = true,
+                        Orden              = 0,
+                    });
+
+                t.Evento.Destinatarios = destinatarios;
+            }
 
             return new CorreoConfigDto { Eventos = tipos };
         }
 
-        public async Task<List<CorreoDestinatarioEnvioDto>> GetDestinatariosEnvioAsync(string tipoCodigo)
+        public async Task<CorreoEnvioConfigDto> GetEnvioConfigAsync(string tipoCodigo)
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await (
-                from d in ctx.GthCorreoDestinatario
-                join t in ctx.GthCorreoTipo on d.GthCorreoTipoId equals t.GthCorreoTipoId
-                where d.State && d.Active
-                      && t.State && t.Active && t.Codigo.ToUpper() == tipoCodigo.ToUpper()
-                orderby d.Orden, d.GthCorreoDestinatarioId
-                select new CorreoDestinatarioEnvioDto
+            // Left join en vez de dos consultas: el interruptor del principal automático vive en el
+            // tipo y hay que leerlo aunque el correo esté apagado o no tenga ningún destinatario
+            // configurado, que es justo cuando la consulta de filas no devolvería nada.
+            // Columnas planas y nullable en vez de un DTO armado dentro de la proyección: con el
+            // left join, las filas del tipo sin destinatarios traen todo en NULL y así se
+            // materializan sin ambigüedad. El orden se aplica en memoria (son un puñado de filas)
+            // para no ordenar por columnas del lado nulo del join.
+            var raw = await (
+                from t in ctx.GthCorreoTipo
+                where t.State && t.Codigo.ToUpper() == tipoCodigo.ToUpper()
+                join d in ctx.GthCorreoDestinatario.Where(x => x.State && x.Active)
+                    on t.GthCorreoTipoId equals d.GthCorreoTipoId into ds
+                from d in ds.DefaultIfEmpty()
+                select new
                 {
-                    Codigo  = d.Codigo,
-                    Email   = d.Email,
-                    Nombre  = d.Nombre,
-                    EsCopia = d.EsCopia,
-                    Orden   = d.Orden,
+                    TipoActive = t.Active,
+                    t.PrincipalAutomaticoActive,
+                    DestinatarioId = (int?)d.GthCorreoDestinatarioId,
+                    d.Codigo,
+                    d.Email,
+                    d.Nombre,
+                    EsCopia = (bool?)d.EsCopia,
+                    Orden   = (int?)d.Orden,
                 })
                 .AsNoTracking()
                 .ToListAsync();
+
+            if (raw.Count == 0) return new CorreoEnvioConfigDto();
+
+            return new CorreoEnvioConfigDto
+            {
+                // El maestro manda: apagado, el correo no se envía a NADIE, ni siquiera a su
+                // principal automático. Antes ese principal lo seguía recibiendo (era la única
+                // forma de no dejar sin aviso al postulante), pero ahora tiene su propio
+                // interruptor, así que "Correo desactivado" significa lo que dice.
+                PrincipalAutomaticoActivo = raw[0].TipoActive && raw[0].PrincipalAutomaticoActive,
+                // Correo apagado con el interruptor maestro → ninguno de los destinatarios
+                // configurados recibe nada (el principal automático se rige por su propio flag).
+                Filas = raw[0].TipoActive
+                    ? raw.Where(x => x.DestinatarioId.HasValue)
+                         .OrderBy(x => x.Orden).ThenBy(x => x.DestinatarioId)
+                         .Select(x => new CorreoDestinatarioEnvioDto
+                         {
+                             Codigo  = x.Codigo,
+                             Email   = x.Email,
+                             Nombre  = x.Nombre,
+                             EsCopia = x.EsCopia ?? false,
+                             Orden   = x.Orden ?? 0,
+                         })
+                         .ToList()
+                    : new List<CorreoDestinatarioEnvioDto>(),
+            };
         }
 
         public async Task<CorreoDestinatarioResueltoDto?> GetGerenteGeneralAsync()
@@ -296,6 +361,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dest.Active          = active;
             dest.UpdatedDateTime = DateTimeOffset.UtcNow;
             dest.UpdatedUserId   = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetPrincipalAutomaticoActiveAsync(string tipoCodigo, bool active, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tipo = await ctx.GthCorreoTipo
+                .FirstOrDefaultAsync(t => t.State && t.Codigo.ToUpper() == tipoCodigo.ToUpper())
+                ?? throw new AbrilException("El correo indicado no existe.", 404);
+
+            if (!tipo.PrincipalAutomatico)
+                throw new AbrilException("Este correo no tiene un destinatario que asigne el sistema.", 400);
+
+            tipo.PrincipalAutomaticoActive = active;
+            tipo.UpdatedDateTime           = DateTimeOffset.UtcNow;
+            tipo.UpdatedUserId             = userId;
             await ctx.SaveChangesAsync();
         }
 

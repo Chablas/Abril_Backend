@@ -171,6 +171,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EvaluacionGuardadaDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
 
         /// <summary>
+        /// Persiste los archivos del informe ya subidos a SharePoint (informe final y resultados de
+        /// la evaluación de conocimientos). Va aparte de <see cref="GuardarEvaluacion"/> porque la
+        /// subida necesita el código del requerimiento, que sale de ese primer guardado. Reemplaza
+        /// el archivo vivo de cada tipo (el anterior queda con <c>state = false</c>) y devuelve la
+        /// lista resultante. Con la lista vacía no escribe nada: solo devuelve lo que ya había.
+        /// </summary>
+        Task<List<EvaluacionArchivoDto>> GuardarEvaluacionArchivos(
+            int evaluacionId, List<EvaluacionArchivoPersistDto> archivos, int? userId);
+
+        /// <summary>
         /// Marca al candidato como NO_PASO (no continúa) y registra la trazabilidad del correo de
         /// agradecimiento (a qué correo, cuándo y quién). Mismas validaciones que
         /// <see cref="GuardarEvaluacion"/> salvo la del resultado cerrado: reenviar el correo es

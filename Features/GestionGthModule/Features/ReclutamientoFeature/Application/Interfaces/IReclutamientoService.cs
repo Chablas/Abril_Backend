@@ -103,11 +103,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Guarda la evaluación de la entrevista de un candidato: los tres comentarios del informe
-        /// de finalista que verá el área solicitante. Guardarlo es enviarlo como finalista, así que
-        /// el requerimiento avanza de ENTREVISTAS a SELECCION_JEFATURA; el resultado trae esa fase
-        /// nueva (null si no se movió).
+        /// de finalista que verá el área solicitante y, opcionalmente, sus dos archivos (informe
+        /// final y resultados de la evaluación de conocimientos), que se suben a SharePoint y
+        /// viajan adjuntos en el correo al solicitante. Guardarlo es enviarlo como finalista, así
+        /// que el requerimiento avanza de ENTREVISTAS a SELECCION_JEFATURA; el resultado trae esa
+        /// fase nueva (null si no se movió).
         /// </summary>
-        Task<EvaluacionAccionResultDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
+        Task<EvaluacionAccionResultDto> GuardarEvaluacion(
+            int candidatoId, EvaluacionGuardarDto dto, List<EvaluacionArchivoSubidaDto> archivos, int? userId);
 
         /// <summary>
         /// Envía al candidato el correo de agradecimiento por no continuar en el proceso y deja su

@@ -15,6 +15,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Destinatarios en copia (CC).</summary>
         public List<DestinatarioSolicitudDto> Copias { get; set; } = new();
 
+        /// <summary>
+        /// false = el destinatario principal que pone el sistema (el solicitante, el postulante, el
+        /// candidato…) está apagado desde Configuración, así que el correo sale solo con los
+        /// destinatarios de arriba. En los correos que no tienen principal automático no aplica y
+        /// queda en true.
+        /// </summary>
+        public bool PrincipalAutomaticoActivo { get; set; } = true;
+
         /// <summary>Correos de <see cref="Para"/>, en el formato que espera el servicio de correo.</summary>
         /// <remarks>Solo de uso interno: el frontend consume <see cref="Para"/>.</remarks>
         [JsonIgnore]

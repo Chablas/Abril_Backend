@@ -23,6 +23,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public bool PrincipalAutomatico { get; set; }
 
+        /// <summary>
+        /// Interruptor de ese destinatario automático: false = el correo sale sin él y solo con los
+        /// destinatarios configurados. Es una columna aparte de <see cref="Active"/> porque son dos
+        /// decisiones distintas: apagar el correo entero o dejar de mandárselo a quien lo pone el
+        /// sistema. Solo tiene sentido cuando <see cref="PrincipalAutomatico"/> es true.
+        /// </summary>
+        public bool PrincipalAutomaticoActive { get; set; } = true;
+
+        /// <summary>
+        /// Cómo se llama ese destinatario en la pantalla ("Solicitante del requerimiento",
+        /// "Postulante"…). Es un dato del tipo y no un texto en el frontend: cada correo se lo manda
+        /// a alguien distinto. Null → la pantalla usa una etiqueta genérica.
+        /// </summary>
+        public string? PrincipalAutomaticoNombre { get; set; }
+
         public int Orden { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }

@@ -402,17 +402,50 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Vista de GTH: guarda la evaluación de la entrevista de un candidato (los tres
-        /// comentarios del informe que verá el área solicitante).
+        /// comentarios del informe que verá el área solicitante). Multipart: <c>data</c> = JSON con
+        /// los comentarios y los archivos que se quitaron; los archivos nuevos viajan como form
+        /// files con las claves <c>informeFinal</c> y <c>evaluacionConocimientos</c>, los dos
+        /// opcionales.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPut("candidato/{candidatoId:int}/evaluacion")]
         [RequireFeature("gestion-gth.reclutamiento")]
-        public async Task<IActionResult> GuardarEvaluacion(int candidatoId, [FromBody] EvaluacionGuardarDto dto)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(25 * 1024 * 1024)] // los dos archivos del informe + margen
+        public async Task<IActionResult> GuardarEvaluacion(int candidatoId, [FromForm] string data)
         {
             try
             {
+                EvaluacionGuardarDto? dto;
+                try
+                {
+                    dto = JsonSerializer.Deserialize<EvaluacionGuardarDto>(
+                        data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                catch (JsonException)
+                {
+                    return BadRequest(new { message = "El campo 'data' no es un JSON válido." });
+                }
+
+                // Cada archivo se enlaza con su tipo del catálogo por la clave del form file: el
+                // cliente no manda el código, así que no puede inventarse un tipo inexistente.
+                var archivos = new List<EvaluacionArchivoSubidaDto>();
+                foreach (var (clave, tipoCodigo) in EvaluacionArchivoCodigo.PorClaveDeFormulario)
+                {
+                    var archivo = Request.Form.Files[clave];
+                    if (archivo == null || archivo.Length == 0) continue;
+
+                    archivos.Add(new EvaluacionArchivoSubidaDto
+                    {
+                        TipoCodigo  = tipoCodigo,
+                        FileName    = archivo.FileName,
+                        ContentType = archivo.ContentType ?? "application/octet-stream",
+                        Content     = await ToBytesAsync(archivo),
+                    });
+                }
+
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
-                return Ok(await _service.GuardarEvaluacion(candidatoId, dto, userId));
+                return Ok(await _service.GuardarEvaluacion(candidatoId, dto!, archivos, userId));
             }
             catch (AbrilException ex)
             {

@@ -129,7 +129,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     w.EmailCorporativo,
                     Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
-                    Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                    Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
+                        ? null : w.PuestoCatalogo.Categoria.Nombre,
                     w.WorkersEstadoId,
                     w.AniosExperiencia,
                     w.FechaIngreso,
@@ -349,12 +350,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var areaResuelta = await ResolverAreaAsync(
                 dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
 
+            // La categoría del trabajador es la de su puesto: se lee acá para poder congelarla
+            // en la vinculación de alta más abajo.
+            var categoriaDelPuesto = dto.PuestoId.HasValue
+                ? await ctx.Puesto
+                    .Where(pu => pu.PuestoId == dto.PuestoId.Value)
+                    .Select(pu => (int?)pu.CategoriaId)
+                    .FirstOrDefaultAsync()
+                : null;
+
             var worker = new Worker
             {
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
                 FechaIngreso = dto.FechaIngreso,
-                CategoriaId = dto.CategoriaId,
                 PuestoId = dto.PuestoId,
                 AreaScopeId = areaResuelta.AreaScopeId,
                 Area = areaResuelta.Area,
@@ -384,7 +393,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = worker.Id,
                     EmpresaId = dto.EmpresaId,
                     ProyectoId = dto.ProyectoId,
-                    CategoriaId = worker.CategoriaId,
+                    CategoriaId = categoriaDelPuesto,
                     FechaInicio = DateOnly.FromDateTime(DateTime.Today),
                     CreatedAt = now,
                 });
@@ -533,6 +542,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Person.FechaNacimiento = dto.Cumpleanos;
             worker.Person.UpdatedDateTime = DateTime.UtcNow;
 
+            // El puesto es la única vía a la categoría, así que se valida como tal: un
+            // puesto muerto dejaría al trabajador fuera de todo filtro y de toda regla.
+            if (dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId)
+            {
+                var existePuesto = await ctx.Puesto
+                    .AnyAsync(pu => pu.PuestoId == dto.PuestoId.Value && pu.State);
+                if (!existePuesto)
+                    throw new AbrilException("El puesto seleccionado no existe.", 400);
+            }
             worker.PuestoId = dto.PuestoId;
 
             if (dto.AreaScopeId.HasValue && dto.AreaScopeId != worker.AreaScopeId)
@@ -543,15 +561,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     throw new AbrilException("El área seleccionada no existe en la jerarquía de áreas.", 400);
             }
             worker.AreaScopeId = dto.AreaScopeId;
-
-            if (dto.CategoriaId.HasValue && dto.CategoriaId != worker.CategoriaId)
-            {
-                var existeCategoria = await ctx.Categoria
-                    .AnyAsync(c => c.CategoriaId == dto.CategoriaId.Value && c.State);
-                if (!existeCategoria)
-                    throw new AbrilException("La categoría seleccionada no existe.", 400);
-            }
-            worker.CategoriaId = dto.CategoriaId;
 
             // Ambos correos llegan ya normalizados y validados (formato, existencia en el tenant,
             // unicidad del corporativo y "al menos uno") por WorkerEmailValidator; aquí solo se persisten.

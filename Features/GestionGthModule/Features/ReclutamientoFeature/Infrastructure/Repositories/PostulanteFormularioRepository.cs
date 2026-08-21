@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
@@ -496,6 +497,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     DeclaracionVeracidad   = f2.DeclaracionVeracidad,
                     ConfirmacionDocumentos = f2.ConfirmacionDocumentos,
                 };
+
+                // Solo tiene sentido si el postulante ya declaró algo: en ENVIADO no hay documento
+                // que cotejar, así que ese roundtrip no se paga. La coincidencia se sigue
+                // resolviendo cuando el formulario ya está aprobado o rechazado, para que el aviso
+                // no desaparezca del modal después de decidir.
+                dto.Coincidencia = await CoincidenciaPersonaQuery.ResolverUnoAsync(ctx, candidatoId);
             }
 
             return dto;
@@ -536,6 +543,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (fueraDelProceso == ResultadoCandidatoFormulario.NoPaso)
                     throw new AbrilException(
                         "Este postulante ya quedó fuera del proceso: no se puede aprobar su formulario.", 409);
+
+                // El formulario es público y el postulante puede declarar el documento de
+                // cualquiera, incluido un trabajador de Abril. Aprobar copia lo declarado a
+                // `person`, así que si ese documento es de alguien que trabaja acá hoy la
+                // aprobación estaría reescribiendo la ficha de un trabajador con lo que tecleó un
+                // desconocido: se corta. La pantalla ya no ofrece el botón en ese caso; esto es la
+                // garantía real (el endpoint existe con o sin pantalla, y la ficha puede haber
+                // cambiado de estado entre que GTH abrió el modal y le dio a aprobar).
+                //
+                // Las coincidencias que NO están adentro (un retirado que vuelve a postular, un
+                // finalista de otro proceso, alguien que solo existe en `person`) sí se aprueban:
+                // ahí actualizar es lo correcto y GTH ya vio el aviso.
+                var coincidencia = await CoincidenciaPersonaQuery.ResolverUnoAsync(ctx, candidatoId);
+                if (coincidencia is { BloqueaAprobacion: true })
+                    throw new AbrilException(
+                        $"El documento declarado ({coincidencia.Documento}) pertenece a "
+                        + $"{coincidencia.NombreEnBd ?? "un trabajador"}, que figura como "
+                        + $"{coincidencia.WorkersEstadoNombre ?? "trabajador de Abril"} en la empresa. "
+                        + "No se puede aprobar este formulario: aprobarlo actualizaría los datos de "
+                        + "ese trabajador. Verifica el documento con el postulante.", 409);
             }
             if (!aprobado && !estabaCompletado && actual?.Codigo != EstadoFormularioPostulante.Enviado)
                 throw new AbrilException("Solo puedes rechazar un formulario que ya se le envió al postulante.", 409);
@@ -648,13 +675,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///   <item><description><c>profesion</c> (texto libre) → <c>profesion_id</c> (por nombre; null si no coincide con ninguna)</description></item>
         /// </list>
         ///
-        /// Política de escritura sobre una ficha que YA existía (mismo documento): se rellenan solo
-        /// las columnas que estén en null, para no pisar data maestra ya curada con lo que tecleó el
-        /// postulante. Las dos excepciones son <c>email</c> y <c>phone_number</c>: son datos de
-        /// contacto, el postulante acaba de declarar los vigentes y GTH los validó, así que ahí manda
-        /// lo nuevo. <c>state</c> y <c>active</c> no se tocan nunca: si el documento pertenece a una
-        /// ficha dada de baja, no se revive por la aprobación de un formulario (eso es una decisión
-        /// aparte de GTH); el enlace <c>person_id</c> queda igual y Onboarding puede leer su correo.
+        /// Política de escritura sobre una ficha que YA existía (mismo documento): <b>actualización
+        /// parcial, lo declarado manda</b>. Campo por campo, si el postulante declaró un valor ese
+        /// gana; si no declaró nada, se conserva el que ya había. Un null entrante nunca borra un
+        /// dato existente. Es lo que corresponde porque acá los datos no llegan crudos: llegan
+        /// validados por GTH, y GTH está viendo el aviso de que esta persona ya existía cuando
+        /// aprueba (ver <c>CoincidenciaPersonaQuery</c>).
+        ///
+        /// Lo que NO se toca nunca: <c>state</c> y <c>active</c> (si el documento pertenece a una
+        /// ficha dada de baja, no se revive por la aprobación de un formulario — eso es una decisión
+        /// aparte de GTH; el enlace <c>person_id</c> queda igual y Onboarding puede leer su correo),
+        /// y las columnas que el formulario no pregunta (<c>sexo_id</c>, <c>direccion</c>,
+        /// <c>numero_hijos</c>, <c>talla_id</c>…), que ni entran al INSERT.
+        ///
+        /// Una coincidencia con un trabajador que está adentro de la empresa no llega hasta acá:
+        /// <c>RegistrarDecision</c> rechaza esa aprobación antes de escribir nada.
         ///
         /// Un solo roundtrip: el upsert resuelve los cuatro catálogos con subconsultas y devuelve el
         /// <c>person_id</c>. Va por Dapper porque <c>ON CONFLICT DO UPDATE</c> con
@@ -709,16 +744,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       LIMIT 1),
                     now(), @userId, true, true, true)
                 ON CONFLICT (document_identity_code) DO UPDATE SET
-                    -- Datos de contacto: manda lo que el postulante acaba de declarar.
-                    email                     = coalesce(EXCLUDED.email,       person.email),
-                    phone_number              = coalesce(EXCLUDED.phone_number, person.phone_number),
-                    -- Resto: solo se rellena lo que estaba vacío.
-                    document_identity_type_id = coalesce(person.document_identity_type_id, EXCLUDED.document_identity_type_id),
-                    fecha_nacimiento          = coalesce(person.fecha_nacimiento,   EXCLUDED.fecha_nacimiento),
-                    distrito                  = coalesce(person.distrito,           EXCLUDED.distrito),
-                    grado_academico_id        = coalesce(person.grado_academico_id, EXCLUDED.grado_academico_id),
-                    universidad_id            = coalesce(person.universidad_id,     EXCLUDED.universidad_id),
-                    profesion_id              = coalesce(person.profesion_id,       EXCLUDED.profesion_id),
+                    -- Actualización parcial: lo declarado manda campo por campo, y un null
+                    -- entrante NO borra lo que ya había. Ver la nota de política arriba.
+                    full_name                 = coalesce(nullif(btrim(EXCLUDED.full_name), ''), person.full_name),
+                    email                     = coalesce(EXCLUDED.email,                     person.email),
+                    phone_number              = coalesce(EXCLUDED.phone_number,              person.phone_number),
+                    document_identity_type_id = coalesce(EXCLUDED.document_identity_type_id,  person.document_identity_type_id),
+                    fecha_nacimiento          = coalesce(EXCLUDED.fecha_nacimiento,           person.fecha_nacimiento),
+                    distrito                  = coalesce(EXCLUDED.distrito,                   person.distrito),
+                    grado_academico_id        = coalesce(EXCLUDED.grado_academico_id,         person.grado_academico_id),
+                    universidad_id            = coalesce(EXCLUDED.universidad_id,             person.universidad_id),
+                    profesion_id              = coalesce(EXCLUDED.profesion_id,               person.profesion_id),
                     updated_date_time         = now(),
                     updated_user_id           = @userId
                 RETURNING person_id;

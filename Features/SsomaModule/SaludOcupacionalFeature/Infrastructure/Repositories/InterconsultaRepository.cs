@@ -121,7 +121,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     x.i.UrlInforme,
                     x.w.ObraOficinaStaffId,
                     x.w.ContrataCasa,
-                    Categoria = x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre,
+                    Categoria = x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre,
                     Puesto = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
                     WorkerEmail = x.w.EmailCorporativo,
                     ProyectoId = (x.ProyAsignada != null ? (int?)x.ProyAsignada.ProyectoId : null) ?? (x.VincActiva != null ? (int?)x.VincActiva.ProyectoId : null),

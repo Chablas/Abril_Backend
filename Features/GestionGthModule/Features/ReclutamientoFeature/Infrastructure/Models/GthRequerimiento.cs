@@ -25,15 +25,15 @@
         public int PuestoId { get; set; }
 
         /// <summary>
-        /// FK a <c>categoria</c>: la categoría REAL declarada para esta vacante, no la de
-        /// <c>puesto.categoria_id</c> (esa es solo una guía derivada de los datos y no tiene por qué
-        /// coincidir, igual que en <c>workers</c>, donde <c>puesto_id</c> y <c>categoria_id</c> son
-        /// ejes independientes).
+        /// FK a <c>categoria</c>: la categoría declarada para esta vacante aparte de la de
+        /// <c>puesto.categoria_id</c>.
         ///
         /// Congelada para auditoría: la llenaba el modo "Puesto personalizado" del formulario de
         /// solicitud, que se dio de baja (los puestos nuevos los da de alta GTH en el catálogo). En
-        /// los requerimientos nuevos queda null y quien contrate al seleccionado cae a
-        /// <c>puesto.categoria_id</c> del puesto del requerimiento.
+        /// los requerimientos nuevos queda null, y la ficha del contratado siempre sale de
+        /// <c>puesto.categoria_id</c> del puesto del requerimiento — que desde
+        /// <c>Migrations_Manual/2026-08-21_workers_categoria_desde_puesto.sql</c> es el único
+        /// camino a la categoría de un trabajador.
         /// </summary>
         public int? CategoriaId { get; set; }
 

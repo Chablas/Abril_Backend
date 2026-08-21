@@ -1,4 +1,4 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
@@ -238,7 +238,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     from w in ctx.Worker
                     join p in ctx.Person on w.PersonId equals p.PersonId
                     where p.UserId == uidDec
-                    select new { w.Id, w.CategoriaId }
+                    // La categoría sale del puesto: workers ya no la guarda.
+                    select new
+                    {
+                        w.Id,
+                        CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                    }
                 ).ToListAsync();
                 misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
                 esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
@@ -395,7 +400,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == reviewerUserId
-                select w.CategoriaId
+                select w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
             ).AnyAsync(id => id == CategoriaIds.Gerente);
 
             if (!esGerente)

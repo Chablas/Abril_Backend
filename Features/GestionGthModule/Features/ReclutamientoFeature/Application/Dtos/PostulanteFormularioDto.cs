@@ -259,6 +259,95 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Datos declarados por el postulante (null si aún no completó el formulario).</summary>
         public FormularioDatosDto? Datos { get; set; }
+
+        /// <summary>
+        /// Aviso para GTH: el documento que declaró el postulante ya existe en la base, así que
+        /// aprobar actualizaría una ficha que ya estaba. Null cuando no coincide con nada (el caso
+        /// normal). Nunca sale por los endpoints públicos del postulante.
+        /// </summary>
+        public FormularioCoincidenciaDto? Coincidencia { get; set; }
+    }
+
+    /// <summary>
+    /// Severidad de la coincidencia del documento declarado con la base. Solo el trabajador actual
+    /// bloquea la aprobación; los otros dos son informativos y GTH decide.
+    /// </summary>
+    public static class NivelCoincidenciaPersona
+    {
+        /// <summary>
+        /// Existe en <c>person</c> y no tiene ninguna ficha en <c>workers</c>: una persona del
+        /// registro maestro que nunca fue trabajador (un postulante anterior, un representante
+        /// legal, un familiar registrado…). Aprobar solo completa su ficha.
+        /// </summary>
+        public const string SoloPerson = "SOLO_PERSON";
+
+        /// <summary>
+        /// Tiene ficha en <c>workers</c> pero ninguna está adentro
+        /// (<c>esta_adentro = false</c>): un retirado, un finalista aprobado de otro proceso o
+        /// alguien que no llegó a ingresar. Aprobar está permitido —es justamente el caso del
+        /// extrabajador que vuelve a postular— pero GTH tiene que saber que no es una ficha nueva.
+        /// </summary>
+        public const string FichaPrevia = "FICHA_PREVIA";
+
+        /// <summary>
+        /// Tiene al menos una ficha en <c>workers</c> con <c>esta_adentro = true</c>: trabaja en
+        /// Abril hoy. Aprobar sobreescribiría los datos de un trabajador actual con lo que tecleó
+        /// alguien en un formulario público, así que se bloquea.
+        /// </summary>
+        public const string TrabajadorActual = "TRABAJADOR_ACTUAL";
+    }
+
+    /// <summary>
+    /// El documento que el postulante declaró ya existe en la base. Es información solo para GTH:
+    /// aprobar el formulario no crea una ficha nueva en <c>person</c> sino que actualiza esta, y
+    /// según de quién sea esa ficha la aprobación se permite o se bloquea.
+    /// </summary>
+    public class FormularioCoincidenciaDto
+    {
+        /// <summary>Documento declarado que coincide, normalizado (mayúsculas, sin espacios).</summary>
+        public string Documento { get; set; } = string.Empty;
+
+        /// <summary>Tipo de documento que declaró el postulante (DNI / CE). Null si no lo eligió.</summary>
+        public string? TipoDocumento { get; set; }
+
+        /// <summary>Ficha de <c>person</c> con la que coincide.</summary>
+        public int PersonId { get; set; }
+
+        /// <summary>Nombre con el que esa persona ya está registrada, para que GTH lo compare con el declarado.</summary>
+        public string? NombreEnBd { get; set; }
+
+        /// <summary>
+        /// Ficha de <c>workers</c> de esa persona: la que está adentro si hay alguna, y si no la
+        /// más reciente. Null si nunca tuvo ficha de trabajador.
+        /// </summary>
+        public int? WorkerId { get; set; }
+
+        /// <summary>Código del estado de esa ficha (ACTIVO, RETIRADO…). Null si no hay ficha.</summary>
+        public string? WorkersEstadoCodigo { get; set; }
+
+        /// <summary>Nombre visible del estado de esa ficha. Null si no hay ficha.</summary>
+        public string? WorkersEstadoNombre { get; set; }
+
+        /// <summary>
+        /// true si alguna de sus fichas está adentro de la empresa hoy
+        /// (<c>workers_estado.esta_adentro</c>). Es lo mismo que
+        /// <see cref="BloqueaAprobacion"/>: se sirven los dos porque uno describe a la persona y el
+        /// otro la consecuencia, y la pantalla usa cada uno en un sitio distinto.
+        /// </summary>
+        public bool EstaAdentro { get; set; }
+
+        /// <summary>
+        /// Severidad, para que la pantalla elija el aviso. Ver
+        /// <see cref="NivelCoincidenciaPersona"/>.
+        /// </summary>
+        public string Nivel { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true si esta coincidencia impide aprobar el formulario. El backend lo vuelve a validar
+        /// al registrar la decisión: esto es para que la pantalla no ofrezca un botón que va a
+        /// fallar, no la garantía.
+        /// </summary>
+        public bool BloqueaAprobacion => EstaAdentro;
     }
 
     /// <summary>

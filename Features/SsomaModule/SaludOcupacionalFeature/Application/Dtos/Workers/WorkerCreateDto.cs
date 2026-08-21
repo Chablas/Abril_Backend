@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
+﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
 {
     public class WorkerCreateDto
     {
@@ -18,9 +18,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public bool? MostrarEnBoletin { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
-        /// <summary>FK a <c>categoria</c>: el campo de lógica del trabajador.</summary>
-        public int? CategoriaId { get; set; }
-        /// <summary>FK a <c>puesto</c>: el campo de presentación del trabajador.</summary>
+        /// <summary>
+        /// FK a <c>puesto</c>: el campo de presentación del trabajador y el único camino a su
+        /// categoría (<c>puesto.categoria_id</c>). La categoría no se manda: cambiarla es
+        /// cambiar de puesto, o cambiarle la categoría al puesto desde Configuración →
+        /// Categorías y Puestos.
+        /// </summary>
         public int? PuestoId { get; set; }
         /// <summary>
         /// Nodo del árbol de áreas elegido en el formulario (workers.area_scope_id). Cuando viene,

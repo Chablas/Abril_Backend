@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -124,8 +124,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         .FirstOrDefault(),
                     PuestoOrigen = x.cv.PuestoOrigen ?? (x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre),
                     PuestoDestino = x.cv.PuestoDestino,
-                    CategoriaOrigen = x.cv.CategoriaOrigen ?? (x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre),
-                    CategoriaDestino = x.cv.CategoriaDestino ?? (x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre),
+                    CategoriaOrigen = x.cv.CategoriaOrigen ?? (x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre),
+                    CategoriaDestino = x.cv.CategoriaDestino ?? (x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre),
                     ObraOficinaStaffOrigenId = x.cv.ObraOficinaStaffOrigenId ?? x.w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = x.oso != null ? x.oso.Name
                         : (x.w.ObraOficinaStaff != null ? x.w.ObraOficinaStaff.Name : null),
@@ -197,8 +197,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Notas = cv.Observaciones,
                     PuestoOrigen = cv.PuestoOrigen ?? (w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre),
                     PuestoDestino = cv.PuestoDestino,
-                    CategoriaOrigen = cv.CategoriaOrigen ?? (w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre),
-                    CategoriaDestino = cv.CategoriaDestino ?? (w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre),
+                    CategoriaOrigen = cv.CategoriaOrigen ?? (w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre),
+                    CategoriaDestino = cv.CategoriaDestino ?? (w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre),
                     ObraOficinaStaffOrigenId = cv.ObraOficinaStaffOrigenId ?? w.ObraOficinaStaffId,
                     ObraOficinaStaffOrigenNombre = oso != null ? oso.Name
                         : (w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null),
@@ -365,7 +365,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .OrderByDescending(v => v.FechaInicio)
                 .FirstOrDefaultAsync();
 
-            return vinculacionOrigen?.Categoria?.Nombre ?? emo.Worker?.CategoriaCatalogo?.Nombre;
+            return vinculacionOrigen?.Categoria?.Nombre ?? emo.Worker?.PuestoCatalogo?.Categoria?.Nombre;
         }
 
         /// <summary>Categoría "de destino" = el registro VIGENTE del trabajador (vinculación activa).</summary>
@@ -377,14 +377,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .OrderByDescending(v => v.FechaInicio)
                 .FirstOrDefaultAsync();
 
-            return vinculacionActual?.Categoria?.Nombre ?? emo.Worker?.CategoriaCatalogo?.Nombre;
+            return vinculacionActual?.Categoria?.Nombre ?? emo.Worker?.PuestoCatalogo?.Categoria?.Nombre;
         }
 
         public async Task<int> Create(ConvalidacionCreateDto dto, int? userId, string? ip, string? userAgent)
         {
             using var ctx = _factory.CreateDbContext();
             var emo = await ctx.WorkerEmo
-                .Include(e => e.Worker)
+                .Include(e => e.Worker).ThenInclude(w => w!.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(e => e.Id == dto.EmoOrigenId)
                 ?? throw new AbrilException("EMO no encontrado.", 404);
 
@@ -440,7 +440,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Convalidación no encontrada.", 404);
 
             var emo = await ctx.WorkerEmo
-                .Include(e => e.Worker)
+                .Include(e => e.Worker).ThenInclude(w => w!.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(e => e.Id == ent.EmoId)
                 ?? throw new AbrilException("EMO de origen no encontrado.", 404);
 

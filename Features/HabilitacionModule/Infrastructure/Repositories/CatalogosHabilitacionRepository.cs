@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -412,7 +412,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId)
+        public async Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId)
         {
             using var ctx = _factory.CreateDbContext();
             var nombreNorm = NormalizarNombre(nombre);
@@ -433,7 +433,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return puesto;
         }
 
-        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId)
+        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId)
         {
             using var ctx = _factory.CreateDbContext();
             var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
@@ -541,9 +541,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private static string NormalizarNombre(string nombre) =>
             nombre.Trim().ToUpperInvariant();
 
-        private static async Task ValidarCategoriaAsync(AppDbContext ctx, int? categoriaId)
+        /// <summary>
+        /// Un puesto sin categoría dejaría a sus trabajadores sin categoría — o sea fuera de
+        /// todo filtro y de toda regla —, así que la categoría es obligatoria y tiene que
+        /// existir viva en el catálogo.
+        /// </summary>
+        private static async Task ValidarCategoriaAsync(AppDbContext ctx, int categoriaId)
         {
-            if (categoriaId is null) return;
             if (!await ctx.Categoria.AnyAsync(c => c.CategoriaId == categoriaId && c.State))
                 throw new AbrilException("La categoría indicada no existe.", 400);
         }

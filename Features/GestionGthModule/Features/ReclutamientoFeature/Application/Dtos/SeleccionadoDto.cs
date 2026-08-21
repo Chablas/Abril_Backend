@@ -54,5 +54,22 @@
         /// requerimiento en la fase EMO_INGRESO y lo que enciende el botón en el detalle de GTH.
         /// </summary>
         public bool EmoIngresoPendiente { get; set; }
+
+        /// <summary>
+        /// true en un escenario que no debería darse: el requerimiento sigue en la fase
+        /// EMO_INGRESO pero la ficha que le tocó al seleccionado es de alguien que ya trabaja en
+        /// Abril (<c>workers_estado.esta_adentro</c>), así que no es un pre-ingreso y el proceso no
+        /// puede avanzar por acá — <c>ProgramacionEmoRepository.Create</c> rechaza esa cita.
+        ///
+        /// Se sirve para que el detalle lo diga en vez de quedarse sin botón y sin explicación.
+        /// Es excluyente con <see cref="EmoIngresoPendiente"/>.
+        /// </summary>
+        public bool EmoIngresoBloqueado { get; set; }
+
+        /// <summary>
+        /// Estado de esa ficha ("Activo", "Inhabilitado por SSOMA") para nombrarlo en el aviso.
+        /// Solo viene relleno cuando <see cref="EmoIngresoBloqueado"/> es true.
+        /// </summary>
+        public string? FichaEstadoNombre { get; set; }
     }
 }

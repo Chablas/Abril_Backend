@@ -72,12 +72,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Worker = w,
                     PersonFullName = w.Person != null ? w.Person.FullName : null,
                     PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
-                    // Se proyectan explícitos acá (no se leen luego como w.PuestoCatalogo/
-                    // w.CategoriaCatalogo desde el Worker ya materializado) porque baseQuery no
-                    // tiene .Include() en esas navegaciones — leerlas después de pageRows.ToListAsync()
-                    // siempre devolvía null aunque el trabajador sí tuviera puesto/categoría asignados,
-                    // por eso "Puesto actual" salía en blanco en el modal de Cambiar obra.
-                    CategoriaNombre = w.CategoriaCatalogo != null ? w.CategoriaCatalogo.Nombre : null,
+                    // Se proyectan explícitos acá (no se leen luego como w.PuestoCatalogo
+                    // desde el Worker ya materializado) porque baseQuery no tiene .Include() en
+                    // esas navegaciones — leerlas después de pageRows.ToListAsync() siempre
+                    // devolvía null aunque el trabajador sí tuviera puesto asignado, por eso
+                    // "Puesto actual" salía en blanco en el modal de Cambiar obra.
+                    // La categoría se saca del puesto: workers ya no la guarda.
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
+                    CategoriaNombre = w.PuestoCatalogo != null && w.PuestoCatalogo.Categoria != null
+                        ? w.PuestoCatalogo.Categoria.Nombre : null,
                     PuestoNombre = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null,
                     // Vinculación activa (FechaFin == null) — usada para vista de activos
                     LatestVincActiva = ctx.WorkerVinculacion
@@ -118,10 +121,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              // match por substring (","+csv+"," contiene ","+valor+","), y se
                              // normaliza el espacio tras la coma para replicar el TrimEntries.
                              ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
-                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.CategoriaCatalogo == null ? "" : w.CategoriaCatalogo.Nombre) + ",").ToLower())) &&
+                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? "" : w.PuestoCatalogo.Categoria.Nombre) + ",").ToLower())) &&
                                  (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
                                  (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
-                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.CategoriaCatalogo == null ? "" : w.CategoriaCatalogo.Nombre) + ",").ToLower()))))
+                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? "" : w.PuestoCatalogo.Categoria.Nombre) + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
@@ -202,7 +205,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     && (x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                         || x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     && x.Worker.ContrataCasa == "Casa"
-                    && (x.Worker.CategoriaId == null || x.Worker.CategoriaId != CategoriaIds.Practicante)
+                    && (x.Worker.PuestoCatalogo == null
+                        || x.Worker.PuestoCatalogo.CategoriaId != CategoriaIds.Practicante)
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
@@ -347,7 +351,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
                     EstadoHabilitacion = r.EstadoCalc,
                     Categoria = r.CategoriaNombre,
-                    CategoriaId = r.Worker.CategoriaId,
+                    CategoriaId = r.CategoriaId,
                     Puesto = r.PuestoNombre,
                     PuestoId = r.Worker.PuestoId,
                     ContrataCasa = r.Worker.ContrataCasa,
@@ -383,7 +387,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var worker = await ctx.Worker
-                .Include(w => w.CategoriaCatalogo)
+                .Include(w => w.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -391,7 +395,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var workerType = esCasa ? "CASA" : "CONTRATISTA";
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
-            var categoriaWorker = worker.CategoriaCatalogo?.Nombre;
+            var categoriaWorker = worker.PuestoCatalogo?.Categoria?.Nombre;
 
             var items = await ctx.SsItemTrabajador
                 .Where(i => i.Activo && (i.AplicaA == "TODOS" || i.AplicaA == workerType))
@@ -821,20 +825,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var nuevoPuesto = nuevoPuestoRow?.Nombre;
             var esCambioPuesto = dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId;
             // El puesto es el campo de PRESENTACIÓN, pero toda regla de negocio (EMO por
-            // categoría, practicantes, etc.) se decide contra CategoriaId — el campo de LÓGICA.
-            // Cambiar de puesto sin resincronizar la categoría dejaría esas reglas evaluando
-            // contra la categoría vieja aunque el puesto (y por tanto el riesgo/rol real) ya
-            // cambió. Cada puesto tiene su categoría derivada en el catálogo; si el puesto nuevo
-            // no tiene una asignada, se conserva la categoría actual en vez de vaciarla.
-            var esCambioCategoriaPorPuesto = esCambioPuesto
-                && nuevoPuestoRow?.CategoriaId.HasValue == true
-                && nuevoPuestoRow.CategoriaId != worker.CategoriaId;
-
-            // Cambio de categoría EXPLÍCITO (checkbox propio en el modal), independiente de si
-            // el puesto también cambia — p.ej. el trabajador sigue con el mismo puesto de
-            // presentación pero pasa a otra categoría de riesgo/EMO. Igual que el puesto, esto
-            // también exige revisar el certificado de aptitud (ver requiereRevisionAptitud).
-            var esCambioCategoriaExplicito = dto.CategoriaId.HasValue && dto.CategoriaId != worker.CategoriaId;
+            // categoría, practicantes, etc.) se decide contra la CATEGORÍA — el campo de LÓGICA,
+            // que se lee del puesto. Cambiar de puesto puede entonces cambiar la categoría, y con
+            // ella el riesgo/rol real, así que sigue siendo un motivo para revisar la aptitud.
+            // Ya no existe el cambio de categoría "a mano": para moverle la categoría a un
+            // trabajador se le cambia el puesto (o se le cambia la categoría al puesto desde
+            // Configuración → Categorías y Puestos, que la mueve para todos sus trabajadores).
+            var categoriaVigenteId = worker.PuestoCatalogo?.CategoriaId;
+            var esCambioCategoria = esCambioPuesto
+                && nuevoPuestoRow != null
+                && nuevoPuestoRow.CategoriaId != categoriaVigenteId;
 
             // Se resuelve acá (antes de calcular la clasificación) porque el proyecto destino
             // "Oficina Central" determina la clasificación automáticamente — ver más abajo.
@@ -905,10 +905,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // cualquiera de estos cuatro casos — un cambio de obra puro (misma empresa, mismo
             // puesto, misma categoría, misma clasificación) no lo toca:
             //   1) cambio de razón social,
-            //   2) cambio de puesto de trabajo,
-            //   3) cambio de categoría explícito (aunque el puesto no cambie),
-            //   4) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
-            var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioCategoriaExplicito || esCambioRiesgoAscendente;
+            //   2) cambio de puesto de trabajo (que puede arrastrar la categoría),
+            //   3) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
+            var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioRiesgoAscendente;
 
             if (requiereRevisionAptitud)
             {
@@ -948,8 +947,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ? "• Certificado de Aptitud (EMO nuevo obligatorio — sube de riesgo a Staff/Obra)"
                     : esCambioEmpresa
                         ? "• Certificado de Aptitud (Homologación)"
-                        : esCambioCategoriaExplicito
-                            ? "• Certificado de Aptitud (revisión por cambio de categoría)"
+                        : esCambioCategoria
+                            ? "• Certificado de Aptitud (revisión por cambio de puesto y categoría)"
                             : "• Certificado de Aptitud (revisión por cambio de puesto)";
 
                 pendingEmails.Add((
@@ -973,14 +972,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (esCambioPuesto)
                 worker.PuestoId = dto.PuestoId;
 
-            // Sincroniza la categoría (campo de lógica) con el puesto nuevo — ver comentario
-            // de esCambioCategoriaPorPuesto más arriba. El cambio EXPLÍCITO de categoría (checkbox
-            // propio) manda por encima del derivado del puesto, por si el admin marcó ambos a la vez.
-            if (esCambioCategoriaPorPuesto)
-                worker.CategoriaId = nuevoPuestoRow!.CategoriaId;
-            if (esCambioCategoriaExplicito)
-                worker.CategoriaId = dto.CategoriaId;
-
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
@@ -988,7 +979,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ProyectoId = dto.NuevoProyectoId,
                 Puesto = nuevoPuesto ?? currentPuesto,
                 ObraOficinaStaffId = nuevoObraOficinaStaffId,
-                CategoriaId = worker.CategoriaId,
+                // Snapshot de la categoría vigente tras el cambio: la del puesto que queda.
+                CategoriaId = esCambioPuesto ? nuevoPuestoRow?.CategoriaId : categoriaVigenteId,
                 FechaInicio = fechaCambio,
                 CreatedAt = now
             });
@@ -1117,7 +1109,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // existía para cambio de empresa, ahora extendida a los otros dos disparadores.
             _logger.LogInformation(
                 "[Convalidacion] requiereRevisionAptitud={Requiere} (empresa={Empresa} puesto={Puesto} categoria={Categoria} riesgo={Riesgo}) workerId={WorkerId}",
-                requiereRevisionAptitud, esCambioEmpresa, esCambioPuesto, esCambioCategoriaExplicito, esCambioRiesgoAscendente, workerId);
+                requiereRevisionAptitud, esCambioEmpresa, esCambioPuesto, esCambioCategoria, esCambioRiesgoAscendente, workerId);
 
             if (requiereRevisionAptitud)
             {
@@ -1241,6 +1233,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var worker = await ctx.Worker
                 .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo)
                 .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -1389,7 +1382,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 WorkerId = workerId,
                 EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
-                CategoriaId = worker.CategoriaId,
+                // Snapshot de la categoría vigente: la del puesto del trabajador.
+                CategoriaId = worker.PuestoCatalogo?.CategoriaId,
                 FechaInicio = fechaReingreso,
                 CreatedAt = now
             });
@@ -1504,7 +1498,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId    = workerId,
                     EmpresaId   = ultimaCerrada?.EmpresaId,
                     ProyectoId  = ultimaCerrada?.ProyectoId,
-                    CategoriaId = ultimaCerrada?.CategoriaId ?? worker.CategoriaId,
+                    CategoriaId = ultimaCerrada?.CategoriaId ?? worker.PuestoCatalogo?.CategoriaId,
                     FechaInicio = fechaReingreso,
                     CreatedAt   = DateTimeOffset.UtcNow,
                 });
@@ -1622,7 +1616,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var worker = await ctx.Worker
-                .Include(w => w.CategoriaCatalogo)
+                .Include(w => w.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -1635,9 +1629,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
-            var categoriaWorker = worker.CategoriaCatalogo?.Nombre;
+            var categoriaWorker = worker.PuestoCatalogo?.Categoria?.Nombre;
             var esCasaPracticante = workerType == "CASA"
-                && worker.CategoriaId == CategoriaIds.Practicante;
+                && worker.PuestoCatalogo?.CategoriaId == CategoriaIds.Practicante;
 
             var itemsAplicables = todosItems
                 .Where(i => i.AplicaA == "TODOS" ||
@@ -1734,8 +1728,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var w = await ctx.Worker
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
-                .Include(x => x.CategoriaCatalogo)
-                .Include(x => x.PuestoCatalogo)
+                .Include(x => x.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(x => x.Id == workerId);
             if (w is null) return null;
 
@@ -1757,13 +1750,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var w = await ctx.Worker
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
-                .Include(x => x.CategoriaCatalogo)
-                .Include(x => x.PuestoCatalogo)
+                .Include(x => x.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
                 .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var categoriaAnterior = w.CategoriaCatalogo?.Nombre;
-            var categoriaAnteriorId = w.CategoriaId;
+            var categoriaAnterior = w.PuestoCatalogo?.Categoria?.Nombre;
+            var categoriaAnteriorId = w.PuestoCatalogo?.CategoriaId;
+            var puestoAnteriorId = w.PuestoId;
             var obraOficinaAnterior = w.ObraOficinaStaffId;
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
@@ -1772,7 +1765,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.FechaNacimiento.HasValue && w.Person is not null) w.Person.FechaNacimiento = dto.FechaNacimiento;
             if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
-            if (dto.CategoriaId.HasValue) w.CategoriaId = dto.CategoriaId;
             if (dto.PuestoId.HasValue) w.PuestoId = dto.PuestoId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
@@ -1803,15 +1795,22 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             w.UpdatedAt = DateTimeOffset.UtcNow;
 
             var esCasa = string.Equals(w.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
-            // La categoría nueva puede no estar cargada todavía en la navegación (se acaba de
-            // asignar el id), así que se resuelve su nombre a mano.
-            var categoriaNueva = w.CategoriaId == categoriaAnteriorId
-                ? categoriaAnterior
-                : await ctx.Categoria.Where(c => c.CategoriaId == w.CategoriaId).Select(c => c.Nombre).FirstOrDefaultAsync();
+            // La categoría sale del puesto, y el puesto puede acabar de cambiar: la navegación
+            // sigue apuntando al puesto viejo, así que se resuelve contra el catálogo.
+            var cambioDePuesto = w.PuestoId != puestoAnteriorId;
+            var categoriaNuevaRow = !cambioDePuesto || w.PuestoId == null
+                ? null
+                : await ctx.Puesto
+                    .Where(pu => pu.PuestoId == w.PuestoId.Value)
+                    .Select(pu => new { pu.CategoriaId, CategoriaNombre = pu.Categoria!.Nombre })
+                    .FirstOrDefaultAsync();
+
+            var categoriaNuevaId = cambioDePuesto ? categoriaNuevaRow?.CategoriaId : categoriaAnteriorId;
+            var categoriaNueva   = cambioDePuesto ? categoriaNuevaRow?.CategoriaNombre : categoriaAnterior;
 
             var eraPracticante = categoriaAnteriorId == CategoriaIds.Practicante;
-            var siguePracticante = w.CategoriaId == CategoriaIds.Practicante;
-            var transicionFueraDePracticante = dto.CategoriaId is not null && esCasa && eraPracticante && !siguePracticante;
+            var siguePracticante = categoriaNuevaId == CategoriaIds.Practicante;
+            var transicionFueraDePracticante = cambioDePuesto && esCasa && eraPracticante && !siguePracticante;
 
             var vidaLeyCreada = false;
             if (transicionFueraDePracticante)
@@ -1932,8 +1931,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
-            CategoriaId = w.CategoriaId,
-            Categoria = w.CategoriaCatalogo?.Nombre,
+            CategoriaId = w.PuestoCatalogo?.CategoriaId,
+            Categoria = w.PuestoCatalogo?.Categoria?.Nombre,
             PuestoId = w.PuestoId,
             Puesto = w.PuestoCatalogo?.Nombre,
             AreaScopeId = w.AreaScopeId,

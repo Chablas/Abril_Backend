@@ -26,7 +26,8 @@
         public string? Puesto { get; set; }
         /// <summary>Nodo del árbol de áreas asignado (workers.area_scope_id, para prellenar el modal de edición).</summary>
         public int? AreaScopeId { get; set; }
-        /// <summary>FK a <c>categoria</c> (workers.categoria_id), para prellenar el modal de edición.</summary>
+        /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c>, para prellenar
+        /// el filtro de categoría del modal de edición. Solo lectura.</summary>
         public int? CategoriaId { get; set; }
         /// <summary>FK a <c>puesto</c> (workers.puesto_id), para prellenar el modal de edición.</summary>
         public int? PuestoId { get; set; }

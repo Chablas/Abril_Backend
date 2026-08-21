@@ -314,7 +314,8 @@ public class RacService : IRacService
                 {
                     w.ApellidoNombre,
                     Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
-                    Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre
+                    Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
+                        ? null : w.PuestoCatalogo.Categoria.Nombre
                 })
                 .FirstOrDefaultAsync();
             if (workerReportante is not null)

@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
@@ -54,7 +54,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
+                join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId into puj
+                from pu in puj.DefaultIfEmpty()
+                join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby p != null ? p.FullName : ""
                 select new VisibilidadWorkerItemDto
@@ -62,7 +64,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
                     Email = w.EmailCorporativo,
-                    CategoryId = w.CategoriaId,
+                    CategoryId = pu != null ? pu.CategoriaId : (int?)null,
                     Category = c != null ? c.Nombre : null,
                     AreaScopeId = w.AreaScopeId,
                 }

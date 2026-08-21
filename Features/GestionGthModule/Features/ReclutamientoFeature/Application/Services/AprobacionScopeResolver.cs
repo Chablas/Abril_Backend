@@ -45,7 +45,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from w in ctx.Worker.AsNoTracking()
                 join p in ctx.Person.AsNoTracking() on w.PersonId equals p.PersonId
                 where p.UserId == userId.Value && w.WorkersEstadoId == WorkersEstadoIds.Activo
-                select new { w.CategoriaId, w.AreaScopeId }
+                // La categoría sale del puesto: workers ya no la guarda.
+                select new
+                {
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
+                    w.AreaScopeId
+                }
             ).ToListAsync();
 
             if (fichas.Count == 0) return AprobacionScope.Ninguno();

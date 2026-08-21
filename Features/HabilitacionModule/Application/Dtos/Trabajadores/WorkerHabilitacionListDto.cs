@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
+﻿namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
 {
     public class WorkerHabilitacionListDto
     {
@@ -10,9 +10,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? ProyectoActual { get; set; }
         public int? ProyectoActualId { get; set; }
         public string EstadoHabilitacion { get; set; } = string.Empty;
-        /// <summary>Nombre de la categoría (campo de lógica).</summary>
+        /// <summary>Nombre de la categoría del puesto (campo de lógica). Solo lectura.</summary>
         public string? Categoria { get; set; }
-        /// <summary>FK a <c>categoria</c> — necesaria para filtrar el catálogo de puestos por categoría en "Cambiar obra".</summary>
+        /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c> — necesaria
+        /// para filtrar el catálogo de puestos por categoría en "Cambiar obra". Solo lectura.</summary>
         public int? CategoriaId { get; set; }
         /// <summary>Nombre del puesto (campo de presentación).</summary>
         public string? Puesto { get; set; }

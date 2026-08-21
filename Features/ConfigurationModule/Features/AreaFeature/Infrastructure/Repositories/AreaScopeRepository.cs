@@ -65,7 +65,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 where w.AreaScopeId == areaScopeId && w.WorkersEstadoId == WorkersEstadoIds.Activo
                 join p in _context.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join wc in _context.Categoria on w.CategoriaId equals wc.CategoriaId into wcj
+                join pu in _context.Puesto on w.PuestoId equals pu.PuestoId into puj
+                from pu in puj.DefaultIfEmpty()
+                join wc in _context.Categoria on pu.CategoriaId equals wc.CategoriaId into wcj
                 from wc in wcj.DefaultIfEmpty()
                 orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
                 select new AreaScopeWorkerDto

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
+﻿namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
 {
     /// <summary>Ítem del desplegable de categorías (el campo de lógica).</summary>
     public class CatCategoriaDto
@@ -16,7 +16,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
-        public int? CategoriaId { get; set; }
+        /// <summary>Categoría a la que pertenece el puesto. Obligatoria: es de acá de donde
+        /// sale la categoría de un trabajador.</summary>
+        public int CategoriaId { get; set; }
     }
 
     public class CatCategoriaAdminDto
@@ -31,7 +33,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = "";
-        public int? CategoriaId { get; set; }
+        /// <summary>Categoría a la que pertenece el puesto. Obligatoria: es de acá de donde
+        /// sale la categoría de un trabajador.</summary>
+        public int CategoriaId { get; set; }
         public string? CategoriaNombre { get; set; }
         public int Orden { get; set; }
         public bool Activo { get; set; }
@@ -81,6 +85,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     public class PuestoUpsertRequest
     {
         public string Nombre { get; set; } = "";
+        /// <summary>Categoría del puesto. Obligatoria — se recibe como nullable solo para
+        /// poder devolver un 400 legible cuando el formulario no la manda, en vez de dejar
+        /// que el binder la convierta en 0.</summary>
         public int? CategoriaId { get; set; }
     }
 

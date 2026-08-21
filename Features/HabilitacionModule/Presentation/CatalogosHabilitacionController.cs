@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -479,7 +479,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 if (string.IsNullOrWhiteSpace(req.Nombre))
                     return BadRequest(new { message = "El nombre es requerido." });
-                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId);
+                if (req.CategoriaId is null or <= 0)
+                    return BadRequest(new { message = "La categoría es requerida." });
+                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value);
                 return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -493,7 +495,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 if (string.IsNullOrWhiteSpace(req.Nombre))
                     return BadRequest(new { message = "El nombre es requerido." });
-                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId);
+                if (req.CategoriaId is null or <= 0)
+                    return BadRequest(new { message = "La categoría es requerida." });
+                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value);
                 return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

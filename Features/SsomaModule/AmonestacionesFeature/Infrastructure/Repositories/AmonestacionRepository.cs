@@ -1,4 +1,4 @@
-using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
+﻿using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -264,8 +264,8 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN project pr ON pr.project_id = a.proyecto_id
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
-            LEFT JOIN categoria wcat ON wcat.categoria_id = w.categoria_id
             LEFT JOIN puesto wpue ON wpue.puesto_id = w.puesto_id
+            LEFT JOIN categoria wcat ON wcat.categoria_id = wpue.categoria_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id

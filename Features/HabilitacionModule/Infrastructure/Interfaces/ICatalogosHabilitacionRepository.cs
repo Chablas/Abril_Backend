@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
+﻿using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -66,8 +66,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         /// detalle que abre la fila. Mismo criterio que el conteo de GetPuestosTodosAsync.
         /// </summary>
         Task<List<PuestoTrabajadorDto>> GetTrabajadoresPorPuestoAsync(int puestoId);
-        Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId);
-        Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId);
+        Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId);
+        Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId);
         Task TogglePuestoAsync(int id, bool activo);
         /// <summary>Soft delete (state = false). Se rechaza si algún trabajador usa el puesto.</summary>
         Task EliminarPuestoAsync(int id);

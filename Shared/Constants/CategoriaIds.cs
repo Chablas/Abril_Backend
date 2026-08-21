@@ -1,7 +1,7 @@
 namespace Abril_Backend.Shared.Constants
 {
     /// <summary>
-    /// IDs del catálogo <c>categoria</c> (<c>workers.categoria_id</c>) sobre los que hay
+    /// IDs del catálogo <c>categoria</c> (<c>workers.puesto_id → puesto.categoria_id</c>) sobre los que hay
     /// lógica de negocio. Los ids son idénticos en dev y prod (verificado el 2026-08-13:
     /// las 41 categorías originales coinciden id ↔ nombre en ambas, y <see cref="Empleado"/>
     /// se insertó con id explícito), así que se pueden usar como constantes — mismo
@@ -16,8 +16,10 @@ namespace Abril_Backend.Shared.Constants
     /// Puestos: renombrar una categoría apagaba en silencio la funcionalidad que la
     /// buscaba. Comparando por id, renombrar es inofensivo.
     ///
-    /// La categoría es el campo de LÓGICA; el puesto (<c>workers.puesto_id</c>) es solo
-    /// presentación y nunca debe usarse para decidir nada.
+    /// La categoría es el campo de LÓGICA, y desde 2026-08-21 se llega a ella por el puesto:
+    /// <c>workers.puesto_id → puesto.categoria_id</c>. Lo que nunca decide nada es el NOMBRE
+    /// del puesto — es texto libre y editable —, pero la categoría a la que ese puesto
+    /// pertenece sí.
     /// </summary>
     public static class CategoriaIds
     {

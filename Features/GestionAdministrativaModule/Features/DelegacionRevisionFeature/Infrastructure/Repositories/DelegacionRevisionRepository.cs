@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -70,7 +70,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
+                join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId into puj
+                from pu in puj.DefaultIfEmpty()
+                join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby r.OrdenPrioridad, r.AreaRevisoresId
                 select new

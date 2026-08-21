@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -92,7 +92,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
+                join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId into puj
+                from pu in puj.DefaultIfEmpty()
+                join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby r.AreaScopeId, r.OrdenPrioridad, r.AreaRevisoresId
                 select new
@@ -331,7 +333,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var areaScopeWorker = await (
                 from w in ctx.Worker
                 where w.Person != null && w.Person.UserId == userId && w.AreaScopeId != null
-                    && CategoriaIds.ConVistaDeSuArea.Contains(w.CategoriaId ?? 0)
+                    && w.PuestoCatalogo != null
+                    && CategoriaIds.ConVistaDeSuArea.Contains(w.PuestoCatalogo.CategoriaId)
                 select w.AreaScopeId
             ).FirstOrDefaultAsync();
             if (areaScopeWorker == null) return null;

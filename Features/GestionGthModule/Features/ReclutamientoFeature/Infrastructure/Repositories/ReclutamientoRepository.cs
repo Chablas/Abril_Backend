@@ -2,6 +2,7 @@
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
@@ -341,6 +342,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
                 where res.Codigo == ResultadoCandidato.Seleccionado
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                // La fase del requerimiento es la que distingue "el EMO de ingreso sigue
+                // pendiente" de "el proceso ya cerró": sin ella no se puede saber si una ficha
+                // que ya está adentro es lo esperado (firmó) o una anomalía.
+                join er in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals er.GthEstadoRequerimientoId
                 // El responsable del proceso es opcional (puede no haberse asignado nunca).
                 join rp in ctx.GthResponsableProceso
                     on r.GthResponsableProcesoId equals (int?)rp.GthResponsableProcesoId into rpJoin
@@ -354,6 +359,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.CvUrl,
                     ev.DecisionDateTime,
                     ev.DecisionUserId,
+                    EstadoRequerimiento = er.Codigo,
                     ResponsableGth = rp == null ? null
                         : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : rp.Worker.ApellidoNombre),
                 }).FirstOrDefaultAsync();
@@ -379,15 +385,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from f in ctx.GthPostulanteFormulario
                 where f.GthCandidatoId == raw.GthCandidatoId && f.State && f.PersonId != null
                 join w in ctx.Worker on f.PersonId equals w.PersonId
+                join we in ctx.WorkersEstado on w.WorkersEstadoId equals we.WorkersEstadoId
                 orderby w.Id descending
-                select new { w.Id, w.WorkersEstadoId }).FirstOrDefaultAsync();
+                select new { w.Id, w.WorkersEstadoId, we.EstaAdentro, EstadoNombre = we.Nombre })
+                .FirstOrDefaultAsync();
 
-            // Pendiente solo mientras la ficha siga siendo de pre-ingreso Y no tenga la cita
-            // creada: si ya firmo y paso a ACTIVO, o si la programacion ya existe, no hay nada
-            // que hacer desde el detalle del requerimiento.
-            var emoPendiente = ficha != null
-                && ficha.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
-                && !await ctx.SsProgramacionEmo.AnyAsync(pe => pe.WorkerId == ficha.Id && pe.State);
+            var esPreIngreso = ficha?.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado;
+
+            // Anomalia: el requerimiento sigue esperando el EMO de Ingreso pero la ficha que le
+            // toco al seleccionado es de alguien que ya trabaja en Abril. No deberia pasar —
+            // aprobar el formulario de un postulante cuyo documento es de un trabajador que esta
+            // adentro esta bloqueado (CoincidenciaPersonaQuery)—, y si pasa el proceso no puede
+            // avanzar por aca: el freno de ProgramacionEmoRepository.Create rechaza la cita. Se
+            // sirve para que el detalle lo diga en vez de quedarse sin boton ni explicacion.
+            //
+            // La fase importa: una ficha ya adentro con el requerimiento CERRADO es lo normal
+            // (firmo el contrato y paso a ACTIVO), no una anomalia.
+            var fichaAdentro = raw.EstadoRequerimiento == EstadoReclutamiento.EmoIngreso
+                && ficha?.EstaAdentro == true;
+
+            // El roundtrip de la cita solo se paga si hay algo que decidir con el: si la ficha no
+            // es de pre-ingreso ni es la anomalia, no hay boton ni aviso que mostrar.
+            var sinProgramacion = (esPreIngreso || fichaAdentro)
+                && !await ctx.SsProgramacionEmo.AnyAsync(pe => pe.WorkerId == ficha!.Id && pe.State);
 
             return new SeleccionadoDto
             {
@@ -400,7 +420,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SeleccionadoPor     = seleccionadoPor,
                 ResponsableGth      = raw.ResponsableGth,
                 WorkerId            = ficha?.Id,
-                EmoIngresoPendiente = emoPendiente,
+                // Pendiente solo mientras la ficha siga siendo de pre-ingreso Y no tenga la cita
+                // creada: si ya firmo y paso a ACTIVO, o si la programacion ya existe, no hay nada
+                // que hacer desde el detalle del requerimiento.
+                EmoIngresoPendiente = esPreIngreso && sinProgramacion,
+                EmoIngresoBloqueado = fichaAdentro && sinProgramacion,
+                FichaEstadoNombre   = fichaAdentro ? ficha!.EstadoNombre : null,
             };
         }
 
@@ -1195,12 +1220,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var evaluacionesPorCandidato = (await QueryEvaluaciones(ctx, candidatoIds))
                 .ToDictionary(x => x.GthCandidatoId, MapEvaluacion);
 
+            // Documentos declarados que ya existen en la base. Va acá y no solo en el modal «Ver
+            // formulario» porque los botones Aprobar/Rechazar también viven en la ficha de cada
+            // candidato: sin esto GTH podría aprobar sin haber visto nunca el aviso. Un solo
+            // roundtrip para todos los candidatos de la lista.
+            var coincidenciasPorCandidato = await CoincidenciaPersonaQuery.ResolverAsync(ctx, candidatoIds);
+
             var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
             {
                 CandidatoId        = x.GthCandidatoId,
                 Nombre             = x.Nombre,
                 Puesto             = x.Puesto,
                 Formulario         = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                Coincidencia       = coincidenciasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 MultitestRealizado = x.MultitestRealizado,
                 CorreoContacto     = correosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 Entrevista         = entrevistasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
@@ -2043,8 +2075,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 WorkersEstadoId = WorkersEstadoIds.FinalistaAprobado,
                 // Lo que ya se sabe del puesto sale del requerimiento; el resto (area, correo
                 // corporativo, obra/oficina) lo completa Onboarding cuando firme.
+                // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id.
                 PuestoId        = req.PuestoId,
-                CategoriaId     = req.CategoriaId,
                 ContributorId   = req.ContributorId,
                 // Sin fecha de ingreso: todavia no ingreso.
                 FechaIngreso    = null,
@@ -2883,7 +2915,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where w.AreaScopeId != null && cadena.Contains(w.AreaScopeId.Value)
                       && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
-                      && w.CategoriaId == CategoriaIds.Gerente
+                      && w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.CategoriaId == CategoriaIds.Gerente
                 join s in ctx.AreaScope.AsNoTracking() on w.AreaScopeId equals s.AreaScopeId
                 join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
                 select new

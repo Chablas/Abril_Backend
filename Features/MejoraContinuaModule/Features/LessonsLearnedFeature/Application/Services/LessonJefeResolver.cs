@@ -1,4 +1,4 @@
-using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
+﻿using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
@@ -101,14 +101,16 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             ).Distinct().ToListAsync();
         }
 
-        /// <summary>Categoría (workers.categoria_id) del usuario revisor.</summary>
+        /// <summary>Categoría del usuario revisor, leída de su puesto
+        /// (<c>workers.puesto_id -> puesto.categoria_id</c>).</summary>
         private static async Task<int?> GetCategoriaIdByUserIdAsync(AppDbContext ctx, int userId)
         {
             return await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                where p.UserId == userId && w.CategoriaId != null
-                select w.CategoriaId
+                join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId
+                where p.UserId == userId
+                select (int?)pu.CategoriaId
             ).FirstOrDefaultAsync();
         }
     }

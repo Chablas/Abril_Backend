@@ -1,4 +1,4 @@
-using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Dtos;
+﻿using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -77,11 +77,11 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
                 x.a.Fecha,
                 AuditorWorkerId = x.auditor.Id,
                 AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
-                AuditorCategoria = x.auditor.CategoriaCatalogo == null ? null : x.auditor.CategoriaCatalogo.Nombre,
+                AuditorCategoria = x.auditor.PuestoCatalogo == null || x.auditor.PuestoCatalogo.Categoria == null ? null : x.auditor.PuestoCatalogo.Categoria.Nombre,
                 AuditorOcupacion = x.auditor.PuestoCatalogo == null ? null : x.auditor.PuestoCatalogo.Nombre,
                 AuditadoWorkerId = x.auditado.Id,
                 AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
-                AuditadoCategoria = x.auditado.CategoriaCatalogo == null ? null : x.auditado.CategoriaCatalogo.Nombre,
+                AuditadoCategoria = x.auditado.PuestoCatalogo == null || x.auditado.PuestoCatalogo.Categoria == null ? null : x.auditado.PuestoCatalogo.Categoria.Nombre,
                 AuditadoOcupacion = x.auditado.PuestoCatalogo == null ? null : x.auditado.PuestoCatalogo.Nombre,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
                 x.a.Actividad,
@@ -155,7 +155,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(w => new
             {
                 Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
-                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })
             .FirstOrDefaultAsync();
@@ -165,7 +165,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(w => new
             {
                 Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
-                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })
             .FirstOrDefaultAsync();

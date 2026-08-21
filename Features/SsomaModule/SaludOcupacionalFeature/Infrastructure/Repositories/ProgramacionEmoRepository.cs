@@ -149,7 +149,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         MotivoRechazo = x.p.MotivoRechazo,
                         FechaNotificacion = x.p.FechaNotificacion,
                         Puesto = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
-                        Categoria = x.w.CategoriaCatalogo == null ? null : x.w.CategoriaCatalogo.Nombre,
+                        Categoria = x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre,
                         TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                             ? "Oficina Central"
                             : x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
@@ -258,7 +258,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
+            // WorkersEstado va en el Include porque el EMO de Ingreso que viene de Reclutamiento
+            // necesita `esta_adentro` (ver más abajo) y no vale gastar un roundtrip aparte.
+            var worker = await ctx.Worker
+                    .Include(w => w.Person)
+                    .Include(w => w.WorkersEstado)
+                    .FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             if (dto.FechaProgramada == default)
@@ -301,15 +306,40 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // tiene sentido antes de firmar es el de Ingreso. Se valida en el backend y no solo
             // ocultando opciones en el desplegable, porque el endpoint es publico a la app.
             var esFinalistaAprobado = worker.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado;
-            if (esFinalistaAprobado)
-            {
-                var tipoEsIngreso = await ctx.SsEmoTipo
-                    .AnyAsync(t => t.Id == dto.TipoEmoId && t.Nombre.ToLower() == "ingreso");
-                if (!tipoEsIngreso)
-                    throw new AbrilException(
-                        "A un finalista aprobado solo se le puede programar el EMO de Ingreso: "
-                        + "todavia no tiene contrato firmado.", 400);
-            }
+
+            // El tipo se resuelve una sola vez: lo usan la regla del finalista y el freno de abajo.
+            // Es un lookup por PK, y la alternativa (resolverlo dentro de cada rama) lo consultaba
+            // dos veces en el caso del finalista.
+            var tipoEsIngreso = await ctx.SsEmoTipo
+                .AnyAsync(t => t.Id == dto.TipoEmoId && t.Nombre.ToLower() == "ingreso");
+
+            if (esFinalistaAprobado && !tipoEsIngreso)
+                throw new AbrilException(
+                    "A un finalista aprobado solo se le puede programar el EMO de Ingreso: "
+                    + "todavia no tiene contrato firmado.", 400);
+
+            // Freno "porsiacaso" del EMO de Ingreso que viene de Reclutamiento: nadie que ya
+            // trabaje en Abril deberia poder llegar hasta aca. La aprobacion del formulario del
+            // postulante bloquea los documentos de trabajadores que estan adentro
+            // (CoincidenciaPersonaQuery), asi que sin ficha en `person` no hay finalista y sin
+            // finalista no hay este paso. Si igual pasa, se corta: programarle un EMO de INGRESO a
+            // alguien que ya esta dentro de la empresa significa que el proceso se cruzo con la
+            // ficha equivocada, y seguir dejaria la cita colgada del worker de otra persona.
+            //
+            // El freno esta acotado a los dos lados a proposito, para no romper flujos legitimos:
+            //   • solo si el examen es de Ingreso — un EMO periodico o de retiro de un trabajador
+            //     activo es lo normal y no se toca;
+            //   • solo si este worker es el finalista de un requerimiento que sigue en la fase
+            //     EMO_INGRESO — o sea, solo cuando la cita es el paso de Reclutamiento. Un
+            //     reingreso, que deja al trabajador ACTIVO y si necesita EMO de Ingreso, no cae
+            //     aca porque no tiene requerimiento en esa fase.
+            if (tipoEsIngreso && worker.WorkersEstado?.EstaAdentro == true
+                && await EsEmoIngresoDeReclutamientoAsync(ctx, worker.PersonId))
+                throw new AbrilException(
+                    "Escenario no contemplado por el sistema: esta ficha corresponde a alguien que "
+                    + "ya trabaja en Abril (" + (worker.WorkersEstado?.Nombre ?? "activo") + "), asi "
+                    + "que no se le puede programar el EMO de Ingreso del proceso de reclutamiento. "
+                    + "Reporta el caso al administrador antes de continuar.", 409);
 
             var empresaId = dto.EmpresaId;
             if (empresaId == null)
@@ -363,6 +393,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await EnviarNotificacionCreacionAsync(ctx, ent, worker);
 
             return ent.Id;
+        }
+
+        /// <summary>
+        /// true si esta persona es el finalista de un requerimiento de Reclutamiento que sigue
+        /// esperando su EMO de Ingreso (fase EMO_INGRESO). Es lo que distingue "esta cita es el
+        /// paso de Reclutamiento" de "esta cita es un EMO de Ingreso cualquiera", y es la misma
+        /// busqueda que usa <see cref="CerrarRequerimientoEmoIngresoAsync"/> para cerrar el
+        /// requerimiento despues de crear la cita.
+        ///
+        /// Se paga solo en el caso raro que la necesita (EMO de Ingreso de alguien que ya esta
+        /// adentro), no en cada programacion.
+        /// </summary>
+        private static async Task<bool> EsEmoIngresoDeReclutamientoAsync(AppDbContext ctx, int? personId)
+        {
+            if (personId == null) return false;
+
+            return await (
+                from f in ctx.GthPostulanteFormulario
+                where f.State && f.PersonId == personId
+                join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
+                where c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                where r.State
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo == "EMO_INGRESO"
+                select r.GthRequerimientoId).AnyAsync();
         }
 
         /// <summary>

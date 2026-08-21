@@ -96,7 +96,8 @@ public class CharlaService : ICharlaService
 
         var staffIds = await ctx.Worker
             .Where(w => workerIds.Contains(w.Id)
-                && w.CategoriaId == CategoriaIds.Supervisor
+                && w.PuestoCatalogo != null
+                && w.PuestoCatalogo.CategoriaId == CategoriaIds.Supervisor
                 && (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                     || w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 && w.WorkersEstadoId == WorkersEstadoIds.Activo)
@@ -130,8 +131,7 @@ public class CharlaService : ICharlaService
 
         var staff = await ctx.Worker
             .Include(w => w.Person)
-            .Include(w => w.CategoriaCatalogo)
-            .Include(w => w.PuestoCatalogo)
+            .Include(w => w.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
             .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                 && w.WorkersEstadoId == WorkersEstadoIds.Activo
                 && ctx.WorkerVinculacion.Any(v =>
@@ -141,7 +141,7 @@ public class CharlaService : ICharlaService
             .ToListAsync();
 
         return staff
-            .Select(w => new StaffDto(w.Id, ToTitleCase(w.Person?.FullName), w.PuestoCatalogo?.Nombre ?? string.Empty, w.CategoriaCatalogo?.Nombre))
+            .Select(w => new StaffDto(w.Id, ToTitleCase(w.Person?.FullName), w.PuestoCatalogo?.Nombre ?? string.Empty, w.PuestoCatalogo?.Categoria?.Nombre))
             .OrderBy(s => s.NombreCompleto)
             .ToList();
     }

@@ -50,13 +50,28 @@
         public static readonly int[] PreIngreso = { FinalistaAprobado, NoIngreso };
 
         /// <summary>
+        /// Los estados de alguien que trabaja en Abril HOY
+        /// (<c>workers_estado.esta_adentro = true</c>). Condición actual, no hecho
+        /// consumado: es lo que distingue a <see cref="Retirado"/> —que sí llegó a
+        /// ingresar pero ya no está adentro— de <see cref="Activo"/>.
+        ///
+        /// Preferir la columna cuando la consulta ya toca <c>workers_estado</c>
+        /// (así un estado nuevo no obliga a editar este array); el array es para
+        /// las consultas que solo tienen <c>workers.workers_estado_id</c> a mano.
+        /// </summary>
+        public static readonly int[] EstanAdentro = { Activo, InhabilitadoSsoma };
+
+        /// <summary>
         /// Trabajadores vigentes, retirados o no. Reemplaza al viejo
         /// <c>estado != "RETIRADO"</c>, que además de no excluir a las fichas de
         /// pre-ingreso venía escrito de tres formas distintas por el código
         /// (una de ellas, <c>!= "Retirado"</c>, no filtraba nada por la diferencia
         /// de mayúsculas).
+        ///
+        /// Es el mismo conjunto que <see cref="EstanAdentro"/> nombrado por lo que
+        /// excluye; apunta al mismo array a propósito para que no puedan divergir.
         /// </summary>
-        public static readonly int[] NoRetirados = { Activo, InhabilitadoSsoma };
+        public static readonly int[] NoRetirados = EstanAdentro;
 
         /// <summary>
         /// <see cref="LlegaronAIngresar"/> lista para interpolar dentro de un

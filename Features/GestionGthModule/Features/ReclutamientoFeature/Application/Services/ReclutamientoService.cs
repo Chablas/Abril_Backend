@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly ICorreoConfigRepository  _correoConfig;
         private readonly IGraphSharePointService  _sharePoint;
+        private readonly IReclutamientoArchivoStorage _archivos;
         private readonly IEmailService            _email;
         private readonly IConfiguration           _configuration;
         private readonly ILogger<ReclutamientoService> _logger;
@@ -52,6 +53,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             ICorreoDestinatariosResolver destinatarios,
             ICorreoConfigRepository correoConfig,
             IGraphSharePointService sharePoint,
+            IReclutamientoArchivoStorage archivos,
             IEmailService email,
             IConfiguration configuration,
             ILogger<ReclutamientoService> logger)
@@ -62,6 +64,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _destinatarios    = destinatarios;
             _correoConfig     = correoConfig;
             _sharePoint       = sharePoint;
+            _archivos         = archivos;
             _email            = email;
             _configuration    = configuration;
             _logger           = logger;
@@ -885,8 +888,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto == null || dto.CandidatoId <= 0)
                 throw new AbrilException("Selecciona al finalista sobre el que quieres decidir.", 400);
 
+            // El área de destino la valida el repositorio contra las del puesto: es él quien
+            // conoce el puesto del requerimiento y la lista que se le ofreció al solicitante.
             var ctx = await _repo.RegistrarDecisionFinalista(
-                requerimientoId, dto.CandidatoId, dto.Aprobado, userId.Value);
+                requerimientoId, dto.CandidatoId, dto.Aprobado, dto.AreaScopeId, userId.Value);
             var res = ctx.Resultado;
 
             // 1) Al rechazar, el finalista recibe el mismo correo de fin de proceso que le envía GTH
@@ -902,7 +907,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await EnviarFinDeProcesoAsync(ctx, noElegido.Nombre, noElegido.Correo, noElegido.CandidatoId);
 
             // 3) Notificar la decisión a GTH (tipo FINALISTA_DECISION), igual que la de long list.
-            await NotificarDecisionFinalistaAGthAsync(ctx);
+            await NotificarDecisionFinalistaAGthAsync(requerimientoId, ctx);
 
             var otros = ctx.NoElegidos.Count == 0
                 ? ""
@@ -950,7 +955,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// FINALISTA_DECISION). To = principales configurados, CC = copias. Sin principales no se
         /// envía. No bloquea: cualquier fallo solo se registra como warning.
         /// </summary>
-        private async Task NotificarDecisionFinalistaAGthAsync(FinalistaDecisionContextoDto ctx)
+        private async Task NotificarDecisionFinalistaAGthAsync(int requerimientoId, FinalistaDecisionContextoDto ctx)
         {
             try
             {
@@ -970,7 +975,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await _email.SendAsync(
                     to:      dest.EmailsPara,
                     subject: subject,
-                    body:    ConstruirCuerpoDecisionFinalista(ctx, accion),
+                    body:    ConstruirCuerpoDecisionFinalista(requerimientoId, ctx, accion),
                     isHtml:  true,
                     cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
@@ -981,11 +986,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Enlace a SSOMA · Salud Ocupacional · EMOs con la ficha del seleccionado enfocada y el
+        /// modal de programación ya abierto: exactamente el mismo salto que hace el botón
+        /// «Programar EMO de ingreso» de la pantalla de Reclutamiento (ver <c>detalle.ts</c>). El
+        /// EMO se programa a mano, así que el correo solo tiene que dejar a GTH parado ahí.
+        /// Sin sesión, el <c>authGuard</c> del frontend manda al login con esta URL como
+        /// <c>returnUrl</c> y lo devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLinkProgramarEmoIngreso(int workerId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/ssoma/salud-ocupacional/emos?workerId={workerId}&programar=1";
+        }
+
+        /// <summary>
         /// Cuerpo del correo a GTH con la decisión final del solicitante sobre un finalista. Lo que
         /// sigue después de la decisión va en la franja, que es una línea: el detalle del proceso
         /// se ve en la pantalla.
+        ///
+        /// Al aprobar, el botón lleva directo a la programación del EMO de ingreso del
+        /// seleccionado, que es lo único que le queda por hacer a GTH para cerrar el proceso. Si el
+        /// seleccionado no llegó a tener ficha (sin formulario del postulante aprobado no hay a
+        /// quién programarle nada) y en los rechazos, el botón cae al detalle del requerimiento.
         /// </summary>
-        private string ConstruirCuerpoDecisionFinalista(FinalistaDecisionContextoDto ctx, string accion)
+        private string ConstruirCuerpoDecisionFinalista(
+            int requerimientoId, FinalistaDecisionContextoDto ctx, string accion)
         {
             var l   = Layout.Desde(_configuration);
             var res = ctx.Resultado;
@@ -998,6 +1023,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : res.TodosRechazados
                     ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs."
                     : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
+
+            var programarEmo = res.Aprobado && res.WorkerId.HasValue;
+            var link = programarEmo
+                ? ConstruirLinkProgramarEmoIngreso(res.WorkerId!.Value)
+                : ConstruirLinkDetalleRequerimiento(requerimientoId);
 
             return l.Documento(
                 new Layout.Cabecera(
@@ -1014,7 +1044,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }),
                 res.Aprobado
                     ? l.Franja("req-check", Layout.Tono.Verde, $"<b>Aprobado.</b> {siguiente}")
-                    : l.Franja("req-rechazadas", Layout.Tono.Rojo, $"<b>Rechazado.</b> {siguiente}"));
+                    : l.Franja("req-rechazadas", Layout.Tono.Rojo, $"<b>Rechazado.</b> {siguiente}"),
+                l.Boton(programarEmo ? "Programar EMO de ingreso" : "Ver requerimiento", link),
+                l.EnlaceDirecto(link));
         }
 
         // ── Envío de la long list al solicitante ──────────────────────────────
@@ -1191,37 +1223,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Resuelve la carpeta de reclutamiento (gth_sustento_folder) y la subcarpeta del
-        /// requerimiento, donde van TODOS sus archivos: los CVs y anexos de la long list y los del
-        /// informe de la entrevista. La subcarpeta se sigue llamando "Long list {codigo}" porque
-        /// las de producción ya existen con ese nombre y renombrarlas dejaría huérfanos los
-        /// enlaces guardados.
+        /// Carpeta de SharePoint del requerimiento, donde van TODOS sus archivos: los CVs y anexos
+        /// de la long list, los del informe de la entrevista y el CV documentado que sube el
+        /// postulante desde su formulario. La resuelve el servicio compartido de archivos, que es
+        /// el mismo que usa la página pública del postulante.
         /// </summary>
-        private async Task<ShareLinkResolveDto> ResolverCarpetaRequerimientoAsync(string codigo)
-        {
-            var folderUrl = await _repo.GetSustentoFolderUrl();
-            if (string.IsNullOrWhiteSpace(folderUrl))
-                throw new AbrilException("No está configurada la carpeta de archivos de reclutamiento.", 500);
-
-            var raiz = await _sharePoint.ResolveSharePointFolderUrlAsync(folderUrl);
-            if (raiz == null || !raiz.IsFolder)
-                throw new AbrilException("No se pudo resolver la carpeta de reclutamiento en SharePoint.", 502);
-
-            // Subcarpeta por requerimiento para agrupar los CVs de su long list.
-            try
-            {
-                var subItemId = await _sharePoint.EnsureChildFolderAsync(
-                    raiz.DriveId, raiz.ItemId, $"Long list {SanitizeFilename(codigo)}");
-                return new ShareLinkResolveDto { DriveId = raiz.DriveId, ItemId = subItemId, IsFolder = true };
-            }
-            catch (Exception ex)
-            {
-                // Si no se pudo crear la subcarpeta, se cae a la carpeta raíz (los nombres de archivo
-                // ya incluyen el código del requerimiento, así que no colisionan).
-                _logger.LogWarning(ex, "No se pudo crear la subcarpeta de long list de {Codigo}; se usa la carpeta raíz", codigo);
-                return raiz;
-            }
-        }
+        private Task<ShareLinkResolveDto> ResolverCarpetaRequerimientoAsync(string codigo) =>
+            _archivos.ResolverCarpetaRequerimientoAsync(codigo);
 
         /// <summary>
         /// Sube un archivo del requerimiento (CV, anexo o archivo del informe) a la carpeta
@@ -1229,34 +1237,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// numera por candidato ("3"), el anexo por candidato y posición ("3_2") y los del informe
         /// por id de candidato.
         /// </summary>
-        private async Task<SharePointUploadResultDto> SubirArchivoRequerimientoAsync(
+        private Task<SharePointUploadResultDto> SubirArchivoRequerimientoAsync(
             ShareLinkResolveDto carpeta, string prefijo, string codigo, string pos,
-            string origFileName, byte[] content, string contentType)
-        {
-            var ext      = Path.GetExtension(origFileName);
-            var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var filename = $"{prefijo}_{SanitizeFilename(codigo)}_{pos}_{stamp}{ext}";
-
-            try
-            {
-                using var stream = new MemoryStream(content);
-                var result = await _sharePoint.UploadToOneDriveFolderAsync(
-                    carpeta.DriveId, carpeta.ItemId, filename,
-                    stream, string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
-                    autoRenameOnLock: true);
-
-                if (result?.WebUrl is null)
-                    throw new AbrilException("No se pudo subir un archivo del requerimiento a SharePoint.", 502);
-
-                return result;
-            }
-            catch (AbrilException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló la subida de un archivo ({Prefijo}) del requerimiento {Codigo}", prefijo, codigo);
-                throw new AbrilException("Error al subir los archivos a SharePoint.", 502);
-            }
-        }
+            string origFileName, byte[] content, string contentType) =>
+            _archivos.SubirArchivoRequerimientoAsync(
+                carpeta, prefijo, codigo, pos, origFileName, content, contentType);
 
         private static void ValidarLongListArchivo(
             string etiqueta, string fileName, long length, string[] extensionesPermitidas)

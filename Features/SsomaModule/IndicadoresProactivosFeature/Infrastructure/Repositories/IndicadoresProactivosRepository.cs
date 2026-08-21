@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
@@ -75,7 +75,12 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var datos = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId,
-                  (p, w) => new { w.Id, w.CategoriaId })
+                  (p, w) => new
+                  {
+                      w.Id,
+                      // La categoría sale del puesto: workers ya no la guarda.
+                      CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                  })
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
+﻿namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
 {
     public class WorkerDetalleDto
     {
@@ -26,7 +26,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }
-        /// <summary>FK a <c>categoria</c> (campo de lógica), para precargar el desplegable.</summary>
+        /// <summary>FK a <c>categoria</c> derivada de <c>puesto.categoria_id</c>, para precargar
+        /// el filtro de categoría del formulario. Solo lectura: no se puede guardar.</summary>
         public int? CategoriaId { get; set; }
         public string? Categoria { get; set; }
         /// <summary>FK a <c>puesto</c> (campo de presentación), para precargar el desplegable.</summary>

@@ -63,6 +63,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Motivo del rechazo (opcional, solo cuando el formulario se rechaza).</summary>
         public string? MotivoRechazo { get; set; }
 
+        // ── CV documentado que sube el propio postulante ───────────────────────
+        /// <summary>
+        /// CV documentado que el postulante adjunta al enviar el formulario, subido a la misma
+        /// carpeta de SharePoint del requerimiento que los CVs de la long list. Es un segundo CV,
+        /// no un reemplazo: el de <c>gth_candidato.cv_*</c> es el que consiguió el reclutador y
+        /// este es el que el postulante declara como suyo, y GTH y el solicitante ven los dos.
+        ///
+        /// Todo en null en los formularios anteriores a este campo (y mientras el postulante no
+        /// haya enviado nada): la obligatoriedad se exige en el envío, no en el esquema.
+        /// </summary>
+        public string? CvNombre { get; set; }
+
+        /// <summary>
+        /// Nombre con el que el postulante subió el archivo. Es el que se muestra: el de SharePoint
+        /// lleva el código del requerimiento y un timestamp, igual que en los anexos de la long list.
+        /// </summary>
+        public string? CvNombreOriginal { get; set; }
+
+        public string? CvUrl { get; set; }
+        public string? CvItemId { get; set; }
+        public string? CvDriveId { get; set; }
+
         // ── Página 0 · Consentimiento de protección de datos ──────────────────
         /// <summary>
         /// Autoriza el tratamiento de sus datos personales (Ley N.° 29733). Es la primera página del

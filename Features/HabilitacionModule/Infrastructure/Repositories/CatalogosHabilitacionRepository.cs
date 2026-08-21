@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -367,7 +367,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<List<PuestoAdminDto>> GetPuestosTodosAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.Puesto
+            var puestos = await ctx.Puesto
                 .AsNoTracking()
                 .Where(x => x.State)
                 .OrderBy(x => x.Nombre)
@@ -382,6 +382,47 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CantidadTrabajadores = ctx.Worker.Count(w => w.PuestoId == x.PuestoId)
                 })
                 .ToListAsync();
+
+            // Las áreas van en un segundo viaje y no como subconsulta por fila: son ~115
+            // vínculos en total, así que traerlos de una y agruparlos en memoria evita el N+1.
+            var vinculos = await (
+                from pas in ctx.PuestoAreaScope.AsNoTracking()
+                join s in ctx.AreaScope.AsNoTracking() on pas.AreaScopeId equals s.AreaScopeId
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                where pas.State && s.State && ai.State
+                select new { pas.PuestoId, pas.AreaScopeId, ai.AreaItemName }
+            ).ToListAsync();
+
+            var areasPorPuesto = vinculos
+                .GroupBy(v => v.PuestoId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(v => new PuestoAreaDto { AreaScopeId = v.AreaScopeId, Nombre = v.AreaItemName })
+                          .OrderBy(a => a.Nombre, StringComparer.CurrentCulture)
+                          .ToList());
+
+            foreach (var p in puestos)
+                if (areasPorPuesto.TryGetValue(p.Id, out var areas)) p.Areas = areas;
+
+            return puestos;
+        }
+
+        public async Task<List<PuestoAreaNodoDto>> GetAreaTreePuestosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await (
+                from s in ctx.AreaScope.AsNoTracking()
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                where s.State && ai.State
+                orderby s.DisplayOrder, ai.AreaItemName
+                select new PuestoAreaNodoDto
+                {
+                    AreaScopeId = s.AreaScopeId,
+                    AreaScopeParentId = s.AreaScopeParentId,
+                    AreaItemName = ai.AreaItemName,
+                    DisplayOrder = s.DisplayOrder,
+                }
+            ).ToListAsync();
         }
 
         /// <summary>
@@ -412,13 +453,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId)
+        public async Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId, IReadOnlyCollection<int> areaScopeIds)
         {
             using var ctx = _factory.CreateDbContext();
             var nombreNorm = NormalizarNombre(nombre);
             if (await ctx.Puesto.AnyAsync(x => x.State && x.Nombre == nombreNorm))
                 throw new AbrilException("Ya existe un puesto con ese nombre.", 400);
             await ValidarCategoriaAsync(ctx, categoriaId);
+            var areas = await ValidarAreasAsync(ctx, areaScopeIds);
 
             var maxOrden = await ctx.Puesto.MaxAsync(x => (int?)x.Orden) ?? 0;
             var puesto = new Puesto
@@ -430,10 +472,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             };
             ctx.Puesto.Add(puesto);
             await ctx.SaveChangesAsync();
+
+            // El puesto tiene que existir antes de poder colgarle las áreas (la FK), así que
+            // el alta son dos SaveChanges y no uno.
+            if (areas.Count > 0)
+            {
+                var now = DateTime.UtcNow;
+                ctx.PuestoAreaScope.AddRange(areas.Select(a => new PuestoAreaScope
+                {
+                    PuestoId = puesto.PuestoId,
+                    AreaScopeId = a,
+                    CreatedDateTime = now,
+                    State = true,
+                }));
+                await ctx.SaveChangesAsync();
+            }
+
             return puesto;
         }
 
-        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId)
+        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId, IReadOnlyCollection<int> areaScopeIds)
         {
             using var ctx = _factory.CreateDbContext();
             var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
@@ -443,12 +501,73 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await ctx.Puesto.AnyAsync(x => x.State && x.Nombre == nombreNorm && x.PuestoId != id))
                 throw new AbrilException("Ya existe un puesto con ese nombre.", 400);
             await ValidarCategoriaAsync(ctx, categoriaId);
+            var areas = await ValidarAreasAsync(ctx, areaScopeIds);
 
             puesto.Nombre = nombreNorm;
             puesto.CategoriaId = categoriaId;
             puesto.UpdatedDateTime = DateTime.UtcNow;
+
+            await SincronizarAreasAsync(ctx, puesto.PuestoId, areas);
             await ctx.SaveChangesAsync();
             return puesto;
+        }
+
+        /// <summary>
+        /// Deja las áreas del puesto exactamente en <paramref name="areas"/>: las que sobran se
+        /// dan de baja (state = false, la fila se conserva) y las que faltan se agregan. Un
+        /// vínculo que había sido dado de baja se revive en vez de insertarse de nuevo, porque
+        /// el índice único es parcial sobre las vivas y un INSERT chocaría en cuanto la misma
+        /// área se quite y se vuelva a poner.
+        ///
+        /// No guarda: deja los cambios en el ChangeTracker para que el SaveChanges del método
+        /// que llama escriba el puesto y sus áreas en la misma transacción.
+        /// </summary>
+        private static async Task SincronizarAreasAsync(AppDbContext ctx, int puestoId, IReadOnlyCollection<int> areas)
+        {
+            var actuales = await ctx.PuestoAreaScope
+                .Where(x => x.PuestoId == puestoId)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+
+            foreach (var fila in actuales)
+            {
+                var deberiaEstar = areas.Contains(fila.AreaScopeId);
+                if (fila.State == deberiaEstar) continue;
+                fila.State = deberiaEstar;
+                fila.UpdatedDateTime = now;
+            }
+
+            var yaExisten = actuales.Select(x => x.AreaScopeId).ToHashSet();
+            foreach (var areaScopeId in areas.Where(a => !yaExisten.Contains(a)))
+            {
+                ctx.PuestoAreaScope.Add(new PuestoAreaScope
+                {
+                    PuestoId = puestoId,
+                    AreaScopeId = areaScopeId,
+                    CreatedDateTime = now,
+                    State = true,
+                });
+            }
+        }
+
+        /// <summary>
+        /// Normaliza la lista de áreas del formulario (quita duplicados) y valida que todas
+        /// existan vivas en el árbol. Una lista vacía es válida: los puestos de obra no
+        /// pertenecen a ninguna área.
+        /// </summary>
+        private static async Task<List<int>> ValidarAreasAsync(AppDbContext ctx, IReadOnlyCollection<int> areaScopeIds)
+        {
+            var ids = areaScopeIds.Where(x => x > 0).Distinct().ToList();
+            if (ids.Count == 0) return ids;
+
+            var vivas = await ctx.AreaScope
+                .Where(s => ids.Contains(s.AreaScopeId) && s.State)
+                .CountAsync();
+            if (vivas != ids.Count)
+                throw new AbrilException("Alguna de las áreas indicadas no existe.", 400);
+
+            return ids;
         }
 
         public async Task TogglePuestoAsync(int id, bool activo)
@@ -487,6 +606,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             puesto.State = false;
             puesto.Active = false;
             puesto.UpdatedDateTime = DateTime.UtcNow;
+            await SincronizarAreasAsync(ctx, puesto.PuestoId, Array.Empty<int>());
             await ctx.SaveChangesAsync();
         }
 
@@ -519,13 +639,29 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var now = DateTime.UtcNow;
             var eliminados = 0;
+            var idsEliminados = new List<int>();
             foreach (var puesto in puestos)
             {
                 if (enUso.Contains(puesto.PuestoId)) continue;
                 puesto.State = false;
                 puesto.Active = false;
                 puesto.UpdatedDateTime = now;
+                idsEliminados.Add(puesto.PuestoId);
                 eliminados++;
+            }
+
+            // Un puesto eliminado no puede seguir figurando en ninguna área: sus vínculos se
+            // dan de baja con él, en un solo UPDATE para todo el lote.
+            if (idsEliminados.Count > 0)
+            {
+                var vinculos = await ctx.PuestoAreaScope
+                    .Where(x => x.State && idsEliminados.Contains(x.PuestoId))
+                    .ToListAsync();
+                foreach (var v in vinculos)
+                {
+                    v.State = false;
+                    v.UpdatedDateTime = now;
+                }
             }
 
             if (eliminados > 0) await ctx.SaveChangesAsync();
@@ -541,9 +677,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private static string NormalizarNombre(string nombre) =>
             nombre.Trim().ToUpperInvariant();
 
-        private static async Task ValidarCategoriaAsync(AppDbContext ctx, int? categoriaId)
+        /// <summary>
+        /// Un puesto sin categoría dejaría a sus trabajadores sin categoría — o sea fuera de
+        /// todo filtro y de toda regla —, así que la categoría es obligatoria y tiene que
+        /// existir viva en el catálogo.
+        /// </summary>
+        private static async Task ValidarCategoriaAsync(AppDbContext ctx, int categoriaId)
         {
-            if (categoriaId is null) return;
             if (!await ctx.Categoria.AnyAsync(c => c.CategoriaId == categoriaId && c.State))
                 throw new AbrilException("La categoría indicada no existe.", 400);
         }

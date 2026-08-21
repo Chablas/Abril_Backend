@@ -854,6 +854,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             )
             SELECT DISTINCT w.email_corporativo
             FROM workers w
+            LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
             WHERE w.workers_estado_id = {WorkersEstadoIds.Activo}
               AND w.email_corporativo ILIKE '%@abril.pe'
               AND w.contrata_casa = 'Casa'
@@ -869,7 +870,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                   -- '%gerente%general%', '%gerente%administr%'). Al unificar los catálogos
                   -- esos tres casos se convirtieron en categorías propias, asignadas a los
                   -- mismos trabajadores que la búsqueda alcanzaba.
-                  OR w.categoria_id = ANY(@categorias)
+                  OR pu.categoria_id = ANY(@categorias)
                   OR w.jefatura  ILIKE '%gerente%general%'
                   OR w.jefatura  ILIKE '%gerente%administr%'
               );

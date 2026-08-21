@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
+﻿namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
 {
     /// <summary>Ítem del desplegable de categorías (el campo de lógica).</summary>
     public class CatCategoriaDto
@@ -16,7 +16,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
-        public int? CategoriaId { get; set; }
+        /// <summary>Categoría a la que pertenece el puesto. Obligatoria: es de acá de donde
+        /// sale la categoría de un trabajador.</summary>
+        public int CategoriaId { get; set; }
     }
 
     public class CatCategoriaAdminDto
@@ -31,7 +33,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = "";
-        public int? CategoriaId { get; set; }
+        /// <summary>Categoría a la que pertenece el puesto. Obligatoria: es de acá de donde
+        /// sale la categoría de un trabajador.</summary>
+        public int CategoriaId { get; set; }
         public string? CategoriaNombre { get; set; }
         public int Orden { get; set; }
         public bool Activo { get; set; }
@@ -43,6 +47,20 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
         /// alta/edición va en 0.
         /// </summary>
         public int CantidadTrabajadores { get; set; }
+
+        /// <summary>
+        /// Áreas a las que pertenece el puesto. Un puesto puede estar en varias (CHOFER está
+        /// en Logística y en Gerencia General) y también en ninguna: los puestos de obra no
+        /// tienen área porque el padrón de GTH solo cubrió personal de oficina.
+        /// </summary>
+        public List<PuestoAreaDto> Areas { get; set; } = new();
+    }
+
+    /// <summary>Un área del puesto: el nodo de <c>area_scope</c> con su nombre ya resuelto.</summary>
+    public class PuestoAreaDto
+    {
+        public int AreaScopeId { get; set; }
+        public string Nombre { get; set; } = "";
     }
 
     /// <summary>
@@ -70,6 +88,27 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     {
         public List<CatCategoriaAdminDto> Categorias { get; set; } = new();
         public List<PuestoAdminDto> Puestos { get; set; } = new();
+
+        /// <summary>
+        /// Árbol de áreas como lista plana (el frontend arma la jerarquía con
+        /// <c>areaScopeParentId</c>). Alimenta el filtro por área en cascada de la sección
+        /// Puestos y el selector de áreas del modal de alta/edición, así que viaja en la
+        /// misma respuesta que las otras dos listas.
+        /// </summary>
+        public List<PuestoAreaNodoDto> AreaTree { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Nodo del árbol <c>area_scope</c> para los desplegables de la pantalla. Es la versión
+    /// ligera de <see cref="AreaArbolNodoDto"/>: acá no hacen falta ni la equivalencia legacy
+    /// ni los revisores, que son lo caro de resolver.
+    /// </summary>
+    public class PuestoAreaNodoDto
+    {
+        public int AreaScopeId { get; set; }
+        public int? AreaScopeParentId { get; set; }
+        public string AreaItemName { get; set; } = "";
+        public int DisplayOrder { get; set; }
     }
 
     public class CatNombreRequest
@@ -77,11 +116,21 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
         public string Nombre { get; set; } = "";
     }
 
-    /// <summary>Alta/edición de un puesto: nombre + la categoría a la que pertenece.</summary>
+    /// <summary>Alta/edición de un puesto: nombre, categoría y las áreas a las que pertenece.</summary>
     public class PuestoUpsertRequest
     {
         public string Nombre { get; set; } = "";
+        /// <summary>Categoría del puesto. Obligatoria — se recibe como nullable solo para
+        /// poder devolver un 400 legible cuando el formulario no la manda, en vez de dejar
+        /// que el binder la convierta en 0.</summary>
         public int? CategoriaId { get; set; }
+
+        /// <summary>
+        /// Áreas del puesto. Es el estado COMPLETO, no un delta: lo que no venga en la lista
+        /// se le quita al puesto. Vacía = el puesto se queda sin área (válido: los puestos de
+        /// obra no tienen ninguna).
+        /// </summary>
+        public List<int> AreaScopeIds { get; set; } = new();
     }
 
     public class CatToggleRequest

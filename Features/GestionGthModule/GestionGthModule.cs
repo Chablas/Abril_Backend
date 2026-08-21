@@ -1,7 +1,11 @@
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
+﻿using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Services;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Application.Services;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
@@ -21,6 +25,11 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IReclutamientoRepository, ReclutamientoRepository>();
             services.AddScoped<IReclutamientoService, ReclutamientoService>();
 
+            // Archivos del requerimiento en SharePoint (CVs y anexos de la long list, archivos del
+            // informe, CV documentado del postulante). Lo comparten la bandeja de GTH y la página
+            // pública del formulario: todos los archivos de un requerimiento van a la misma carpeta.
+            services.AddScoped<IReclutamientoArchivoStorage, ReclutamientoArchivoStorage>();
+
             // Formulario de información del postulante (público por token + revisión de GTH)
             services.AddScoped<IPostulanteFormularioRepository, PostulanteFormularioRepository>();
             services.AddScoped<IPostulanteFormularioService, PostulanteFormularioService>();
@@ -39,6 +48,12 @@ namespace Abril_Backend.Features.GestionGthModule
             // Destinatarios efectivos de cada correo: lo comparten el envío real y la
             // previsualización del modal, así que no puede haber dos versiones.
             services.AddScoped<ICorreoDestinatariosResolver, CorreoDestinatariosResolver>();
+
+            // Reclutadores (Configuración): quiénes del área de GTH salen en el desplegable
+            // "Responsable del proceso". Es una tabla filtro aparte de workers: activar o
+            // desactivar acá no toca la ficha del trabajador.
+            services.AddScoped<IReclutadoresRepository, ReclutadoresRepository>();
+            services.AddScoped<IReclutadoresService, ReclutadoresService>();
 
             // Onboarding: la fase que sigue a Reclutamiento (carta oferta → base maestra).
             services.AddScoped<IOnboardingRepository, OnboardingRepository>();

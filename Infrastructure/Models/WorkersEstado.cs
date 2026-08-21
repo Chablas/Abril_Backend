@@ -42,6 +42,23 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("llego_a_ingresar")]
         public bool LlegoAIngresar { get; set; }
 
+        /// <summary>
+        /// Condición actual, no hecho consumado: ¿esta persona trabaja en Abril hoy?
+        /// Cambia en los dos sentidos (un RETIRADO que reingresa vuelve a ACTIVO).
+        /// true para ACTIVO e INHABILITADO_SSOMA; false para RETIRADO,
+        /// FINALISTA_APROBADO y NO_INGRESO.
+        ///
+        /// Es la diferencia con <see cref="LlegoAIngresar"/>, que solo difiere en
+        /// RETIRADO: ese sí llegó a ingresar (true) pero ya no está adentro (false).
+        ///
+        /// Lo usa Reclutamiento para decidir si GTH puede aprobar el formulario de un
+        /// postulante cuyo documento ya existe en la base: si la ficha que coincide
+        /// está adentro, la aprobación se bloquea (aprobar sobreescribiría los datos
+        /// de un trabajador actual con lo que tecleó un desconocido).
+        /// </summary>
+        [Column("esta_adentro")]
+        public bool EstaAdentro { get; set; }
+
         /// <summary>Habilitar/inhabilitar en filtros y desplegables.</summary>
         [Column("active")]
         public bool Active { get; set; } = true;

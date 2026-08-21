@@ -43,18 +43,23 @@ namespace Abril_Backend.Infrastructure.Models
         public DateOnly? FechaRetiro { get; set; }
 
         /// <summary>
-        /// Categoría del trabajador: el campo de LÓGICA. Todo filtro, comparación,
-        /// bloqueo o restricción interna se hace contra esta FK.
-        /// </summary>
-        [Column("categoria_id")]
-        public int? CategoriaId { get; set; }
-
-        [ForeignKey(nameof(CategoriaId))]
-        public Categoria? CategoriaCatalogo { get; set; }
-
-        /// <summary>
-        /// Puesto del trabajador: el campo de PRESENTACIÓN. Es lo que se muestra en
-        /// pantalla, PDFs y correos; no debe usarse para decidir nada.
+        /// Puesto del trabajador: el campo de PRESENTACIÓN (es lo que se muestra en
+        /// pantalla, PDFs y correos) y, a la vez, el ÚNICO camino a la categoría.
+        ///
+        /// La categoría es el campo de LÓGICA — todo filtro, comparación, bloqueo o
+        /// restricción interna se hace contra ella — pero ya no vive en <c>workers</c>:
+        /// se llega por <c>PuestoCatalogo.CategoriaId</c>. Antes había una FK
+        /// <c>workers.categoria_id</c> en paralelo y las dos podían contradecirse (26%
+        /// de las fichas de prod lo hacían); se bajó en
+        /// <c>Migrations_Manual/2026-08-21_workers_categoria_desde_puesto.sql</c>.
+        ///
+        /// O sea: el NOMBRE del puesto no decide nada (es texto libre y editable), pero
+        /// a qué categoría pertenece ese puesto sí. Cambiarle la categoría a un puesto
+        /// desde Configuración → Categorías y Puestos le cambia el nivel a todos sus
+        /// trabajadores.
+        ///
+        /// Sin puesto no hay categoría: una ficha con <c>PuestoId == null</c> queda fuera
+        /// de todo filtro y de toda regla.
         /// </summary>
         [Column("puesto_id")]
         public int? PuestoId { get; set; }
@@ -63,16 +68,16 @@ namespace Abril_Backend.Infrastructure.Models
         public Puesto? PuestoCatalogo { get; set; }
 
         // ── Columnas congeladas ────────────────────────────────────────────────
-        // Reemplazadas por CategoriaId / PuestoId al unificar los cinco catálogos
-        // que describían "qué hace" un trabajador (ver Migrations_Manual/
+        // Reemplazadas por PuestoId al unificar los cinco catálogos que describían
+        // "qué hace" un trabajador (ver Migrations_Manual/
         // categoria_puesto_unificados.sql). Se conservan solo para auditoría:
         // no se leen ni se escriben desde ningún lado.
 
-        /// <summary>Congelada. Antes: texto libre de la categoría. Usar <see cref="CategoriaId"/>.</summary>
+        /// <summary>Congelada. Antes: texto libre de la categoría. Usar <see cref="PuestoId"/>.</summary>
         [Column("categoria")]
         public string? Categoria { get; set; }
 
-        /// <summary>Congelada. Antes: FK a <c>workers_category</c>. Usar <see cref="CategoriaId"/>.</summary>
+        /// <summary>Congelada. Antes: FK a <c>workers_category</c>. Usar <see cref="PuestoId"/>.</summary>
         [Column("worker_category_id")]
         public int? WorkerCategoryId { get; set; }
 

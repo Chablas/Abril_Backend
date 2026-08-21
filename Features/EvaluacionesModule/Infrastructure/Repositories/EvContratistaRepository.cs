@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -100,9 +100,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // Subarea del evaluador (para saber qué área evalúa)
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.subarea AS Subarea, w.area AS Area, w.categoria_id AS CategoriaId
+                @"SELECT w.subarea AS Subarea, w.area AS Area, pu.categoria_id AS CategoriaId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
                   WHERE p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });

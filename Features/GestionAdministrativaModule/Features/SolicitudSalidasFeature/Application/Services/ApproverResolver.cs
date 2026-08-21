@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
@@ -49,6 +49,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             using var ctx = _factory.CreateDbContext();
 
+            // La categoría del trabajador ya no vive en workers: se resuelve por su puesto
+            // (workers.puesto_id -> puesto.categoria_id). Sin puesto no hay categoría, y sin
+            // categoría el trabajador cae al walk-up por el árbol como cualquier otro.
+            var userCategoriaId = user.PuestoId == null
+                ? null
+                : await ctx.Puesto.AsNoTracking()
+                    .Where(p => p.PuestoId == user.PuestoId.Value)
+                    .Select(p => (int?)p.CategoriaId)
+                    .FirstOrDefaultAsync();
+
             // Regla 0 (override manual): si el trabajador tiene un revisor de salidas asignado
             // (workers.worker_salida_jefe_id, sección "Revisor de Salidas") y ese jefe tiene
             // correo corporativo @abril.pe, se usa directamente. Tiene prioridad sobre todo el
@@ -71,7 +81,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
 
             // Regla A: el Gerente no necesita aprobador
-            if (user.CategoriaId == CategoriaIds.Gerente)
+            if (userCategoriaId == CategoriaIds.Gerente)
                 return null;
 
             // Si el trabajador no tiene área en el árbol, no se puede resolver por jerarquía
@@ -89,8 +99,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var rootId    = ancestros[^1]; // último = raíz
 
             // Regla B: Jefe / Sub Gerente → salta directo al Gerente del macro-área
-            if (user.CategoriaId == CategoriaIds.Jefe ||
-                user.CategoriaId == CategoriaIds.SubGerente)
+            if (userCategoriaId == CategoriaIds.Jefe ||
+                userCategoriaId == CategoriaIds.SubGerente)
             {
                 return await FindGerenteByRootAsync(ctx, rootId, user.Id, parentByScope);
             }
@@ -102,10 +112,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     from w in ctx.Worker.AsNoTracking()
                     where w.AreaScopeId == scopeId
                           && w.Id != user.Id
-                          && CategoriasWalkUp.Contains(w.CategoriaId ?? 0)
+                          && w.PuestoCatalogo != null
+                          && CategoriasWalkUp.Contains(w.PuestoCatalogo.CategoriaId)
                           && w.EmailCorporativo != null
                           && w.EmailCorporativo.EndsWith(EmailDomainCorp)
-                    select new { w.Id, w.CategoriaId, w.EmailCorporativo }
+                    select new { w.Id, CategoriaId = (int?)w.PuestoCatalogo!.CategoriaId, w.EmailCorporativo }
                 ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
@@ -160,7 +171,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 from w in ctx.Worker.AsNoTracking()
                 where w.AreaScopeId.HasValue
                       && w.Id != excludeWorkerId
-                      && w.CategoriaId == CategoriaIds.Gerente
+                      && w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.CategoriaId == CategoriaIds.Gerente
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.EndsWith(EmailDomainCorp)
                 select new { w.Id, w.AreaScopeId, w.EmailCorporativo }

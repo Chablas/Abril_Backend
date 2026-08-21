@@ -37,7 +37,12 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
         var datos = await ctx.Person
             .Where(p => p.UserId == userId)
             .Join(ctx.Worker, p => p.PersonId, w => w.PersonId,
-                  (p, w) => new { w.Id, w.CategoriaId })
+                  (p, w) => new
+                  {
+                      w.Id,
+                      // La categoría sale del puesto: workers ya no la guarda.
+                      CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                  })
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
@@ -107,8 +112,9 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             {
                 WorkerId = w.Id,
                 w.PersonId,
-                w.CategoriaId,
-                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
+                Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
+                    ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                 w.ApellidoNombre
             })

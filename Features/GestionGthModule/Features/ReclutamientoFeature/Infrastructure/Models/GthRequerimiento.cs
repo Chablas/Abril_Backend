@@ -25,15 +25,15 @@
         public int PuestoId { get; set; }
 
         /// <summary>
-        /// FK a <c>categoria</c>: la categoría REAL declarada para esta vacante, no la de
-        /// <c>puesto.categoria_id</c> (esa es solo una guía derivada de los datos y no tiene por qué
-        /// coincidir, igual que en <c>workers</c>, donde <c>puesto_id</c> y <c>categoria_id</c> son
-        /// ejes independientes).
+        /// FK a <c>categoria</c>: la categoría declarada para esta vacante aparte de la de
+        /// <c>puesto.categoria_id</c>.
         ///
         /// Congelada para auditoría: la llenaba el modo "Puesto personalizado" del formulario de
         /// solicitud, que se dio de baja (los puestos nuevos los da de alta GTH en el catálogo). En
-        /// los requerimientos nuevos queda null y quien contrate al seleccionado cae a
-        /// <c>puesto.categoria_id</c> del puesto del requerimiento.
+        /// los requerimientos nuevos queda null, y la ficha del contratado siempre sale de
+        /// <c>puesto.categoria_id</c> del puesto del requerimiento — que desde
+        /// <c>Migrations_Manual/2026-08-21_workers_categoria_desde_puesto.sql</c> es el único
+        /// camino a la categoría de un trabajador.
         /// </summary>
         public int? CategoriaId { get; set; }
 
@@ -68,7 +68,11 @@
         /// <summary>FK a <c>gth_prioridad</c> (Alta/Media/Baja). Null = sin prioridad asignada.</summary>
         public int? GthPrioridadId { get; set; }
 
-        /// <summary>FK a <c>gth_responsable_proceso</c> (miembro GTH responsable). Null = sin asignar.</summary>
+        /// <summary>
+        /// FK a <c>gth_responsable_proceso</c> (el reclutador a cargo). Null = sin asignar.
+        /// Quiénes pueden estar acá lo decide Configuración → Reclutadores; la FK apunta a la
+        /// fila, no al <c>worker</c>, así que desactivar a un reclutador no borra el histórico.
+        /// </summary>
         public int? GthResponsableProcesoId { get; set; }
 
         /// <summary>FK a <c>gth_tipo_proceso</c> (Junior/Semisenior/Senior con su SLA). Null = sin clasificar.</summary>

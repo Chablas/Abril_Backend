@@ -5,7 +5,8 @@ namespace Abril_Backend.Shared.Models
     /// <summary>
     /// Catálogo único de categorías de trabajador. Es el campo de LÓGICA: todo filtro,
     /// comparación, bloqueo o restricción interna se hace contra esta tabla
-    /// (<c>workers.categoria_id</c>), nunca contra el nombre del puesto.
+    /// (a la que se llega por <c>workers.puesto_id → puesto.categoria_id</c>), nunca contra el
+    /// NOMBRE del puesto, que es texto libre.
     ///
     /// Unifica los dos catálogos que existían antes:
     /// <list type="bullet">

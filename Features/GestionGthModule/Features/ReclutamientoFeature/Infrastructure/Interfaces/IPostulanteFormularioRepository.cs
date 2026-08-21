@@ -16,14 +16,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<PostulanteFormularioPublicoDto?> GetByToken(string token);
 
         /// <summary>
+        /// Lo necesario para subir el CV documentado del postulante antes de guardar el formulario:
+        /// código del requerimiento (nombra la carpeta y el archivo en SharePoint), candidato y si
+        /// ya tenía un CV cargado. Devuelve null si el token no corresponde a ningún formulario
+        /// vigente. Solo se consulta cuando el envío trae archivo o cuando hay que exigirlo.
+        /// </summary>
+        Task<PostulanteCvContextoDto?> GetCvContexto(string token);
+
+        /// <summary>
         /// Guarda las respuestas del postulante (por token) y avanza el formulario a COMPLETADO. Sirve
         /// tanto para el primer envío como para la corrección de un formulario RECHAZADO. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el token no existe y
         /// 409 si el formulario ya fue APROBADO por GTH (único estado de solo lectura). Devuelve la
         /// cabecera del proceso para el correo que le avisa a GTH que ya lo puede revisar.
         /// </summary>
+        /// <param name="cv">
+        /// CV documentado ya subido a SharePoint en este envío, o null si el postulante no adjuntó
+        /// ninguno (conserva el del envío anterior, si lo había).
+        /// </param>
         Task<FormularioCompletadoContextoDto> GuardarRespuestasByToken(
-            string token, PostulanteFormularioRespuestasDto respuestas);
+            string token, PostulanteFormularioRespuestasDto respuestas, PostulanteCvSubidaDto? cv);
 
         /// <summary>
         /// Prepara el envío del formulario a un candidato APROBADO: crea (o reactiva) el formulario con

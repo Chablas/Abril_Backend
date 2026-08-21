@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -368,9 +368,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         // ── Configuración → Categorías y Puestos ─────────────────────
 
         /// <summary>
-        /// Carga inicial de la pantalla de configuración: categorías + puestos en una
-        /// sola petición (la pantalla necesita ambas listas de entrada, porque cada
-        /// puesto muestra y elige su categoría).
+        /// Carga inicial de la pantalla de configuración: categorías + puestos + árbol de
+        /// áreas en una sola petición (la pantalla necesita las tres listas de entrada,
+        /// porque cada puesto muestra y elige su categoría y sus áreas).
         /// </summary>
         [HttpGet("admin")]
         public async Task<IActionResult> GetCatalogosAdmin()
@@ -379,10 +379,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 var categorias = await _repo.GetCategoriasTodasAsync();
                 var puestos = await _repo.GetPuestosTodosAsync();
+                var areaTree = await _repo.GetAreaTreePuestosAsync();
                 return Ok(new CatalogosAdminDto
                 {
                     Categorias = categorias.Select(MapCategoria).ToList(),
-                    Puestos = puestos
+                    Puestos = puestos,
+                    AreaTree = areaTree
                 });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -479,7 +481,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 if (string.IsNullOrWhiteSpace(req.Nombre))
                     return BadRequest(new { message = "El nombre es requerido." });
-                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId);
+                if (req.CategoriaId is null or <= 0)
+                    return BadRequest(new { message = "La categoría es requerida." });
+                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeIds);
                 return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -493,7 +497,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 if (string.IsNullOrWhiteSpace(req.Nombre))
                     return BadRequest(new { message = "El nombre es requerido." });
-                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId);
+                if (req.CategoriaId is null or <= 0)
+                    return BadRequest(new { message = "La categoría es requerida." });
+                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeIds);
                 return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -28,12 +28,17 @@ namespace Abril_Backend.Shared.Models
         public string Nombre { get; set; } = string.Empty;
 
         /// <summary>
-        /// Categoría a la que pertenece el puesto. Se derivó de los datos reales
-        /// (la categoría más frecuente entre quienes ejercen ese puesto). Puede ser
-        /// null en los pocos puestos donde no había señal suficiente para deducirla.
+        /// Categoría a la que pertenece el puesto. Obligatoria: es el único camino a la
+        /// categoría de un trabajador (<c>workers.puesto_id → puesto.categoria_id</c>),
+        /// así que un puesto sin categoría dejaría a sus fichas fuera de todo filtro y
+        /// de toda regla. La columna es NOT NULL desde
+        /// <c>Migrations_Manual/2026-08-21_workers_categoria_desde_puesto.sql</c>.
+        ///
+        /// El valor original se derivó de los datos reales: la categoría más frecuente
+        /// entre quienes ejercían el puesto.
         /// </summary>
         [Column("categoria_id")]
-        public int? CategoriaId { get; set; }
+        public int CategoriaId { get; set; }
 
         [ForeignKey(nameof(CategoriaId))]
         public Categoria? Categoria { get; set; }

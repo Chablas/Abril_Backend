@@ -38,6 +38,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Respuestas ya guardadas (ids de catálogo + valores) para precargar el formulario.</summary>
         public PostulanteFormularioRespuestasDto Respuestas { get; set; } = new();
+
+        /// <summary>
+        /// Nombre del CV documentado que el postulante ya subió, para que al reabrir el enlace
+        /// (o al corregir un formulario observado) sepa que no tiene que volver a adjuntarlo. Null
+        /// si todavía no subió ninguno.
+        ///
+        /// No se sirve la url: el archivo vive en SharePoint y el postulante no tiene acceso, así
+        /// que un enlace solo le daría un error de permisos.
+        /// </summary>
+        public string? CvNombre { get; set; }
     }
 
     /// <summary>
@@ -109,6 +119,50 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // Página 4 · Consentimiento y veracidad
         public bool? DeclaracionVeracidad { get; set; }
         public bool? ConfirmacionDocumentos { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que necesita el servicio para subir el CV documentado del postulante ANTES de guardar el
+    /// formulario: el código del requerimiento (nombra la carpeta y el archivo en SharePoint), el
+    /// candidato al que pertenece y si ya había subido un CV en un envío anterior.
+    ///
+    /// Es una consulta aparte del guardado a propósito: el archivo se sube a SharePoint —que es un
+    /// servicio externo y puede fallar— y su url tiene que quedar en la misma fila que las
+    /// respuestas, así que el nombre del archivo hay que resolverlo antes de escribir nada.
+    /// </summary>
+    public class PostulanteCvContextoDto
+    {
+        public int CandidatoId { get; set; }
+
+        /// <summary>Código del requerimiento (REQ-AAAA-NNNN).</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        /// <summary>true si el formulario ya tenía un CV cargado (envío anterior o corrección).</summary>
+        public bool TieneCv { get; set; }
+
+        /// <summary>
+        /// true si el formulario ya fue APROBADO por GTH, o sea que no admite cambios. Es un freno
+        /// temprano para no dejar un archivo huérfano en SharePoint de un envío que el guardado va
+        /// a rechazar igual: la regla la sigue mandando el repositorio al guardar.
+        /// </summary>
+        public bool SoloLectura { get; set; }
+    }
+
+    /// <summary>
+    /// CV documentado ya subido a SharePoint, listo para grabarse en el formulario. Se pasa al
+    /// repositorio junto con las respuestas para que todo quede en un solo guardado.
+    /// </summary>
+    public class PostulanteCvSubidaDto
+    {
+        /// <summary>Nombre del archivo tal como quedó en SharePoint.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Nombre con el que el postulante lo subió (el que se muestra).</summary>
+        public string? NombreOriginal { get; set; }
+
+        public string? Url { get; set; }
+        public string? ItemId { get; set; }
+        public string? DriveId { get; set; }
     }
 
     /// <summary>
@@ -259,6 +313,121 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Datos declarados por el postulante (null si aún no completó el formulario).</summary>
         public FormularioDatosDto? Datos { get; set; }
+
+        /// <summary>
+        /// CV que GTH cargó en la long list de este candidato (<c>gth_candidato.cv_*</c>). Null si
+        /// la carga no dejó url.
+        /// </summary>
+        public FormularioCvDto? CvGth { get; set; }
+
+        /// <summary>
+        /// CV documentado que adjuntó el propio postulante al enviar el formulario. Null si no lo
+        /// subió (los formularios anteriores a este campo) o si aún no lo envió. Se sirve junto al
+        /// de GTH porque el sentido de pedirlo es poder comparar los dos.
+        /// </summary>
+        public FormularioCvDto? CvPostulante { get; set; }
+
+        /// <summary>
+        /// Aviso para GTH: el documento que declaró el postulante ya existe en la base, así que
+        /// aprobar actualizaría una ficha que ya estaba. Null cuando no coincide con nada (el caso
+        /// normal). Nunca sale por los endpoints públicos del postulante.
+        /// </summary>
+        public FormularioCoincidenciaDto? Coincidencia { get; set; }
+    }
+
+    /// <summary>
+    /// Un CV del candidato para abrirlo desde SharePoint. Los dos del proceso —el que cargó GTH en
+    /// la long list y el que adjuntó el postulante en su formulario— se sirven con esta misma forma.
+    /// </summary>
+    public class FormularioCvDto
+    {
+        /// <summary>Nombre visible del archivo.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Link al archivo en SharePoint. Null si la subida no dejó url.</summary>
+        public string? Url { get; set; }
+    }
+
+    /// <summary>
+    /// Severidad de la coincidencia del documento declarado con la base. Solo el trabajador actual
+    /// bloquea la aprobación; los otros dos son informativos y GTH decide.
+    /// </summary>
+    public static class NivelCoincidenciaPersona
+    {
+        /// <summary>
+        /// Existe en <c>person</c> y no tiene ninguna ficha en <c>workers</c>: una persona del
+        /// registro maestro que nunca fue trabajador (un postulante anterior, un representante
+        /// legal, un familiar registrado…). Aprobar solo completa su ficha.
+        /// </summary>
+        public const string SoloPerson = "SOLO_PERSON";
+
+        /// <summary>
+        /// Tiene ficha en <c>workers</c> pero ninguna está adentro
+        /// (<c>esta_adentro = false</c>): un retirado, un finalista aprobado de otro proceso o
+        /// alguien que no llegó a ingresar. Aprobar está permitido —es justamente el caso del
+        /// extrabajador que vuelve a postular— pero GTH tiene que saber que no es una ficha nueva.
+        /// </summary>
+        public const string FichaPrevia = "FICHA_PREVIA";
+
+        /// <summary>
+        /// Tiene al menos una ficha en <c>workers</c> con <c>esta_adentro = true</c>: trabaja en
+        /// Abril hoy. Aprobar sobreescribiría los datos de un trabajador actual con lo que tecleó
+        /// alguien en un formulario público, así que se bloquea.
+        /// </summary>
+        public const string TrabajadorActual = "TRABAJADOR_ACTUAL";
+    }
+
+    /// <summary>
+    /// El documento que el postulante declaró ya existe en la base. Es información solo para GTH:
+    /// aprobar el formulario no crea una ficha nueva en <c>person</c> sino que actualiza esta, y
+    /// según de quién sea esa ficha la aprobación se permite o se bloquea.
+    /// </summary>
+    public class FormularioCoincidenciaDto
+    {
+        /// <summary>Documento declarado que coincide, normalizado (mayúsculas, sin espacios).</summary>
+        public string Documento { get; set; } = string.Empty;
+
+        /// <summary>Tipo de documento que declaró el postulante (DNI / CE). Null si no lo eligió.</summary>
+        public string? TipoDocumento { get; set; }
+
+        /// <summary>Ficha de <c>person</c> con la que coincide.</summary>
+        public int PersonId { get; set; }
+
+        /// <summary>Nombre con el que esa persona ya está registrada, para que GTH lo compare con el declarado.</summary>
+        public string? NombreEnBd { get; set; }
+
+        /// <summary>
+        /// Ficha de <c>workers</c> de esa persona: la que está adentro si hay alguna, y si no la
+        /// más reciente. Null si nunca tuvo ficha de trabajador.
+        /// </summary>
+        public int? WorkerId { get; set; }
+
+        /// <summary>Código del estado de esa ficha (ACTIVO, RETIRADO…). Null si no hay ficha.</summary>
+        public string? WorkersEstadoCodigo { get; set; }
+
+        /// <summary>Nombre visible del estado de esa ficha. Null si no hay ficha.</summary>
+        public string? WorkersEstadoNombre { get; set; }
+
+        /// <summary>
+        /// true si alguna de sus fichas está adentro de la empresa hoy
+        /// (<c>workers_estado.esta_adentro</c>). Es lo mismo que
+        /// <see cref="BloqueaAprobacion"/>: se sirven los dos porque uno describe a la persona y el
+        /// otro la consecuencia, y la pantalla usa cada uno en un sitio distinto.
+        /// </summary>
+        public bool EstaAdentro { get; set; }
+
+        /// <summary>
+        /// Severidad, para que la pantalla elija el aviso. Ver
+        /// <see cref="NivelCoincidenciaPersona"/>.
+        /// </summary>
+        public string Nivel { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true si esta coincidencia impide aprobar el formulario. El backend lo vuelve a validar
+        /// al registrar la decisión: esto es para que la pantalla no ofrezca un botón que va a
+        /// fallar, no la garantía.
+        /// </summary>
+        public bool BloqueaAprobacion => EstaAdentro;
     }
 
     /// <summary>

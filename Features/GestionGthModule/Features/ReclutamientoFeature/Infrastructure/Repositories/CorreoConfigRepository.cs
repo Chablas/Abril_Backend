@@ -244,7 +244,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             return await (
                 from w in ctx.Worker.AsNoTracking()
-                where w.CategoriaId == CategoriaIds.GerenteGeneral
+                where w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.CategoriaId == CategoriaIds.GerenteGeneral
                       && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
                 orderby w.Id descending

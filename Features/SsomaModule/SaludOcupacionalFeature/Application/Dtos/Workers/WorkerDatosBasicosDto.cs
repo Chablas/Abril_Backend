@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
+﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
 {
     /// <summary>
     /// Edición de un trabajador desde el modal Configuración → Trabajadores.
@@ -18,7 +18,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? Puesto { get; set; }
         /// <summary>Nodo del árbol de áreas asignado al trabajador (workers.area_scope_id). Null = sin área.</summary>
         public int? AreaScopeId { get; set; }
-        /// <summary>FK a <c>categoria</c> (workers.categoria_id). Null = sin categoría.</summary>
+        /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c>. Solo lectura.
+        /// Null = sin puesto, o sea sin categoría.</summary>
         public int? CategoriaId { get; set; }
         /// <summary>FK a <c>puesto</c> (workers.puesto_id). Null = sin puesto.</summary>
         public int? PuestoId { get; set; }

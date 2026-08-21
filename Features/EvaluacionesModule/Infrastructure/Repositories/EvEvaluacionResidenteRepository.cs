@@ -104,9 +104,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
                 @"SELECT oos.name AS ObraOficina, w.area AS Area, w.subarea AS Subarea,
-                         w.categoria_id AS CategoriaId, w.id AS WorkerId
+                         pu.categoria_id AS CategoriaId, w.id AS WorkerId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
                   LEFT JOIN workers_obra_oficina_staff oos
                          ON oos.workers_obra_oficina_staff_id = w.obra_oficina_staff_id
                   WHERE p.user_id = @EvaluadorUserId
@@ -131,6 +132,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 FROM workers w
                 JOIN person p   ON p.person_id = w.person_id
                 JOIN app_user u ON u.user_id   = p.user_id
+                JOIN puesto pu  ON pu.puesto_id = w.puesto_id
                 JOIN project pr ON pr.project_id = (
                     SELECT wv.proyecto_id
                     FROM worker_vinculaciones wv
@@ -138,7 +140,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ORDER BY wv.fecha_inicio DESC
                     LIMIT 1
                 )
-                WHERE w.categoria_id = {CategoriaIds.Residente}
+                WHERE pu.categoria_id = {CategoriaIds.Residente}
                   AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                   AND u.active    = true";
 

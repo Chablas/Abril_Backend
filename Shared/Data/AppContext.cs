@@ -156,6 +156,9 @@ namespace Abril_Backend.Infrastructure.Data
         /// <summary>Catálogo único de puestos (campo de presentación). Ver <see cref="Puesto"/>.</summary>
         public DbSet<Puesto> Puesto => Set<Puesto>();
 
+        /// <summary>Áreas a las que pertenece cada puesto (N:N). Ver <see cref="PuestoAreaScope"/>.</summary>
+        public DbSet<PuestoAreaScope> PuestoAreaScope => Set<PuestoAreaScope>();
+
         /// <summary>Congelado: reemplazado por <see cref="Categoria"/>. Solo lectura histórica.</summary>
         public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkersObraOficinaStaff> WorkersObraOficinaStaff => Set<WorkersObraOficinaStaff>();
@@ -498,7 +501,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder> GthSustentoFolder => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo> GthCorreoTipo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>();
-        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso> GthResponsableProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso> GthResponsableProceso => Set<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso> GthTipoProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion> GthCanalPublicacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal> GthRequerimientoCanal => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>();
@@ -923,6 +926,21 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(s => s.Parent)
                 .WithMany()
                 .HasForeignKey(s => s.AreaScopeParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // PuestoAreaScope: tabla intermedia puesto <-> area_scope (a qué áreas pertenece
+            // un puesto). Las dos FK son Restrict: ni el puesto ni el área se borran nunca
+            // de verdad (soft delete), así que un cascade no tendría a quién aplicarse.
+            modelBuilder.Entity<PuestoAreaScope>()
+                .HasOne(x => x.Puesto)
+                .WithMany()
+                .HasForeignKey(x => x.PuestoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PuestoAreaScope>()
+                .HasOne(x => x.AreaScope)
+                .WithMany()
+                .HasForeignKey(x => x.AreaScopeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ── master ─────────────────────────────────────────────────────
@@ -1414,7 +1432,7 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(r => r.ProjectId)
                  .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>()
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso>()
                  .WithMany()
                  .HasForeignKey(r => r.GthResponsableProcesoId)
                  .OnDelete(DeleteBehavior.Restrict);
@@ -1428,7 +1446,7 @@ namespace Abril_Backend.Infrastructure.Data
                  .OnDelete(DeleteBehavior.Restrict);
             });
 
-            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>(e =>
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso>(e =>
             {
                 // Solo un registro "vivo" (state = true) por trabajador.
                 e.HasIndex(r => r.WorkerId).IsUnique().HasFilter("state = true");

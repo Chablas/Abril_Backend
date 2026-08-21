@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+﻿using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
@@ -50,7 +50,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == userId
-                select new { w.Id, w.AreaScopeId, w.CategoriaId }
+                select new
+                {
+                    w.Id,
+                    w.AreaScopeId,
+                    // La categoría sale del puesto: workers ya no la guarda.
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                }
             ).ToListAsync();
 
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());

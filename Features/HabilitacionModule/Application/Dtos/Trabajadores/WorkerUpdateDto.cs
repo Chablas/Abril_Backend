@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
+﻿namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
 {
     public class WorkerUpdateDto
     {
@@ -9,9 +9,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public DateOnly? FechaNacimiento { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }
-        /// <summary>FK a <c>categoria</c>: el campo de lógica del trabajador.</summary>
-        public int? CategoriaId { get; set; }
-        /// <summary>FK a <c>puesto</c>: el campo de presentación del trabajador.</summary>
+        /// <summary>
+        /// FK a <c>puesto</c>: el campo de presentación del trabajador y el único camino a su
+        /// categoría (<c>puesto.categoria_id</c>). La categoría no se manda: cambiarla es
+        /// cambiar de puesto, o cambiarle la categoría al puesto desde Configuración →
+        /// Categorías y Puestos.
+        /// </summary>
         public int? PuestoId { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }

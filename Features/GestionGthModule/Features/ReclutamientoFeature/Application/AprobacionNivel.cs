@@ -2,7 +2,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Nivel con el que un usuario entra a la pantalla «Aprobaciones». Sale de la CATEGORÍA de su
-    /// ficha de trabajador (<c>workers.categoria_id</c>), no de su rol: el rol solo abre la
+    /// ficha de trabajador (<c>workers.puesto_id → puesto.categoria_id</c>), no de su rol: el rol solo abre la
     /// pantalla; la categoría define qué solicitudes ve y con qué poder decide.
     ///
     /// No es un catálogo de base de datos: son los dos actores del flujo, fijos por diseño, y el

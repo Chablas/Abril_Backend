@@ -92,8 +92,29 @@
         public string Nombre { get; set; } = string.Empty;
         public string? Puesto { get; set; }
 
+        /// <summary>Nombre y link del CV que GTH cargó en la long list de este candidato.</summary>
+        public string? CvNombre { get; set; }
+        public string? CvUrl { get; set; }
+
+        /// <summary>
+        /// Nombre y link del CV documentado que adjuntó el propio postulante al enviar su
+        /// formulario. Null mientras no lo haya enviado (o en los formularios anteriores a que se
+        /// pidiera el archivo). Va junto al de GTH porque el sentido de pedirlo es comparar los dos.
+        /// </summary>
+        public string? CvPostulanteNombre { get; set; }
+        public string? CvPostulanteUrl { get; set; }
+
         /// <summary>Estado del formulario de información del postulante de este candidato (null si GTH aún no lo envió).</summary>
         public CandidatoFormularioResumenDto? Formulario { get; set; }
+
+        /// <summary>
+        /// Aviso para GTH cuando el documento que declaró el postulante ya existe en la base:
+        /// aprobar su formulario actualizaría esa ficha en vez de crear una nueva, y si es de un
+        /// trabajador actual no se puede aprobar. Va acá además de en el modal porque los botones
+        /// Aprobar/Rechazar también están en esta ficha, sin abrirlo. Null cuando no coincide con
+        /// nada, que es el caso normal.
+        /// </summary>
+        public FormularioCoincidenciaDto? Coincidencia { get; set; }
 
         /// <summary>true si GTH ya marcó el check informativo del Multitest de este candidato.</summary>
         public bool MultitestRealizado { get; set; }

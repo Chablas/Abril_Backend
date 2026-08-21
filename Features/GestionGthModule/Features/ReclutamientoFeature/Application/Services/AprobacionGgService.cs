@@ -249,6 +249,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return $"{frontendUrl}/gestion-gth/aprobaciones/{aprobacionId}";
         }
 
+        /// <summary>
+        /// Enlace del botón del correo a GTH, la contraparte del de «Aprobaciones»: lleva a
+        /// «Reclutamiento», que es donde a GTH le toca trabajar la vacante recién aprobada.
+        ///
+        /// Con UNA vacante aprobada va al detalle del requerimiento, que abre el modal ya parado en
+        /// la fase en la que quedó — recién aprobado, eso es la publicación de la vacante. Con
+        /// VARIAS no puede: un enlace abre un modal y hay un requerimiento por vacante, así que
+        /// lleva a la bandeja, donde están todas las filas nuevas. Sin sesión el <c>authGuard</c>
+        /// del frontend manda al login con esta URL como <c>returnUrl</c> y devuelve al usuario acá.
+        /// </summary>
+        private string ConstruirLinkReclutamiento(AprobacionGgDecisionContextoDto ctx)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return ctx.Aprobadas.Count == 1
+                ? $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{ctx.Aprobadas[0].RequerimientoId}"
+                : $"{frontendUrl}/gestion-gth/reclutamiento";
+        }
+
         // ── Pantalla «Aprobaciones» y decisión ────────────────────────────────
         public async Task<AprobacionGgBandejaDto> GetBandeja(int? userId) =>
             await _repo.GetBandeja(await _scopes.ResolveAsync(userId));
@@ -644,13 +662,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Cuerpo del correo a GTH: las vacantes que aprobó Gerencia General, con el contexto de la
-        /// decisión (justificación, comentario del GG, visto bueno del gerente del área y sustento).
-        /// Lo que el GG no aprobó no se menciona: no genera trabajo para GTH y el conteo del
-        /// asunto ya se refiere solo a lo aprobado.
+        /// decisión (justificación, comentario del GG, visto bueno del gerente del área y sustento)
+        /// y el botón que lleva a «Reclutamiento» a trabajarlas. Lo que el GG no aprobó no se
+        /// menciona: no genera trabajo para GTH y el conteo del asunto ya se refiere solo a lo
+        /// aprobado.
         /// </summary>
         private string ConstruirCuerpoGth(AprobacionGgDecisionContextoDto ctx)
         {
-            var l = Layout.Desde(_configuration);
+            var l    = Layout.Desde(_configuration);
+            var link = ConstruirLinkReclutamiento(ctx);
 
             var datos = new List<Layout.Fila>
             {
@@ -678,7 +698,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 l.Tarjeta(datos),
                 l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
                 l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(ctx.Aprobadas, conSalario: true)),
-                l.Tarjeta(contexto));
+                l.Tarjeta(contexto),
+                // «Iniciar el reclutamiento» y no «Publicar la vacante»: al aprobar, la vacante
+                // queda en VALIDACION_GTH, así que lo primero que abre el modal es la asignación
+                // interna (responsable, SLA, prioridad, razón social) y la publicación viene
+                // después. El texto tampoco cambia entre una vacante y varias — nombra el paso, que
+                // es el mismo, y el enlace es el que se acomoda.
+                l.Boton("Iniciar el reclutamiento", link),
+                l.EnlaceDirecto(link));
         }
     }
 }

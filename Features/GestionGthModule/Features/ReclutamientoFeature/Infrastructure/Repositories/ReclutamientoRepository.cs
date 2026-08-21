@@ -456,11 +456,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 dto.AreaScopeId = areaScopeId;
             }
 
-            dto.Puestos = await ctx.Puesto
-                .Where(p => p.State && p.Active)
-                .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
-                .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
-                .ToListAsync();
+            dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId);
 
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
                 .Where(t => t.State && t.Active)
@@ -484,6 +480,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId);
 
             return dto;
+        }
+
+        /// <summary>
+        /// Puestos que se le ofrecen al solicitante: los que GTH asoció a su <c>area_scope</c> o a
+        /// cualquier área hija (mismo subárbol que el resto de filtros por área del sistema). Un
+        /// gerente de Proyectos ve además los de Unidad de Proyectos, SSOMA, Calidad, etc.
+        ///
+        /// Es también la lista contra la que se valida lo que llega del cliente, igual que
+        /// <see cref="QueryTrabajadoresDelArea"/>: lo que no se ofrece tampoco se acepta.
+        ///
+        /// Los puestos sin ninguna área quedan fuera a propósito: el padrón de GTH solo cubrió
+        /// personal de oficina, y esta pantalla es justamente la de oficina.
+        ///
+        /// Sin área del solicitante se cae al catálogo COMPLETO en vez de a una lista vacía: un
+        /// usuario recién creado al que todavía no le asignaron área podría necesitar pedir
+        /// personal, y dejarlo sin ningún puesto lo bloquearía del todo.
+        /// </summary>
+        private static async Task<List<OpcionDto>> QueryPuestosDelArea(AppDbContext ctx, int? areaScopeId)
+        {
+            var puestos = ctx.Puesto.Where(p => p.State && p.Active);
+
+            if (areaScopeId.HasValue)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
+                puestos = puestos.Where(p => ctx.PuestoAreaScope
+                    .Any(pas => pas.State
+                             && pas.PuestoId == p.PuestoId
+                             && idsArea.Contains(pas.AreaScopeId)));
+            }
+
+            return await puestos
+                .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
+                .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
+                .AsNoTracking()
+                .ToListAsync();
         }
 
         /// <summary>
@@ -3044,9 +3075,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var tipoIds    = vacantes.Select(v => v.TipoRequerimientoId).Distinct().ToList();
             var projectIds = vacantes.Select(v => v.ProjectId).Distinct().ToList();
 
-            var puestosOk = await ctx.Puesto.CountAsync(p => puestoIds.Contains(p.PuestoId) && p.State && p.Active);
-            if (puestosOk != puestoIds.Count)
-                throw new AbrilException("Uno o más puestos seleccionados no son válidos.", 400);
+            // Se revalida contra la MISMA lista que ofrece el formulario (los puestos del área del
+            // solicitante y de sus áreas hijas): lo que no se ofrece tampoco se acepta.
+            var puestosOk = (await QueryPuestosDelArea(ctx, solicitud.AreaScopeId))
+                .Select(p => p.Id).ToHashSet();
+            if (puestoIds.Any(id => !puestosOk.Contains(id)))
+                throw new AbrilException(
+                    "Uno o más puestos seleccionados no son válidos para tu área.", 400);
 
             // Los tipos se traen (y no solo se cuentan) porque su código decide si la vacante es un
             // reemplazo y, con eso, si hay que exigir el trabajador reemplazado.

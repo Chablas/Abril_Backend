@@ -47,6 +47,20 @@
         /// alta/edición va en 0.
         /// </summary>
         public int CantidadTrabajadores { get; set; }
+
+        /// <summary>
+        /// Áreas a las que pertenece el puesto. Un puesto puede estar en varias (CHOFER está
+        /// en Logística y en Gerencia General) y también en ninguna: los puestos de obra no
+        /// tienen área porque el padrón de GTH solo cubrió personal de oficina.
+        /// </summary>
+        public List<PuestoAreaDto> Areas { get; set; } = new();
+    }
+
+    /// <summary>Un área del puesto: el nodo de <c>area_scope</c> con su nombre ya resuelto.</summary>
+    public class PuestoAreaDto
+    {
+        public int AreaScopeId { get; set; }
+        public string Nombre { get; set; } = "";
     }
 
     /// <summary>
@@ -74,6 +88,27 @@
     {
         public List<CatCategoriaAdminDto> Categorias { get; set; } = new();
         public List<PuestoAdminDto> Puestos { get; set; } = new();
+
+        /// <summary>
+        /// Árbol de áreas como lista plana (el frontend arma la jerarquía con
+        /// <c>areaScopeParentId</c>). Alimenta el filtro por área en cascada de la sección
+        /// Puestos y el selector de áreas del modal de alta/edición, así que viaja en la
+        /// misma respuesta que las otras dos listas.
+        /// </summary>
+        public List<PuestoAreaNodoDto> AreaTree { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Nodo del árbol <c>area_scope</c> para los desplegables de la pantalla. Es la versión
+    /// ligera de <see cref="AreaArbolNodoDto"/>: acá no hacen falta ni la equivalencia legacy
+    /// ni los revisores, que son lo caro de resolver.
+    /// </summary>
+    public class PuestoAreaNodoDto
+    {
+        public int AreaScopeId { get; set; }
+        public int? AreaScopeParentId { get; set; }
+        public string AreaItemName { get; set; } = "";
+        public int DisplayOrder { get; set; }
     }
 
     public class CatNombreRequest
@@ -81,7 +116,7 @@
         public string Nombre { get; set; } = "";
     }
 
-    /// <summary>Alta/edición de un puesto: nombre + la categoría a la que pertenece.</summary>
+    /// <summary>Alta/edición de un puesto: nombre, categoría y las áreas a las que pertenece.</summary>
     public class PuestoUpsertRequest
     {
         public string Nombre { get; set; } = "";
@@ -89,6 +124,13 @@
         /// poder devolver un 400 legible cuando el formulario no la manda, en vez de dejar
         /// que el binder la convierta en 0.</summary>
         public int? CategoriaId { get; set; }
+
+        /// <summary>
+        /// Áreas del puesto. Es el estado COMPLETO, no un delta: lo que no venga en la lista
+        /// se le quita al puesto. Vacía = el puesto se queda sin área (válido: los puestos de
+        /// obra no tienen ninguna).
+        /// </summary>
+        public List<int> AreaScopeIds { get; set; } = new();
     }
 
     public class CatToggleRequest

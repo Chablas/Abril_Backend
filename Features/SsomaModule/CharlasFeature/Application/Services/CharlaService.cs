@@ -1013,36 +1013,59 @@ public class CharlaService : ICharlaService
 
     public async Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int mes, int anio)
     {
-        await using var ctx = await _factory.CreateDbContextAsync();
         var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
 
-        var workerIds = await ctx.WorkerVinculacion
-            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
-            .Select(v => v.WorkerId).Distinct().ToListAsync();
+        // La conexión a la BD tiene latencia de red no trivial por request (túnel/host remoto):
+        // encadenar awaits secuenciales multiplica esa latencia por cada query. El fetch de staff
+        // (workerIds -> staff) y el de charlas del mes son independientes entre sí, así que corren
+        // en paralelo con contextos separados (DbContext no es thread-safe para queries concurrentes
+        // en la misma instancia) en vez de uno tras otro.
+        var staffTask = Task.Run(async () =>
+        {
+            await using var ctxStaff = await _factory.CreateDbContextAsync();
+            var workerIds = await ctxStaff.WorkerVinculacion
+                .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+                .Select(v => v.WorkerId).Distinct().ToListAsync();
 
-        var staff = await ctx.Worker
-            .Include(w => w.Person)
-            .Include(w => w.PuestoCatalogo)
-            .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo)
-            .ToListAsync();
+            return await ctxStaff.Worker
+                .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo)
+                .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo)
+                .ToListAsync();
+        });
+
+        var charlasMesTask = Task.Run(async () =>
+        {
+            await using var ctxCharlas = await _factory.CreateDbContextAsync();
+            return await ctxCharlas.SsCharlas
+                .Where(c => c.State && !c.EsCapacitacionIndividual
+                    && c.ProyectoId == proyectoId
+                    && c.Fecha >= inicioMes && c.Fecha < finMes)
+                .Select(c => new { c.Id, c.Fecha })
+                .ToListAsync();
+        });
+
+        await Task.WhenAll(staffTask, charlasMesTask);
+        var staff = staffTask.Result;
+        var charlasMes = charlasMesTask.Result;
 
         if (staff.Count == 0) return new DashPersonalResultDto([], []);
 
-        var charlasMes = await ctx.SsCharlas
-            .Where(c => c.State && !c.EsCapacitacionIndividual
-                && c.ProyectoId == proyectoId
-                && c.Fecha >= inicioMes && c.Fecha < finMes)
-            .Select(c => new { c.Id, c.Fecha })
-            .ToListAsync();
-
         var charlasIds = charlasMes.Select(c => c.Id).ToList();
 
-        var asistencias = charlasIds.Count > 0
-            ? await ctx.SsCharlaAsistencias
+        List<SsCharlaAsistencia> asistencias;
+        if (charlasIds.Count > 0)
+        {
+            await using var ctxAsis = await _factory.CreateDbContextAsync();
+            asistencias = await ctxAsis.SsCharlaAsistencias
                 .Where(a => charlasIds.Contains(a.CharlaId) && a.State)
-                .ToListAsync()
-            : [];
+                .ToListAsync();
+        }
+        else
+        {
+            asistencias = [];
+        }
 
         // Agrupar por día calendario (varios charlas el mismo día = un solo día en el header)
         var charlasPorDia = charlasMes

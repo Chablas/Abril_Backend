@@ -1063,16 +1063,30 @@ public class CharlaService : ICharlaService
             .Select(d => new DashDiaSemanaDto(d.NumDia, d.Nombre, d.Fecha))
             .ToList();
 
+        // Lookup O(1) por (CharlaId, WorkerId) en vez de recorrer todas las asistencias por
+        // cada combinación trabajador×día×charla: con muchos trabajadores/asistencias esos
+        // .Any() anidados escalaban a millones de comparaciones y volvían el endpoint
+        // extremadamente lento (incluso colgaba el render en el front con datasets grandes).
+        var asistenciaPorCharlaWorker = asistencias
+            .GroupBy(a => (a.CharlaId, a.WorkerId))
+            .ToDictionary(g => g.Key, g => g.Any(a => a.Asistio));
+
         var staffRows = staff.Select(w =>
         {
             var diasWorker = charlasPorDia.Select(dia =>
             {
-                var tieneRegistro = dia.CharlaIds.Any(cid =>
-                    asistencias.Any(a => a.CharlaId == cid && a.WorkerId == w.Id));
-                var asistioAlguna = dia.CharlaIds.Any(cid =>
-                    asistencias.Any(a => a.CharlaId == cid && a.WorkerId == w.Id && a.Asistio));
-                bool? asistio = tieneRegistro ? asistioAlguna : (bool?)null;
-                return new DashPersonaAsistDiaDto(dia.NumDia, asistio);
+                bool tieneRegistro = false;
+                bool asistioAlguna = false;
+                foreach (var cid in dia.CharlaIds)
+                {
+                    if (asistenciaPorCharlaWorker.TryGetValue((cid, w.Id), out var asistio))
+                    {
+                        tieneRegistro = true;
+                        if (asistio) { asistioAlguna = true; break; }
+                    }
+                }
+                bool? asistioFinal = tieneRegistro ? asistioAlguna : (bool?)null;
+                return new DashPersonaAsistDiaDto(dia.NumDia, asistioFinal);
             }).ToList();
 
             var charlasAsistidas = diasWorker.Count(d => d.Asistio == true);

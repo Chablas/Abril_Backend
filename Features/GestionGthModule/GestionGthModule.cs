@@ -25,6 +25,11 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IReclutamientoRepository, ReclutamientoRepository>();
             services.AddScoped<IReclutamientoService, ReclutamientoService>();
 
+            // Archivos del requerimiento en SharePoint (CVs y anexos de la long list, archivos del
+            // informe, CV documentado del postulante). Lo comparten la bandeja de GTH y la página
+            // pública del formulario: todos los archivos de un requerimiento van a la misma carpeta.
+            services.AddScoped<IReclutamientoArchivoStorage, ReclutamientoArchivoStorage>();
+
             // Formulario de información del postulante (público por token + revisión de GTH)
             services.AddScoped<IPostulanteFormularioRepository, PostulanteFormularioRepository>();
             services.AddScoped<IPostulanteFormularioService, PostulanteFormularioService>();

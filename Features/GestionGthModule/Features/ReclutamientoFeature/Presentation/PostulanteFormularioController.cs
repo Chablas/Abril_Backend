@@ -5,6 +5,7 @@ using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Presentation
 {
@@ -56,14 +57,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Recibe el envío del postulante (por token) y marca el formulario como COMPLETADO.</summary>
+        /// <summary>
+        /// Recibe el envío del postulante (por token) y marca el formulario como COMPLETADO.
+        /// Multipart: <c>data</c> = JSON de <see cref="PostulanteFormularioRespuestasDto"/>;
+        /// <c>cv</c> = CV documentado (PDF/DOC/DOCX). El archivo es obligatorio en el primer envío;
+        /// al corregir un formulario observado puede venir vacío y se conserva el ya subido.
+        /// </summary>
         [HttpPost("publico")]
         [AllowAnonymous]
-        public async Task<IActionResult> GuardarPublico([FromQuery] string token, [FromBody] PostulanteFormularioRespuestasDto respuestas)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(30 * 1024 * 1024)] // 25 MB de CV + margen
+        public async Task<IActionResult> GuardarPublico(
+            [FromQuery] string token, [FromForm] string data, [FromForm] IFormFile? cv)
         {
             try
             {
-                await _service.GuardarPublico(token, respuestas);
+                PostulanteFormularioRespuestasDto? respuestas;
+                try
+                {
+                    respuestas = JsonSerializer.Deserialize<PostulanteFormularioRespuestasDto>(
+                        data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                catch (JsonException)
+                {
+                    return BadRequest(new { message = "No se pudieron leer los datos del formulario." });
+                }
+                if (respuestas == null)
+                    return BadRequest(new { message = "No se recibieron los datos del formulario." });
+
+                await _service.GuardarPublico(token, respuestas, cv);
                 return Ok(new { message = "¡Gracias! Tu formulario fue enviado correctamente." });
             }
             catch (AbrilException ex)

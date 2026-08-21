@@ -33,6 +33,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// - Cada &lt;img&gt; decorativa lleva alt vacío: si el cliente bloquea imágenes externas, deja
     ///   un hueco en blanco en vez de un texto alternativo suelto, y el correo se sigue leyendo
     ///   completo porque toda la información está en el HTML, no en las imágenes.
+    /// - El logo va al pie, no en la cabecera: GTH pidió el título centrado y con el logo a la
+    ///   izquierda de la misma fila el título quedaba centrado en el espacio sobrante, es decir
+    ///   corrido a la derecha del centro real de la tarjeta. Con el logo abajo el bloque
+    ///   ícono + título se centra contra el ancho completo. No devolverlo a la cabecera.
+    /// - El logo es <c>images/emails/abril-logo.png</c> y no <c>images/abril-logo.png</c>, que es
+    ///   el de la app: el de la app dice .png en el nombre pero sus bytes son WebP con
+    ///   transparencia, y el proxy de imágenes de Gmail no reenvía WebP — lo recodifica a JPEG,
+    ///   que no tiene canal alfa, así que el fondo transparente se aplanaba a NEGRO y el logo
+    ///   salía en un recuadro negro solo en Gmail (en Outlook se veía bien). El de
+    ///   <c>images/emails/</c> es PNG de verdad y opaco (blanco pintado adentro), lo genera
+    ///   <c>Abril-Frontend/scripts/generate-email-icons.js</c> junto con los íconos. No apuntar
+    ///   este correo al logo de la app.
+    /// - Lo centrado se centra con <c>align='center'</c> en la celda, no con <c>margin:0 auto</c>:
+    ///   Outlook de escritorio ignora los márgenes automáticos. El <c>margin:0 auto</c> del logo va
+    ///   además del atributo, para los webmail que no heredan el align del &lt;td&gt;.
     /// </summary>
     public sealed class ReclutamientoEmailLayout
     {
@@ -76,7 +91,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             var baseUrl = (assetsUrl ?? "").TrimEnd('/');
             _iconos  = $"{baseUrl}/images/emails/icons";
-            _logoUrl = $"{baseUrl}/images/abril-logo.png";
+            // images/emails/abril-logo.png y NO images/abril-logo.png (el de la app): ver la nota
+            // del logo en el resumen de la clase.
+            _logoUrl = $"{baseUrl}/images/emails/abril-logo.png";
         }
 
         /// <summary>
@@ -121,7 +138,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // ── Documento ─────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Arma el correo completo: lienzo, tarjeta blanca, cabecera con el logo, los bloques que se
+        /// Arma el correo completo: lienzo, tarjeta blanca, cabecera centrada, los bloques que se
         /// le pasen (en orden) y el pie. Los bloques nulos o vacíos se ignoran, así que un bloque
         /// condicional se pasa como <c>""</c> sin tener que armar la lista aparte.
         /// </summary>
@@ -132,10 +149,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (!string.IsNullOrWhiteSpace(bloque)) cuerpo.Append(bloque);
 
             // Los títulos largos bajan de cuerpo: el de la cabecera va en una sola línea (nowrap)
-            // para que la barra lima quede alineada con él, y a 26px uno de más de 21 caracteres se
-            // sale de los 640px de la tarjeta.
-            var tamTitulo = cabecera.Titulo.Length > 21 ? "22px" : "26px";
-            var altoTitulo = cabecera.Titulo.Length > 21 ? "28px" : "32px";
+            // para que la barra lima quede centrada bajo el bloque ícono + título — con el título
+            // en dos líneas la barra se separaría de él. El corte es a 30 caracteres porque el
+            // logo dejó de compartir la fila con el título: ahora el título tiene el ancho interno
+            // completo de la tarjeta (640 − 68 de padding = 572, menos 56 del ícono) en vez de los
+            // ~350px que quedaban al lado del logo, así que ninguno de los títulos actuales se
+            // encoge. Con el corte viejo de 21 los más largos salían chicos sin necesidad.
+            var tamTitulo = cabecera.Titulo.Length > 30 ? "22px" : "26px";
+            var altoTitulo = cabecera.Titulo.Length > 30 ? "28px" : "32px";
 
             var bajada = string.IsNullOrWhiteSpace(cabecera.Bajada)
                 ? ""
@@ -151,22 +172,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 <table role='presentation' cellpadding='0' cellspacing='0' border='0' width='640' style='border-collapse:collapse;width:100%;max-width:640px;background-color:#FFFFFF;border:1px solid {Borde};border-radius:16px'>
 
 <tr>
-<td style='padding:30px 34px 0 34px'>
-<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse'>
-<tr>
-<td width='150' valign='middle' style='width:150px'><img src='{_logoUrl}' width='150' alt='ABRIL Grupo Inmobiliario' style='display:block;width:150px;max-width:150px;height:auto;border:0;outline:none;text-decoration:none' /></td>
-<td valign='middle' align='center' style='padding-left:16px'>
+<td align='center' style='padding:30px 34px 0 34px'>
 <table role='presentation' cellpadding='0' cellspacing='0' border='0' align='center' style='border-collapse:collapse'>
 <tr>
 <td valign='middle' style='padding-right:12px'><img src='{_iconos}/{cabecera.Icono}.png' width='44' height='44' alt='' style='display:block;width:44px;height:44px;border:0;outline:none;text-decoration:none' /></td>
 <td valign='middle' style='font-family:{Fuente};font-size:{tamTitulo};line-height:{altoTitulo};font-weight:700;color:{Azul};letter-spacing:-0.4px;white-space:nowrap'>{Esc(cabecera.Titulo)}</td>
 </tr>
 <tr>
-<td></td>
-<td style='padding-top:6px'><table role='presentation' cellpadding='0' cellspacing='0' border='0' width='84' style='border-collapse:collapse;width:84px'><tr><td height='4' bgcolor='{Lima}' style='height:4px;line-height:4px;font-size:0;background-color:{Lima};border-radius:2px'>&nbsp;</td></tr></table></td>
-</tr>
-</table>
-</td>
+<td colspan='2' align='center' style='padding-top:6px'><table role='presentation' cellpadding='0' cellspacing='0' border='0' width='84' align='center' style='border-collapse:collapse;width:84px'><tr><td height='4' bgcolor='{Lima}' style='height:4px;line-height:4px;font-size:0;background-color:{Lima};border-radius:2px'>&nbsp;</td></tr></table></td>
 </tr>
 </table>
 </td>
@@ -177,7 +190,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 </tr>
 
 <tr>
-<td align='center' style='padding:14px 34px 28px 34px;font-family:{Fuente};font-size:11px;line-height:16px;color:{TextoPie}'>{Pie}</td>
+<td align='center' style='padding:20px 34px 0 34px'><img src='{_logoUrl}' width='150' alt='ABRIL Grupo Inmobiliario' style='display:block;width:150px;max-width:150px;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none' /></td>
+</tr>
+
+<tr>
+<td align='center' style='padding:12px 34px 28px 34px;font-family:{Fuente};font-size:11px;line-height:16px;color:{TextoPie}'>{Pie}</td>
 </tr>
 
 </table>

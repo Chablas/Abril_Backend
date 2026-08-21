@@ -216,8 +216,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// candidato no es finalista, y 409 si el proceso ya salió de esa fase o el finalista ya
         /// estaba decidido. Devuelve el contexto para armar los correos.
         /// </summary>
+        /// <param name="areaScopeId">
+        /// Área a la que entra el seleccionado, elegida por el solicitante entre las del puesto.
+        /// Solo se usa al aprobar, y solo cuando el puesto pertenece a dos o más áreas: con una
+        /// sola se resuelve acá y sin ninguna se cae al área del solicitante. Lanza 400 si el
+        /// puesto tiene varias y no llega ninguna, o si la que llega no es del puesto.
+        /// </param>
         Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
-            int requerimientoId, int candidatoId, bool aprobado, int userId);
+            int requerimientoId, int candidatoId, bool aprobado, int? areaScopeId, int userId);
 
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);

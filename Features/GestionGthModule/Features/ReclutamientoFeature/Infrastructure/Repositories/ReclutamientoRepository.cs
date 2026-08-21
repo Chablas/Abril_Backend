@@ -57,6 +57,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public DateTimeOffset? CompletadoDateTime { get; set; }
             public string? RevisadoNombre { get; set; }
             public DateTimeOffset? RevisadoDateTime { get; set; }
+            /// <summary>CV documentado que adjuntó el postulante (nombre visible + link).</summary>
+            public string? CvNombre { get; set; }
+            public string? CvUrl { get; set; }
         }
 
         /// <summary>
@@ -350,6 +353,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join rp in ctx.GthResponsableProceso
                     on r.GthResponsableProcesoId equals (int?)rp.GthResponsableProcesoId into rpJoin
                 from rp in rpJoin.DefaultIfEmpty()
+                // El formulario del postulante es opcional (de ahí sale su CV documentado), así que
+                // va en left join: no se lee de la consulta de la ficha porque esa exige person_id
+                // y un seleccionado sin formulario aprobado no tiene ficha, pero sí puede tener CV.
+                join fm in ctx.GthPostulanteFormulario.Where(f => f.State)
+                    on c.GthCandidatoId equals fm.GthCandidatoId into fmJoin
+                from fm in fmJoin.DefaultIfEmpty()
                 select new
                 {
                     c.GthCandidatoId,
@@ -357,6 +366,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.Puesto,
                     c.CvNombre,
                     c.CvUrl,
+                    CvPostulanteNombre = fm != null ? (fm.CvNombreOriginal ?? fm.CvNombre) : null,
+                    CvPostulanteUrl    = fm != null ? fm.CvUrl : null,
                     ev.DecisionDateTime,
                     ev.DecisionUserId,
                     EstadoRequerimiento = er.Codigo,
@@ -416,6 +427,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto              = raw.Puesto,
                 CvNombre            = raw.CvNombre,
                 CvUrl               = raw.CvUrl,
+                CvPostulanteNombre  = raw.CvPostulanteUrl == null ? null : raw.CvPostulanteNombre,
+                CvPostulanteUrl     = raw.CvPostulanteUrl,
                 SeleccionadoEn      = raw.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
                 SeleccionadoPor     = seleccionadoPor,
                 ResponsableGth      = raw.ResponsableGth,
@@ -513,6 +526,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return await puestos
                 .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
                 .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Áreas a las que pertenece un puesto (<c>puesto_area_scope</c>), ordenadas por nombre.
+        /// Es la lista del desplegable «Área de destino» de la decisión final del solicitante y,
+        /// como el resto de desplegables del sistema, también la lista contra la que se valida lo
+        /// que llega del cliente: lo que no se ofrece tampoco se acepta.
+        ///
+        /// El nombre que se devuelve es el del nodo y no su rama completa. No es una simplificación
+        /// visual: un puesto asociado a un área estándar tiene en ese nodo el primer área estándar
+        /// de su rama, y uno asociado a un nodo de gerencia —los puestos de categoría gerente o
+        /// gerente general, que cuelgan del nodo de su gerencia— tiene ahí su área real. En los dos
+        /// casos el nodo propio ES el área, así que no hay ancestros que agregar.
+        ///
+        /// Vacía cuando el puesto no tiene ninguna área mapeada: el padrón de GTH solo cubrió
+        /// personal de oficina, así que los puestos de obra no tienen filas y eso es lo esperado.
+        /// </summary>
+        private static async Task<List<OpcionDto>> QueryAreasDelPuesto(AppDbContext ctx, int? puestoId)
+        {
+            if (puestoId is not > 0) return new List<OpcionDto>();
+
+            return await (
+                from pas in ctx.PuestoAreaScope
+                where pas.State && pas.PuestoId == puestoId.Value
+                join s in ctx.AreaScope on pas.AreaScopeId equals s.AreaScopeId
+                where s.State
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                where ai.State
+                orderby ai.AreaItemName
+                select new OpcionDto { Id = s.AreaScopeId, Nombre = ai.AreaItemName })
                 .AsNoTracking()
                 .ToListAsync();
         }
@@ -1165,6 +1210,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.GthCandidatoId,
                     c.Nombre,
                     c.Puesto,
+                    c.CvNombre,
+                    c.CvUrl,
                     c.MultitestRealizado,
                 }).ToListAsync();
 
@@ -1192,6 +1239,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         CompletadoDateTime = f.CompletadoDateTime,
                         RevisadoNombre     = f.RevisadoNombre,
                         RevisadoDateTime   = f.RevisadoDateTime,
+                        CvNombre           = f.CvNombreOriginal ?? f.CvNombre,
+                        CvUrl              = f.CvUrl,
                     }).ToListAsync();
 
             var formulariosPorCandidato = formulariosRaw.ToDictionary(x => x.GthCandidatoId, x => new CandidatoFormularioResumenDto
@@ -1261,11 +1310,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // roundtrip para todos los candidatos de la lista.
             var coincidenciasPorCandidato = await CoincidenciaPersonaQuery.ResolverAsync(ctx, candidatoIds);
 
+            // CV documentado del postulante, indexado por candidato: sale de la misma consulta de
+            // formularios que ya se hizo arriba, así que no cuesta un roundtrip nuevo.
+            var cvPostulantePorCandidato = formulariosRaw
+                .Where(x => x.CvUrl != null)
+                .ToDictionary(x => x.GthCandidatoId, x => x);
+
             var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
             {
                 CandidatoId        = x.GthCandidatoId,
                 Nombre             = x.Nombre,
                 Puesto             = x.Puesto,
+                CvNombre           = x.CvNombre,
+                CvUrl              = x.CvUrl,
+                CvPostulanteNombre = cvPostulantePorCandidato.GetValueOrDefault(x.GthCandidatoId)?.CvNombre,
+                CvPostulanteUrl    = cvPostulantePorCandidato.GetValueOrDefault(x.GthCandidatoId)?.CvUrl,
                 Formulario         = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 Coincidencia       = coincidenciasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 MultitestRealizado = x.MultitestRealizado,
@@ -1984,6 +2043,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     r.GthRequerimientoId,
                     r.Codigo,
+                    r.PuestoId,
                     Puesto       = p.Nombre,
                     Area         = r.Solicitud!.AreaNombre,
                     ProyectoObra = pr.ProjectDescription,
@@ -1992,6 +2052,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
+
+            // Áreas del puesto: son las opciones del «Área de destino» de la decisión final.
+            var areasDestino = await QueryAreasDelPuesto(ctx, head.PuestoId);
 
             // Finalistas: candidatos aprobados en la long list con evaluación registrada por GTH.
             // Los que no continúan (resultado NO_PASO, con su correo de agradecimiento ya enviado)
@@ -2005,6 +2068,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where ev.State
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
                 where res.Codigo != ResultadoCandidato.NoPaso
+                // El formulario del postulante es opcional (puede no habérselo enviado nunca), así
+                // que va en left join: con un join normal desaparecerían finalistas de la lista.
+                join fm in ctx.GthPostulanteFormulario.Where(f => f.State)
+                    on c.GthCandidatoId equals fm.GthCandidatoId into fmJoin
+                from fm in fmJoin.DefaultIfEmpty()
                 select new
                 {
                     c.GthCandidatoId,
@@ -2012,6 +2080,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.Puesto,
                     c.CvNombre,
                     c.CvUrl,
+                    CvPostulanteNombre = fm != null ? (fm.CvNombreOriginal ?? fm.CvNombre) : null,
+                    CvPostulanteUrl    = fm != null ? fm.CvUrl : null,
                     Evaluacion = new EvaluacionRawRow
                     {
                         GthCandidatoId           = c.GthCandidatoId,
@@ -2045,17 +2115,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra    = head.ProyectoObra,
                 EstadoCodigo    = head.EstadoCodigo,
                 EstadoNombre    = head.EstadoNombre,
+                AreasDestino    = areasDestino,
                 // Sin puntajes que los ordenen, los finalistas van alfabéticamente.
                 Finalistas      = candidatos
                     .OrderBy(x => x.Nombre)
                     .Select(x => new FinalistaDto
                     {
-                        CandidatoId = x.GthCandidatoId,
-                        Nombre      = x.Nombre,
-                        Puesto      = x.Puesto,
-                        CvNombre    = x.CvNombre,
-                        CvUrl       = x.CvUrl,
-                        Evaluacion  = MapEvaluacion(x.Evaluacion),
+                        CandidatoId        = x.GthCandidatoId,
+                        Nombre             = x.Nombre,
+                        Puesto             = x.Puesto,
+                        CvNombre           = x.CvNombre,
+                        CvUrl              = x.CvUrl,
+                        CvPostulanteNombre = x.CvPostulanteUrl == null ? null : x.CvPostulanteNombre,
+                        CvPostulanteUrl    = x.CvPostulanteUrl,
+                        Evaluacion         = MapEvaluacion(x.Evaluacion),
                     }).ToList(),
             };
         }
@@ -2077,9 +2150,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
         /// vera el aviso de que falta el formulario.
         ///
-        /// <paramref name="areaScopeId"/> es el nodo del arbol de areas del solicitante que pidio la
-        /// vacante. Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que
-        /// permite resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
+        /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la del PUESTO
+        /// que se pidio (<c>puesto_area_scope</c>), no la del solicitante. Un jefe pide una vacante
+        /// para un puesto que puede pertenecer a otra area de su gerencia, y el area del puesto es
+        /// la del trabajador que va a ocuparlo. Cuando el puesto pertenece a mas de una, la eligio
+        /// el solicitante al aprobar; cuando no tiene ninguna mapeada se cae a la del solicitante.
+        /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
+        /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
         /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
         ///
         /// La entidad se agrega al ChangeTracker pero NO se guarda: la persiste el SaveChanges de
@@ -2132,9 +2209,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id.
                 PuestoId        = req.PuestoId,
                 ContributorId   = req.ContributorId,
-                // Area del solicitante que pidio la vacante: es a donde entra el seleccionado, y es
-                // lo que deja resolver su jefatura (subiendo por el arbol de area_scope) sin tener
-                // que esperar al onboarding — la programacion de su EMO de ingreso la necesita ya.
+                // Area del puesto que se pidio: es a donde entra el seleccionado, y es lo que deja
+                // resolver su jefatura (subiendo por el arbol de area_scope) sin tener que esperar
+                // al onboarding — la programacion de su EMO de ingreso la necesita ya.
                 AreaScopeId     = areaScopeId,
                 // Sin fecha de ingreso: todavia no ingreso.
                 FechaIngreso    = null,
@@ -2146,7 +2223,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
-            int requerimientoId, int candidatoId, bool aprobado, int userId)
+            int requerimientoId, int candidatoId, bool aprobado, int? areaScopeId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -2164,10 +2241,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     Req          = r,
                     r.Codigo,
+                    r.PuestoId,
                     Puesto       = p.Nombre,
                     Area         = r.Solicitud!.AreaNombre,
-                    // Nodo del árbol de áreas del solicitante: es el área a la que entra el
-                    // seleccionado, y con la que se resuelve su jefatura en la programación de EMOs.
+                    // Área del solicitante: solo se usa como respaldo cuando el puesto no tiene
+                    // ninguna área mapeada (ver ResolverAreaDestinoAsync).
                     AreaScopeId  = r.Solicitud!.AreaScopeId,
                     ProyectoObra = pr.ProjectDescription,
                     EstadoCodigo = e.Codigo,
@@ -2197,6 +2275,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ?? throw new AbrilException("El candidato no forma parte de los finalistas de este requerimiento.", 404);
             if (elegido.ResultadoCodigo is ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado)
                 throw new AbrilException("Ya registraste una decisión sobre este finalista.", 409);
+
+            // Área a la que entra el seleccionado. Se resuelve (y valida) antes de tocar nada: un
+            // puesto con varias áreas y sin elección no debería llegar a mover la decisión.
+            var areaDestino = aprobado
+                ? await ResolverAreaDestinoAsync(ctx, head.PuestoId, areaScopeId, head.AreaScopeId)
+                : null;
 
             var codigoResultado = aprobado ? ResultadoCandidato.Seleccionado : ResultadoCandidato.Rechazado;
             var resultadoDestino = await ctx.GthCandidatoResultado
@@ -2309,9 +2393,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
-            // decision, para que no exista una sin la otra.
+            // decision, para que no exista una sin la otra. Su area sale del puesto pedido, no del
+            // solicitante (ver ResolverAreaDestinoAsync).
             var fichaFinalista = aprobado
-                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req, head.AreaScopeId)
+                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req, areaDestino)
                 : null;
 
             await ctx.SaveChangesAsync();
@@ -2335,6 +2420,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatoCorreo   = correoCandidato,
                 NoElegidos        = noElegidosCtx,
             };
+        }
+
+        /// <summary>
+        /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
+        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto_area_scope</c>) y no del
+        /// solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área de
+        /// su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
+        ///
+        ///   • El puesto tiene varias áreas → la que eligió el solicitante en el desplegable, que
+        ///     se valida contra la misma lista que se le ofreció.
+        ///   • El puesto tiene exactamente una → esa, sin preguntar (ni aceptar otra).
+        ///   • El puesto no tiene ninguna → el área del solicitante, que es lo que se usaba antes de
+        ///     esta regla. Pasa con los puestos de obra, que el padrón de GTH nunca mapeó.
+        /// </summary>
+        private static async Task<int?> ResolverAreaDestinoAsync(
+            AppDbContext ctx, int? puestoId, int? elegida, int? areaSolicitante)
+        {
+            var areas = await QueryAreasDelPuesto(ctx, puestoId);
+
+            if (areas.Count == 0) return areaSolicitante;
+            if (areas.Count == 1) return areas[0].Id;
+
+            if (elegida is not > 0)
+                throw new AbrilException(
+                    "Este puesto pertenece a más de un área: elige a qué área entra el seleccionado "
+                    + "antes de aprobarlo.", 400);
+
+            if (!areas.Any(a => a.Id == elegida.Value))
+                throw new AbrilException("El área seleccionada no corresponde al puesto del requerimiento.", 400);
+
+            return elegida;
         }
 
         public async Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)

@@ -50,6 +50,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SoloLectura     = estado?.Codigo == EstadoFormularioPostulante.Aprobado,
                 Observaciones   = estado?.Codigo == EstadoFormularioPostulante.Rechazado ? f.MotivoRechazo : null,
                 Respuestas      = MapRespuestas(f),
+                // Nombre con el que lo subió, no el de SharePoint: es lo único que le sirve al
+                // postulante para reconocer su archivo. Sin url: el archivo no es público.
+                CvNombre        = f.CvNombreOriginal ?? f.CvNombre,
             };
 
             dto.EstadosCiviles = await ctx.GthEstadoCivil.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
@@ -70,8 +73,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return dto;
         }
 
+        public async Task<PostulanteCvContextoDto?> GetCvContexto(string token)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from f in ctx.GthPostulanteFormulario
+                where f.Token == token && f.State
+                join fe in ctx.GthPostulanteFormularioEstado
+                    on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
+                join req in ctx.GthRequerimiento on c.GthRequerimientoId equals req.GthRequerimientoId
+                select new PostulanteCvContextoDto
+                {
+                    CandidatoId = f.GthCandidatoId,
+                    Codigo      = req.Codigo,
+                    TieneCv     = f.CvUrl != null,
+                    SoloLectura = fe.Codigo == EstadoFormularioPostulante.Aprobado,
+                }).FirstOrDefaultAsync();
+        }
+
         public async Task<FormularioCompletadoContextoDto> GuardarRespuestasByToken(
-            string token, PostulanteFormularioRespuestasDto r)
+            string token, PostulanteFormularioRespuestasDto r, PostulanteCvSubidaDto? cv)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -128,6 +151,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Página 4
             f.DeclaracionVeracidad   = r.DeclaracionVeracidad;
             f.ConfirmacionDocumentos = r.ConfirmacionDocumentos;
+
+            // CV documentado: solo se pisa si el postulante adjuntó uno en ESTE envío. Si no
+            // adjuntó nada se conserva el de un envío anterior — al corregir un formulario
+            // observado no se le vuelve a pedir el archivo si ya estaba bien.
+            if (cv != null)
+            {
+                f.CvNombre         = cv.Nombre;
+                f.CvNombreOriginal = cv.NombreOriginal;
+                f.CvUrl            = cv.Url;
+                f.CvItemId         = cv.ItemId;
+                f.CvDriveId        = cv.DriveId;
+            }
 
             f.GthPostulanteFormularioEstadoId = completadoId;
             f.CompletadoDateTime = now;
@@ -403,12 +438,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
-            var candNombre = await ctx.GthCandidato
+            // Nombre del candidato + el CV que GTH cargó en su long list: los dos salen de la
+            // misma fila, así que van en el mismo roundtrip.
+            var cand = await ctx.GthCandidato
                 .Where(c => c.GthCandidatoId == candidatoId && c.State)
-                .Select(c => c.Nombre)
+                .Select(c => new { c.Nombre, c.CvNombre, c.CvUrl })
                 .FirstOrDefaultAsync();
-            if (candNombre == null)
+            if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
+
+            var candNombre = cand.Nombre;
+            // Sin url no hay nada que abrir, así que no se sirve una tarjeta de CV vacía.
+            var cvGth = cand.CvUrl == null ? null : new FormularioCvDto
+            {
+                Nombre = cand.CvNombre ?? "CV cargado por GTH",
+                Url    = cand.CvUrl,
+            };
 
             var row = await (
                 from f in ctx.GthPostulanteFormulario
@@ -442,8 +487,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     MotivoCese   = mce != null ? mce.Nombre : null,
                 }).FirstOrDefaultAsync();
 
+            // Sin formulario todavía no hay CV del postulante, pero el de GTH sí existe: se sirve
+            // igual para que el modal pueda abrirlo antes de enviarle el enlace al candidato.
             if (row == null)
-                return new FormularioRevisionDto { Existe = false, CandidatoNombre = candNombre };
+                return new FormularioRevisionDto { Existe = false, CandidatoNombre = candNombre, CvGth = cvGth };
 
             var f2 = row.F;
             var dto = new FormularioRevisionDto
@@ -458,6 +505,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 RevisadoNombre  = f2.RevisadoNombre,
                 RevisadoEn      = f2.RevisadoDateTime?.ToOffset(PeruOffset).DateTime,
                 MotivoRechazo   = f2.MotivoRechazo,
+                CvGth           = cvGth,
+                CvPostulante    = f2.CvUrl == null ? null : new FormularioCvDto
+                {
+                    Nombre = f2.CvNombreOriginal ?? f2.CvNombre ?? "CV del postulante",
+                    Url    = f2.CvUrl,
+                },
             };
 
             // Los datos se muestran una vez que el postulante completó el formulario (no en ENVIADO).

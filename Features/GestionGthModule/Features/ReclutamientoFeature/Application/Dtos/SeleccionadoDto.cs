@@ -19,9 +19,17 @@
         /// <summary>Puesto del requerimiento al cargar la long list (snapshot).</summary>
         public string? Puesto { get; set; }
 
-        // ── CV en SharePoint ──────────────────────────────────────────────────
+        // ── CVs en SharePoint ─────────────────────────────────────────────────
+        /// <summary>CV que cargó GTH en la long list.</summary>
         public string? CvNombre { get; set; }
         public string? CvUrl { get; set; }
+
+        /// <summary>
+        /// CV documentado que adjuntó el propio postulante en su formulario. Null si no llegó a
+        /// subirlo (los procesos anteriores a que se pidiera el archivo).
+        /// </summary>
+        public string? CvPostulanteNombre { get; set; }
+        public string? CvPostulanteUrl { get; set; }
 
         /// <summary>
         /// Momento en que el solicitante lo aprobó, en hora de Perú (UTC-5). Null solo si la

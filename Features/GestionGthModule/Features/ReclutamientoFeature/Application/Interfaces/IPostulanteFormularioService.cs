@@ -11,8 +11,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Formulario público por token (contexto + catálogos + respuestas). Lanza 404 si el token no es válido.</summary>
         Task<PostulanteFormularioPublicoDto> GetPublico(string token);
 
-        /// <summary>Guarda el envío del postulante (por token) y lo marca como COMPLETADO.</summary>
-        Task GuardarPublico(string token, PostulanteFormularioRespuestasDto respuestas);
+        /// <summary>
+        /// Guarda el envío del postulante (por token) y lo marca como COMPLETADO. El CV documentado
+        /// es obligatorio en el primer envío: si el formulario ya tenía uno cargado (corrección de
+        /// un formulario observado), <paramref name="cv"/> puede venir null y se conserva el previo.
+        /// </summary>
+        Task GuardarPublico(string token, PostulanteFormularioRespuestasDto respuestas, IFormFile? cv);
 
         /// <summary>Envía (o reenvía) el formulario al correo del postulante y devuelve el estado resultante.</summary>
         Task<FormularioAccionResultDto> Enviar(int candidatoId, EnviarFormularioDto dto, int? userId);

@@ -16,6 +16,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         private readonly IPostulanteFormularioRepository _repo;
         private readonly ICorreoDestinatariosResolver _destinatarios;
+        private readonly IReclutamientoArchivoStorage _archivos;
         private readonly IEmailService _email;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PostulanteFormularioService> _logger;
@@ -23,12 +24,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public PostulanteFormularioService(
             IPostulanteFormularioRepository repo,
             ICorreoDestinatariosResolver destinatarios,
+            IReclutamientoArchivoStorage archivos,
             IEmailService email,
             IConfiguration configuration,
             ILogger<PostulanteFormularioService> logger)
         {
             _repo          = repo;
             _destinatarios = destinatarios;
+            _archivos      = archivos;
             _email         = email;
             _configuration = configuration;
             _logger        = logger;
@@ -38,6 +41,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Edad mínima para postular: nadie menor de edad puede ser contratado.</summary>
         private const int EdadMinima = 18;
+
+        /// <summary>
+        /// Formatos del CV documentado. Mismos que los del CV que carga GTH en la long list: los dos
+        /// terminan en la misma carpeta y GTH los abre igual, así que no tiene sentido que uno
+        /// acepte formatos que el otro no.
+        /// </summary>
+        private static readonly string[] AllowedCvExt = { ".pdf", ".doc", ".docx" };
+
+        /// <summary>
+        /// Tope del CV documentado. Lo sube alguien de fuera de la organización desde donde sea
+        /// (muchas veces del celular con datos), así que el tope es amplio pero acotado: un CV con
+        /// certificados escaneados no pasa de aquí y nada obliga a aguantar más.
+        /// </summary>
+        private const long MaxCvBytes = 25 * 1024 * 1024; // 25 MB
 
         /// <summary>
         /// Última fecha de nacimiento que deja al postulante con 18 años cumplidos hoy; cualquier
@@ -58,7 +75,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return dto;
         }
 
-        public async Task GuardarPublico(string token, PostulanteFormularioRespuestasDto respuestas)
+        public async Task GuardarPublico(
+            string token, PostulanteFormularioRespuestasDto respuestas, IFormFile? cv)
         {
             if (string.IsNullOrWhiteSpace(token))
                 throw new AbrilException("Enlace del formulario no válido.", 400);
@@ -83,7 +101,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException(
                     "La fecha de término de la experiencia laboral no puede ser anterior a la fecha de inicio.", 400);
 
-            var ctx = await _repo.GuardarRespuestasByToken(token.Trim(), respuestas);
+            // CV documentado: se valida y se sube ANTES de guardar. Si SharePoint falla, el
+            // formulario no se marca como completado y el postulante puede reintentar el envío
+            // completo — al revés quedaría un formulario "enviado" sin el archivo que se le pidió.
+            var cvSubido = await SubirCvPostulanteAsync(token.Trim(), cv);
+
+            var ctx = await _repo.GuardarRespuestasByToken(token.Trim(), respuestas, cvSubido);
 
             // Aviso a GTH de que el formulario ya se puede revisar. Best-effort a propósito: el
             // postulante ya envió sus datos y no tiene por qué ver un error (ni reintentar) si el
@@ -98,6 +121,68 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "No se pudo enviar el aviso a GTH del formulario completado del requerimiento {Codigo}",
                     ctx.Codigo);
             }
+        }
+
+        /// <summary>
+        /// Valida el CV documentado del envío y lo sube a la carpeta del requerimiento en SharePoint.
+        /// Devuelve null cuando no hay archivo nuevo que subir (el postulante ya lo había adjuntado
+        /// en un envío anterior), y en ese caso el guardado conserva el que ya estaba.
+        ///
+        /// El CV es obligatorio: sin archivo nuevo y sin archivo previo el envío se rechaza. La
+        /// pantalla ya lo exige, pero es un endpoint anónimo y la regla se vuelve a exigir acá.
+        /// </summary>
+        private async Task<PostulanteCvSubidaDto?> SubirCvPostulanteAsync(string token, IFormFile? cv)
+        {
+            var hayArchivo = cv != null && cv.Length > 0;
+
+            if (hayArchivo)
+            {
+                var ext = Path.GetExtension(cv!.FileName).ToLowerInvariant();
+                if (!AllowedCvExt.Contains(ext))
+                    throw new AbrilException("El CV debe estar en formato PDF, DOC o DOCX.", 400);
+                if (cv.Length > MaxCvBytes)
+                    throw new AbrilException(
+                        $"El CV supera el tamaño máximo permitido ({MaxCvBytes / (1024 * 1024)} MB).", 400);
+            }
+
+            // El contexto se consulta igual sin archivo: es lo que dice si el formulario ya tenía
+            // uno cargado, o sea si se puede enviar sin adjuntar nada.
+            var contexto = await _repo.GetCvContexto(token)
+                ?? throw new AbrilException("El enlace del formulario no es válido o ya no está disponible.", 404);
+
+            // Un formulario ya aprobado no admite cambios y el guardado lo va a rechazar: se corta
+            // acá para no dejar el archivo subido a SharePoint sin dueño.
+            if (contexto.SoloLectura)
+                throw new AbrilException("Este formulario ya fue aprobado por la empresa y no admite cambios.", 409);
+
+            if (!hayArchivo)
+            {
+                if (!contexto.TieneCv)
+                    throw new AbrilException("Debes adjuntar tu CV documentado para enviar el formulario.", 400);
+                return null;
+            }
+
+            var carpeta = await _archivos.ResolverCarpetaRequerimientoAsync(contexto.Codigo);
+
+            byte[] contenido;
+            using (var ms = new MemoryStream())
+            {
+                await cv!.CopyToAsync(ms);
+                contenido = ms.ToArray();
+            }
+
+            var subida = await _archivos.SubirArchivoRequerimientoAsync(
+                carpeta, "cv_postulante", contexto.Codigo, contexto.CandidatoId.ToString(),
+                cv.FileName, contenido, cv.ContentType);
+
+            return new PostulanteCvSubidaDto
+            {
+                Nombre         = subida.FileName ?? Path.GetFileName(cv.FileName),
+                NombreOriginal = Path.GetFileName(cv.FileName),
+                Url            = subida.WebUrl,
+                ItemId         = subida.ItemId,
+                DriveId        = carpeta.DriveId,
+            };
         }
 
         /// <summary>

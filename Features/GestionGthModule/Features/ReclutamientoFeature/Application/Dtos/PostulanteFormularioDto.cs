@@ -38,6 +38,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Respuestas ya guardadas (ids de catálogo + valores) para precargar el formulario.</summary>
         public PostulanteFormularioRespuestasDto Respuestas { get; set; } = new();
+
+        /// <summary>
+        /// Nombre del CV documentado que el postulante ya subió, para que al reabrir el enlace
+        /// (o al corregir un formulario observado) sepa que no tiene que volver a adjuntarlo. Null
+        /// si todavía no subió ninguno.
+        ///
+        /// No se sirve la url: el archivo vive en SharePoint y el postulante no tiene acceso, así
+        /// que un enlace solo le daría un error de permisos.
+        /// </summary>
+        public string? CvNombre { get; set; }
     }
 
     /// <summary>
@@ -109,6 +119,50 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // Página 4 · Consentimiento y veracidad
         public bool? DeclaracionVeracidad { get; set; }
         public bool? ConfirmacionDocumentos { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que necesita el servicio para subir el CV documentado del postulante ANTES de guardar el
+    /// formulario: el código del requerimiento (nombra la carpeta y el archivo en SharePoint), el
+    /// candidato al que pertenece y si ya había subido un CV en un envío anterior.
+    ///
+    /// Es una consulta aparte del guardado a propósito: el archivo se sube a SharePoint —que es un
+    /// servicio externo y puede fallar— y su url tiene que quedar en la misma fila que las
+    /// respuestas, así que el nombre del archivo hay que resolverlo antes de escribir nada.
+    /// </summary>
+    public class PostulanteCvContextoDto
+    {
+        public int CandidatoId { get; set; }
+
+        /// <summary>Código del requerimiento (REQ-AAAA-NNNN).</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        /// <summary>true si el formulario ya tenía un CV cargado (envío anterior o corrección).</summary>
+        public bool TieneCv { get; set; }
+
+        /// <summary>
+        /// true si el formulario ya fue APROBADO por GTH, o sea que no admite cambios. Es un freno
+        /// temprano para no dejar un archivo huérfano en SharePoint de un envío que el guardado va
+        /// a rechazar igual: la regla la sigue mandando el repositorio al guardar.
+        /// </summary>
+        public bool SoloLectura { get; set; }
+    }
+
+    /// <summary>
+    /// CV documentado ya subido a SharePoint, listo para grabarse en el formulario. Se pasa al
+    /// repositorio junto con las respuestas para que todo quede en un solo guardado.
+    /// </summary>
+    public class PostulanteCvSubidaDto
+    {
+        /// <summary>Nombre del archivo tal como quedó en SharePoint.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Nombre con el que el postulante lo subió (el que se muestra).</summary>
+        public string? NombreOriginal { get; set; }
+
+        public string? Url { get; set; }
+        public string? ItemId { get; set; }
+        public string? DriveId { get; set; }
     }
 
     /// <summary>
@@ -261,11 +315,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public FormularioDatosDto? Datos { get; set; }
 
         /// <summary>
+        /// CV que GTH cargó en la long list de este candidato (<c>gth_candidato.cv_*</c>). Null si
+        /// la carga no dejó url.
+        /// </summary>
+        public FormularioCvDto? CvGth { get; set; }
+
+        /// <summary>
+        /// CV documentado que adjuntó el propio postulante al enviar el formulario. Null si no lo
+        /// subió (los formularios anteriores a este campo) o si aún no lo envió. Se sirve junto al
+        /// de GTH porque el sentido de pedirlo es poder comparar los dos.
+        /// </summary>
+        public FormularioCvDto? CvPostulante { get; set; }
+
+        /// <summary>
         /// Aviso para GTH: el documento que declaró el postulante ya existe en la base, así que
         /// aprobar actualizaría una ficha que ya estaba. Null cuando no coincide con nada (el caso
         /// normal). Nunca sale por los endpoints públicos del postulante.
         /// </summary>
         public FormularioCoincidenciaDto? Coincidencia { get; set; }
+    }
+
+    /// <summary>
+    /// Un CV del candidato para abrirlo desde SharePoint. Los dos del proceso —el que cargó GTH en
+    /// la long list y el que adjuntó el postulante en su formulario— se sirven con esta misma forma.
+    /// </summary>
+    public class FormularioCvDto
+    {
+        /// <summary>Nombre visible del archivo.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Link al archivo en SharePoint. Null si la subida no dejó url.</summary>
+        public string? Url { get; set; }
     }
 
     /// <summary>

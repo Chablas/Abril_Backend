@@ -203,6 +203,23 @@
 
         /// <summary>Finalistas ordenados alfabéticamente por nombre.</summary>
         public List<FinalistaDto> Finalistas { get; set; } = new();
+
+        /// <summary>
+        /// Áreas a las que puede entrar el seleccionado: las que GTH le asoció al puesto del
+        /// requerimiento en <c>puesto_area_scope</c>. Es el desplegable «Área de destino» de la
+        /// decisión final y define el <c>area_scope_id</c> de su ficha de pre-ingreso.
+        ///
+        ///   • 2 o más → el solicitante elige a cuál va (obligatorio para aprobar).
+        ///   • exactamente 1 → esa, sin preguntar (la pantalla solo la informa).
+        ///   • vacía → el puesto no tiene áreas mapeadas (el padrón de GTH solo cubrió personal de
+        ///     oficina): se cae al área del solicitante, que es lo que se usaba antes.
+        ///
+        /// El nombre es el del nodo, no la rama completa: si el puesto es de un área estándar ese
+        /// nodo YA es el primero estándar de su rama, y si es de un nodo de gerencia (el caso de
+        /// los puestos de categoría gerente, que cuelgan de ahí) el nombre de la gerencia es el
+        /// que corresponde. En ninguno de los dos casos hay ancestros que mostrar.
+        /// </summary>
+        public List<OpcionDto> AreasDestino { get; set; } = new();
     }
 
     /// <summary>
@@ -216,6 +233,14 @@
 
         /// <summary>true = aprobar y cerrar el proceso; false = rechazar al finalista.</summary>
         public bool Aprobado { get; set; }
+
+        /// <summary>
+        /// Área a la que entra el seleccionado, elegida entre las del puesto (ver
+        /// <see cref="RevisionFinalistasDto.AreasDestino"/>). Solo se exige al aprobar y solo cuando
+        /// el puesto pertenece a dos o más áreas; con una sola el backend la resuelve él mismo y
+        /// esto se ignora. Al rechazar no aplica.
+        /// </summary>
+        public int? AreaScopeId { get; set; }
     }
 
     /// <summary>Resultado de registrar la decisión final sobre un finalista.</summary>
@@ -297,9 +322,16 @@
         /// <summary>Puesto del requerimiento (snapshot), no un dato capturado por candidato.</summary>
         public string? Puesto { get; set; }
 
-        /// <summary>Nombre y link del CV en SharePoint (para "Ver CV completo").</summary>
+        /// <summary>Nombre y link del CV que cargó GTH en la long list (para "Ver CV completo").</summary>
         public string? CvNombre { get; set; }
         public string? CvUrl { get; set; }
+
+        /// <summary>
+        /// Nombre y link del CV documentado que el propio postulante adjuntó en su formulario. Null
+        /// si no llegó a subirlo. Se sirve junto al de GTH: el solicitante decide viendo los dos.
+        /// </summary>
+        public string? CvPostulanteNombre { get; set; }
+        public string? CvPostulanteUrl { get; set; }
 
         /// <summary>Evaluación registrada por GTH (comentarios del informe).</summary>
         public EvaluacionResumenDto Evaluacion { get; set; } = new();

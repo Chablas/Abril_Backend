@@ -902,7 +902,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await EnviarFinDeProcesoAsync(ctx, noElegido.Nombre, noElegido.Correo, noElegido.CandidatoId);
 
             // 3) Notificar la decisión a GTH (tipo FINALISTA_DECISION), igual que la de long list.
-            await NotificarDecisionFinalistaAGthAsync(ctx);
+            await NotificarDecisionFinalistaAGthAsync(requerimientoId, ctx);
 
             var otros = ctx.NoElegidos.Count == 0
                 ? ""
@@ -950,7 +950,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// FINALISTA_DECISION). To = principales configurados, CC = copias. Sin principales no se
         /// envía. No bloquea: cualquier fallo solo se registra como warning.
         /// </summary>
-        private async Task NotificarDecisionFinalistaAGthAsync(FinalistaDecisionContextoDto ctx)
+        private async Task NotificarDecisionFinalistaAGthAsync(int requerimientoId, FinalistaDecisionContextoDto ctx)
         {
             try
             {
@@ -970,7 +970,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await _email.SendAsync(
                     to:      dest.EmailsPara,
                     subject: subject,
-                    body:    ConstruirCuerpoDecisionFinalista(ctx, accion),
+                    body:    ConstruirCuerpoDecisionFinalista(requerimientoId, ctx, accion),
                     isHtml:  true,
                     cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }
@@ -981,11 +981,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Enlace a SSOMA · Salud Ocupacional · EMOs con la ficha del seleccionado enfocada y el
+        /// modal de programación ya abierto: exactamente el mismo salto que hace el botón
+        /// «Programar EMO de ingreso» de la pantalla de Reclutamiento (ver <c>detalle.ts</c>). El
+        /// EMO se programa a mano, así que el correo solo tiene que dejar a GTH parado ahí.
+        /// Sin sesión, el <c>authGuard</c> del frontend manda al login con esta URL como
+        /// <c>returnUrl</c> y lo devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLinkProgramarEmoIngreso(int workerId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/ssoma/salud-ocupacional/emos?workerId={workerId}&programar=1";
+        }
+
+        /// <summary>
         /// Cuerpo del correo a GTH con la decisión final del solicitante sobre un finalista. Lo que
         /// sigue después de la decisión va en la franja, que es una línea: el detalle del proceso
         /// se ve en la pantalla.
+        ///
+        /// Al aprobar, el botón lleva directo a la programación del EMO de ingreso del
+        /// seleccionado, que es lo único que le queda por hacer a GTH para cerrar el proceso. Si el
+        /// seleccionado no llegó a tener ficha (sin formulario del postulante aprobado no hay a
+        /// quién programarle nada) y en los rechazos, el botón cae al detalle del requerimiento.
         /// </summary>
-        private string ConstruirCuerpoDecisionFinalista(FinalistaDecisionContextoDto ctx, string accion)
+        private string ConstruirCuerpoDecisionFinalista(
+            int requerimientoId, FinalistaDecisionContextoDto ctx, string accion)
         {
             var l   = Layout.Desde(_configuration);
             var res = ctx.Resultado;
@@ -998,6 +1018,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : res.TodosRechazados
                     ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs."
                     : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
+
+            var programarEmo = res.Aprobado && res.WorkerId.HasValue;
+            var link = programarEmo
+                ? ConstruirLinkProgramarEmoIngreso(res.WorkerId!.Value)
+                : ConstruirLinkDetalleRequerimiento(requerimientoId);
 
             return l.Documento(
                 new Layout.Cabecera(
@@ -1014,7 +1039,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }),
                 res.Aprobado
                     ? l.Franja("req-check", Layout.Tono.Verde, $"<b>Aprobado.</b> {siguiente}")
-                    : l.Franja("req-rechazadas", Layout.Tono.Rojo, $"<b>Rechazado.</b> {siguiente}"));
+                    : l.Franja("req-rechazadas", Layout.Tono.Rojo, $"<b>Rechazado.</b> {siguiente}"),
+                l.Boton(programarEmo ? "Programar EMO de ingreso" : "Ver requerimiento", link),
+                l.EnlaceDirecto(link));
         }
 
         // ── Envío de la long list al solicitante ──────────────────────────────

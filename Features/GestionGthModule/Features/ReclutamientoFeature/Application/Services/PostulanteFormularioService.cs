@@ -36,6 +36,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
 
+        /// <summary>Edad mínima para postular: nadie menor de edad puede ser contratado.</summary>
+        private const int EdadMinima = 18;
+
+        /// <summary>
+        /// Última fecha de nacimiento que deja al postulante con 18 años cumplidos hoy; cualquier
+        /// día posterior es un menor de edad. El "hoy" es el calendario de Perú (UTC-5), no el del
+        /// servidor, para que el límite cambie el mismo día que allá.
+        /// </summary>
+        private static DateOnly FechaNacimientoMaxima() =>
+            DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5)).AddYears(-EdadMinima);
+
         public async Task<PostulanteFormularioPublicoDto> GetPublico(string token)
         {
             if (string.IsNullOrWhiteSpace(token))
@@ -57,6 +68,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // sin él no hay formulario que guardar, así que se corta antes de tocar la base.
             if (respuestas.ConsentimientoDatosPersonales != true)
                 throw new AbrilException("Debes autorizar el tratamiento de tus datos personales para enviar el formulario.", 400);
+
+            // No se contrata a menores de edad. Igual que arriba, el formulario ya lo bloquea en
+            // pantalla, pero al ser un endpoint anónimo la regla se vuelve a exigir acá.
+            if (respuestas.FechaNacimiento.HasValue
+                && respuestas.FechaNacimiento.Value > FechaNacimientoMaxima())
+                throw new AbrilException(
+                    $"Debes tener al menos {EdadMinima} años cumplidos para postular.", 400);
 
             // Nadie sale de una empresa antes de entrar. El formulario ya lo bloquea en pantalla,
             // pero es un endpoint anónimo: la regla se vuelve a exigir acá.

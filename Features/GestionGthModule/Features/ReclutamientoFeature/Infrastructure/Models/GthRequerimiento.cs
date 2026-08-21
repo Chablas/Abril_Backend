@@ -68,7 +68,11 @@
         /// <summary>FK a <c>gth_prioridad</c> (Alta/Media/Baja). Null = sin prioridad asignada.</summary>
         public int? GthPrioridadId { get; set; }
 
-        /// <summary>FK a <c>gth_responsable_proceso</c> (miembro GTH responsable). Null = sin asignar.</summary>
+        /// <summary>
+        /// FK a <c>gth_responsable_proceso</c> (el reclutador a cargo). Null = sin asignar.
+        /// Quiénes pueden estar acá lo decide Configuración → Reclutadores; la FK apunta a la
+        /// fila, no al <c>worker</c>, así que desactivar a un reclutador no borra el histórico.
+        /// </summary>
         public int? GthResponsableProcesoId { get; set; }
 
         /// <summary>FK a <c>gth_tipo_proceso</c> (Junior/Semisenior/Senior con su SLA). Null = sin clasificar.</summary>

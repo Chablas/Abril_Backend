@@ -1067,15 +1067,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (head == null) return null;
 
-            // Responsables del proceso (miembros GTH): nombre desde la base maestra.
+            // Responsables del proceso: los reclutadores activos, que administra la pantalla
+            // Configuración → Reclutadores (tabla filtro gth_responsable_proceso, aparte de
+            // workers). Se excluye a los retirados acá y no en la pantalla: allá siguen
+            // listados justamente para poder apagarlos.
             var responsables = await ctx.GthResponsableProceso
-                .Where(rp => rp.State && rp.Active)
-                .OrderBy(rp => rp.Orden)
+                .Where(rp => rp.State && rp.Active
+                          && WorkersEstadoIds.EstanAdentro.Contains(rp.Worker!.WorkersEstadoId))
                 .Select(rp => new OpcionDto
                 {
                     Id     = rp.GthResponsableProcesoId,
                     Nombre = rp.Worker!.Person!.FullName ?? rp.Worker.ApellidoNombre ?? "",
                 })
+                .OrderBy(o => o.Nombre)
                 .ToListAsync();
 
             var tiposProceso = await ctx.GthTipoProceso
@@ -2073,11 +2077,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
         /// vera el aviso de que falta el formulario.
         ///
+        /// <paramref name="areaScopeId"/> es el nodo del arbol de areas del solicitante que pidio la
+        /// vacante. Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que
+        /// permite resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
+        /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
+        ///
         /// La entidad se agrega al ChangeTracker pero NO se guarda: la persiste el SaveChanges de
         /// quien llama, junto con el cambio de estado del requerimiento.
         /// </summary>
         private static async Task<Worker?> ResolverFichaFinalistaAsync(
-            AppDbContext ctx, int candidatoId, GthRequerimiento req)
+            AppDbContext ctx, int candidatoId, GthRequerimiento req, int? areaScopeId)
         {
             var personId = await ctx.GthPostulanteFormulario
                 .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
@@ -2097,18 +2106,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .OrderByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado ? 1 : 0)
                 .ThenByDescending(w => w.Id)
                 .FirstOrDefaultAsync();
-            if (existente != null) return existente;
+            if (existente != null)
+            {
+                // El área de una ficha de pre-ingreso sale siempre del requerimiento que la aprobó
+                // (es lo unico que la puso ahi, y esta decision es la ultima). La de un trabajador
+                // real, en cambio, es su area de verdad: solo se llena si estaba vacia, para no
+                // moverlo de sitio en el arbol antes de que el contrato exista.
+                var puedeReasignarArea = existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                                      || existente.AreaScopeId == null;
+                if (areaScopeId != null && puedeReasignarArea && existente.AreaScopeId != areaScopeId)
+                {
+                    existente.AreaScopeId = areaScopeId;
+                    existente.UpdatedAt   = DateTimeOffset.UtcNow;
+                }
+                return existente;
+            }
 
             var ahora = DateTimeOffset.UtcNow;
             var ficha = new Worker
             {
                 PersonId        = personId,
                 WorkersEstadoId = WorkersEstadoIds.FinalistaAprobado,
-                // Lo que ya se sabe del puesto sale del requerimiento; el resto (area, correo
+                // Lo que ya se sabe del puesto y del area sale del requerimiento; el resto (correo
                 // corporativo, obra/oficina) lo completa Onboarding cuando firme.
                 // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id.
                 PuestoId        = req.PuestoId,
                 ContributorId   = req.ContributorId,
+                // Area del solicitante que pidio la vacante: es a donde entra el seleccionado, y es
+                // lo que deja resolver su jefatura (subiendo por el arbol de area_scope) sin tener
+                // que esperar al onboarding — la programacion de su EMO de ingreso la necesita ya.
+                AreaScopeId     = areaScopeId,
                 // Sin fecha de ingreso: todavia no ingreso.
                 FechaIngreso    = null,
                 CreatedAt       = ahora,
@@ -2139,6 +2166,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.Codigo,
                     Puesto       = p.Nombre,
                     Area         = r.Solicitud!.AreaNombre,
+                    // Nodo del árbol de áreas del solicitante: es el área a la que entra el
+                    // seleccionado, y con la que se resuelve su jefatura en la programación de EMOs.
+                    AreaScopeId  = r.Solicitud!.AreaScopeId,
                     ProyectoObra = pr.ProjectDescription,
                     EstadoCodigo = e.Codigo,
                 }).FirstOrDefaultAsync();
@@ -2281,7 +2311,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
             // decision, para que no exista una sin la otra.
             var fichaFinalista = aprobado
-                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req)
+                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req, head.AreaScopeId)
                 : null;
 
             await ctx.SaveChangesAsync();

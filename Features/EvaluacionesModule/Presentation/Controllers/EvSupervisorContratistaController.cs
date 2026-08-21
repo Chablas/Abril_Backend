@@ -20,7 +20,10 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private readonly IEvPeriodoRepository _periodoRepo;
         private readonly ILogger<EvSupervisorContratistaController> _logger;
 
-        private const string RolesEvaluador = $"{Roles.CoordinadorSsoma},{Roles.Prevencionista}";
+        // El Jefe SSOMA (rol 9) también puede evaluar de forma opcional, además de ver
+        // el consolidado — a diferencia de Prevencionista/Coordinador (70/72), para quien
+        // esta evaluación es su función habitual.
+        private const string RolesEvaluador = $"{Roles.CoordinadorSsoma},{Roles.Prevencionista},{Roles.AdministradorSsoma}";
 
         public EvSupervisorContratistaController(
             IEvSupervisorContratistaRepository repo,
@@ -68,7 +71,7 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 {
                     PeriodoId = periodo.Id,
                     ProyectoId = dto.ProyectoId,
-                    SupervisorSsContratistaUsuarioId = dto.SupervisorSsContratistaUsuarioId,
+                    SupervisorWorkerId = dto.SupervisorSsContratistaUsuarioId,
                     EvaluadorUserId = userId,
                     Comentario = dto.Comentario
                 };

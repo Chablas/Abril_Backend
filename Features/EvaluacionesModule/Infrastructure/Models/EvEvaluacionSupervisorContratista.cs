@@ -11,7 +11,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Models
         public int ContributorId { get; set; }
 
         [Column("supervisor_ss_contratista_usuario_id")]
-        public int SupervisorSsContratistaUsuarioId { get; set; }
+        public int? SupervisorSsContratistaUsuarioId { get; set; }
+
+        // Fuente actual (2026-08-20 en adelante): worker con puesto de campo de
+        // supervisor, tenga o no cuenta logueada. La columna de arriba queda para
+        // el caso (hoy sin uso) de un supervisor identificado por su login.
+        [Column("supervisor_worker_id")]
+        public int? SupervisorWorkerId { get; set; }
         public string SupervisorNombre { get; set; } = string.Empty;
         public int EvaluadorUserId { get; set; }
         public decimal? Nota { get; set; }

@@ -12,6 +12,18 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
+        // Palabras que, si aparecen en el puesto (workers.puesto_id -> puesto.nombre),
+        // cuentan como "supervisor de campo del contratista" para este flujo. Se compara
+        // por CONTIENE, no por igualdad: puesto.nombre suele venir armado como
+        // "<categoría> <puesto>" concatenados (p. ej. "SUPERVISOR SUPERVISOR DE CAMPO",
+        // "CAPATAZ SUPERVISOR DE CAMPO"), así que una lista de textos exactos deja afuera
+        // la mayoría de los casos reales. A pedido del usuario (2026-08-20): estas
+        // palabras clave, sin distinguir más finamente por ahora.
+        private static readonly string[] PalabrasClaveSupervisorDeCampo =
+        [
+            "SUPERVISOR", "CAPATAZ", "PREVENCIONISTA", "INGENIERO DE PRODUCCION",
+        ];
+
         public EvSupervisorContratistaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
@@ -41,15 +53,24 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   )",
                 new { PeriodoId = periodo.Id, UserId = evaluadorUserId });
 
-            // Proyectos donde el evaluador (Prevencionista/Coordinador SSOMA) está
-            // actualmente destacado, según su vinculación vigente.
-            var proyectoIds = (await conn.QueryAsync<int>(
-                @"SELECT DISTINCT wv.proyecto_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
-                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                  WHERE p.user_id = @UserId",
-                new { UserId = evaluadorUserId })).ToList();
+            // El Jefe SSOMA (rol 9) supervisa todos los proyectos, no solo el suyo — a
+            // diferencia del Prevencionista/Coordinador, cuyo alcance es su vinculación vigente.
+            var esJefeSsoma = await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1 FROM user_role
+                    WHERE user_id = @UserId AND role_id = 9 AND active = TRUE AND state = TRUE
+                  )",
+                new { UserId = evaluadorUserId });
+
+            var proyectoIds = esJefeSsoma
+                ? (await conn.QueryAsync<int>("SELECT project_id FROM project")).ToList()
+                : (await conn.QueryAsync<int>(
+                    @"SELECT DISTINCT wv.proyecto_id
+                      FROM workers w
+                      JOIN person p ON p.person_id = w.person_id
+                      JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                      WHERE p.user_id = @UserId",
+                    new { UserId = evaluadorUserId })).ToList();
 
             if (proyectoIds.Count == 0)
                 return new EvSupervisorContratistaInicioDto
@@ -59,39 +80,47 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     YaMarcoNoAplica = yaMarcoNoAplica
                 };
 
-            // Supervisores de campo (rol de sistema 74) de contratistas activos en esos proyectos.
+            // Supervisores de campo: por PUESTO del trabajador, no por tener cuenta
+            // logueada. La empresa se lee de worker_vinculaciones.empresa_id (la vinculación
+            // vigente), no de workers.contributor_id — ese campo del maestro suele venir
+            // vacío para personal contrata; la empresa real vive por vinculación.
             var supervisores = await conn.QueryAsync<SupervisorRaw>(
                 @"SELECT DISTINCT
-                    scu.id                AS SupervisorSsContratistaUsuarioId,
-                    COALESCE(p.full_name, au.email) AS SupervisorNombre,
-                    c.contributor_id      AS ContributorId,
-                    c.contributor_name    AS ContributorNombre,
-                    scup.proyecto_id      AS ProyectoId,
+                    w.id                   AS SupervisorWorkerId,
+                    COALESCE(per.full_name, w.apellido_nombre) AS SupervisorNombre,
+                    COALESCE(wv.empresa_id, w.contributor_id, 0) AS ContributorId,
+                    COALESCE(c.contributor_name, 'Sin empresa') AS ContributorNombre,
+                    wv.proyecto_id         AS ProyectoId,
                     pr.project_description AS ProyectoNombre
-                  FROM ss_contratista_usuario scu
-                  JOIN user_role ur ON ur.user_id = scu.user_id AND ur.role_id = 74 AND ur.active = TRUE AND ur.state = TRUE
-                  JOIN app_user au ON au.user_id = scu.user_id
-                  JOIN contributor c ON c.contributor_id = scu.contractor_id
-                  JOIN ss_contratista_usuario_proyecto scup ON scup.contratista_usuario_id = scu.id
-                  JOIN project pr ON pr.project_id = scup.proyecto_id
-                  LEFT JOIN workers w ON w.id = scu.worker_id
-                  LEFT JOIN person p ON p.person_id = w.person_id
-                  WHERE scu.activo = TRUE AND scup.proyecto_id = ANY(@ProyectoIds)",
-                new { ProyectoIds = proyectoIds.ToArray() });
+                  FROM workers w
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                  JOIN project pr ON pr.project_id = wv.proyecto_id
+                  LEFT JOIN person per ON per.person_id = w.person_id
+                  LEFT JOIN contributor c ON c.contributor_id = COALESCE(wv.empresa_id, w.contributor_id)
+                  WHERE w.contrata_casa = 'Contratista'
+                    AND w.workers_estado_id = 1
+                    AND upper(pu.nombre) LIKE ANY(@Patrones)
+                    AND wv.proyecto_id = ANY(@ProyectoIds)",
+                new
+                {
+                    ProyectoIds = proyectoIds.ToArray(),
+                    Patrones = PalabrasClaveSupervisorDeCampo.Select(p => $"%{p}%").ToArray(),
+                });
 
             var yaEvaluadas = await conn.QueryAsync<YaEvaluadaRaw>(
-                @"SELECT supervisor_ss_contratista_usuario_id AS SupervisorId, nota AS Nota
+                @"SELECT supervisor_worker_id AS SupervisorId, nota AS Nota
                   FROM ev_evaluacion_supervisor_contratista
-                  WHERE periodo_id = @PeriodoId AND evaluador_user_id = @UserId",
+                  WHERE periodo_id = @PeriodoId AND evaluador_user_id = @UserId AND supervisor_worker_id IS NOT NULL",
                 new { PeriodoId = periodo.Id, UserId = evaluadorUserId });
             var evaluadasMap = yaEvaluadas.ToDictionary(x => x.SupervisorId);
 
             var aEvaluar = supervisores.Select(s =>
             {
-                var yaEvalue = evaluadasMap.TryGetValue(s.SupervisorSsContratistaUsuarioId, out var previa);
+                var yaEvalue = evaluadasMap.TryGetValue(s.SupervisorWorkerId, out var previa);
                 return new EvSupervisorContratistaAEvaluarDto
                 {
-                    SupervisorSsContratistaUsuarioId = s.SupervisorSsContratistaUsuarioId,
+                    SupervisorSsContratistaUsuarioId = s.SupervisorWorkerId,
                     SupervisorNombre = s.SupervisorNombre,
                     ContributorId = s.ContributorId,
                     ContributorNombre = s.ContributorNombre,
@@ -123,17 +152,36 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             eval.Nota = totalMax > 0 ? Math.Round((sumPuntajes / totalMax) * 20m, 2) : 0;
             eval.Detalles = detalles;
 
+            // El supervisor se identifica por worker (puesto de campo), no por login;
+            // ContributorId/SupervisorNombre se resuelven acá porque el DTO de creación
+            // no los trae (solo el id del worker seleccionado en la pantalla).
+            if (eval.SupervisorWorkerId.HasValue)
+            {
+                await ctx.Database.OpenConnectionAsync();
+                var conn = ctx.Database.GetDbConnection();
+                var datos = await conn.QueryFirstOrDefaultAsync<WorkerDatosRaw>(
+                    @"SELECT COALESCE(wv.empresa_id, w.contributor_id) AS ContributorId,
+                             COALESCE(per.full_name, w.apellido_nombre) AS Nombre
+                      FROM workers w
+                      LEFT JOIN person per ON per.person_id = w.person_id
+                      LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                      WHERE w.id = @Id",
+                    new { Id = eval.SupervisorWorkerId.Value });
+                eval.ContributorId = datos?.ContributorId ?? 0;
+                eval.SupervisorNombre = datos?.Nombre ?? eval.SupervisorNombre;
+            }
+
             ctx.EvEvaluacionesSupervisorContratista.Add(eval);
             await ctx.SaveChangesAsync();
             return eval;
         }
 
-        public async Task<bool> ExisteAsync(int periodoId, int supervisorSsContratistaUsuarioId, int evaluadorUserId)
+        public async Task<bool> ExisteAsync(int periodoId, int supervisorWorkerId, int evaluadorUserId)
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.EvEvaluacionesSupervisorContratista.AnyAsync(e =>
                 e.PeriodoId == periodoId &&
-                e.SupervisorSsContratistaUsuarioId == supervisorSsContratistaUsuarioId &&
+                e.SupervisorWorkerId == supervisorWorkerId &&
                 e.EvaluadorUserId == evaluadorUserId);
         }
 
@@ -146,7 +194,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
         public async Task RegistrarNoAplicaAsync(
             int periodoId, int evaluadorUserId, string motivo,
-            int? proyectoId = null, int? supervisorSsContratistaUsuarioId = null)
+            int? proyectoId = null, int? supervisorWorkerId = null)
         {
             using var ctx = _factory.CreateDbContext();
             ctx.EvEvaluacionesSupervisorContratista.Add(new EvEvaluacionSupervisorContratista
@@ -154,7 +202,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 PeriodoId = periodoId,
                 EvaluadorUserId = evaluadorUserId,
                 ProyectoId = proyectoId ?? 0,
-                SupervisorSsContratistaUsuarioId = supervisorSsContratistaUsuarioId ?? 0,
+                SupervisorWorkerId = supervisorWorkerId,
                 NoAplica = true,
                 NoAplicaMotivo = motivo
             });
@@ -210,10 +258,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var rows = await conn.QueryAsync<EvSupervisorContratistaResumenDto>(
                 @"SELECT
                     ec.id                  AS EvaluacionId,
-                    ec.supervisor_ss_contratista_usuario_id AS SupervisorSsContratistaUsuarioId,
+                    COALESCE(ec.supervisor_worker_id, ec.supervisor_ss_contratista_usuario_id, 0) AS SupervisorSsContratistaUsuarioId,
                     ec.supervisor_nombre   AS SupervisorNombre,
                     ec.contributor_id      AS ContributorId,
-                    c.contributor_name     AS ContributorNombre,
+                    COALESCE(c.contributor_name, 'Sin empresa') AS ContributorNombre,
                     ec.proyecto_id         AS ProyectoId,
                     pr.project_description AS ProyectoNombre,
                     COALESCE(p.full_name, au.email) AS EvaluadorNombre,
@@ -221,7 +269,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ec.comentario           AS Comentario,
                     ec.created_at           AS CreatedAt
                   FROM ev_evaluacion_supervisor_contratista ec
-                  JOIN contributor c ON c.contributor_id = ec.contributor_id
+                  LEFT JOIN contributor c ON c.contributor_id = ec.contributor_id
                   JOIN project pr    ON pr.project_id    = ec.proyecto_id
                   JOIN app_user au   ON au.user_id       = ec.evaluador_user_id
                   LEFT JOIN workers w  ON w.id = (
@@ -249,7 +297,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         };
 
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
-        private record SupervisorRaw(int SupervisorSsContratistaUsuarioId, string SupervisorNombre, int ContributorId, string ContributorNombre, int ProyectoId, string ProyectoNombre);
+        private record SupervisorRaw(int SupervisorWorkerId, string SupervisorNombre, int ContributorId, string ContributorNombre, int ProyectoId, string ProyectoNombre);
         private record YaEvaluadaRaw(int SupervisorId, decimal? Nota);
+        private record WorkerDatosRaw(int? ContributorId, string? Nombre);
     }
 }

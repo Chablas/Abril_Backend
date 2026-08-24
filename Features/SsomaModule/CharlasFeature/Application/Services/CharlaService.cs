@@ -163,13 +163,16 @@ public class CharlaService : ICharlaService
             .ToListAsync();
 
         var charlaIds = charlas.Select(c => c.Id).ToList();
-        var asistencias = charlaIds.Any()
-            ? await ctx.SsCharlaAsistencias.Where(a => charlaIds.Contains(a.CharlaId) && a.State).ToListAsync()
-            : new List<SsCharlaAsistencia>();
+        var asistenciasPorCharla = charlaIds.Any()
+            ? (await ctx.SsCharlaAsistencias.Where(a => charlaIds.Contains(a.CharlaId) && a.State).ToListAsync())
+                .GroupBy(a => a.CharlaId)
+                .ToDictionary(g => g.Key, g => g.ToList())
+            : new Dictionary<int, List<SsCharlaAsistencia>>();
 
         return charlas.Select(c =>
         {
-            var asis = asistencias.Where(a => a.CharlaId == c.Id).ToList();
+            asistenciasPorCharla.TryGetValue(c.Id, out var asis);
+            asis ??= [];
             return new CharlaResumenDto(
                 c.Id,
                 c.Fecha,
@@ -632,6 +635,7 @@ public class CharlaService : ICharlaService
         var charlas = await ctx.SsCharlas
             .Where(c => c.State
                 && c.SupervisorId != null
+                && c.ProyectoId == proyectoId
                 && c.Fecha >= inicio && c.Fecha < fin)
             .ToListAsync();
 
@@ -645,15 +649,17 @@ public class CharlaService : ICharlaService
             .Where(w => supervisorIds.Contains(w.Id))
             .ToDictionaryAsync(w => w.Id, w => w.Person?.FullName ?? string.Empty);
 
-        var asistencias = await ctx.SsCharlaAsistencias
+        var asistenciasPorCharla = (await ctx.SsCharlaAsistencias
             .Where(a => charlaIds.Contains(a.CharlaId) && a.State)
-            .ToListAsync();
+            .ToListAsync())
+            .GroupBy(a => a.CharlaId)
+            .ToDictionary(g => g.Key, g => (Total: g.Count(), Asistio: g.Count(a => a.Asistio)));
 
         return charlas.Select(c =>
         {
             var supNombre = c.SupervisorId.HasValue && workers.TryGetValue(c.SupervisorId.Value, out var n) ? n : string.Empty;
-            var asis = asistencias.Where(a => a.CharlaId == c.Id).ToList();
-            return new DashSupervisoresRowDto(c.Id, c.Titulo, c.Fecha, c.SupervisorId, supNombre, asis.Count, asis.Count(a => a.Asistio));
+            asistenciasPorCharla.TryGetValue(c.Id, out var conteo);
+            return new DashSupervisoresRowDto(c.Id, c.Titulo, c.Fecha, c.SupervisorId, supNombre, conteo.Total, conteo.Asistio);
         }).OrderByDescending(r => r.Fecha).ToList();
     }
 
@@ -826,14 +832,16 @@ public class CharlaService : ICharlaService
         if (charlas.Count == 0) return [];
 
         var charlaIds = charlas.Select(c => c.Id).ToList();
-        var asistencias = await ctx.SsCharlaAsistencias
+        var asistenciasPorCharla = (await ctx.SsCharlaAsistencias
             .Where(a => charlaIds.Contains(a.CharlaId) && a.State)
-            .ToListAsync();
+            .ToListAsync())
+            .GroupBy(a => a.CharlaId)
+            .ToDictionary(g => g.Key, g => (Total: g.Count(), Asistio: g.Count(a => a.Asistio)));
 
         return charlas.Select(c =>
         {
-            var asis = asistencias.Where(a => a.CharlaId == c.Id).ToList();
-            return new CharlaGaleriaItemDto(c.Id, c.Titulo, c.Tema ?? "Seguridad", c.Fecha, asis.Count, asis.Count(a => a.Asistio));
+            asistenciasPorCharla.TryGetValue(c.Id, out var conteo);
+            return new CharlaGaleriaItemDto(c.Id, c.Titulo, c.Tema ?? "Seguridad", c.Fecha, conteo.Total, conteo.Asistio);
         }).ToList();
     }
 
@@ -1005,36 +1013,59 @@ public class CharlaService : ICharlaService
 
     public async Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int mes, int anio)
     {
-        await using var ctx = await _factory.CreateDbContextAsync();
         var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
 
-        var workerIds = await ctx.WorkerVinculacion
-            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
-            .Select(v => v.WorkerId).Distinct().ToListAsync();
+        // La conexión a la BD tiene latencia de red no trivial por request (túnel/host remoto):
+        // encadenar awaits secuenciales multiplica esa latencia por cada query. El fetch de staff
+        // (workerIds -> staff) y el de charlas del mes son independientes entre sí, así que corren
+        // en paralelo con contextos separados (DbContext no es thread-safe para queries concurrentes
+        // en la misma instancia) en vez de uno tras otro.
+        var staffTask = Task.Run(async () =>
+        {
+            await using var ctxStaff = await _factory.CreateDbContextAsync();
+            var workerIds = await ctxStaff.WorkerVinculacion
+                .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+                .Select(v => v.WorkerId).Distinct().ToListAsync();
 
-        var staff = await ctx.Worker
-            .Include(w => w.Person)
-            .Include(w => w.PuestoCatalogo)
-            .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo)
-            .ToListAsync();
+            return await ctxStaff.Worker
+                .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo)
+                .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo)
+                .ToListAsync();
+        });
+
+        var charlasMesTask = Task.Run(async () =>
+        {
+            await using var ctxCharlas = await _factory.CreateDbContextAsync();
+            return await ctxCharlas.SsCharlas
+                .Where(c => c.State && !c.EsCapacitacionIndividual
+                    && c.ProyectoId == proyectoId
+                    && c.Fecha >= inicioMes && c.Fecha < finMes)
+                .Select(c => new { c.Id, c.Fecha })
+                .ToListAsync();
+        });
+
+        await Task.WhenAll(staffTask, charlasMesTask);
+        var staff = staffTask.Result;
+        var charlasMes = charlasMesTask.Result;
 
         if (staff.Count == 0) return new DashPersonalResultDto([], []);
 
-        var charlasMes = await ctx.SsCharlas
-            .Where(c => c.State && !c.EsCapacitacionIndividual
-                && c.ProyectoId == proyectoId
-                && c.Fecha >= inicioMes && c.Fecha < finMes)
-            .Select(c => new { c.Id, c.Fecha })
-            .ToListAsync();
-
         var charlasIds = charlasMes.Select(c => c.Id).ToList();
 
-        var asistencias = charlasIds.Count > 0
-            ? await ctx.SsCharlaAsistencias
+        List<SsCharlaAsistencia> asistencias;
+        if (charlasIds.Count > 0)
+        {
+            await using var ctxAsis = await _factory.CreateDbContextAsync();
+            asistencias = await ctxAsis.SsCharlaAsistencias
                 .Where(a => charlasIds.Contains(a.CharlaId) && a.State)
-                .ToListAsync()
-            : [];
+                .ToListAsync();
+        }
+        else
+        {
+            asistencias = [];
+        }
 
         // Agrupar por día calendario (varios charlas el mismo día = un solo día en el header)
         var charlasPorDia = charlasMes
@@ -1132,23 +1163,34 @@ public class CharlaService : ICharlaService
             : [];
 
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var staffPorProyecto = await ctx.WorkerProyecto
+        var staffPorProyecto = (await ctx.WorkerProyecto
             .Where(wp => proyectoIds.Contains(wp.ProyectoId)
                 && (wp.FechaFin == null || wp.FechaFin >= hoy))
             .Join(ctx.Worker.Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo),
                 wp => wp.WorkerId, w => w.Id, (wp, w) => wp.ProyectoId)
             .GroupBy(pid => pid)
             .Select(g => new { ProyectoId = g.Key, Count = g.Count() })
-            .ToListAsync();
+            .ToListAsync())
+            .ToDictionary(s => s.ProyectoId, s => s.Count);
+
+        // Lookups O(1) por proyecto en vez de re-filtrar las listas completas de charlas/
+        // asistencias por cada proyecto (era O(proyectos × charlasMes × asistencias)).
+        var charlasPorProyecto = charlasMes.GroupBy(c => c.ProyectoId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+        var asistenciasPorCharla = asistencias.GroupBy(a => a.CharlaId).ToDictionary(g => g.Key, g => g.ToList());
 
         return proyectos.Select(p =>
         {
-            var charlasProy = charlasMes.Where(c => c.ProyectoId == p.ProjectId).ToList();
-            var charlaIdsProy = charlasProy.Select(c => c.Id).ToList();
-            var asisProy = asistencias.Where(a => charlaIdsProy.Contains(a.CharlaId)).ToList();
-            var totalAsistio = asisProy.Count(a => a.Asistio);
-            var totalPosibles = asisProy.Count;
-            var totalStaff = staffPorProyecto.FirstOrDefault(s => s.ProyectoId == p.ProjectId)?.Count ?? 0;
+            charlasPorProyecto.TryGetValue(p.ProjectId, out var charlasProy);
+            charlasProy ??= [];
+            var totalAsistio = 0;
+            var totalPosibles = 0;
+            foreach (var c in charlasProy)
+            {
+                if (!asistenciasPorCharla.TryGetValue(c.Id, out var asisCharla)) continue;
+                totalPosibles += asisCharla.Count;
+                totalAsistio += asisCharla.Count(a => a.Asistio);
+            }
+            var totalStaff = staffPorProyecto.TryGetValue(p.ProjectId, out var cnt) ? cnt : 0;
 
             return new DashProyectoItemDto(
                 p.ProjectId, p.ProjectDescription,

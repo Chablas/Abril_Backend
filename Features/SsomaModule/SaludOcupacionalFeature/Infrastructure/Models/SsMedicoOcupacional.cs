@@ -29,6 +29,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("activo")]
         public bool Activo { get; set; }
 
+        /// <summary>
+        /// Médico que se asigna a una programación de EMO cuando no se eligió ninguno. El modal
+        /// "Programar EMO con clínica" ya no ofrece elegirlo (lo pidió GTH), pero el listado y la
+        /// agenda siguen mostrando la columna, así que la programación necesita uno igual. Va acá
+        /// y no como constante en el código para que cambiar de médico por defecto sea un UPDATE
+        /// y no un despliegue. Un índice único parcial garantiza que solo haya uno marcado.
+        /// </summary>
+        [Column("es_por_defecto")]
+        public bool EsPorDefecto { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; }
 

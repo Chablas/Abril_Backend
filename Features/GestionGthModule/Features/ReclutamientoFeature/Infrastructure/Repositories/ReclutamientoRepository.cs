@@ -2213,11 +2213,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 PersonId        = personId,
                 WorkersEstadoId = WorkersEstadoIds.FinalistaAprobado,
-                // Lo que ya se sabe del puesto y del area sale del requerimiento; el resto (correo
-                // corporativo, obra/oficina) lo completa Onboarding cuando firme.
+                // Lo que ya se sabe del puesto, del area y de la clasificacion sale del
+                // requerimiento; el resto (correo corporativo, fecha de ingreso) lo completa
+                // Onboarding cuando firme.
                 // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id.
                 PuestoId        = req.PuestoId,
                 ContributorId   = req.ContributorId,
+                // Clasificacion desde ya, no en el onboarding: es lo que hace que los correos de
+                // EMO encuentren su columna en la matriz de Configuracion de EMOs cuando GTH le
+                // programa el examen de ingreso. Ver ClasificacionPreIngreso.
+                ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
+                ObraOficinaStaffId = await ClasificacionPreIngreso
+                    .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
                 // Area del puesto que se pidio: es a donde entra el seleccionado, y es lo que deja
                 // resolver su jefatura (subiendo por el arbol de area_scope) sin tener que esperar
                 // al onboarding — la programacion de su EMO de ingreso la necesita ya.

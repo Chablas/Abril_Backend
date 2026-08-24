@@ -356,6 +356,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // aparecia en la pantalla de Programaciones, que filtra por empresa Abril.
             empresaId ??= worker.ContributorId;
 
+            // El modal "Programar EMO con clinica" ya no pide elegir medico (lo pidio GTH), pero el
+            // listado de Programaciones y la agenda siguen mostrando esa columna: sin medico
+            // quedarian en "—". Se toma el que este marcado como por defecto en el catalogo, para no
+            // dejar el id de un medico concreto escrito en el codigo. Si nadie esta marcado se queda
+            // en null, que es lo que la columna admitia siempre.
+            var medicoId = dto.MedicoId;
+            if (medicoId == null)
+                medicoId = await ctx.SsMedicoOcupacional
+                    .Where(m => m.EsPorDefecto && m.Activo)
+                    .Select(m => (int?)m.Id)
+                    .FirstOrDefaultAsync();
+
             var ent = new SsProgramacionEmo
             {
                 WorkerId = dto.WorkerId,
@@ -364,7 +376,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaProgramada = dto.FechaProgramada,
                 HoraProgramada = dto.HoraProgramada,
                 ClinicaId = dto.ClinicaId,
-                MedicoId = dto.MedicoId,
+                MedicoId = medicoId,
                 Motivo = dto.Motivo,
                 Notas = dto.Notas,
                 Origen = string.IsNullOrWhiteSpace(dto.Origen) ? "Manual" : dto.Origen,

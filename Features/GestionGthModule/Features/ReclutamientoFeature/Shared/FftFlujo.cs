@@ -290,6 +290,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 PuestoId        = req.PuestoId,
                 ContributorId   = req.ContributorId,
                 AreaScopeId     = areaDestino,
+                // Clasificación desde ya, no en el onboarding: es lo que hace que los correos de
+                // EMO encuentren su columna en la matriz de Configuración de EMOs cuando GTH le
+                // programa el examen de ingreso. Ver ClasificacionPreIngreso.
+                ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
+                ObraOficinaStaffId = await ClasificacionPreIngreso
+                    .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
                 // Sin fecha de ingreso: todavía no ingresó.
                 FechaIngreso    = null,
                 CreatedAt       = now,

@@ -27,6 +27,30 @@
         /// </summary>
         public const string Ti = "TI_VACANTES";
 
+        /// <summary>
+        /// Correo del candidato <b>FFT</b> que pide el propio Gerente General. Es el que arranca el
+        /// flujo cuando quien registra la solicitud es él: su aprobación se omite (se estaría
+        /// aprobando a sí mismo), así que este correo reemplaza al de <see cref="AprobacionGg"/> y
+        /// va directo a GTH. Se configura desde Solicitud de Personal, que es de donde sale.
+        /// </summary>
+        public const string FftSolicitudGg = "FFT_SOLICITUD_GG";
+
+        /// <summary>
+        /// Correo del candidato <b>FFT</b> que Gerencia General aprobó. Es la contraparte de
+        /// <see cref="Solicitud"/> para las vacantes FFT: mismo momento (la decisión del GG) y
+        /// mismo destinatario (GTH), pero otro cuerpo — no hay vacante que publicar, hay un
+        /// candidato al que mandarle el formulario. Se configura desde Aprobaciones.
+        /// </summary>
+        public const string FftAprobacionGg = "FFT_APROBACION_GG";
+
+        /// <summary>
+        /// Correo de "el candidato FFT pasa a su EMO". Lo dispara GTH al aprobar el formulario de un
+        /// candidato FFT: como el flujo no tiene entrevistas ni decisión de finalista, este correo
+        /// ocupa el lugar que en el flujo normal tiene <see cref="FinalistaDecision"/>. Se configura
+        /// desde Reclutamiento, que es la pantalla donde se aprueba el formulario.
+        /// </summary>
+        public const string FftEmo = "FFT_EMO";
+
         /// <summary>Correo de "long list enviada" (va al solicitante).</summary>
         public const string LongList = "LONG_LIST";
 
@@ -98,17 +122,20 @@
 
         /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
-        /// <c>long-list</c> / <c>decision-long-list</c> / <c>finalista-envio</c> /
-        /// <c>decision-finalista</c> / <c>formulario-envio</c> / <c>formulario-completado</c> /
-        /// <c>formulario-correccion</c> / <c>entrevista</c> / <c>entrevista-respuesta</c> /
-        /// <c>agradecimiento</c>) al código estable. Devuelve null si el slug no corresponde a un
-        /// tipo conocido.
+        /// <c>fft-solicitud-gg</c> / <c>fft-aprobacion-gg</c> / <c>fft-emo</c> / <c>long-list</c> /
+        /// <c>decision-long-list</c> / <c>finalista-envio</c> / <c>decision-finalista</c> /
+        /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
+        /// <c>entrevista</c> / <c>entrevista-respuesta</c> / <c>agradecimiento</c>) al código
+        /// estable. Devuelve null si el slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
             "aprobacion-gg"          => AprobacionGg,
             "solicitud"              => Solicitud,
             "ti-vacantes"            => Ti,
+            "fft-solicitud-gg"       => FftSolicitudGg,
+            "fft-aprobacion-gg"      => FftAprobacionGg,
+            "fft-emo"                => FftEmo,
             "long-list"              => LongList,
             "decision-long-list"     => LongListDecision,
             "finalista-envio"        => FinalistaEnvio,

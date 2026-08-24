@@ -40,6 +40,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         /// <summary>Presente solo cuando la adjudicación tiene contrato con adelanto.</summary>
         public string? PromissoryNoteUrl    { get; init; }
         public string? PromissoryNoteItemId { get; init; }
+        /// <summary>Anexo del paso 3 (en la práctica, la Vigencia de Poder). Va al final del paquete,
+        /// después del pagaré. OriginalFileName se usa para saber si ya es PDF o necesita conversión.</summary>
+        public string? AnexoUrl      { get; init; }
+        public string? AnexoItemId   { get; init; }
+        public string? AnexoFileName { get; init; }
         /// <summary>Número de contrato para armar el nombre del archivo (ej. 17 → _C017).</summary>
         public int? ContractNumber { get; init; }
     }

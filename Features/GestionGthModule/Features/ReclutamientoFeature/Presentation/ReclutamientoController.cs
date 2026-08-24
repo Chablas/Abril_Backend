@@ -694,16 +694,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ? $"Requerimiento generado: {result.Codigos[0]}."
                     : $"Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
                 // El siguiente paso es de Gerencia General, así que el mensaje lo dice explícitamente
-                // (y avisa si el correo no pudo salir, porque entonces hay que reenviarlo).
-                var msg = result.CorreoGerenciaEnviado
-                    ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
-                    : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
-                      "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
+                // (y avisa si el correo no pudo salir, porque entonces hay que reenviarlo). El FFT
+                // que registra el propio Gerente General no tiene ese paso: pasa derecho a GTH, y lo
+                // que sale es el aviso del candidato, así que el mensaje habla de eso.
+                var msg = result.AprobacionGgOmitida
+                    ? result.CorreoGerenciaEnviado
+                        ? $"Ingreso directo FFT registrado y enviado a Gestión de Talento Humano. {codigos}"
+                        : $"Ingreso directo FFT registrado. {codigos} No se pudo enviar el aviso a Gestión de " +
+                          "Talento Humano, pero el requerimiento ya figura en su bandeja."
+                    : result.CorreoGerenciaEnviado
+                        ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
+                        : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
+                          "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
                 return Ok(new
                 {
                     id = result.SolicitudId,
                     codigos = result.Codigos,
                     correoGerenciaEnviado = result.CorreoGerenciaEnviado,
+                    aprobacionGgOmitida = result.AprobacionGgOmitida,
                     message = msg,
                 });
             }

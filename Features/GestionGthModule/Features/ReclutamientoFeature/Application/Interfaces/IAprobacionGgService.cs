@@ -23,6 +23,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<bool> EnviarSolicitudAGerencia(int solicitudId, int? userId);
 
         /// <summary>
+        /// Envía a GTH el aviso del candidato <b>FFT</b> que pidió el propio Gerente General
+        /// (destinatarios del tipo FFT_SOLICITUD_GG). Reemplaza al correo de aprobación: no hay
+        /// aprobación que pedir cuando quien pide es quien tendría que aprobar, así que este es el
+        /// correo que arranca el flujo — GTH ya tiene un candidato al que mandarle el formulario.
+        /// Devuelve true si salió; false si no había destinatarios o falló el proveedor. No lanza,
+        /// por el mismo motivo que <see cref="EnviarSolicitudAGerencia"/>.
+        /// </summary>
+        Task<bool> EnviarFftPedidoPorGerenciaGeneral(int solicitudId, int? userId);
+
+        /// <summary>
         /// Reenvía el correo de aprobación desde el panel del solicitante (para cuando el primer
         /// envío falló o hubo que corregir los destinatarios). Mismo token: el enlace anterior
         /// sigue siendo válido.

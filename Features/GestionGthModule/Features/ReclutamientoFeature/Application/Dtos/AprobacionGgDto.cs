@@ -181,6 +181,19 @@
         /// </summary>
         public decimal? SalarioBrutoMensual { get; set; }
 
+        /// <summary>
+        /// true = la vacante es un ingreso directo <b>FFT</b>: no se publica ni se arma long list,
+        /// el candidato ya viene con nombre y correo. Lo que se aprueba es a esa persona, así que el
+        /// modal y el correo lo tienen que decir.
+        /// </summary>
+        public bool EsFft { get; set; }
+
+        /// <summary>Nombre del candidato FFT que nombró el solicitante. Null en las vacantes normales.</summary>
+        public string? FftCandidatoNombre { get; set; }
+
+        /// <summary>Correo personal del candidato FFT. Null en las vacantes normales.</summary>
+        public string? FftCandidatoCorreo { get; set; }
+
         /// <summary>Visto bueno del gerente del área: true / false / null = no opinó.</summary>
         public bool? AprobadoGerenteArea { get; set; }
 

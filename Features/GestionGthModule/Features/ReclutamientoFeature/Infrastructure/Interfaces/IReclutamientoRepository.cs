@@ -25,7 +25,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Persiste la solicitud + un requerimiento por vacante, generando el código
         /// REQ-AAAA-NNNN correlativo por año. Devuelve el id de la solicitud y los códigos creados.
         /// </summary>
-        Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
+        /// <param name="omitirAprobacionGg">
+        /// true cuando la solicitud no pasa por la aprobación de Gerencia General porque la registró
+        /// el propio Gerente General y todas sus vacantes son FFT. En ese caso los requerimientos
+        /// nacen ya en manos de GTH, con la ficha del candidato FFT abierta y esperando el envío del
+        /// formulario. Lo decide el servicio (es él quien resuelve la categoría del solicitante).
+        /// </param>
+        Task<SolicitudPersonalCreateResultDto> Create(
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, bool omitirAprobacionGg, int? userId);
 
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de

@@ -15,6 +15,16 @@
         /// <summary>Tipo de requerimiento (Nuevo / Reemplazo).</summary>
         public string TipoRequerimiento { get; set; } = string.Empty;
 
+        /// <summary>
+        /// true = ingreso directo <b>FFT</b>. La línea de tiempo de <see cref="Fases"/> ya viene sin
+        /// las fases que este flujo no recorre; esto es para que la pantalla pueda decir por qué el
+        /// proceso es más corto.
+        /// </summary>
+        public bool EsFft { get; set; }
+
+        /// <summary>Nombre del candidato FFT que nombró el solicitante. Null cuando no es FFT.</summary>
+        public string? FftCandidatoNombre { get; set; }
+
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
         public string? Justificacion { get; set; }

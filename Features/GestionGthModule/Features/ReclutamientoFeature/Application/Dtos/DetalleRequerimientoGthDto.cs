@@ -36,6 +36,17 @@
         /// </summary>
         public decimal? SalarioBrutoMensual { get; set; }
 
+        /// <summary>
+        /// true = ingreso directo <b>FFT</b>: el requerimiento nace con su candidato puesto y se
+        /// salta publicación, revisión de CV, long list, entrevistas y finalistas. GTH solo tiene
+        /// que enviarle el formulario y, al aprobarlo, programarle el EMO de ingreso. El modal usa
+        /// esto para no ofrecer los pasos que no existen en este flujo.
+        /// </summary>
+        public bool EsFft { get; set; }
+
+        /// <summary>Nombre del candidato FFT que nombró el solicitante. Null cuando no es FFT.</summary>
+        public string? FftCandidatoNombre { get; set; }
+
         /// <summary>Vacantes de este requerimiento (cada vacante genera un requerimiento → 1).</summary>
         public int Vacantes { get; set; } = 1;
 

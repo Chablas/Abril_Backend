@@ -42,6 +42,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// gerente del área y Gerencia General aprueban. Se guarda redondeado a 2 decimales.
         /// </summary>
         public decimal? SalarioBrutoMensual { get; set; }
+
+        /// <summary>
+        /// true = la vacante es un ingreso directo <b>FFT</b>: el solicitante ya sabe a quién
+        /// quiere, así que obliga a declarar <see cref="FftCandidatoNombre"/> y
+        /// <see cref="FftCandidatoCorreo"/> y el proceso se salta publicación, revisión de CV, long
+        /// list, entrevistas y finalistas.
+        /// </summary>
+        public bool EsFft { get; set; }
+
+        /// <summary>Nombre completo del candidato FFT. Obligatorio cuando <see cref="EsFft"/>.</summary>
+        public string? FftCandidatoNombre { get; set; }
+
+        /// <summary>
+        /// Correo personal del candidato FFT: el buzón al que GTH le enviará su formulario.
+        /// Obligatorio cuando <see cref="EsFft"/>.
+        /// </summary>
+        public string? FftCandidatoCorreo { get; set; }
     }
 
     /// <summary>Resultado de crear la solicitud: los códigos REQ-AAAA-NNNN generados.</summary>
@@ -51,10 +68,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<string> Codigos { get; set; } = new();
 
         /// <summary>
-        /// ¿Salió el correo de aprobación a Gerencia General? false cuando no hay destinatarios
-        /// configurados o el envío falló: la solicitud queda registrada esperando un reenvío, así
-        /// que hay que avisárselo al solicitante.
+        /// ¿Salió el correo que arranca el flujo? En una solicitud normal es el de aprobación a
+        /// Gerencia General; en la FFT que registra el propio Gerente General es el aviso a GTH
+        /// (ver <see cref="AprobacionGgOmitida"/>). false cuando no hay destinatarios configurados o
+        /// el envío falló: la solicitud queda registrada esperando un reenvío, así que hay que
+        /// avisárselo al solicitante.
         /// </summary>
         public bool CorreoGerenciaEnviado { get; set; }
+
+        /// <summary>
+        /// true = la solicitud no pasa por la aprobación de Gerencia General porque quien la
+        /// registró ES el Gerente General y todas sus vacantes son FFT. El requerimiento nace ya
+        /// en manos de GTH, esperando el envío del formulario al candidato.
+        /// </summary>
+        public bool AprobacionGgOmitida { get; set; }
     }
 }

@@ -3020,6 +3020,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     x.FinishProtectionStatusId,
                     x.ProjectSubContractorInstructivoId,
                     x.ProjectSubContractorPromissoryNoteId,
+                    x.ProjectSubContractorAnexoId,
                     x.ContractNumber,
                 })
                 .FirstOrDefaultAsync()
@@ -3097,6 +3098,15 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     .FirstOrDefaultAsync()
                 : null;
 
+            // Anexo del paso 3: en la práctica es la Vigencia de Poder. Va al final del paquete.
+            var anexo = ids.ProjectSubContractorAnexoId.HasValue
+                ? await ctx.ProjectSubContractorAnexo
+                    .Where(x => x.ProjectSubContractorAnexoId == ids.ProjectSubContractorAnexoId.Value
+                             && x.ProjectSubContractorFileStatusId != 1)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
+                    .FirstOrDefaultAsync()
+                : null;
+
             // Si los documentos principales no tienen archivo (se marcaron como "No aplica" en paso 3)
             // simplemente no se incluyen en el paquete; la validación fuerte solo aplica
             // cuando existe un archivo pero le falta el ItemId de SharePoint (registro legacy).
@@ -3125,6 +3135,9 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 InstructivoItemId           = instructivo?.SharepointItemId,
                 PromissoryNoteUrl           = promissoryNote?.FileUrl,
                 PromissoryNoteItemId        = promissoryNote?.SharepointItemId,
+                AnexoUrl                    = anexo?.FileUrl,
+                AnexoItemId                 = anexo?.SharepointItemId,
+                AnexoFileName               = anexo?.OriginalFileName,
                 ContractNumber              = ids.ContractNumber,
             };
         }

@@ -1102,6 +1102,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     TrabajadorReemplazado = wr == null ? null
                         : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                     r.SalarioBrutoMensual,
+                    r.EsFft,
+                    r.FftCandidatoNombre,
+                    r.FftCandidatoCorreo,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
                     r.GthResponsableProcesoId,
@@ -1328,7 +1331,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Formulario         = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 Coincidencia       = coincidenciasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 MultitestRealizado = x.MultitestRealizado,
-                CorreoContacto     = correosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                // En FFT el correo del candidato lo declaró el solicitante, así que el campo del
+                // envío del formulario ya sale lleno: es todo lo que GTH tiene que hacer y no hay
+                // por qué obligarlo a tipearlo. Cuando el formulario ya salió manda el del envío.
+                CorreoContacto     = correosPorCandidato.GetValueOrDefault(x.GthCandidatoId)
+                                     ?? (head.EsFft ? head.FftCandidatoCorreo : null),
                 Entrevista         = entrevistasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 Evaluacion         = evaluacionesPorCandidato.GetValueOrDefault(x.GthCandidatoId),
             }).ToList();
@@ -1357,6 +1364,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 TipoRequerimiento     = head.Tipo,
                 TrabajadorReemplazado = head.TrabajadorReemplazado,
                 SalarioBrutoMensual   = head.SalarioBrutoMensual,
+                EsFft                 = head.EsFft,
+                FftCandidatoNombre    = head.FftCandidatoNombre,
                 Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
@@ -2860,8 +2869,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Tipo              = t.Nombre,
                     Area              = r.Solicitud!.AreaNombre,
                     ProyectoObra      = pr.ProjectDescription,
+                    r.GthSolicitudId,
                     r.Solicitud.Justificacion,
                     r.SalarioBrutoMensual,
+                    r.EsFft,
+                    r.FftCandidatoNombre,
                     r.CreatedDateTime,
                     EstadoCodigo      = e.Codigo,
                     EstadoNombre      = e.Nombre,
@@ -2886,6 +2898,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Orden       = e.Orden,
                 })
                 .ToListAsync();
+
+            // El ingreso directo FFT no recorre el pipeline completo: dejar «Publicación», «Long
+            // list» o «Entrevistas» como pasos pendientes dejaría al solicitante esperando algo que
+            // no va a pasar. La aprobación de Gerencia General se recorta solo cuando el proceso
+            // nunca la tuvo — pasa cuando el pedido lo registró el propio Gerente General.
+            if (head.EsFft)
+            {
+                var tuvoAprobacionGg = await ctx.GthAprobacionGg
+                    .AnyAsync(a => a.State && a.GthSolicitudId == head.GthSolicitudId);
+
+                fases.RemoveAll(f => FftFlujo.FasesOmitidas.Contains(f.Codigo)
+                                  || (!tuvoAprobacionGg && f.Codigo == EstadoReclutamiento.AprobacionGg));
+            }
 
             // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
             // fuera del pipeline) marcaría todas las fases como cumplidas, que es justo lo contrario.
@@ -2917,6 +2942,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra          = head.ProyectoObra,
                 Justificacion         = head.Justificacion,
                 SalarioBrutoMensual   = head.SalarioBrutoMensual,
+                EsFft                 = head.EsFft,
+                FftCandidatoNombre    = head.FftCandidatoNombre,
                 Enviado               = head.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
@@ -2926,10 +2953,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Fases                 = fases,
                 CandidatosRechazados  = candidatosRechazados,
                 Seleccionado          = seleccionado,
-                // Rechazado por el GG no tiene "siguiente paso": el proceso terminó ahí.
+                // Rechazado por el GG no tiene "siguiente paso": el proceso terminó ahí. En un FFT
+                // parado en la fase del formulario, la descripción del catálogo habla de la long
+                // list —que este flujo no tiene—, así que se dice el paso real.
                 SiguientePaso         = rechazadoGg
                     ? "Gerencia General no aprobó esta vacante. Para volver a pedirla hay que registrar una nueva solicitud."
-                    : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
+                    : head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormulario
+                        ? FftFlujo.SiguientePasoFormulario
+                        : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
             };
         }
 
@@ -3195,18 +3226,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return nodoPropio;
         }
 
-        public async Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId)
+        public async Task<SolicitudPersonalCreateResultDto> Create(
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, bool omitirAprobacionGg, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
             // Estado inicial del pipeline: la solicitud nace esperando la aprobación de Gerencia
-            // General (la fase NUEVO — "solicitud registrada" — queda como paso ya cumplido).
+            // General (la fase NUEVO — "solicitud registrada" — queda como paso ya cumplido). La
+            // excepción es el FFT que registra el propio Gerente General: no se aprueba a sí mismo,
+            // así que sus vacantes arrancan directamente en la fase del formulario, ya en manos de
+            // GTH (ver FftFlujo).
+            var codigoEstadoInicial = omitirAprobacionGg
+                ? FftFlujo.FaseFormulario
+                : EstadoReclutamiento.AprobacionGg;
             var estadoInicialId = await ctx.GthEstadoRequerimiento
-                .Where(e => e.Codigo == EstadoReclutamiento.AprobacionGg && e.State)
+                .Where(e => e.Codigo == codigoEstadoInicial && e.State)
                 .Select(e => e.GthEstadoRequerimientoId)
                 .FirstOrDefaultAsync();
             if (estadoInicialId == 0)
-                throw new AbrilException("No está configurado el estado inicial de reclutamiento (APROBACION_GG).", 500);
+                throw new AbrilException(
+                    $"No está configurado el estado inicial de reclutamiento ({codigoEstadoInicial}).", 500);
 
             // Prioridad por defecto al crear: Media (GTH la ajusta luego desde la bandeja). Puede ser
             // null si el catálogo aún no está sembrado; no es bloqueante.
@@ -3223,11 +3262,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Se revalida contra la MISMA lista que ofrece el formulario (los puestos del área del
             // solicitante y de sus áreas hijas): lo que no se ofrece tampoco se acepta.
-            var puestosOk = (await QueryPuestosDelArea(ctx, solicitud.AreaScopeId))
-                .Select(p => p.Id).ToHashSet();
+            var puestosDelArea = await QueryPuestosDelArea(ctx, solicitud.AreaScopeId);
+            var puestosOk = puestosDelArea.Select(p => p.Id).ToHashSet();
             if (puestoIds.Any(id => !puestosOk.Contains(id)))
                 throw new AbrilException(
                     "Uno o más puestos seleccionados no son válidos para tu área.", 400);
+
+            // Nombre del puesto por id: es el snapshot que lleva la ficha del candidato FFT. Sale de
+            // la lista que ya se trajo para validar, así que no cuesta un roundtrip nuevo.
+            var nombrePorPuesto = puestosDelArea.ToDictionary(p => p.Id, p => p.Nombre);
 
             // Los tipos se traen (y no solo se cuentan) porque su código decide si la vacante es un
             // reemplazo y, con eso, si hay que exigir el trabajador reemplazado.
@@ -3342,6 +3385,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         ProjectId                = v.ProjectId,
                         // Ya validado y redondeado a 2 decimales en el servicio.
                         SalarioBrutoMensual      = v.SalarioBrutoMensual,
+                        // Ya validado en el servicio: el nombre y el correo del candidato solo
+                        // viajan en las vacantes FFT y son obligatorios en ellas.
+                        EsFft                    = v.EsFft,
+                        FftCandidatoNombre       = v.EsFft ? v.FftCandidatoNombre : null,
+                        FftCandidatoCorreo       = v.EsFft ? v.FftCandidatoCorreo : null,
                         GthEstadoRequerimientoId = estadoInicialId,
                         GthPrioridadId           = prioridadMediaId,
                         CreatedDateTime          = now,
@@ -3353,6 +3401,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 ctx.GthSolicitud.Add(solicitud);
                 await ctx.SaveChangesAsync();
+
+                // FFT del propio Gerente General: la solicitud no espera aprobación de nadie, así
+                // que acá mismo se le abre la ficha del candidato a cada vacante. Va en un segundo
+                // SaveChanges dentro de la MISMA transacción porque gth_candidato copia la FK del
+                // requerimiento a mano (no tiene navegación) y hasta el primer guardado no hay id
+                // que copiar: o queda la solicitud con sus candidatos, o no queda nada.
+                if (omitirAprobacionGg)
+                {
+                    var estadoCandidatoAprobadoId = await ctx.GthCandidatoEstado
+                        .Where(e => e.Codigo == EstadoCandidato.Aprobado && e.State)
+                        .Select(e => e.GthCandidatoEstadoId)
+                        .FirstOrDefaultAsync();
+                    if (estadoCandidatoAprobadoId == 0)
+                        throw new AbrilException(
+                            "No está configurado el estado APROBADO de candidatos de reclutamiento.", 500);
+
+                    // En una solicitud recién creada ningún requerimiento tiene candidato todavía,
+                    // así que el guardia de idempotencia arranca vacío: lo único que tiene que
+                    // atajar es que dos vacantes del mismo lote no abran dos candidatos.
+                    var yaConCandidato = await FftFlujo.RequerimientosConCandidatoAsync(
+                        ctx, solicitud.Requerimientos.Select(r => r.GthRequerimientoId).ToList());
+
+                    foreach (var req in solicitud.Requerimientos)
+                        FftFlujo.AbrirCandidato(
+                            ctx, req, estadoInicialId, estadoCandidatoAprobadoId,
+                            nombrePorPuesto.GetValueOrDefault(req.PuestoId), yaConCandidato, userId, now);
+
+                    await ctx.SaveChangesAsync();
+                }
+
                 await tx.CommitAsync();
             });
 

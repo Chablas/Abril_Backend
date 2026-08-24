@@ -490,13 +490,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // quedó incompleta se dice acá mismo, porque de su correo personal depende que Onboarding
             // pueda enviarle la carta oferta.
             if (dto.Aprobado)
+            {
+                // Ingreso directo FFT: la aprobación ya cerró la selección (el repositorio dejó al
+                // candidato seleccionado, el requerimiento en EMO de ingreso y su ficha de
+                // pre-ingreso abierta), así que se avisa que pasa a su EMO. Best-effort: la
+                // aprobación ya está registrada y no se revierte porque un correo falle.
+                if (ctx.Fft != null) await AvisarFftPasaAEmoAsync(ctx.Fft);
+
+                var baseMensaje = ctx.Fft == null
+                    ? "Formulario aprobado."
+                    : $"Formulario aprobado. {ctx.Fft.CandidatoNombre} pasa a la programación de su EMO de ingreso.";
+
                 return new FormularioAccionResultDto
                 {
                     Message = ctx.PersonAviso == null
-                        ? "Formulario aprobado. Los datos validados quedaron registrados en la base maestra."
-                        : $"Formulario aprobado. {ctx.PersonAviso}",
+                        ? $"{baseMensaje} Los datos validados quedaron registrados en la base maestra."
+                        : $"{baseMensaje} {ctx.PersonAviso}",
                     Formulario = ctx.Resumen,
                 };
+            }
 
             // Rechazo de un formulario que el postulante nunca llegó a llenar: es una decisión
             // interna para que el proceso siga sin él, así que no se le escribe nada. Su enlace
@@ -534,6 +546,79 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             return new FormularioAccionResultDto { Message = message, Formulario = ctx.Resumen };
+        }
+
+        // ── Aviso del candidato FFT que pasa a su EMO ─────────────────────────
+
+        /// <summary>
+        /// Correo del tipo FFT_EMO: el candidato de un ingreso directo ya tiene su formulario
+        /// aprobado y pasa a la programación de su EMO. Ocupa el lugar que en el flujo normal tiene
+        /// el correo de decisión del finalista —que en FFT no existe, porque no hay finalistas que
+        /// decidir— y por eso dice algo genérico y no "tal aprobó a un finalista".
+        ///
+        /// No bloquea ni lanza: la aprobación ya quedó registrada.
+        /// </summary>
+        private async Task AvisarFftPasaAEmoAsync(DecisionFormularioFftDto fft)
+        {
+            try
+            {
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftEmo);
+                if (dest.Para.Count == 0)
+                {
+                    // También entra acá cuando el correo está apagado con su interruptor maestro.
+                    _logger.LogWarning(
+                        "No hay destinatarios principales activos para el aviso del candidato FFT que pasa a su EMO " +
+                        "({Codigo}); no se envía.", fft.Codigo);
+                    return;
+                }
+
+                await _email.SendAsync(
+                    to:      dest.EmailsPara,
+                    subject: $"[Reclutamiento] {fft.CandidatoNombre} pasa a su EMO — {fft.Codigo} · {fft.Puesto}",
+                    body:    ConstruirCuerpoFftEmo(fft),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudo enviar el aviso del candidato FFT que pasa a su EMO ({Codigo})", fft.Codigo);
+            }
+        }
+
+        /// <summary>
+        /// Cuerpo del aviso FFT → EMO. El botón lleva directo a la programación del EMO de ingreso
+        /// del candidato, que es lo único que le queda a GTH para cerrar el proceso; si no llegó a
+        /// tener ficha (sin <c>person_id</c> no hay a quién programarle nada) cae al detalle del
+        /// requerimiento.
+        /// </summary>
+        private string ConstruirCuerpoFftEmo(DecisionFormularioFftDto fft)
+        {
+            var l = Layout.Desde(_configuration);
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+
+            var programar = fft.WorkerId.HasValue;
+            var link = programar
+                ? $"{frontendUrl}/ssoma/salud-ocupacional/emos?workerId={fft.WorkerId!.Value}&programar=1"
+                : $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{fft.RequerimientoId}";
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-aprobada", "Ingreso Directo FFT",
+                    $"<b>{Layout.Esc(fft.CandidatoNombre)}</b> pasa a su EMO:"),
+                l.Tarjeta(new List<Layout.Fila>
+                {
+                    new("req-codigo", "Requerimiento", Layout.Esc(fft.Codigo)),
+                    new("req-puesto", "Puesto", Textos.OGuion(fft.Puesto)),
+                    new("req-candidato", "Candidato", Textos.OGuion(fft.CandidatoNombre)),
+                    new("req-area", "Área solicitante", Textos.OGuion(fft.Area)),
+                    new("req-proyecto", "Proyecto / Obra", Textos.OGuion(fft.ProyectoObra)),
+                    new("req-estado", "Estado", Textos.OGuion(fft.EstadoNombre)),
+                }),
+                l.Franja("req-check", Layout.Tono.Verde,
+                    "<b>Formulario aprobado.</b> El ingreso directo no pasa por entrevistas ni finalistas."),
+                l.Boton(programar ? "Programar EMO de ingreso" : "Ver requerimiento", link),
+                l.EnlaceDirecto(link));
         }
 
         /// <summary>Enlace público del formulario para el token indicado (el que va en los correos).</summary>

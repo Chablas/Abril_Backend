@@ -30,15 +30,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ["solicitud-personal"] = new[]
                 {
                     CorreoTipoReclutamiento.AprobacionGg,
+                    // FFT pedido por el propio Gerente General: sale al registrar la solicitud, en
+                    // lugar del correo de aprobación (no se aprueba a sí mismo), así que se
+                    // configura acá y no en Aprobaciones.
+                    CorreoTipoReclutamiento.FftSolicitudGg,
                     CorreoTipoReclutamiento.LongListDecision,
                     CorreoTipoReclutamiento.FinalistaDecision,
                 },
-                // SOLICITUD y TI_VACANTES los dispara la decisión de Gerencia, no el solicitante:
-                // se configuran desde Aprobaciones, que es la pantalla donde esa decisión se toma.
+                // SOLICITUD, TI_VACANTES y FFT_APROBACION_GG los dispara la decisión de Gerencia, no
+                // el solicitante: se configuran desde Aprobaciones, que es la pantalla donde esa
+                // decisión se toma.
                 ["aprobaciones"] = new[]
                 {
                     CorreoTipoReclutamiento.Solicitud,
                     CorreoTipoReclutamiento.Ti,
+                    CorreoTipoReclutamiento.FftAprobacionGg,
                 },
                 // Todos los correos que salen desde la bandeja de GTH, en el orden del proceso.
                 // AGRADECIMIENTO también lo dispara el rechazo de un finalista desde Solicitud de
@@ -50,6 +56,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.FormularioEnvio,
                     CorreoTipoReclutamiento.FormularioCompletado,
                     CorreoTipoReclutamiento.FormularioCorreccion,
+                    // El candidato FFT no pasa por entrevistas ni por decisión de finalista: al
+                    // aprobarle el formulario, GTH avisa con este correo que pasa a su EMO. Va acá
+                    // porque esa aprobación se hace en esta pantalla.
+                    CorreoTipoReclutamiento.FftEmo,
                     CorreoTipoReclutamiento.Entrevista,
                     CorreoTipoReclutamiento.EntrevistaRespuesta,
                     CorreoTipoReclutamiento.FinalistaEnvio,

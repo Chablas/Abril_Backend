@@ -94,6 +94,56 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
+        // ── FFT pedido por el propio Gerente General ──────────────────────────
+        public async Task<bool> EnviarFftPedidoPorGerenciaGeneral(int solicitudId, int? userId)
+        {
+            try
+            {
+                var ctx = await _repo.GetContextoSinAprobacion(solicitudId);
+                if (ctx == null)
+                {
+                    _logger.LogWarning(
+                        "No se encontró la solicitud FFT {SolicitudId} para avisarle a GTH; no se envía.", solicitudId);
+                    return false;
+                }
+
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+                if (dest.Para.Count == 0)
+                {
+                    // También entra acá cuando el correo está apagado con su interruptor maestro: en
+                    // ese caso es una decisión de la Configuración, no una falla. La solicitud ya
+                    // quedó registrada y GTH la ve igual en su bandeja.
+                    _logger.LogWarning(
+                        "No hay destinatarios para el correo del candidato FFT pedido por Gerencia General " +
+                        "(solicitud {SolicitudId}); no se envía.", solicitudId);
+                    return false;
+                }
+
+                var asunto = ctx.Vacantes.Count == 1
+                    ? $"[Reclutamiento] Ingreso directo FFT — {ctx.Vacantes[0].Codigo}"
+                    : $"[Reclutamiento] {ctx.Vacantes.Count} ingresos directos FFT — {ctx.Area}";
+
+                await _email.SendAsync(
+                    to:      dest.EmailsPara,
+                    subject: asunto,
+                    body:    ConstruirCuerpoFft(ctx.Vacantes, ctx.Area, ctx.SolicitanteNombre,
+                                                ctx.Justificacion, ctx.SustentoUrl, ctx.SustentoNombre,
+                                                pedidoPorGg: true),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
+
+                await CrearNotificacionFftAsync(ctx.Vacantes, ctx.Area, ctx.Justificacion, dest, userId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // La solicitud ya quedó registrada: un fallo del correo no la revierte.
+                _logger.LogWarning(ex,
+                    "No se pudo enviar a GTH el aviso del candidato FFT de la solicitud {SolicitudId}", solicitudId);
+                return false;
+            }
+        }
+
         public async Task<AprobacionGgReenvioResultDto> Reenviar(int requerimientoId, int? userId)
         {
             if (!userId.HasValue)
@@ -238,6 +288,147 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 assetsUrl);
         }
 
+        // ── Correos del flujo FFT ─────────────────────────────────────────────
+
+        /// <summary>
+        /// Columnas de la tabla de los correos FFT. Reemplaza a la de vacantes normales: en FFT lo
+        /// que importa no es el tipo de requerimiento (siempre es un ingreso directo) sino a QUIÉN
+        /// se está pidiendo, así que las dos columnas del candidato ocupan ese lugar. Los anchos
+        /// suman el ancho interno de la tarjeta (580).
+        /// </summary>
+        private static readonly IReadOnlyList<Layout.Columna> ColumnasFft = new List<Layout.Columna>
+        {
+            new("Código", 104),
+            new("Puesto", 104),
+            new("Candidato", 132),
+            new("Correo personal", 148),
+            new("Salario bruto", 92, Layout.Alineacion.Derecha),
+        };
+
+        /// <summary>
+        /// Cuerpo de los dos correos FFT a GTH: el del pedido que registra el propio Gerente General
+        /// y el de la aprobación de Gerencia General sobre el pedido de alguien más. Son el mismo
+        /// correo con una línea distinta —lo que cambia es de dónde viene la decisión, no lo que GTH
+        /// tiene que hacer— así que comparten cuerpo en vez de duplicarse.
+        ///
+        /// Dice lo único que hace falta: quién pide, a quién, y que el siguiente paso es enviarle el
+        /// formulario. El botón lleva justo ahí.
+        /// </summary>
+        private string ConstruirCuerpoFft(
+            IReadOnlyList<AprobacionGgVacanteDto> vacantes,
+            string? area,
+            string? solicitanteNombre,
+            string? justificacion,
+            string? sustentoUrl,
+            string? sustentoNombre,
+            bool pedidoPorGg)
+        {
+            var l    = Layout.Desde(_configuration);
+            var link = ConstruirLinkFft(vacantes);
+
+            var datos = new List<Layout.Fila>
+            {
+                new("req-area", "Área solicitante", Textos.OGuion(area)),
+            };
+            if (!string.IsNullOrWhiteSpace(solicitanteNombre))
+                datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(solicitanteNombre)));
+
+            var contexto = new List<Layout.Fila>();
+            if (!string.IsNullOrWhiteSpace(justificacion))
+                contexto.Add(new("req-justificacion", "Justificación", Layout.EscMultilinea(justificacion)));
+            if (!string.IsNullOrWhiteSpace(sustentoUrl))
+                contexto.Add(new("req-sustento", "Sustento adjunto",
+                    Textos.Enlace(sustentoUrl!, sustentoNombre ?? "Ver documento")));
+
+            // El plural cambia con la cantidad: una solicitud FFT puede traer varias vacantes, cada
+            // una con su propio candidato.
+            var uno = vacantes.Count == 1;
+            var bajada = pedidoPorGg
+                ? $"Gerencia General pide el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:"
+                : $"Gerencia General aprobó el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:";
+
+            return l.Documento(
+                new Layout.Cabecera("req-formulario", "Ingreso Directo FFT", bajada),
+                l.Tarjeta(datos),
+                l.Seccion("req-candidatos", uno ? "Candidato solicitado" : $"Candidatos solicitados ({vacantes.Count})"),
+                l.Tabla(ColumnasFft, FilasFft(vacantes)),
+                l.Tarjeta(contexto),
+                // El paso que sigue, en una línea: el FFT no publica la vacante ni arma long list,
+                // así que lo único pendiente es el formulario del postulante.
+                l.Franja("req-aviso", Layout.Tono.Info,
+                    uno
+                        ? "<b>Siguiente paso:</b> enviarle el formulario de información al postulante."
+                        : "<b>Siguiente paso:</b> enviarles el formulario de información a los postulantes."),
+                l.Boton(uno ? "Enviar formulario" : "Ver requerimientos", link),
+                l.EnlaceDirecto(link));
+        }
+
+        /// <summary>
+        /// Filas de la tabla de los correos FFT: el candidato que nombró el solicitante, con su
+        /// correo personal (que es el buzón al que GTH le va a mandar el formulario).
+        /// </summary>
+        private static List<IReadOnlyList<Layout.Celda>> FilasFft(
+            IReadOnlyList<AprobacionGgVacanteDto> vacantes) =>
+            vacantes
+                .Select(v => (IReadOnlyList<Layout.Celda>)new List<Layout.Celda>
+                {
+                    new(Layout.Esc(v.Codigo), Negrita: true, Color: Layout.Azul, NoWrap: true),
+                    new(Layout.Esc(v.Puesto)),
+                    new(Textos.OGuion(v.FftCandidatoNombre), Negrita: true),
+                    new(Textos.OGuion(v.FftCandidatoCorreo)),
+                    new(Layout.Esc(SalarioTexto(v)), Negrita: true, NoWrap: true),
+                })
+                .ToList();
+
+        /// <summary>
+        /// Enlace del botón de los correos FFT. Con UN candidato va al detalle del requerimiento,
+        /// que abre el modal ya parado en la fase del formulario — el único paso pendiente. Con
+        /// varios lleva a la bandeja: un enlace abre un modal y hay un requerimiento por vacante.
+        /// </summary>
+        private string ConstruirLinkFft(IReadOnlyList<AprobacionGgVacanteDto> vacantes)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return vacantes.Count == 1
+                ? $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{vacantes[0].RequerimientoId}"
+                : $"{frontendUrl}/gestion-gth/reclutamiento";
+        }
+
+        /// <summary>
+        /// Campanita de los correos FFT: una por candidato pedido, a los mismos destinatarios del
+        /// correo que sean usuarios del sistema. No bloquea — el correo ya salió.
+        /// </summary>
+        private async Task CrearNotificacionFftAsync(
+            IReadOnlyList<AprobacionGgVacanteDto> vacantes,
+            string? area,
+            string? justificacion,
+            SolicitudDestinatariosDto dest,
+            int? userId)
+        {
+            try
+            {
+                var items = vacantes.Select(v => new NuevaNotificacionDto
+                {
+                    Titulo      = "Ingreso directo FFT",
+                    Subtitulo   = string.IsNullOrWhiteSpace(v.FftCandidatoNombre)
+                                    ? v.Puesto
+                                    : $"{v.FftCandidatoNombre} — {v.Puesto}",
+                    Descripcion = justificacion,
+                    Referencia  = v.Codigo,
+                }).ToList();
+
+                await _notificaciones.CrearPorCorreosAsync(
+                    NotificacionTipoCodigo.GthSolicitudPersonal,
+                    dest.EmailsPara.Concat(dest.EmailsCopias).ToList(),
+                    userId,
+                    items);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudo crear la notificación in-app del ingreso directo FFT ({Area})", area);
+            }
+        }
+
         /// <summary>
         /// Enlace a la solicitud dentro de «Aprobaciones». Si el gerente no tiene sesión, el
         /// <c>authGuard</c> del frontend lo manda al login con esta URL como <c>returnUrl</c> y lo
@@ -259,11 +450,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// lleva a la bandeja, donde están todas las filas nuevas. Sin sesión el <c>authGuard</c>
         /// del frontend manda al login con esta URL como <c>returnUrl</c> y devuelve al usuario acá.
         /// </summary>
-        private string ConstruirLinkReclutamiento(AprobacionGgDecisionContextoDto ctx)
+        private string ConstruirLinkReclutamiento(IReadOnlyList<AprobacionGgVacanteDto> vacantes)
         {
             var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
-            return ctx.Aprobadas.Count == 1
-                ? $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{ctx.Aprobadas[0].RequerimientoId}"
+            return vacantes.Count == 1
+                ? $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{vacantes[0].RequerimientoId}"
                 : $"{frontendUrl}/gestion-gth/reclutamiento";
         }
 
@@ -294,9 +485,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 try
                 {
-                    dto.Destinatarios = Fusionar(
+                    // Con vacantes FFT sale además su propio aviso a GTH, así que sus destinatarios
+                    // entran en la misma lista: el gerente tiene que ver a quién le llega TODO lo
+                    // que dispara su decisión, no una parte.
+                    var fuentes = new List<SolicitudDestinatariosDto>
+                    {
                         await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud),
-                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
+                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti),
+                    };
+                    if (dto.Vacantes.Any(v => v.EsFft))
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg));
+
+                    dto.Destinatarios = Fusionar(fuentes.ToArray());
                 }
                 catch (Exception ex)
                 {
@@ -350,10 +550,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (res.Nivel == AprobacionNivel.GerenteGeneral)
             {
                 // Solo las vacantes aprobadas por el GG salen, y solo si hay alguna.
-                // Best-effort los dos: la decisión ya quedó registrada.
+                // Best-effort los tres: la decisión ya quedó registrada.
+                //
+                // Los dos avisos a GTH se reparten las vacantes aprobadas y no se pisan: el de
+                // SOLICITUD lleva las que hay que publicar y reclutar, el de FFT_APROBACION_GG las
+                // que ya vienen con candidato. Una solicitud puede traer de las dos.
                 if (ctx.Aprobadas.Count > 0)
                 {
                     await NotificarAGthAsync(ctx, userId);
+                    await NotificarFftAprobadoAGthAsync(ctx, userId);
                     await NotificarATiAsync(ctx);
                 }
 
@@ -423,12 +628,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Solicitud);
                     var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
+                    // Los destinatarios del aviso FFT solo se resuelven si el lote trae alguna
+                    // vacante FFT: en un lote sin FFT sería un roundtrip para nada.
+                    var destFft = conAprobadas.Any(c => c.Aprobadas.Any(v => v.EsFft))
+                        ? await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.FftAprobacionGg)
+                        : null;
 
                     // Best-effort, como en la decisión de una: la decisión ya quedó registrada y no
                     // se revierte porque un correo falle.
                     foreach (var c in conAprobadas)
                     {
                         if (destGth != null) await NotificarAGthAsync(c, userId, destGth);
+                        if (destFft != null) await NotificarFftAprobadoAGthAsync(c, userId, destFft);
                         if (destTi  != null) await NotificarATiAsync(c, destTi);
                     }
                 }
@@ -491,6 +702,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private async Task NotificarAGthAsync(
             AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null)
         {
+            // Las vacantes FFT tienen su propio correo (NotificarFftAprobadoAGthAsync): este es el
+            // de las que sí hay que publicar y reclutar. Una solicitud puede traer solo FFT, y
+            // entonces acá no queda nada que mandar.
+            var vacantes = ctx.Aprobadas.Where(v => !v.EsFft).ToList();
+            if (vacantes.Count == 0) return;
+
             // En la decisión de UNA solicitud los destinatarios se resuelven acá. En la decisión en
             // bloque llegan ya resueltos, una sola vez para todo el lote: no dependen de la
             // solicitud ni de su área, así que repetir la consulta por cada una sería un roundtrip
@@ -514,14 +731,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 if (dest.Para.Count > 0) // sin destinatario principal → no se envía
                 {
-                    var subject = ctx.Aprobadas.Count == 1
-                        ? $"[Reclutamiento] Nueva solicitud de personal aprobada — {ctx.Aprobadas[0].Codigo}"
-                        : $"[Reclutamiento] Nueva solicitud de personal aprobada — {ctx.Aprobadas.Count} vacantes";
+                    var subject = vacantes.Count == 1
+                        ? $"[Reclutamiento] Nueva solicitud de personal aprobada — {vacantes[0].Codigo}"
+                        : $"[Reclutamiento] Nueva solicitud de personal aprobada — {vacantes.Count} vacantes";
 
                     await _email.SendAsync(
                         to:      dest.EmailsPara,
                         subject: subject,
-                        body:    ConstruirCuerpoGth(ctx),
+                        body:    ConstruirCuerpoGth(ctx, vacantes),
                         isHtml:  true,
                         cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
                 }
@@ -540,7 +757,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 2) Notificación in-app (campanita) — una por vacante aprobada, mismos destinatarios.
             try
             {
-                var items = ctx.Aprobadas.Select(v => new NuevaNotificacionDto
+                var items = vacantes.Select(v => new NuevaNotificacionDto
                 {
                     Titulo      = "Nuevo requerimiento de personal",
                     Subtitulo   = string.IsNullOrWhiteSpace(ctx.Area) ? v.Puesto : $"{v.Puesto} — {ctx.Area}",
@@ -558,6 +775,65 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la solicitud de personal {SolicitudId}", ctx.SolicitudId);
             }
+        }
+
+        /// <summary>
+        /// Correo + campanita a GTH con las vacantes <b>FFT</b> que Gerencia General aprobó (tipo
+        /// FFT_APROBACION_GG). Es la contraparte de <see cref="NotificarAGthAsync"/> para el ingreso
+        /// directo: mismo momento y mismo destinatario, pero otro trabajo del otro lado — no hay
+        /// vacante que publicar, hay un candidato al que mandarle el formulario. No bloquea.
+        /// </summary>
+        private async Task NotificarFftAprobadoAGthAsync(
+            AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null)
+        {
+            var vacantes = ctx.Aprobadas.Where(v => v.EsFft).ToList();
+            if (vacantes.Count == 0) return;
+
+            SolicitudDestinatariosDto dest;
+            try
+            {
+                dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudieron resolver los destinatarios del aviso FFT a GTH de la solicitud {SolicitudId}",
+                    ctx.SolicitudId);
+                return;
+            }
+
+            try
+            {
+                if (dest.Para.Count == 0)
+                {
+                    // También entra acá cuando el correo está apagado con su interruptor maestro.
+                    _logger.LogWarning(
+                        "No hay destinatarios principales activos para el aviso FFT a GTH " +
+                        "(solicitud {SolicitudId}); no se envía.", ctx.SolicitudId);
+                    return;
+                }
+
+                var subject = vacantes.Count == 1
+                    ? $"[Reclutamiento] Ingreso directo FFT aprobado — {vacantes[0].Codigo}"
+                    : $"[Reclutamiento] {vacantes.Count} ingresos directos FFT aprobados — {ctx.Area}";
+
+                await _email.SendAsync(
+                    to:      dest.EmailsPara,
+                    subject: subject,
+                    body:    ConstruirCuerpoFft(vacantes, ctx.Area, ctx.SolicitanteNombre,
+                                                ctx.Justificacion, ctx.SustentoUrl, ctx.SustentoNombre,
+                                                pedidoPorGg: false),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "No se pudo enviar el aviso FFT a GTH de la solicitud {SolicitudId}", ctx.SolicitudId);
+                return;
+            }
+
+            await CrearNotificacionFftAsync(vacantes, ctx.Area, ctx.Justificacion, dest, userId);
         }
 
         /// <summary>
@@ -667,10 +943,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// menciona: no genera trabajo para GTH y el conteo del asunto ya se refiere solo a lo
         /// aprobado.
         /// </summary>
-        private string ConstruirCuerpoGth(AprobacionGgDecisionContextoDto ctx)
+        /// <param name="vacantes">
+        /// Las aprobadas que le toca reclutar a GTH: las FFT quedan fuera porque van en su propio
+        /// correo, con su propio cuerpo y su propio siguiente paso.
+        /// </param>
+        private string ConstruirCuerpoGth(
+            AprobacionGgDecisionContextoDto ctx, IReadOnlyList<AprobacionGgVacanteDto> vacantes)
         {
             var l    = Layout.Desde(_configuration);
-            var link = ConstruirLinkReclutamiento(ctx);
+            var link = ConstruirLinkReclutamiento(vacantes);
 
             var datos = new List<Layout.Fila>
             {
@@ -696,8 +977,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 new Layout.Cabecera(
                     "req-aprobada", "Solicitud Aprobada", "Gerencia General aprobó estas vacantes:"),
                 l.Tarjeta(datos),
-                l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
-                l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(ctx.Aprobadas, conSalario: true)),
+                l.Seccion("req-vacantes", $"Vacantes aprobadas ({vacantes.Count})"),
+                l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(vacantes, conSalario: true)),
                 l.Tarjeta(contexto),
                 // «Iniciar el reclutamiento» y no «Publicar la vacante»: al aprobar, la vacante
                 // queda en VALIDACION_GTH, así que lo primero que abre el modal es la asignación

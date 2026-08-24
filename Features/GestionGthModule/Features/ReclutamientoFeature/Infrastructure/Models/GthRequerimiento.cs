@@ -63,6 +63,33 @@
         /// </summary>
         public decimal? SalarioBrutoMensual { get; set; }
 
+        /// <summary>
+        /// true = la vacante es un ingreso directo <b>FFT</b>: el solicitante ya sabe a quién
+        /// quiere, así que el proceso omite publicación, revisión de CV, long list, entrevistas y
+        /// envío de finalistas. Del pedido se salta al formulario de información del postulante y,
+        /// cuando GTH lo aprueba, a la programación de su EMO de ingreso (regla 8.8 del
+        /// requerimiento funcional).
+        ///
+        /// El flujo se decide por esta columna y nunca por el proyecto: "FFT" era una fuente de
+        /// reclutamiento del catálogo, pero atar el salto de fases a un proyecto/obra dejaría la
+        /// regla a merced de un renombre.
+        /// </summary>
+        public bool EsFft { get; set; }
+
+        /// <summary>
+        /// Nombre completo del candidato que nombró el solicitante. Obligatorio en las vacantes
+        /// <see cref="EsFft"/> (la base lo exige con <c>ck_gth_requerimiento_fft_candidato</c>) y
+        /// null en el resto. Es el nombre con el que se abre su ficha de candidato.
+        /// </summary>
+        public string? FftCandidatoNombre { get; set; }
+
+        /// <summary>
+        /// Correo personal del candidato FFT: el buzón al que GTH le manda su formulario. Se guarda
+        /// aunque después GTH lo corrija en el envío — este es el que declaró el solicitante y es
+        /// lo que Gerencia General aprueba.
+        /// </summary>
+        public string? FftCandidatoCorreo { get; set; }
+
         public int GthEstadoRequerimientoId { get; set; }
 
         /// <summary>FK a <c>gth_prioridad</c> (Alta/Media/Baja). Null = sin prioridad asignada.</summary>

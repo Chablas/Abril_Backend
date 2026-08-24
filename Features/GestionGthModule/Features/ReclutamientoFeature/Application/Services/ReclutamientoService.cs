@@ -21,6 +21,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IReclutamientoRepository _repo;
         private readonly IAprobacionGgRepository  _aprobacionGgRepo;
         private readonly IAprobacionGgService     _aprobacionGg;
+        private readonly IAprobacionScopeResolver _scopes;
         private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly ICorreoConfigRepository  _correoConfig;
         private readonly IGraphSharePointService  _sharePoint;
@@ -46,10 +47,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private const decimal MaxSalarioBrutoMensual = 1_000_000m;
 
+        /// <summary>
+        /// Tope del nombre del candidato FFT. No hay columna que lo limite (es <c>text</c>), pero el
+        /// nombre va en el asunto y en las tablas de los correos: el corte evita que un pegado
+        /// accidental los deje ilegibles.
+        /// </summary>
+        private const int MaxFftNombreLength = 200;
+
+        /// <summary>
+        /// Correo válido para el candidato FFT. Misma expresión que valida el envío del formulario
+        /// (<c>PostulanteFormularioService.EmailRegex</c>): es el mismo buzón, así que lo que se
+        /// acepta acá tiene que ser exactamente lo que después se pueda usar para escribirle.
+        /// </summary>
+        private static readonly Regex FftCorreoRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+
         public ReclutamientoService(
             IReclutamientoRepository repo,
             IAprobacionGgRepository aprobacionGgRepo,
             IAprobacionGgService aprobacionGg,
+            IAprobacionScopeResolver scopes,
             ICorreoDestinatariosResolver destinatarios,
             ICorreoConfigRepository correoConfig,
             IGraphSharePointService sharePoint,
@@ -61,6 +77,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _repo             = repo;
             _aprobacionGgRepo = aprobacionGgRepo;
             _aprobacionGg     = aprobacionGg;
+            _scopes           = scopes;
             _destinatarios    = destinatarios;
             _correoConfig     = correoConfig;
             _sharePoint       = sharePoint;
@@ -79,6 +96,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
             dto.Destinatarios = await _destinatarios.ResolverAsync(
                 CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
+
+            // ¿Quién está pidiendo? Si es Gerencia General, un pedido FFT suyo no pasa por su propia
+            // aprobación y va derecho a GTH, así que el formulario tiene que poder avisarlo y
+            // mostrar los destinatarios de ESE correo, que son otros. Se resuelve por la categoría
+            // de su ficha (la misma regla de «Aprobaciones»), nunca por el rol.
+            dto.EsGerenteGeneral = (await _scopes.ResolveAsync(userId)).Nivel == AprobacionNivel.GerenteGeneral;
+            if (dto.EsGerenteGeneral)
+                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
 
             return dto;
         }
@@ -1422,6 +1447,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Se guarda con 2 decimales: la columna es numeric(12,2) y redondear acá deja el
                 // dato igual en la BD y en el correo que ve el gerente.
                 v.SalarioBrutoMensual = Math.Round(v.SalarioBrutoMensual.Value, 2, MidpointRounding.AwayFromZero);
+
+                // FFT: el solicitante ya sabe a quién quiere, así que la vacante no vale sin ese
+                // nombre y ese correo — son el único destinatario posible del formulario, que es el
+                // siguiente (y casi único) paso del flujo. Lo que llegue en una vacante que NO es
+                // FFT se descarta: el formulario no lo muestra y guardarlo dejaría un candidato
+                // fantasma en un proceso que sí va a publicar la vacante.
+                if (!v.EsFft)
+                {
+                    v.FftCandidatoNombre = null;
+                    v.FftCandidatoCorreo = null;
+                    continue;
+                }
+
+                var fftNombre = v.FftCandidatoNombre?.Trim();
+                if (string.IsNullOrWhiteSpace(fftNombre))
+                    throw new AbrilException(
+                        $"Vacante {pos}: debe indicar el nombre completo del candidato FFT.", 400);
+                if (fftNombre.Length > MaxFftNombreLength)
+                    throw new AbrilException(
+                        $"Vacante {pos}: el nombre del candidato FFT no puede superar los {MaxFftNombreLength} caracteres.", 400);
+
+                var fftCorreo = v.FftCandidatoCorreo?.Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(fftCorreo) || !FftCorreoRegex.IsMatch(fftCorreo))
+                    throw new AbrilException(
+                        $"Vacante {pos}: debe indicar un correo personal válido del candidato FFT.", 400);
+
+                v.FftCandidatoNombre = fftNombre;
+                v.FftCandidatoCorreo = fftCorreo;
             }
 
             // Área del solicitante: se deriva del usuario autenticado (no se confía en el cliente).
@@ -1443,12 +1496,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (sustento != null && sustento.Length > 0)
                 await SubirSustentoAsync(sustento, solicitud);
 
-            var result = await _repo.Create(solicitud, dto.Vacantes, userId);
+            // ¿La solicitud se salta la aprobación de Gerencia General? Solo cuando la registra el
+            // propio Gerente General y TODAS sus vacantes son FFT: pedirle su propia firma sobre un
+            // candidato que él nombró no aprueba nada. Si mezcla un FFT con una vacante normal, la
+            // solicitud sí pasa por la pantalla de Aprobaciones —la vacante normal la necesita— y
+            // ahí la FFT saltará igual al formulario. El nivel sale de la categoría de su ficha, la
+            // misma regla de «Aprobaciones», nunca del rol ni de nada que mande el cliente.
+            // El orden importa: la categoría solo se consulta cuando puede cambiar algo (todas las
+            // vacantes FFT). En una solicitud normal esto no cuesta ningún roundtrip.
+            var omitirAprobacion = dto.Vacantes.All(v => v.EsFft)
+                && (await _scopes.ResolveAsync(userId)).Nivel == AprobacionNivel.GerenteGeneral;
+
+            var result = await _repo.Create(solicitud, dto.Vacantes, omitirAprobacion, userId);
+            result.AprobacionGgOmitida = omitirAprobacion;
 
             // Primer paso del flujo: la solicitud va a Gerencia General, NO a GTH. Un solo correo
             // con todas las vacantes; GTH se enterará recién cuando el GG apruebe. No bloquea la
             // creación: si el correo falla, la solicitud ya quedó registrada esperando el reenvío.
-            result.CorreoGerenciaEnviado = await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);
+            //
+            // En el FFT del propio Gerente General no hay aprobación que pedir: el correo que
+            // arranca el flujo es el aviso a GTH de que ya tiene un candidato al que mandarle el
+            // formulario (mismo criterio, tampoco bloquea).
+            result.CorreoGerenciaEnviado = omitirAprobacion
+                ? await _aprobacionGg.EnviarFftPedidoPorGerenciaGeneral(result.SolicitudId, userId)
+                : await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);
 
             return result;
         }

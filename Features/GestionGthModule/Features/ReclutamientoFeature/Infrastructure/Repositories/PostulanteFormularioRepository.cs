@@ -646,8 +646,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // maestra). Va en la misma transacción que el cambio de estado: o el formulario queda
             // aprobado CON su ficha en person, o no queda aprobado.
             string? personAviso = null;
+            DecisionFormularioFftDto? fft = null;
             if (aprobado)
             {
+                // Ingreso directo FFT: aprobar el formulario es el último paso del proceso además
+                // del EMO. No hay entrevista que programar, ni multitest, ni finalista que enviarle
+                // al solicitante —él pidió a esta persona por nombre—, así que la aprobación deja al
+                // candidato SELECCIONADO, el requerimiento en EMO de ingreso y su ficha de
+                // pre-ingreso abierta. Se lee acá, con la entidad del requerimiento, porque el salto
+                // tiene que entrar en la misma transacción que la aprobación.
+                var proceso = await (
+                    from c in ctx.GthCandidato
+                    where c.GthCandidatoId == candidatoId && c.State
+                    join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                    join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                    join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                    select new
+                    {
+                        Req          = r,
+                        r.Codigo,
+                        r.EsFft,
+                        Puesto       = p.Nombre,
+                        Area         = r.Solicitud!.AreaNombre,
+                        ProyectoObra = pr.ProjectDescription,
+                        Candidato    = c.Nombre,
+                    }).FirstOrDefaultAsync();
+
                 // La transacción se abre dentro de la execution strategy porque el provider corre con
                 // EnableRetryOnFailure y no admite transacciones iniciadas por fuera de ella.
                 var strategy = ctx.Database.CreateExecutionStrategy();
@@ -663,6 +687,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     f.PersonId  = sync.PersonId ?? f.PersonId;
                     personAviso = sync.Aviso;
                     await ctx.SaveChangesAsync();
+
+                    if (proceso is { EsFft: true })
+                    {
+                        // Va después del SaveChanges de arriba a propósito: la ficha de pre-ingreso
+                        // se busca por el `person_id` que ese guardado acaba de dejar. Sigue dentro
+                        // de la misma transacción, así que o queda todo o no queda nada.
+                        var (ficha, estadoNombre) = await FftFlujo.CerrarConSeleccionadoAsync(
+                            ctx, candidatoId, proceso.Req, userId, now);
+                        await ctx.SaveChangesAsync();
+
+                        fft = new DecisionFormularioFftDto
+                        {
+                            RequerimientoId = proceso.Req.GthRequerimientoId,
+                            Codigo          = proceso.Codigo,
+                            Puesto          = proceso.Puesto,
+                            Area            = proceso.Area,
+                            ProyectoObra    = proceso.ProyectoObra,
+                            CandidatoNombre = Trim(f.NombresCompletos) ?? proceso.Candidato,
+                            EstadoNombre    = estadoNombre,
+                            WorkerId        = ficha?.Id,
+                        };
+                    }
+
                     await tx.CommitAsync();
                 });
             }
@@ -675,6 +722,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 PersonId    = f.PersonId,
                 PersonAviso = personAviso,
+                Fft         = fft,
                 Resumen = new CandidatoFormularioResumenDto
                 {
                     EstadoCodigo   = destino.Codigo,

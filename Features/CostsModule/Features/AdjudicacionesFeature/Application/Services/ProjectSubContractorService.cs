@@ -2034,10 +2034,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("El instructivo debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+            if (!string.IsNullOrEmpty(docs.AnexoUrl) && string.IsNullOrEmpty(docs.AnexoItemId))
+                throw new AbrilException("El anexo debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
 
             // Orden: 1-Resumen, 2-Contrato (con cotización/ficha técnica/orden de servicio/cronograma
             // embebidos en sus respectivos marcadores), 3-Salidas no conforme, 4-Cuadro de tolerancias,
-            // 5-Instructivo, 6-Pagaré. Los docs sin archivo (No aplica) se omiten.
+            // 5-Protección de acabados, 6-Instructivo, 7-Pagaré, 8-Anexo (Vigencia de Poder, siempre al
+            // final del paquete). Los docs sin archivo (No aplica) se omiten.
             //
             // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar de
             // N requests secuenciales. Para cada archivo se decide si ya es PDF (descarga directa)
@@ -2054,6 +2057,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.ScheduleItemId))             downloads.Add((docs.ScheduleItemId,             AlreadyPdf: IsPdf(docs.ScheduleFileName)));
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.AnexoItemId))                downloads.Add((docs.AnexoItemId,                AlreadyPdf: IsPdf(docs.AnexoFileName)));
 
             if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved && !docs.FinishProtectionApproved)
                 throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
@@ -2108,6 +2112,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
+
+            // El anexo (Vigencia de Poder) cierra el paquete: va después de todo lo anterior.
+            if (!string.IsNullOrEmpty(docs.AnexoItemId))               pdfBytesList.Add(downloaded[docs.AnexoItemId]);
 
             var mergedBytes = MergePdfs(pdfBytesList);
 

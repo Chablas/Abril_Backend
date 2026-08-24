@@ -26,6 +26,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<AprobacionGgEnvioContextoDto?> GetEnvioContextoByRequerimiento(int requerimientoId, int userId);
 
+        /// <summary>
+        /// Contexto del correo de una solicitud que NO tiene aprobación: el FFT que registra el
+        /// propio Gerente General se salta ese paso, así que no hay fila que crear ni decisión que
+        /// leer. Null si la solicitud no existe o se dio de baja.
+        /// </summary>
+        Task<AprobacionGgEnvioContextoDto?> GetContextoSinAprobacion(int solicitudId);
+
         /// <summary>Registra los destinatarios y el momento del envío del correo (o del reenvío).</summary>
         Task RegistrarEnvio(int aprobacionId, List<string> principales, List<string> copias, bool esReenvio, int? userId);
 

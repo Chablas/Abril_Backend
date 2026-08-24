@@ -540,6 +540,42 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// cuando quedó completa.
         /// </summary>
         public string? PersonAviso { get; set; }
+
+        // ── Ingreso directo FFT ───────────────────────────────────────────────
+        /// <summary>
+        /// Datos del salto FFT que hizo esta aprobación: el proceso no tiene entrevistas ni decisión
+        /// de finalista, así que aprobar el formulario deja al candidato seleccionado y al
+        /// requerimiento en EMO de ingreso. Null cuando el proceso no es FFT o cuando se rechazó.
+        /// </summary>
+        public DecisionFormularioFftDto? Fft { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que el servicio necesita para avisar que un candidato FFT pasa a su EMO: el requerimiento
+    /// al que pertenece, la ficha que se le abrió y el estado en el que quedó el proceso.
+    /// </summary>
+    public class DecisionFormularioFftDto
+    {
+        public int RequerimientoId { get; set; }
+
+        /// <summary>Código REQ-AAAA-NNNN del requerimiento.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        public string Puesto { get; set; } = string.Empty;
+        public string? Area { get; set; }
+        public string? ProyectoObra { get; set; }
+
+        /// <summary>Nombre del candidato tal como quedó en su ficha de candidato.</summary>
+        public string CandidatoNombre { get; set; } = string.Empty;
+
+        /// <summary>Estado en el que quedó el requerimiento (EMO de ingreso).</summary>
+        public string EstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Ficha de pre-ingreso del candidato: es el id con el que GTH abre la programación de su
+        /// EMO. Null cuando el formulario no dejó <c>person_id</c> y no hay ficha que abrir.
+        /// </summary>
+        public int? WorkerId { get; set; }
     }
 
     /// <summary>

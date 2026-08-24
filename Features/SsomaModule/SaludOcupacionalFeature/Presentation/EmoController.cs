@@ -41,6 +41,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             return int.TryParse(val, out var id) ? id : (int?)null;
         }
 
+        /// <summary>
+        /// True solo si el token viene del portal de clínicas (ClinicaAuthController, tabla
+        /// ss_clinica_usuario), que es el único que emite los claims tipo=CLINICA y clinicaId.
+        /// No basta con <c>User.IsInRole(Roles.Clinica)</c>: el personal de Abril que tiene el rol
+        /// 14 asignado solo para poder entrar a la agenda de clínica (es el único rol con acceso
+        /// a la feature clinica.agenda) entra por el login normal, cuyo token no lleva clinicaId.
+        /// Mismo criterio que <c>tipo == "CONTRATISTA"</c> en el módulo de Habilitación.
+        /// </summary>
+        private bool EsTokenDeClinica() => User.FindFirst("tipo")?.Value == "CLINICA";
+
         [HttpGet("emos")]
         public async Task<IActionResult> GetList([FromQuery] EmoFilterDto filter)
         {
@@ -151,7 +161,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 // se liga el EMO a su propia clinica desde el inicio (evita que las
                 // subidas de Aptitud/EMO Completo que siguen a la creacion choquen
                 // con el chequeo de propiedad de SubirDocumento).
-                if (dto.ClinicaId == null && User.IsInRole(Roles.Clinica))
+                if (dto.ClinicaId == null && EsTokenDeClinica())
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
                     if (int.TryParse(clinicaIdClaim, out var clinicaIdActual))
@@ -246,8 +256,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     .FirstOrDefaultAsync(e => e.Id == emoId)
                     ?? throw new AbrilException("EMO no encontrado.", 404);
 
-                // Si el solicitante es una clínica, validar que el EMO le pertenezca
-                if (User.IsInRole(Roles.Clinica))
+                // Si el solicitante es una clínica, validar que el EMO le pertenezca. El alcance por
+                // clínica solo aplica a quien entra por el portal de clínicas: el personal de Abril
+                // que llega a la misma pantalla con el rol 14 no tiene una clínica "propia" contra
+                // la que comparar, y ya ve la agenda completa de todas las clínicas.
+                if (EsTokenDeClinica())
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
                     if (!int.TryParse(clinicaIdClaim, out var clinicaId))

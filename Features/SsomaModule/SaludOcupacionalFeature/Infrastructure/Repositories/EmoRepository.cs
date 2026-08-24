@@ -754,19 +754,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             if (dto.FechaLectura.HasValue)
             {
-                var lecturaEmo = await ctx.SsHabTrabajador
-                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
-                if (lecturaEmo == null)
-                {
-                    lecturaEmo = new SsHabTrabajador
-                    {
-                        WorkerId = emo.WorkerId,
-                        ItemId = HabItemIds.LecturaEmo,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    ctx.SsHabTrabajador.Add(lecturaEmo);
-                }
+                var lecturaEmo = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.LecturaEmo);
                 lecturaEmo.Estado = "Aprobado";
                 // Vigencia = vencimiento del EMO (no la fecha de lectura, que es hoy y lo marcaría
                 // como vencido de inmediato). Ver mismo criterio en Update().
@@ -929,22 +917,41 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
-        private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
+        /// <summary>
+        /// Devuelve la fila de ss_hab_trabajador del par (worker, ítem), creándola si no existe.
+        /// Mira primero las entidades ya rastreadas por el contexto: una fila agregada antes en
+        /// esta misma unidad de trabajo (todavía sin SaveChanges) es invisible para la consulta a
+        /// la base, así que un segundo bloque la volvía a crear y las dos altas salían en el mismo
+        /// SaveChanges — que la restricción UNIQUE (worker_id, item_id) rechaza con 23505. Era el
+        /// caso real al registrar un resultado de EMO con fecha de lectura y archivo de lectura a
+        /// la vez: SincronizarEntregableEmoAsync creaba la fila de "Lectura de EMO" y el bloque de
+        /// FechaLectura en Create() la creaba de nuevo, tumbando todo el registro.
+        /// </summary>
+        private static async Task<SsHabTrabajador> ObtenerOCrearHabAsync(AppDbContext ctx, int workerId, int itemId)
         {
-            var hab = await ctx.SsHabTrabajador
-                .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
+            var hab = ctx.SsHabTrabajador.Local
+                    .FirstOrDefault(h => h.WorkerId == workerId && h.ItemId == itemId)
+                ?? await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == itemId);
 
             if (hab == null)
             {
                 hab = new SsHabTrabajador
                 {
-                    WorkerId = emo.WorkerId,
-                    ItemId = HabItemIds.CertAptitud,
+                    WorkerId = workerId,
+                    ItemId = itemId,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
                 ctx.SsHabTrabajador.Add(hab);
             }
+
+            return hab;
+        }
+
+        private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
+        {
+            var hab = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.CertAptitud);
 
             // Aunque la aptitud del EMO ya sea Apto/Apto con Restricciones, si sigue habiendo una
             // interconsulta "Pendiente" ligada a este EMO el caso no está realmente cerrado — no
@@ -1036,19 +1043,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (emo.UrlResultado != null &&
                 (emo.Aptitud == "Apto" || emo.Aptitud == "Apto con Restricciones"))
             {
-                var habLectura = await ctx.SsHabTrabajador
-                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
-                if (habLectura == null)
-                {
-                    habLectura = new SsHabTrabajador
-                    {
-                        WorkerId = emo.WorkerId,
-                        ItemId = HabItemIds.LecturaEmo,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    ctx.SsHabTrabajador.Add(habLectura);
-                }
+                var habLectura = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.LecturaEmo);
                 habLectura.Estado = "Aprobado";
                 var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
                 if (fvLectura.HasValue)

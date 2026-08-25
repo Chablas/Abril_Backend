@@ -5839,3 +5839,21 @@ Por qué solo afecta a los adjuntos: los `.docx`/`.xlsx` se bajan con `?format=p
 - Contra PDFsharp 6.2.4, con los archivos reales bajados de SharePoint: `Import` + `AddPage` + `Save` OK en los 3 PDFs (incluida la cotización que rompía), `Modify` + `page.Rotate` OK sobre la cotización, `XGraphics.FromPdfPage` + `DrawImage` OK con transparencia `/SMask`, y `XUnit.FromPoint` + setters de `page.Width/Height` OK.
 - Sin `XFont`/`DrawString` en el proyecto → no hace falta registrar `GlobalFontSettings.FontResolver` (PDFsharp 6 solo lo exige para dibujar texto).
 - No probado end-to-end en el navegador: falta que el usuario regenere el paquete de la adjudicación 1.
+
+## Sesión 2026-08-25 — Deploy a master: BIM observaciones de Planeamiento
+
+Merge de `victor-backend` a `master` (deploy a intranet/producción). Trae dos sesiones de trabajo sobre las observaciones de Planeamiento en el módulo BIM — ver el detalle completo en las dos secciones "Sesión 2026-08-25" más arriba (auditoría + fix de autorización + rol PlaneamientoUDP + causas nuevas, y luego la implementación de cumplimiento por % + asignación de 2 residentes). Resumen de lo que queda en producción tras este deploy:
+- `BimRegistroDiario.Cumplida` (bool) migrado a `PorcentajeAvance` (decimal 0/25/50/75/100) de punta a punta (DTOs, servicio, repos de dashboard/portafolio, PDF).
+- Los 5 controllers de `PlaneamientoBimFeature` migrados de `[Authorize(Roles=...)]` hardcodeado por ID a `[RequireFeature(...)]`.
+- Rol PLANEAMIENTO UDP creado y asignado a los 4 ingenieros de Planeamiento BIM activos.
+- 3 causas de incumplimiento nuevas en el catálogo.
+- Residentes de obra asignados: Alfredo Canales → 9 NOGALES, Martín Véliz → SAUCE ZEN.
+- `appsettings.*.json.bak` agregado a `.gitignore` (housekeeping, credenciales expuestas sin querer).
+
+### Verificado
+- `dotnet build` en `master` tras el merge: 0 errores.
+
+### Pendiente
+- Decisión de Planeamiento sobre Bloqueos→Restricciones y la observación de Sector/Nivel.
+- Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse.
+- Confirmar con Planeamiento que el flujo de carga diaria con % parcial funciona bien end-to-end en el frontend.

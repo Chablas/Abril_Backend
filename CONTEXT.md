@@ -5873,3 +5873,28 @@ Al pedir crear un rol con acceso exclusivo a Planeamiento BIM + Portafolio, se d
 - Decisión de Planeamiento sobre el diseño de cumplimiento por % (punto 3) — 4 preguntas respondidas con recomendación, sin implementar.
 - Confirmar con el ingeniero: Bloqueos→Restricciones (¿solo rename o cambio de flujo?) y la observación de Sector/Nivel (probable confusión de términos, no bug).
 - Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse — no verificable desde este repo.
+
+## Sesión 2026-08-25 (continuación) — Implementa cumplimiento por %, asigna 2 residentes
+
+Rama: `victor-backend`. Retoma el punto 3 (prioridad alta) dejado pendiente en la sección anterior: Planeamiento confirmó las 4 decisiones de diseño con el ingeniero.
+
+### 1) `BimRegistroDiario.Cumplida` (bool) → `PorcentajeAvance` (decimal)
+Confirmado con Planeamiento: migrar la columna existente (no una nueva), backfill true→100/false→0, causa obligatoria si `PorcentajeAvance < 100`, set fijo de valores permitidos (0/25/50/75/100) validado en código (`PlaneamientoBimCargaDiariaService.PorcentajesValidos`), no como `CHECK` en BD — para poder ajustar el set sin migración.
+
+Código migrado de punta a punta: `CargaDiariaDtos.cs`, `DashboardDtos.cs`, `PortafolioDtos.cs`, `BimRegistroDiario.cs`, `PlaneamientoBimCargaDiariaService/Repository.cs`, `PlaneamientoBimDashboardRepository.cs`, `PlaneamientoBimPortafolioRepository.cs`, `PlaneamientoBimReportePdfService.cs`. Los KPIs de Avance/PPC/Pareto pasan de `COUNT(cumplida=true)` a `SUM(PorcentajeAvance)` — `PorcentajeDe()` ya no multiplica por 100 (ese factor ahora viene incluido en cada término sumado).
+
+`Migrations_Manual/2026-08-25_bim_registro_diario_porcentaje_avance.sql`: no pasa por EF (el model snapshot tiene deuda acumulada de otras sesiones — generar la migración arrastraba ~2300 líneas ajenas, incluidos DROPs de otras features). `ALTER COLUMN ... TYPE numeric USING (CASE WHEN cumplida THEN 100 ELSE 0 END)` + `RENAME COLUMN`, con tabla de respaldo (`bim_registro_diario_backup_20260825`) y todo en una transacción. Backfill verificado de antemano (solo lectura, sin escribir nada) contra los 3 registros reales en prod, comparando la fórmula vieja vs. la nueva agrupada por zona/nivel/sector, por fecha y por macro-actividad — 0 discrepancias. **Corrido y verificado contra producción.**
+
+### 2) Dos residentes de obra asignados en producción
+`Migrations/Manual/20260825_AsignarResidenteNogales.sql` (Alfredo Canales → 9 NOGALES) y `20260825_AsignarResidenteSauceZen.sql` (Martín Véliz → SAUCE ZEN): insertan en `project_resident` (idempotente vía `ON CONFLICT`), sin IDs hardcodeados (resuelve por email/nombre de proyecto vía subqueries). Necesario porque las pantallas de Planeamiento BIM filtran el selector de proyectos por `project_resident` activo. **Corridos y verificados contra producción.**
+
+### 3) Housekeeping: `appsettings.Development.json.bak` no estaba gitignorado
+Apareció un `.bak` de `appsettings.Development.json` (mismo tipo de archivo que `CLAUDE.md` marca como "nunca commitear", con credenciales reales de SQL Server y PostgreSQL) sin regla de `.gitignore` que lo cubriera — quedaba como `??` en `git status`. Se agregó `appsettings.*.json.bak` a `.gitignore` y el archivo se dejó fuera del commit.
+
+### Verificado
+- `dotnet build` → 0 errores (251 warnings preexistentes, sin cambios).
+- Los 3 SQL de esta sesión corridos contra producción con SELECT de verificación antes de cerrar cada uno.
+
+### Pendiente
+- Confirmar con Planeamiento que el flujo de carga diaria con % parcial funciona bien end-to-end en el frontend (este repo no lo puede probar).
+- Mismos pendientes de la sección anterior: Bloqueos→Restricciones, Sector/Nivel, despliegue del frontend de Dashboard/Portafolio.

@@ -5839,3 +5839,37 @@ Por qué solo afecta a los adjuntos: los `.docx`/`.xlsx` se bajan con `?format=p
 - Contra PDFsharp 6.2.4, con los archivos reales bajados de SharePoint: `Import` + `AddPage` + `Save` OK en los 3 PDFs (incluida la cotización que rompía), `Modify` + `page.Rotate` OK sobre la cotización, `XGraphics.FromPdfPage` + `DrawImage` OK con transparencia `/SMask`, y `XUnit.FromPoint` + setters de `page.Width/Height` OK.
 - Sin `XFont`/`DrawString` en el proyecto → no hace falta registrar `GlobalFontSettings.FontResolver` (PDFsharp 6 solo lo exige para dibujar texto).
 - No probado end-to-end en el navegador: falta que el usuario regenere el paquete de la adjudicación 1.
+
+## Sesión 2026-08-25 — Observaciones de Planeamiento sobre BIM: auditoría, fix de autorización, rol PLANEAMIENTO UDP, causas nuevas
+
+Rama: `victor-backend`. Punto de partida: Planeamiento probó el módulo BIM y mandó una lista de observaciones. Antes de estimar nada se pidió mapear qué ya existía vs qué era desarrollo nuevo genuino.
+
+### 1) Auditoría de las observaciones (sin tocar código)
+- **Plan Meta / dashboard / KPIs**: ya existía backend completo desde la sesión 2026-08-14 (`GET plan-maestro`, `avance`, `ppc`, `causas-pareto`, Portafolio). El Plan Maestro es **semanal** (`bim_meta_semanal`), no diario — si Planeamiento pide granularidad diaria tipo curva S, eso sí sería desarrollo nuevo (no hay tabla de meta diaria hoy). El frontend de Fase 2a/2b/3 (Dashboard/Portafolio) seguía sin confirmarse desplegado — dato que este repo no puede verificar solo (Abril-Frontend aparte).
+- **Cumplimiento parcial por %** (punto 3, prioridad alta): confirmado desarrollo real. Impacto mapeado: `BimRegistroDiario.Cumplida` (bool) se usa en `CargaDiariaDtos.cs`, `PlaneamientoBimCargaDiariaRepository/Service.cs`, 5 puntos en `PlaneamientoBimDashboardRepository.cs`, `PlaneamientoBimPortafolioRepository.cs` y `PlaneamientoBimReportePdfService.cs`. **No implementado todavía** — se armaron 4 preguntas de diseño para el usuario (columna nueva vs. migrar `cumplida` in-place, backfill histórico true/false→100/0, umbral de causa obligatoria con porcentaje, contrato del DTO fijo vs. libre) con recomendación en cada una; queda pendiente que el usuario decida con Planeamiento antes de programar.
+- **Ampliar causas de incumplimiento** (punto 4): confirmado que `bim_causa_no_cumplimiento` es tabla catálogo, no enum — cambio de datos puro.
+- **Bloqueos → Restricciones** y **Sector vs. Nivel**: confirmado que no son simples, quedan pendientes de hablar con el ingeniero antes de tocar nada (ver respuestas completas más arriba en la conversación de esa sesión).
+
+### 2) Bug de arquitectura encontrado al pedir un rol nuevo (PlaneamientoUDP)
+Al pedir crear un rol con acceso exclusivo a Planeamiento BIM + Portafolio, se descubrió que los 5 controllers de `PlaneamientoBimFeature` (`Configuracion`, `CargaDiaria`, `Bloqueo`, `Dashboard`, `Portafolio`) autorizaban con `[Authorize(Roles = "1,2,3")]` / `"1,2"` **hardcodeado por ID de rol**, sin relación con `role_feature` — cualquier rol nuevo con la feature sembrada en `role_feature` habría visto las pantallas (frontend es 100% featureKey-driven) pero recibido 403 en cada llamada API.
+
+**Fix aplicado**: migrados los 5 controllers de `[Authorize(Roles=...)]` a `[Authorize]` + `[RequireFeature("planeamiento-bim.configuracion-inicial")]` / `"planeamiento-bim.portafolio"` — mismo patrón ya usado en `EmoController`/`ProgramacionEmoController` (`Shared/Filters/RequireFeatureAttribute.cs`, autoriza contra `role_feature` en runtime, sin IDs hardcodeados).
+
+**Verificación real, no solo build**: se levantó el backend local contra la BD real (túnel SSH) y se probaron los 5 controllers × 3 roles existentes (UsuarioUdp, AdministradorUdp, AdministradorSistema) con JWTs firmados reales — 15/15 resultados idénticos al comportamiento anterior (incluido que UsuarioUdp sigue sin acceso a Portafolio, 403). Un rol de control sin ninguna feature BIM confirmó 403 en los 5. Solo hay 2 `feature_key` reales en la BD para todo el namespace `planeamiento-bim.*` (`configuracion-inicial` cubre las 4 pantallas, `portafolio` aparte) — no 5 como se asumió al principio.
+
+### 3) Rol PLANEAMIENTO UDP — creado y asignado en producción
+- `Migrations/Manual/20260825_RolPlaneamientoUdp.sql`: crea el rol (sequence normal, **sin ID fijo** — se verificó que ni backend (`RequireFeature`) ni frontend (`roleGuard`/`isNavEntryAllowed`, ambos featureKey-primero-luego-roles-como-fallback-muerto) dependen de un ID numérico para este rol) + 2 filas en `role_feature`. Corrido en prod: quedó `role_id = 80`.
+- Sección 2 del mismo archivo: `INSERT INTO user_role` para los 4 "Ingeniero de Planeamiento BIM" activos (identificados por `workers.puesto`/`subarea`, confirmados por nombre con el usuario antes de ejecutar): Dulanto Martinez Jean Franco (114), Haro Jesus Jherson Steven (306), Portilla Velasquez Lidis Dayana Marlene (239), Sanchez Taipe Arturo (243). Se excluyó a propósito a 2 personas de "Ingeniería BIM" (Modelador/Arquitecto BIM) que el comodín de búsqueda también trajo.
+- Ambos pasos corridos y verificados contra producción (vía túnel SSH, `localhost:5544`).
+
+### 4) Causas de incumplimiento — 3 nuevas
+`Migrations/Manual/20260825_BimCausasNoCumplimientoSeed.sql`: agrega "Falla de contratista", "Retrabajos", "Reprocesos por calidad" (orden 6-8) a `bim_causa_no_cumplimiento`. Corrido y verificado contra producción — 8 filas en total.
+
+### Verificado
+- Build: `dotnet build` → 0 errores, warnings preexistentes sin cambios.
+- Todas las corridas de SQL contra producción fueron confirmadas con SELECT de verificación antes de darlas por cerradas.
+
+### Pendiente
+- Decisión de Planeamiento sobre el diseño de cumplimiento por % (punto 3) — 4 preguntas respondidas con recomendación, sin implementar.
+- Confirmar con el ingeniero: Bloqueos→Restricciones (¿solo rename o cambio de flujo?) y la observación de Sector/Nivel (probable confusión de términos, no bug).
+- Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse — no verificable desde este repo.

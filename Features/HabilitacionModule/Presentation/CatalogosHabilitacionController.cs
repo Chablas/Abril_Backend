@@ -483,8 +483,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "El nombre es requerido." });
                 if (req.CategoriaId is null or <= 0)
                     return BadRequest(new { message = "La categoría es requerida." });
-                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeIds);
-                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
+                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeId);
+                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, AreaScopeId = puesto.AreaScopeId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CrearPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -499,8 +499,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "El nombre es requerido." });
                 if (req.CategoriaId is null or <= 0)
                     return BadRequest(new { message = "La categoría es requerida." });
-                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeIds);
-                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, Orden = puesto.Orden, Activo = puesto.Active });
+                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeId);
+                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, AreaScopeId = puesto.AreaScopeId, Orden = puesto.Orden, Activo = puesto.Active });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ActualizarPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

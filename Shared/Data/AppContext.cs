@@ -156,9 +156,6 @@ namespace Abril_Backend.Infrastructure.Data
         /// <summary>Catálogo único de puestos (campo de presentación). Ver <see cref="Puesto"/>.</summary>
         public DbSet<Puesto> Puesto => Set<Puesto>();
 
-        /// <summary>Áreas a las que pertenece cada puesto (N:N). Ver <see cref="PuestoAreaScope"/>.</summary>
-        public DbSet<PuestoAreaScope> PuestoAreaScope => Set<PuestoAreaScope>();
-
         /// <summary>Congelado: reemplazado por <see cref="Categoria"/>. Solo lectura histórica.</summary>
         public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkersObraOficinaStaff> WorkersObraOficinaStaff => Set<WorkersObraOficinaStaff>();
@@ -946,16 +943,9 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.AreaScopeParentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // PuestoAreaScope: tabla intermedia puesto <-> area_scope (a qué áreas pertenece
-            // un puesto). Las dos FK son Restrict: ni el puesto ni el área se borran nunca
-            // de verdad (soft delete), así que un cascade no tendría a quién aplicarse.
-            modelBuilder.Entity<PuestoAreaScope>()
-                .HasOne(x => x.Puesto)
-                .WithMany()
-                .HasForeignKey(x => x.PuestoId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PuestoAreaScope>()
+            // El área del puesto. Restrict: el área nunca se borra de verdad (soft delete),
+            // así que un cascade no tendría a quién aplicarse.
+            modelBuilder.Entity<Puesto>()
                 .HasOne(x => x.AreaScope)
                 .WithMany()
                 .HasForeignKey(x => x.AreaScopeId)

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Shared.Models
 {
@@ -42,6 +43,31 @@ namespace Abril_Backend.Shared.Models
 
         [ForeignKey(nameof(CategoriaId))]
         public Categoria? Categoria { get; set; }
+
+        /// <summary>
+        /// Área a la que pertenece el puesto, como nodo del árbol y no como <c>area_item</c>:
+        /// el mismo nombre de área existe en varias ramas y lo que se filtra es la rama.
+        ///
+        /// Una sola, desde el corte del 2026-08-25
+        /// (<c>Migrations_Manual/2026-08-25_puesto_una_sola_area.sql</c>): antes vivía en la
+        /// intermedia <c>puesto_area_scope</c> y un puesto podía estar en varias. Los que
+        /// estaban en más de una se duplicaron, uno por área, así que un cargo que existe en
+        /// dos áreas hoy son dos puestos con el mismo nombre — el índice
+        /// <c>ux_puesto_nombre_area_vivo</c> es el que permite esa repetición y a la vez
+        /// prohíbe el nombre repetido DENTRO de un área.
+        ///
+        /// Nullable a propósito: el puesto sin área es un caso válido y no un pendiente. Los
+        /// ~190 puestos de obra nunca la tuvieron (el padrón de GTH solo cubrió oficina) y
+        /// salen como «Sin área» en pantalla.
+        ///
+        /// Su razón de ser es Solicitud de Personal: al solicitante se le ofrecen solo los
+        /// puestos de su área y de sus áreas hijas, en vez del catálogo completo.
+        /// </summary>
+        [Column("area_scope_id")]
+        public int? AreaScopeId { get; set; }
+
+        [ForeignKey(nameof(AreaScopeId))]
+        public AreaScope? AreaScope { get; set; }
 
         [Column("orden")]
         public int Orden { get; set; }

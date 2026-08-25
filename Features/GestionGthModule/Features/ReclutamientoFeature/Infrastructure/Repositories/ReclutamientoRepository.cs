@@ -578,10 +578,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-                puestos = puestos.Where(p => ctx.PuestoAreaScope
-                    .Any(pas => pas.State
-                             && pas.PuestoId == p.PuestoId
-                             && idsArea.Contains(pas.AreaScopeId)));
+                puestos = puestos.Where(p => p.AreaScopeId != null
+                                          && idsArea.Contains(p.AreaScopeId.Value));
             }
 
             return await puestos
@@ -592,10 +590,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Áreas a las que pertenece un puesto (<c>puesto_area_scope</c>), ordenadas por nombre.
-        /// Es la lista del desplegable «Área de destino» de la decisión final del solicitante y,
-        /// como el resto de desplegables del sistema, también la lista contra la que se valida lo
-        /// que llega del cliente: lo que no se ofrece tampoco se acepta.
+        /// Área a la que pertenece un puesto (<c>puesto.area_scope_id</c>). Es el desplegable
+        /// «Área de destino» de la decisión final del solicitante y, como el resto de
+        /// desplegables del sistema, también la lista contra la que se valida lo que llega del
+        /// cliente: lo que no se ofrece tampoco se acepta.
+        ///
+        /// Sigue devolviendo una lista aunque el área sea una sola: es lo que consume el
+        /// desplegable y la validación, y de paso el caso «sin área» se sigue expresando como
+        /// lista vacía en vez de como un null que cada llamador tendría que interpretar.
         ///
         /// El nombre que se devuelve es el del nodo y no su rama completa. No es una simplificación
         /// visual: un puesto asociado a un área estándar tiene en ese nodo el primer área estándar
@@ -603,21 +605,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// gerente general, que cuelgan del nodo de su gerencia— tiene ahí su área real. En los dos
         /// casos el nodo propio ES el área, así que no hay ancestros que agregar.
         ///
-        /// Vacía cuando el puesto no tiene ninguna área mapeada: el padrón de GTH solo cubrió
-        /// personal de oficina, así que los puestos de obra no tienen filas y eso es lo esperado.
+        /// Vacía cuando el puesto no tiene área: el padrón de GTH solo cubrió personal de
+        /// oficina, así que los puestos de obra no la tienen y eso es lo esperado.
         /// </summary>
         private static async Task<List<OpcionDto>> QueryAreasDelPuesto(AppDbContext ctx, int? puestoId)
         {
             if (puestoId is not > 0) return new List<OpcionDto>();
 
             return await (
-                from pas in ctx.PuestoAreaScope
-                where pas.State && pas.PuestoId == puestoId.Value
-                join s in ctx.AreaScope on pas.AreaScopeId equals s.AreaScopeId
+                from p in ctx.Puesto
+                where p.PuestoId == puestoId.Value && p.AreaScopeId != null
+                join s in ctx.AreaScope on p.AreaScopeId equals s.AreaScopeId
                 where s.State
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 where ai.State
-                orderby ai.AreaItemName
                 select new OpcionDto { Id = s.AreaScopeId, Nombre = ai.AreaItemName })
                 .AsNoTracking()
                 .ToListAsync();
@@ -2237,10 +2238,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// vera el aviso de que falta el formulario.
         ///
         /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la del PUESTO
-        /// que se pidio (<c>puesto_area_scope</c>), no la del solicitante. Un jefe pide una vacante
-        /// para un puesto que puede pertenecer a otra area de su gerencia, y el area del puesto es
-        /// la del trabajador que va a ocuparlo. Cuando el puesto pertenece a mas de una, la eligio
-        /// el solicitante al aprobar; cuando no tiene ninguna mapeada se cae a la del solicitante.
+        /// que se pidio (<c>puesto.area_scope_id</c>), no la del solicitante. Un jefe pide una
+        /// vacante para un puesto que puede pertenecer a otra area de su gerencia, y el area del
+        /// puesto es la del trabajador que va a ocuparlo. Cuando el puesto no tiene area se cae a
+        /// la del solicitante.
         /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
         /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
         /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
@@ -2517,15 +2518,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
-        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto_area_scope</c>) y no del
-        /// solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área de
-        /// su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
+        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto.area_scope_id</c>) y no
+        /// del solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área
+        /// de su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
         ///
-        ///   • El puesto tiene varias áreas → la que eligió el solicitante en el desplegable, que
-        ///     se valida contra la misma lista que se le ofreció.
-        ///   • El puesto tiene exactamente una → esa, sin preguntar (ni aceptar otra).
+        ///   • El puesto tiene área → esa, sin preguntar (ni aceptar otra).
         ///   • El puesto no tiene ninguna → el área del solicitante, que es lo que se usaba antes de
         ///     esta regla. Pasa con los puestos de obra, que el padrón de GTH nunca mapeó.
+        ///
+        /// La rama de «varias áreas» quedó inalcanzable con el corte del 2026-08-25 (un puesto
+        /// pertenece a una sola), pero se conserva como guarda: si algún día vuelve a haber más de
+        /// una, falla pidiendo que se elija en vez de tomar una en silencio.
         /// </summary>
         private static async Task<int?> ResolverAreaDestinoAsync(
             AppDbContext ctx, int? puestoId, int? elegida, int? areaSolicitante)

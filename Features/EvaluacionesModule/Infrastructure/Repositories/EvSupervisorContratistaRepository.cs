@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       FROM workers w
                       JOIN person p ON p.person_id = w.person_id
                       JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE p.user_id = @UserId",
+                      WHERE w.state AND p.user_id = @UserId",
                     new { UserId = evaluadorUserId })).ToList();
 
             if (proyectoIds.Count == 0)
@@ -98,7 +98,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN project pr ON pr.project_id = wv.proyecto_id
                   LEFT JOIN person per ON per.person_id = w.person_id
                   LEFT JOIN contributor c ON c.contributor_id = COALESCE(wv.empresa_id, w.contributor_id)
-                  WHERE w.contrata_casa = 'Contratista'
+                  WHERE w.state AND w.contrata_casa = 'Contratista'
                     AND w.workers_estado_id = 1
                     AND upper(pu.nombre) LIKE ANY(@Patrones)
                     AND wv.proyecto_id = ANY(@ProyectoIds)",
@@ -165,7 +165,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       FROM workers w
                       LEFT JOIN person per ON per.person_id = w.person_id
                       LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE w.id = @Id",
+                      WHERE w.state AND w.id = @Id",
                     new { Id = eval.SupervisorWorkerId.Value });
                 eval.ContributorId = datos?.ContributorId ?? 0;
                 eval.SupervisorNombre = datos?.Nombre ?? eval.SupervisorNombre;
@@ -275,7 +275,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   LEFT JOIN workers w  ON w.id = (
                       SELECT w2.id FROM workers w2
                       JOIN person p2 ON p2.person_id = w2.person_id
-                      WHERE p2.user_id = ec.evaluador_user_id LIMIT 1)
+                      WHERE w2.state AND p2.user_id = ec.evaluador_user_id LIMIT 1)
                   LEFT JOIN person p ON p.person_id = w.person_id
                   WHERE ec.no_aplica = FALSE
                     AND (@PeriodoId IS NULL OR ec.periodo_id = @PeriodoId)

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -47,7 +47,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
-                  WHERE wv.proyecto_id = ANY(@ProyectoIds)",
+                  WHERE w.state AND wv.proyecto_id = ANY(@ProyectoIds)",
                 new { ProyectoIds = proyectoIds.ToArray() });
 
             List<EvPrevencionistaAEvaluarDto> aEvaluar;
@@ -172,7 +172,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   LEFT JOIN workers w ON w.id = (
                       SELECT w2.id FROM workers w2
                       JOIN person p2 ON p2.person_id = w2.person_id
-                      WHERE p2.user_id = e.evaluado_user_id LIMIT 1)
+                      WHERE w2.state AND p2.user_id = e.evaluado_user_id LIMIT 1)
                   LEFT JOIN person p ON p.person_id = w.person_id
                   WHERE (@PeriodoId IS NULL OR e.periodo_id = @PeriodoId)
                     AND (@ProyectoId IS NULL OR e.proyecto_id = @ProyectoId)

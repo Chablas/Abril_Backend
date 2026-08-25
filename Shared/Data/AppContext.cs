@@ -168,6 +168,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+
+        /// <summary>
+        /// Pasos del trabajador por Abril (ingreso → retiro). Reemplaza a
+        /// <c>workers.fecha_ingreso</c> / <c>workers.fecha_retiro</c>: ver
+        /// <see cref="WorkersPeriodoLaboral"/>.
+        /// </summary>
+        public DbSet<WorkersPeriodoLaboral> WorkersPeriodoLaboral => Set<WorkersPeriodoLaboral>();
         public DbSet<Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharlaContratista> SsCharlaContratista { get; set; }
         public DbSet<WorkerProyecto> WorkerProyecto { get; set; }
         public DbSet<SsClinica> SsClinica { get; set; }
@@ -574,6 +581,17 @@ namespace Abril_Backend.Infrastructure.Data
             }
 
             base.OnModelCreating(modelBuilder);
+
+            // Las fichas eliminadas de `workers` no existen para nadie. Va como filtro
+            // global y no repetido en cada consulta porque son ~1600 lecturas de
+            // ctx.Worker repartidas en 147 archivos: cualquier otra forma se olvida en
+            // alguna, y una ficha duplicada que reaparece en UNA pantalla es peor que no
+            // haberla dado de baja.
+            //
+            // Para leer el historial que quedó colgando de una ficha fusionada (EMOs,
+            // inducciones, amonestaciones: ver workers_ficha_fusionada) hay que pedirlo
+            // explícitamente con IgnoreQueryFilters().
+            modelBuilder.Entity<Worker>().HasQueryFilter(w => w.State);
 
             modelBuilder.Entity<Person>()
                 .HasOne(p => p.User)

@@ -286,6 +286,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId) =>
             _repo.ContinuarAEntrevistas(requerimientoId, userId);
 
+        public Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+            int requerimientoId, int candidatoId, int? userId) =>
+            _repo.RetomarCandidatoRechazado(requerimientoId, candidatoId, userId);
+
+        public Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
+            int requerimientoId, int? userId) =>
+            _repo.VolverALongListDesdeEmoNoApto(requerimientoId, userId);
+
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
         {
@@ -844,7 +852,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await _email.SendAsync(
                 to:      principales,
-                subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                subject: "Gracias por participar",
                 body:    ConstruirCuerpoAgradecimiento(ctx),
                 isHtml:  true,
                 cc:      copias.Count > 0 ? copias : null,
@@ -878,7 +886,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var l = Layout.Desde(_configuration);
 
             return l.Documento(
-                new Layout.Cabecera("req-gracias", "Fin de Proceso"),
+                new Layout.Cabecera("req-gracias", "Gracias por participar"),
                 l.Parrafo("Estimado postulante,"),
                 l.Parrafo(
                     "Le informamos que el proceso de selección para el puesto de "
@@ -939,7 +947,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : $" Se le avisó el fin del proceso a {ctx.NoElegidos.Count} postulante(s) que no fueron elegidos.";
 
             res.Message = res.Aprobado
-                ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y con eso se cierra el proceso.{otros}"
+                ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y el proceso se cierra cuando el examen salga apto.{otros}"
                 : res.TodosRechazados
                     ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
                     : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso.";

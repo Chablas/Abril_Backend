@@ -296,8 +296,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
                 ObraOficinaStaffId = await ClasificacionPreIngreso
                     .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
-                // Sin fecha de ingreso: todavía no ingresó.
-                FechaIngreso    = null,
+                // Sin periodo laboral: todavía no ingresó. Se le abre uno cuando firme
+                // (ver WorkersPeriodoLaboral).
                 CreatedAt       = now,
                 UpdatedAt       = now,
             };

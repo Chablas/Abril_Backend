@@ -376,6 +376,73 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Vista de GTH: retoma el proceso con un candidato del historial de rechazados y devuelve
+        /// el requerimiento a la fase en la que se lo descartó. Solo tiene sentido —y solo se
+        /// acepta— con el requerimiento en EMO_NO_APTO, la fase a la que llega cuando el EMO de
+        /// ingreso del seleccionado sale No Apto.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("requerimiento/{id:int}/retomar-candidato/{candidatoId:int}")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> RetomarCandidatoRechazado(int id, int candidatoId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var res = await _service.RetomarCandidatoRechazado(id, candidatoId, userId);
+                return Ok(new
+                {
+                    message = $"Se retomó el proceso con {res.CandidatoNombre} desde la etapa «{res.EtapaNombre}». {res.SiguientePaso}",
+                    res.EstadoCodigo,
+                    res.EstadoNombre,
+                    res.EtapaCodigo,
+                    res.EtapaNombre,
+                    res.CandidatoNombre,
+                });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.RetomarCandidatoRechazado");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: la otra salida de EMO_NO_APTO — descartar a los rechazados y volver a
+        /// LONG_LIST para preparar una long list nueva.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("requerimiento/{id:int}/nueva-long-list")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> VolverALongListDesdeEmoNoApto(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var estado = await _service.VolverALongListDesdeEmoNoApto(id, userId);
+                return Ok(new
+                {
+                    message = "El proceso volvió a Long list. Carga los CVs de la nueva long list y envíasela al área solicitante.",
+                    estado.EstadoCodigo,
+                    estado.EstadoNombre,
+                });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.VolverALongListDesdeEmoNoApto");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
         /// invitación al correo que declaró en su formulario del postulante.
         /// </summary>

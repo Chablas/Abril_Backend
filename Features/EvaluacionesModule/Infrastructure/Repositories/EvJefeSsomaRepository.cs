@@ -1,3 +1,4 @@
+﻿using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
@@ -102,8 +103,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN person p ON p.person_id = w.person_id
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
-                  WHERE w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
-                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)
+                  WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
                     AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)");
 
             var completaron = (await conn.QueryAsync<int>(

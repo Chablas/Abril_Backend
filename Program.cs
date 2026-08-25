@@ -1,4 +1,4 @@
-using Microsoft.OpenApi;
+﻿using Microsoft.OpenApi;
 using Abril_Backend.Shared.Realtime;
 using Abril_Backend.Shared.Services.Email.Configuration;
 using Abril_Backend.Shared.Services.Email.Interfaces;
@@ -42,6 +42,8 @@ using Abril_Backend.Features.PlaneamientoBimFeature;
 using Abril_Backend.Features.LearningModule;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
+using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
+using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Services;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
@@ -267,6 +269,12 @@ builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>(
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint
 // que alimenta sus desplegables.
 builder.Services.AddScoped<IAreaScopeLegacyResolver, AreaScopeLegacyResolver>();
+
+// Efecto de la aptitud de un EMO de Ingreso sobre el requerimiento de Reclutamiento que dejo a esa
+// persona como finalista aprobado: APTO lo cierra, NO APTO lo devuelve a GTH. Es de los dos modulos
+// (la regla es de Reclutamiento, el disparador es de Salud Ocupacional), por eso vive en Shared.
+builder.Services.AddScoped<IReclutamientoEmoIngresoService, ReclutamientoEmoIngresoService>();
+
 builder.Services.AddScoped<ISunatService, DecolectaSunatService>();
 builder.Services.AddRateLimiter(options =>
 {

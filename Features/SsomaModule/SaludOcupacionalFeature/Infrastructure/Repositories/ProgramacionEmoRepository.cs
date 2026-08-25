@@ -399,9 +399,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
             }
 
-            if (esFinalistaAprobado)
-                await CerrarRequerimientoEmoIngresoAsync(ctx, worker.PersonId);
-
+            // Agendar la cita YA NO cierra el requerimiento de Reclutamiento: eso lo decide la
+            // aptitud del examen (ver ReclutamientoEmoIngresoService, que corre al registrarse el
+            // resultado del EMO). El proceso se queda en EMO_INGRESO hasta que la clínica lo
+            // califique.
             await EnviarNotificacionCreacionAsync(ctx, ent, worker);
 
             return ent.Id;
@@ -410,9 +411,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         /// <summary>
         /// true si esta persona es el finalista de un requerimiento de Reclutamiento que sigue
         /// esperando su EMO de Ingreso (fase EMO_INGRESO). Es lo que distingue "esta cita es el
-        /// paso de Reclutamiento" de "esta cita es un EMO de Ingreso cualquiera", y es la misma
-        /// busqueda que usa <see cref="CerrarRequerimientoEmoIngresoAsync"/> para cerrar el
-        /// requerimiento despues de crear la cita.
+        /// paso de Reclutamiento" de "esta cita es un EMO de Ingreso cualquiera".
         ///
         /// Se paga solo en el caso raro que la necesita (EMO de Ingreso de alguien que ya esta
         /// adentro), no en cada programacion.
@@ -431,44 +430,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 where e.Codigo == "EMO_INGRESO"
                 select r.GthRequerimientoId).AnyAsync();
-        }
-
-        /// <summary>
-        /// Cierra el requerimiento de Reclutamiento que dejo a esta persona como finalista
-        /// aprobado. Aprobar al finalista ya no cierra el proceso: lo deja en EMO_INGRESO
-        /// esperando justamente esta programacion, asi que es aca donde termina.
-        ///
-        /// Es best-effort a proposito: si algo no calza (la persona no viene de un proceso de
-        /// reclutamiento, o el requerimiento ya no esta en esa fase) no se toca nada y la
-        /// programacion del EMO igual queda creada. Nunca se hace fallar una cita medica ya
-        /// agendada por el estado de un requerimiento.
-        /// </summary>
-        private static async Task CerrarRequerimientoEmoIngresoAsync(AppDbContext ctx, int? personId)
-        {
-            if (personId == null) return;
-
-            var req = await (
-                from f in ctx.GthPostulanteFormulario
-                where f.State && f.PersonId == personId
-                join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
-                where c.State
-                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                where r.State
-                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
-                where e.Codigo == "EMO_INGRESO"
-                orderby r.GthRequerimientoId descending
-                select r).FirstOrDefaultAsync();
-            if (req == null) return;
-
-            var cerrado = await ctx.GthEstadoRequerimiento
-                .Where(e => e.Codigo == "CERRADO" && e.State)
-                .Select(e => (int?)e.GthEstadoRequerimientoId)
-                .FirstOrDefaultAsync();
-            if (cerrado == null) return;
-
-            req.GthEstadoRequerimientoId = cerrado.Value;
-            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
         }
 
         private static bool IsUniqueViolation(DbUpdateException ex) =>

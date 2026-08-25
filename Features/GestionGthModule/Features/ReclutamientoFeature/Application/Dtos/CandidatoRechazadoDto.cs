@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Un candidato que quedó rechazado en algún punto del proceso de un requerimiento, con la
@@ -26,20 +26,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int NumeroLongList { get; set; }
 
         /// <summary>
-        /// Etapa en la que se lo rechazó: <c>LONG_LIST</c> (revisión de CVs), <c>ENTREVISTAS</c>
-        /// (descartado por GTH tras la entrevista) o <c>DECISION_FINAL</c> (el solicitante rechazó
-        /// al finalista). Se deriva del estado del candidato y del resultado de su evaluación.
+        /// Etapa en la que se lo rechazó: <c>LONG_LIST</c> (revisión de CVs), <c>FORMULARIO</c> o
+        /// <c>ENTREVISTAS</c> (descartado por GTH), <c>DECISION_FINAL</c> (el solicitante rechazó al
+        /// finalista) o <c>EMO</c> (el seleccionado salió No Apto en su examen médico de ingreso).
+        /// Se deriva del estado del candidato y del resultado de su evaluación.
         /// </summary>
         public string EtapaCodigo { get; set; } = string.Empty;
 
         /// <summary>Nombre de la etapa para mostrar ("Long list", "Entrevistas", "Decisión final").</summary>
         public string EtapaNombre { get; set; } = string.Empty;
 
-        /// <summary>Quién lo rechazó: <c>SOLICITANTE</c> (área usuaria) o <c>GTH</c>.</summary>
+        /// <summary>Quién lo rechazó: <c>SOLICITANTE</c>, <c>GTH</c> o <c>SALUD_OCUPACIONAL</c>.</summary>
         public string RechazadoPorCodigo { get; set; } = string.Empty;
 
-        /// <summary>Nombre de quien lo rechazó ("Área solicitante" / "GTH").</summary>
+        /// <summary>Nombre de quien lo rechazó ("Área solicitante" / "GTH" / "Salud Ocupacional").</summary>
         public string RechazadoPorNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true si GTH puede retomar el proceso con este candidato desde el punto en que se lo
+        /// rechazó. Lo son todos menos los de la etapa <c>EMO</c>: un No Apto del examen médico no
+        /// se revierte volviendo a elegir a la misma persona.
+        ///
+        /// Que sea true no significa que el botón esté disponible ahora: retomar solo se ofrece con
+        /// el requerimiento en la fase EMO_NO_APTO, y eso lo sabe la pantalla por el estado del
+        /// requerimiento. Acá se responde únicamente si ESTE candidato es retomable.
+        /// </summary>
+        public bool PuedeRetomar { get; set; }
 
         /// <summary>
         /// Momento del rechazo en hora de Perú (UTC-5). En los candidatos decididos antes de que

@@ -32,11 +32,13 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
             // KPI 1: PPC promedio del portafolio, últimos 7 días.
             var desdeSemana = hoy.AddDays(-6);
-            var cumplidasSemana = await ctx.BimRegistroDiario
-                .CountAsync(r => proyectosScope.Contains(r.ProjectId) && r.Fecha >= desdeSemana && r.Fecha <= hoy && r.Cumplida);
+            var sumaPorcentajeSemana = await ctx.BimRegistroDiario
+                .Where(r => proyectosScope.Contains(r.ProjectId) && r.Fecha >= desdeSemana && r.Fecha <= hoy)
+                .Select(r => (decimal?)r.PorcentajeAvance)
+                .SumAsync() ?? 0m;
             var totalSemana = await ctx.BimRegistroDiario
                 .CountAsync(r => proyectosScope.Contains(r.ProjectId) && r.Fecha >= desdeSemana && r.Fecha <= hoy);
-            var ppcPromedio = PorcentajeDe(cumplidasSemana, totalSemana);
+            var ppcPromedio = PorcentajeDe(sumaPorcentajeSemana, totalSemana);
 
             // KPI 2: cantidad de proyectos por fase actual (fase sin fecha_fin_real con fecha_inicio más reciente).
             var fases = await ctx.BimProyectoFase
@@ -76,7 +78,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             // KPI 4: top causas de incumplimiento del mes calendario en curso, cross-proyecto.
             var inicioMes = new DateOnly(hoy.Year, hoy.Month, 1);
             var causasMes = await ctx.BimRegistroDiario
-                .Where(r => proyectosScope.Contains(r.ProjectId) && !r.Cumplida && r.CausaId != null
+                .Where(r => proyectosScope.Contains(r.ProjectId) && r.PorcentajeAvance < 100 && r.CausaId != null
                     && r.Fecha >= inicioMes && r.Fecha <= hoy)
                 .GroupBy(r => new { r.CausaId, CausaNombre = r.Causa!.Nombre })
                 .Select(g => new { g.Key.CausaId, g.Key.CausaNombre, Cantidad = g.Count() })
@@ -117,7 +119,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             var avances = await ctx.BimRegistroDiario
                 .Where(r => proyectosScope.Contains(r.ProjectId))
                 .GroupBy(r => r.ProjectId)
-                .Select(g => new { ProjectId = g.Key, Total = g.Count(), Cumplidos = g.Count(x => x.Cumplida) })
+                .Select(g => new { ProjectId = g.Key, Total = g.Count(), SumaPorcentaje = g.Sum(x => x.PorcentajeAvance) })
                 .ToListAsync();
 
             return proyectos
@@ -125,15 +127,15 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 {
                     var avance = avances.FirstOrDefault(a => a.ProjectId == p.ProjectId);
                     var total = avance?.Total ?? 0;
-                    var cumplidos = avance?.Cumplidos ?? 0;
-                    decimal? porcentaje = total == 0 ? null : PorcentajeDe(cumplidos, total);
+                    var sumaPorcentaje = avance?.SumaPorcentaje ?? 0m;
+                    decimal? porcentaje = total == 0 ? null : PorcentajeDe(sumaPorcentaje, total);
 
                     return new ProyectoPortafolioDto
                     {
                         ProjectId = p.ProjectId,
                         ProjectNombre = p.ProjectDescription,
                         TotalRegistros = total,
-                        CumplidosRegistros = cumplidos,
+                        CumplidosRegistros = sumaPorcentaje,
                         PorcentajeAvance = porcentaje,
                         Semaforo = CalcularSemaforo(porcentaje),
                     };
@@ -162,8 +164,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             return (nombre, faseActual ?? "Sin fase iniciada");
         }
 
-        private static decimal PorcentajeDe(int parte, int total)
-            => total == 0 ? 0 : Math.Round(parte * 100m / total, 2);
+        /// <summary>parte es una SUMA de porcentajes (0-100 por registro), no un conteo.</summary>
+        private static decimal PorcentajeDe(decimal parte, int total)
+            => total == 0 ? 0 : Math.Round(parte / total, 2);
 
         private static string CalcularSemaforo(decimal? porcentaje)
         {

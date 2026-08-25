@@ -20,6 +20,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 
         private static readonly string[] CategoriasValidas = { "GENERAL", "PROCURA" };
 
+        /// <summary>Set fijo de porcentajes de avance permitidos por celda — confirmado con
+        /// Planeamiento (punto 3 de sus observaciones): no numérico libre, para no perder
+        /// comparabilidad en Avance/PPC/Pareto.</summary>
+        public static readonly decimal[] PorcentajesValidos = { 0m, 25m, 50m, 75m, 100m };
+
         private readonly IPlaneamientoBimCargaDiariaRepository _repository;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
@@ -50,8 +55,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
         {
             ValidarVentanaDeEdicion(fecha);
 
-            if (dto.Celdas.Any(c => !c.Cumplida && c.CausaId == null))
-                throw new AbrilException("Debe indicar la causa de no cumplimiento para las celdas marcadas como no cumplidas.", 400);
+            var invalidos = dto.Celdas.Where(c => !PorcentajesValidos.Contains(c.PorcentajeAvance)).ToList();
+            if (invalidos.Count > 0)
+                throw new AbrilException($"Porcentaje de avance inválido. Use uno de: {string.Join("%, ", PorcentajesValidos)}%.", 400);
+
+            if (dto.Celdas.Any(c => c.PorcentajeAvance < 100 && c.CausaId == null))
+                throw new AbrilException("Debe indicar la causa de no cumplimiento para las celdas con avance menor a 100%.", 400);
 
             await _repository.GuardarCargaDiaria(projectId, fecha, dto, userId);
         }

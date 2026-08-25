@@ -63,6 +63,7 @@ appsettings.Development.json
 appsettings.Production.json
 appsettings.Local.json
 appsettings.json
+appsettings.*.json.bak
 
 *.sln
 

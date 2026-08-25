@@ -37,8 +37,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         [Column("fecha")]
         public DateOnly Fecha { get; set; }
 
-        [Column("cumplida")]
-        public bool Cumplida { get; set; }
+        /// <summary>% de avance de la actividad ese día, 0-100. Set fijo validado en el service
+        /// (0/25/50/75/100) — ver PlaneamientoBimCargaDiariaService.PorcentajesValidos.</summary>
+        [Column("porcentaje_avance")]
+        public decimal PorcentajeAvance { get; set; }
 
         [Column("causa_id")]
         public int? CausaId { get; set; }

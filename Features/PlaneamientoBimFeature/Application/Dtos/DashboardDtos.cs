@@ -2,13 +2,15 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
 {
     // ── Avance por zona/nivel/sector ────────────────────────────────────────
 
-    /// <summary>% avance = celdas cumplidas / celdas con registro (ausente = "sin cargar", no cuenta).</summary>
+    /// <summary>% avance = suma de PorcentajeAvance de los registros / celdas con registro (ausente =
+    /// "sin cargar", no cuenta). CumplidosRegistros ahora es decimal: generaliza el viejo conteo de
+    /// Cumplida=true a una suma de porcentajes — con datos migrados (100/0) da el mismo número.</summary>
     public class AvanceProyectoDto
     {
         public DateOnly? Desde { get; set; }
         public DateOnly? Hasta { get; set; }
         public int TotalRegistros { get; set; }
-        public int CumplidosRegistros { get; set; }
+        public decimal CumplidosRegistros { get; set; }
         public decimal PorcentajeAvance { get; set; }
         public List<ZonaAvanceDto> Zonas { get; set; } = new();
     }
@@ -18,7 +20,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int ZonaId { get; set; }
         public string ZonaNombre { get; set; } = string.Empty;
         public int TotalRegistros { get; set; }
-        public int CumplidosRegistros { get; set; }
+        public decimal CumplidosRegistros { get; set; }
         public decimal PorcentajeAvance { get; set; }
         public List<CeldaAvanceDto> Celdas { get; set; } = new();
     }
@@ -31,7 +33,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int SectorId { get; set; }
         public string SectorNombre { get; set; } = string.Empty;
         public int TotalRegistros { get; set; }
-        public int CumplidosRegistros { get; set; }
+        public decimal CumplidosRegistros { get; set; }
         public decimal PorcentajeAvance { get; set; }
     }
 
@@ -47,7 +49,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
     {
         public DateOnly Fecha { get; set; }
         public int TotalProgramadas { get; set; }
-        public int Cumplidas { get; set; }
+        public decimal Cumplidas { get; set; }
         public decimal PorcentajePpc { get; set; }
     }
 

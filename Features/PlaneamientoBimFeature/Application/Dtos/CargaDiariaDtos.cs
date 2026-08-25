@@ -34,14 +34,14 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int Orden { get; set; }
     }
 
-    /// <summary>Solo se listan las celdas con registro. Ausente = "sin cargar" (no confundir con no cumplida).</summary>
+    /// <summary>Solo se listan las celdas con registro. Ausente = "sin cargar" (no confundir con 0%).</summary>
     public class CeldaDto
     {
         public int ZonaId { get; set; }
         public int NivelId { get; set; }
         public int SectorId { get; set; }
         public int ActividadId { get; set; }
-        public bool Cumplida { get; set; }
+        public decimal PorcentajeAvance { get; set; }
         public int? CausaId { get; set; }
         public string? CausaNombre { get; set; }
         public string? CausaDetalle { get; set; }
@@ -61,14 +61,15 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public List<CeldaUpdateDto> Celdas { get; set; } = new();
     }
 
-    /// <summary>Upsert por la tupla natural (zona, nivel, sector, actividad) + fecha de la URL — no viaja Id.</summary>
+    /// <summary>Upsert por la tupla natural (zona, nivel, sector, actividad) + fecha de la URL — no viaja Id.
+    /// PorcentajeAvance debe ser uno de PlaneamientoBimCargaDiariaService.PorcentajesValidos (0/25/50/75/100).</summary>
     public class CeldaUpdateDto
     {
         public int ZonaId { get; set; }
         public int NivelId { get; set; }
         public int SectorId { get; set; }
         public int ActividadId { get; set; }
-        public bool Cumplida { get; set; }
+        public decimal PorcentajeAvance { get; set; }
         public int? CausaId { get; set; }
         public string? CausaDetalle { get; set; }
     }

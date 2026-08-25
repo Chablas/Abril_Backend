@@ -72,8 +72,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         /// equivalencia legacy ni los revisores, que son lo caro de resolver.
         /// </summary>
         Task<List<PuestoAreaNodoDto>> GetAreaTreePuestosAsync();
-        Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId, IReadOnlyCollection<int> areaScopeIds);
-        Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId, IReadOnlyCollection<int> areaScopeIds);
+        Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId, int? areaScopeId);
+        Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId, int? areaScopeId);
         Task TogglePuestoAsync(int id, bool activo);
         /// <summary>Soft delete (state = false). Se rechaza si algún trabajador usa el puesto.</summary>
         Task EliminarPuestoAsync(int id);

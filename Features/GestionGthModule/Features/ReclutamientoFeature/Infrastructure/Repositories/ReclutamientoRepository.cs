@@ -82,6 +82,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public string? AgradecimientoCorreo { get; set; }
             public DateTimeOffset? AgradecimientoDateTime { get; set; }
             public DateTimeOffset? DecisionDateTime { get; set; }
+            /// <summary>
+            /// Ultima modificacion de la evaluacion. Es la fecha del rechazo por EMO: ese resultado
+            /// no toca DecisionDateTime a proposito, para no perder cuando el area lo eligio (una
+            /// correccion de la clinica puede devolverlo a SELECCIONADO).
+            /// </summary>
+            public DateTimeOffset? UpdatedDateTime { get; set; }
         }
 
         /// <summary>
@@ -163,6 +169,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     AgradecimientoCorreo     = ev.AgradecimientoCorreo,
                     AgradecimientoDateTime   = ev.AgradecimientoDateTime,
                     DecisionDateTime         = ev.DecisionDateTime,
+                    UpdatedDateTime          = ev.UpdatedDateTime,
                 }).ToListAsync();
 
             // El historial de rechazados no muestra los archivos: ahí se pide sin ellos para no
@@ -224,6 +231,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// quedó fuera de la vuelta actual. La etapa sale de cruzar el estado del candidato con el
         /// resultado de su evaluación:
         ///
+        ///   • resultado NO_APTO_EMO → el seleccionado no pasó el EMO de ingreso.
         ///   • resultado RECHAZADO  → el solicitante rechazó al finalista (decisión final).
         ///   • resultado NO_PASO    → GTH lo descartó, y la etapa la decide si llegó a tener cita:
         ///                            sin entrevista fue en el formulario, con entrevista fue tras ella.
@@ -280,22 +288,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 // El resultado de la evaluación manda sobre el estado del candidato: un rechazado
                 // en entrevistas o en la decisión final sigue siendo APROBADO en la long list (ahí
-                // sí pasó), así que mirar solo el estado lo etiquetaría mal.
-                (string Codigo, string Nombre, string PorCodigo, string PorNombre, DateTimeOffset? Fecha) etapa;
-                if (ev?.ResultadoCodigo == ResultadoCandidato.Rechazado)
-                    etapa = (EtapaRechazo.DecisionFinal, "Decisión final",
-                             RechazadoPor.Solicitante, "Área solicitante", ev.DecisionDateTime);
-                else if (ev?.ResultadoCodigo == ResultadoCandidato.NoPaso)
-                    etapa = conEntrevista.Contains(x.GthCandidatoId)
-                        ? (EtapaRechazo.Entrevistas, "Entrevistas",
-                           RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime)
-                        : (EtapaRechazo.Formulario, "Formulario",
-                           RechazadoPor.Gth, "GTH", ev.AgradecimientoDateTime);
-                else if (x.EstadoCodigo == EstadoCandidato.Rechazado)
-                    etapa = (EtapaRechazo.LongList, "Long list",
-                             RechazadoPor.Solicitante, "Área solicitante", x.DecisionDateTime);
-                else
+                // sí pasó), así que mirar solo el estado lo etiquetaría mal. La regla vive en
+                // DerivarEtapaRechazo porque retomar un candidato tiene que leer exactamente lo
+                // mismo que este historial (ver RetomarCandidatoRechazado).
+                var etapaCodigo = DerivarEtapaRechazo(
+                    x.EstadoCodigo, ev?.ResultadoCodigo, conEntrevista.Contains(x.GthCandidatoId));
+                if (etapaCodigo == null)
                     continue; // sigue en carrera, o se dio de baja sin decisión: no es un rechazo
+
+                // Quién lo rechazó y cuándo: lo que la etapa por sí sola no dice. La fecha sale de
+                // donde quedó registrada la decisión de esa etapa, que no es la misma columna en
+                // todas (el descarte de GTH se marca al enviar el correo de fin de proceso).
+                var (porCodigo, porNombre, fecha) = etapaCodigo switch
+                {
+                    EtapaRechazo.Emo           => (RechazadoPor.SaludOcupacional, "Salud Ocupacional",
+                                                   ev!.UpdatedDateTime),
+                    EtapaRechazo.DecisionFinal => (RechazadoPor.Solicitante, "Área solicitante",
+                                                   ev!.DecisionDateTime),
+                    EtapaRechazo.Entrevistas   => (RechazadoPor.Gth, "GTH", ev!.AgradecimientoDateTime),
+                    EtapaRechazo.Formulario    => (RechazadoPor.Gth, "GTH", ev!.AgradecimientoDateTime),
+                    _                          => (RechazadoPor.Solicitante, "Área solicitante",
+                                                   x.DecisionDateTime),
+                };
 
                 historial.Add(new CandidatoRechazadoDto
                 {
@@ -306,15 +320,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Comentario         = x.Comentario,
                     CvNombre           = x.CvNombre,
                     CvUrl              = x.CvUrl,
-                    EtapaCodigo        = etapa.Codigo,
-                    EtapaNombre        = etapa.Nombre,
-                    RechazadoPorCodigo = etapa.PorCodigo,
-                    RechazadoPorNombre = etapa.PorNombre,
+                    EtapaCodigo        = etapaCodigo,
+                    EtapaNombre        = NombreEtapaRechazo(etapaCodigo),
+                    RechazadoPorCodigo = porCodigo,
+                    RechazadoPorNombre = porNombre,
                     // Los candidatos decididos antes de que existiera decision_date_time no tienen
                     // la fecha exacta: se cae a la de actualización y luego a la de creación para
                     // que ninguna fila del historial quede sin fecha.
-                    RechazadoEn        = (etapa.Fecha ?? x.UpdatedDateTime ?? x.CreatedDateTime)
+                    RechazadoEn        = (fecha ?? x.UpdatedDateTime ?? x.CreatedDateTime)
                                             .ToOffset(PeruOffset).DateTime,
+                    PuedeRetomar       = EtapaRechazo.Retomables.Contains(etapaCodigo),
                 });
             }
 
@@ -384,8 +399,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 seleccionadoPor = await ctx.Worker
                     .Where(w => w.Person != null && w.Person.UserId == raw.DecisionUserId.Value)
                     // Una persona puede tener varias fichas por reingreso: la vigente manda.
-                    .OrderBy(w => w.FechaRetiro.HasValue)
-                    .ThenByDescending(w => w.FechaIngreso)
+                    // "Vigente" = tiene un periodo laboral abierto (ver WorkersPeriodoLaboral);
+                    // el desempate es por la fecha de ingreso más reciente.
+                    .OrderBy(w => !w.PeriodosLaborales.Any(p => p.State && p.FechaRetiro == null))
+                    .ThenByDescending(w => w.PeriodosLaborales
+                        .Where(p => p.State)
+                        .OrderByDescending(p => p.FechaIngreso)
+                        .ThenByDescending(p => p.WorkersPeriodoLaboralId)
+                        .Select(p => (DateOnly?)p.FechaIngreso)
+                        .FirstOrDefault())
                     .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
                     .FirstOrDefaultAsync();
 
@@ -415,10 +437,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var fichaAdentro = raw.EstadoRequerimiento == EstadoReclutamiento.EmoIngreso
                 && ficha?.EstaAdentro == true;
 
-            // El roundtrip de la cita solo se paga si hay algo que decidir con el: si la ficha no
-            // es de pre-ingreso ni es la anomalia, no hay boton ni aviso que mostrar.
-            var sinProgramacion = (esPreIngreso || fichaAdentro)
-                && !await ctx.SsProgramacionEmo.AnyAsync(pe => pe.WorkerId == ficha!.Id && pe.State);
+            // La cita del EMO de Ingreso: su estado y la aptitud del resultado que le colgo la
+            // clinica. Ya no alcanza con saber si existe — desde que el proceso cierra con la
+            // aptitud del examen, entre programar la cita y recibir el resultado el requerimiento se
+            // queda en EMO_INGRESO, y sin esto el detalle mostraba esa fase sin boton y sin ninguna
+            // explicacion. La aptitud sale de la propia cita (emo_resultado_id) y no del ultimo EMO
+            // del trabajador: es la de ESTE examen.
+            //
+            // El roundtrip solo se paga si hay algo que contar con el: si la ficha no es de
+            // pre-ingreso ni es la anomalia, no hay boton ni aviso que mostrar.
+            var cita = (esPreIngreso || fichaAdentro)
+                ? await ctx.SsProgramacionEmo
+                    .Where(pe => pe.WorkerId == ficha!.Id && pe.State)
+                    .OrderByDescending(pe => pe.FechaProgramada).ThenByDescending(pe => pe.Id)
+                    .Select(pe => new
+                    {
+                        pe.Estado,
+                        pe.FechaProgramada,
+                        Aptitud = pe.EmoResultado != null ? pe.EmoResultado.Aptitud : null,
+                    })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            // Una cita que se cayó (la clínica la rechazó, se canceló, o el candidato no fue) no
+            // resuelve nada: hay que volver a agendar. Antes daba igual —el requerimiento ya estaba
+            // CERRADO desde que se creaba la cita— pero ahora el proceso sigue abierto esperando el
+            // resultado, y sin esto se quedaría en la fase del EMO sin botón con el que destrabarlo.
+            var necesitaCita = (esPreIngreso || fichaAdentro)
+                && (cita == null || CitasQueNoResuelven.Contains(cita.Estado));
 
             return new SeleccionadoDto
             {
@@ -436,11 +482,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Pendiente solo mientras la ficha siga siendo de pre-ingreso Y no tenga la cita
                 // creada: si ya firmo y paso a ACTIVO, o si la programacion ya existe, no hay nada
                 // que hacer desde el detalle del requerimiento.
-                EmoIngresoPendiente = esPreIngreso && sinProgramacion,
-                EmoIngresoBloqueado = fichaAdentro && sinProgramacion,
+                EmoIngresoPendiente = esPreIngreso && necesitaCita,
+                EmoIngresoBloqueado = fichaAdentro && necesitaCita,
                 FichaEstadoNombre   = fichaAdentro ? ficha!.EstadoNombre : null,
+                EmoProgramacionEstado = cita?.Estado,
+                EmoFechaProgramada    = cita?.FechaProgramada.ToDateTime(TimeOnly.MinValue),
+                EmoAptitud            = cita?.Aptitud,
             };
         }
+
+        /// <summary>
+        /// Estados en los que una cita de EMO ya no va a dar un resultado: hay que agendar otra. Son
+        /// los mismos que <c>ProgramacionEmoRepository</c> deja fuera de su chequeo de "ya tiene una
+        /// programación activa", que es lo que permite crear la siguiente.
+        /// </summary>
+        private static readonly HashSet<string> CitasQueNoResuelven = new()
+        {
+            "Cancelado",
+            "Rechazado por Clínica",
+            "No se presentó",
+        };
 
         /// <summary>Proyecta la fila cruda de la evaluación al DTO (fechas ya en hora de Perú).</summary>
         private static EvaluacionResumenDto MapEvaluacion(EvaluacionRawRow x) => new()
@@ -517,10 +578,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-                puestos = puestos.Where(p => ctx.PuestoAreaScope
-                    .Any(pas => pas.State
-                             && pas.PuestoId == p.PuestoId
-                             && idsArea.Contains(pas.AreaScopeId)));
+                puestos = puestos.Where(p => p.AreaScopeId != null
+                                          && idsArea.Contains(p.AreaScopeId.Value));
             }
 
             return await puestos
@@ -531,10 +590,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Áreas a las que pertenece un puesto (<c>puesto_area_scope</c>), ordenadas por nombre.
-        /// Es la lista del desplegable «Área de destino» de la decisión final del solicitante y,
-        /// como el resto de desplegables del sistema, también la lista contra la que se valida lo
-        /// que llega del cliente: lo que no se ofrece tampoco se acepta.
+        /// Área a la que pertenece un puesto (<c>puesto.area_scope_id</c>). Es el desplegable
+        /// «Área de destino» de la decisión final del solicitante y, como el resto de
+        /// desplegables del sistema, también la lista contra la que se valida lo que llega del
+        /// cliente: lo que no se ofrece tampoco se acepta.
+        ///
+        /// Sigue devolviendo una lista aunque el área sea una sola: es lo que consume el
+        /// desplegable y la validación, y de paso el caso «sin área» se sigue expresando como
+        /// lista vacía en vez de como un null que cada llamador tendría que interpretar.
         ///
         /// El nombre que se devuelve es el del nodo y no su rama completa. No es una simplificación
         /// visual: un puesto asociado a un área estándar tiene en ese nodo el primer área estándar
@@ -542,21 +605,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// gerente general, que cuelgan del nodo de su gerencia— tiene ahí su área real. En los dos
         /// casos el nodo propio ES el área, así que no hay ancestros que agregar.
         ///
-        /// Vacía cuando el puesto no tiene ninguna área mapeada: el padrón de GTH solo cubrió
-        /// personal de oficina, así que los puestos de obra no tienen filas y eso es lo esperado.
+        /// Vacía cuando el puesto no tiene área: el padrón de GTH solo cubrió personal de
+        /// oficina, así que los puestos de obra no la tienen y eso es lo esperado.
         /// </summary>
         private static async Task<List<OpcionDto>> QueryAreasDelPuesto(AppDbContext ctx, int? puestoId)
         {
             if (puestoId is not > 0) return new List<OpcionDto>();
 
             return await (
-                from pas in ctx.PuestoAreaScope
-                where pas.State && pas.PuestoId == puestoId.Value
-                join s in ctx.AreaScope on pas.AreaScopeId equals s.AreaScopeId
+                from p in ctx.Puesto
+                where p.PuestoId == puestoId.Value && p.AreaScopeId != null
+                join s in ctx.AreaScope on p.AreaScopeId equals s.AreaScopeId
                 where s.State
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 where ai.State
-                orderby ai.AreaItemName
                 select new OpcionDto { Id = s.AreaScopeId, Nombre = ai.AreaItemName })
                 .AsNoTracking()
                 .ToListAsync();
@@ -586,8 +648,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     w.Id,
                     w.PersonId,
                     Nombre = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
-                    w.FechaIngreso,
-                    w.FechaRetiro,
+                    // Las dos fechas del último periodo laboral (ver WorkersPeriodoLaboral):
+                    // antes eran columnas de `workers`. Solo se usan para elegir la ficha
+                    // vigente entre las varias que puede tener una misma persona.
+                    Vigente = w.PeriodosLaborales.Any(p => p.State && p.FechaRetiro == null),
+                    FechaIngreso = w.PeriodosLaborales
+                        .Where(p => p.State)
+                        .OrderByDescending(p => p.FechaIngreso)
+                        .ThenByDescending(p => p.WorkersPeriodoLaboralId)
+                        .Select(p => (DateOnly?)p.FechaIngreso)
+                        .FirstOrDefault(),
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -598,7 +668,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // reciente. Las fichas sin person_id no se agrupan (cada una es su propia clave).
                 .GroupBy(w => w.PersonId.HasValue ? $"p{w.PersonId}" : $"w{w.Id}")
                 .Select(g => g
-                    .OrderBy(w => w.FechaRetiro.HasValue)
+                    .OrderByDescending(w => w.Vigente)
                     .ThenByDescending(w => w.FechaIngreso)
                     .ThenByDescending(w => w.Id)
                     .First())
@@ -661,19 +731,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // hace desaparecer la tarjeta cuando el proceso se cierra (aprobó a un finalista) o
             // vuelve a LONG_LIST (rechazó a todos).
             //
-            // El id de NO_PASO se resuelve aparte (consulta mínima al catálogo) para que el conteo
-            // por requerimiento sea una subconsulta simple sobre ids en vez de un join anidado.
-            var noPasoId = await ctx.GthCandidatoResultado
-                .Where(x => x.Codigo == ResultadoCandidato.NoPaso && x.State)
-                .Select(x => (int?)x.GthCandidatoResultadoId)
-                .FirstOrDefaultAsync() ?? 0; // 0 = catálogo sin sembrar: no descarta a nadie
+            // Los ids de los resultados que sacan a un candidato de carrera se resuelven aparte
+            // (consulta mínima al catálogo) para que el conteo por requerimiento sea una subconsulta
+            // simple sobre ids en vez de un join anidado. NO_APTO_EMO entra igual que NO_PASO: un
+            // retomado puede devolver el requerimiento a SELECCION_JEFATURA con el candidato que no
+            // pasó el EMO todavía colgando del proceso, y contarlo inflaría la tarjeta.
+            var fueraDeCarreraIds = await ctx.GthCandidatoResultado
+                .Where(x => x.State && (x.Codigo == ResultadoCandidato.NoPaso
+                                        || x.Codigo == ResultadoCandidato.NoAptoEmo))
+                .Select(x => x.GthCandidatoResultadoId)
+                .ToListAsync(); // vacío = catálogo sin sembrar: no descarta a nadie
 
             var finalistas = await (
                 from r in ctx.GthRequerimiento
                 where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
                       && CandidatosVigentes(ctx).Any(c => c.GthRequerimientoId == r.GthRequerimientoId
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
-                                  && ev.State && ev.GthCandidatoResultadoId != noPasoId))
+                                  && ev.State && !fueraDeCarreraIds.Contains(ev.GthCandidatoResultadoId)))
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -688,7 +762,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ProyectoObra    = pr.ProjectDescription,
                     TotalCandidatos = CandidatosVigentes(ctx).Count(c => c.GthRequerimientoId == r.GthRequerimientoId
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
-                                  && ev.State && ev.GthCandidatoResultadoId != noPasoId)),
+                                  && ev.State && !fueraDeCarreraIds.Contains(ev.GthCandidatoResultadoId))),
                     EstadoCodigo    = e.Codigo,
                     EstadoNombre    = e.Nombre,
                     Tipo            = TipoGestionCandidato.Finalistas,
@@ -1804,6 +1878,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (resultadoActual == ResultadoCandidato.NoPaso)
                 throw new AbrilException("El candidato ya no continúa en el proceso: su evaluación quedó cerrada.", 400);
+            if (resultadoActual == ResultadoCandidato.NoAptoEmo)
+                throw new AbrilException("Este candidato no pasó el EMO de ingreso: su informe quedó cerrado.", 400);
             if (resultadoActual is ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado)
                 throw new AbrilException("El área solicitante ya tomó una decisión sobre este finalista: su informe quedó cerrado.", 400);
 
@@ -2067,7 +2143,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Finalistas: candidatos aprobados en la long list con evaluación registrada por GTH.
             // Los que no continúan (resultado NO_PASO, con su correo de agradecimiento ya enviado)
-            // no se muestran al solicitante.
+            // no se muestran al solicitante. NO_APTO_EMO tampoco: si el proceso volvió a esta
+            // pantalla es porque GTH retomó a otro candidato, y ofrecer de nuevo al que no pasó el
+            // examen médico sería ofrecer algo que el backend va a rechazar.
             var candidatos = await (
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
@@ -2076,7 +2154,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
                 where ev.State
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
-                where res.Codigo != ResultadoCandidato.NoPaso
+                where res.Codigo != ResultadoCandidato.NoPaso && res.Codigo != ResultadoCandidato.NoAptoEmo
                 // El formulario del postulante es opcional (puede no habérselo enviado nunca), así
                 // que va en left join: con un join normal desaparecerían finalistas de la lista.
                 join fm in ctx.GthPostulanteFormulario.Where(f => f.State)
@@ -2160,10 +2238,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// vera el aviso de que falta el formulario.
         ///
         /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la del PUESTO
-        /// que se pidio (<c>puesto_area_scope</c>), no la del solicitante. Un jefe pide una vacante
-        /// para un puesto que puede pertenecer a otra area de su gerencia, y el area del puesto es
-        /// la del trabajador que va a ocuparlo. Cuando el puesto pertenece a mas de una, la eligio
-        /// el solicitante al aprobar; cuando no tiene ninguna mapeada se cae a la del solicitante.
+        /// que se pidio (<c>puesto.area_scope_id</c>), no la del solicitante. Un jefe pide una
+        /// vacante para un puesto que puede pertenecer a otra area de su gerencia, y el area del
+        /// puesto es la del trabajador que va a ocuparlo. Cuando el puesto no tiene area se cae a
+        /// la del solicitante.
         /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
         /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
         /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
@@ -2229,8 +2307,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // resolver su jefatura (subiendo por el arbol de area_scope) sin tener que esperar
                 // al onboarding — la programacion de su EMO de ingreso la necesita ya.
                 AreaScopeId     = areaScopeId,
-                // Sin fecha de ingreso: todavia no ingreso.
-                FechaIngreso    = null,
+                // Sin periodo laboral: todavia no ingreso. Se le abre uno cuando firme
+                // (ver WorkersPeriodoLaboral).
                 CreatedAt       = ahora,
                 UpdatedAt       = ahora,
             };
@@ -2283,13 +2361,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
                 where ev.State
                 join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
-                where res.Codigo != ResultadoCandidato.NoPaso
+                where res.Codigo != ResultadoCandidato.NoPaso && res.Codigo != ResultadoCandidato.NoAptoEmo
                 select new { c.GthCandidatoId, c.Nombre, Evaluacion = ev, ResultadoCodigo = res.Codigo })
                 .ToListAsync();
 
             var elegido = finalistas.FirstOrDefault(f => f.GthCandidatoId == candidatoId)
                 ?? throw new AbrilException("El candidato no forma parte de los finalistas de este requerimiento.", 404);
-            if (elegido.ResultadoCodigo is ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado)
+            if (ResultadoCandidato.Cerrados.Contains(elegido.ResultadoCodigo))
                 throw new AbrilException("Ya registraste una decisión sobre este finalista.", 409);
 
             // Área a la que entra el seleccionado. Se resuelve (y valida) antes de tocar nada: un
@@ -2326,7 +2404,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var noElegidos = finalistas
                 .Where(f => aprobado
                             && f.GthCandidatoId != candidatoId
-                            && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado))
+                            && !ResultadoCandidato.Cerrados.Contains(f.ResultadoCodigo))
                 .ToList();
 
             var idsConCorreo = noElegidos.Select(f => f.GthCandidatoId).Append(candidatoId).ToList();
@@ -2381,14 +2459,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             // Aprobar ya NO cierra el proceso: lo deja en EMO_INGRESO, la fase en la que GTH le
-            // programa el examen medico de ingreso al seleccionado. Cierra recien cuando la cita
-            // queda programada (ver MarcarEmoIngresoProgramado).
+            // programa el examen medico de ingreso al seleccionado. Cierra recien cuando el EMO sale
+            // APTO, y si sale NO APTO vuelve para atras (ver ReclutamientoEmoIngresoService).
             // Rechazar al último finalista en carrera devuelve el requerimiento a LONG_LIST para que
             // GTH prepare y envíe una nueva long list; los rechazados quedan grabados como historial.
             // Si aún quedan finalistas por decidir, se queda en SELECCION_JEFATURA.
             var quedanEnCarrera = finalistas.Any(f =>
                 f.GthCandidatoId != candidatoId
-                && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado));
+                && !ResultadoCandidato.Cerrados.Contains(f.ResultadoCodigo));
             var todosRechazados = !aprobado && !quedanEnCarrera;
 
             var codigoEstado = aprobado ? EstadoReclutamiento.EmoIngreso
@@ -2440,15 +2518,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
-        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto_area_scope</c>) y no del
-        /// solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área de
-        /// su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
+        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto.area_scope_id</c>) y no
+        /// del solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área
+        /// de su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
         ///
-        ///   • El puesto tiene varias áreas → la que eligió el solicitante en el desplegable, que
-        ///     se valida contra la misma lista que se le ofreció.
-        ///   • El puesto tiene exactamente una → esa, sin preguntar (ni aceptar otra).
+        ///   • El puesto tiene área → esa, sin preguntar (ni aceptar otra).
         ///   • El puesto no tiene ninguna → el área del solicitante, que es lo que se usaba antes de
         ///     esta regla. Pasa con los puestos de obra, que el padrón de GTH nunca mapeó.
+        ///
+        /// La rama de «varias áreas» quedó inalcanzable con el corte del 2026-08-25 (un puesto
+        /// pertenece a una sola), pero se conserva como guarda: si algún día vuelve a haber más de
+        /// una, falla pidiendo que se elija en vez de tomar una en silencio.
         /// </summary>
         private static async Task<int?> ResolverAreaDestinoAsync(
             AppDbContext ctx, int? puestoId, int? elegida, int? areaSolicitante)
@@ -2467,6 +2547,256 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("El área seleccionada no corresponde al puesto del requerimiento.", 400);
 
             return elegida;
+        }
+
+        // ── Reapertura del proceso tras un EMO de ingreso No Apto ────────────────────────
+        //
+        // Las dos salidas de la fase EMO_NO_APTO. La eligen desde el detalle de GTH y son
+        // excluyentes: o se continúa con alguien que ya se había descartado, o se descarta a todos
+        // y se arma una long list nueva.
+
+        /// <summary>
+        /// Etapa en la que quedó rechazado un candidato. Es la MISMA derivación que usa el
+        /// historial (<see cref="QueryCandidatosRechazados"/>): tiene que serlo, porque el botón
+        /// «Retomar» se enciende con lo que dice el historial y acá se decide qué significa
+        /// retomarlo. Si las dos reglas se separaran, la pantalla ofrecería una etapa y el backend
+        /// desharía otra.
+        ///
+        /// Null cuando el candidato no está rechazado (sigue en carrera o se dio de baja sin
+        /// decisión): no hay nada que retomar con él.
+        /// </summary>
+        private static string? DerivarEtapaRechazo(
+            string? estadoCandidatoCodigo, string? resultadoEvaluacionCodigo, bool tuvoEntrevista) =>
+            resultadoEvaluacionCodigo switch
+            {
+                ResultadoCandidato.NoAptoEmo    => EtapaRechazo.Emo,
+                ResultadoCandidato.Rechazado    => EtapaRechazo.DecisionFinal,
+                ResultadoCandidato.NoPaso       => tuvoEntrevista ? EtapaRechazo.Entrevistas
+                                                                  : EtapaRechazo.Formulario,
+                _ => estadoCandidatoCodigo == EstadoCandidato.Rechazado ? EtapaRechazo.LongList : null,
+            };
+
+        /// <summary>Nombre visible de la etapa del rechazo (el mismo que muestra el historial).</summary>
+        private static string NombreEtapaRechazo(string etapaCodigo) => etapaCodigo switch
+        {
+            EtapaRechazo.LongList      => "Long list",
+            EtapaRechazo.Formulario    => "Formulario",
+            EtapaRechazo.Entrevistas   => "Entrevistas",
+            EtapaRechazo.DecisionFinal => "Decisión final",
+            EtapaRechazo.Emo           => "EMO",
+            _                          => etapaCodigo,
+        };
+
+        public async Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+            int requerimientoId, int candidatoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State)
+                ?? throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            // Los tres catálogos que hacen falta, de una vez: son tablas de una decena de filas y
+            // resolverlas por código una por una serían cinco o seis roundtrips por retomada.
+            var estadosReq = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State)
+                .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
+                .ToListAsync();
+            var estadosCandidato = await ctx.GthCandidatoEstado
+                .Where(e => e.State)
+                .Select(e => new { e.GthCandidatoEstadoId, e.Codigo })
+                .ToListAsync();
+            var resultados = await ctx.GthCandidatoResultado
+                .Where(r => r.State)
+                .Select(r => new { r.GthCandidatoResultadoId, r.Codigo })
+                .ToListAsync();
+
+            // Retomar es una salida de EMO_NO_APTO y de ninguna otra fase: en cualquier otra el
+            // proceso está en curso y devolverlo a una fase anterior sería pisar el trabajo que se
+            // esté haciendo (una long list a medio revisar, un finalista esperando decisión).
+            var estadoActual = estadosReq
+                .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
+            if (estadoActual != EstadoReclutamiento.EmoNoApto)
+                throw new AbrilException(
+                    "Solo se puede retomar a un candidato rechazado cuando el EMO de ingreso del "
+                    + "seleccionado salió No Apto.", 409);
+
+            var cand = await ctx.GthCandidato
+                .FirstOrDefaultAsync(c => c.GthCandidatoId == candidatoId
+                                       && c.GthRequerimientoId == requerimientoId && c.State)
+                ?? throw new AbrilException("El candidato no pertenece a este requerimiento.", 404);
+
+            var evaluacion = await ctx.GthCandidatoEvaluacion
+                .FirstOrDefaultAsync(e => e.GthCandidatoId == candidatoId && e.State);
+
+            // Con entrevista o sin ella se separan las dos salidas que decide GTH (ver EtapaRechazo).
+            var tuvoEntrevista = await ctx.GthEntrevista
+                .AnyAsync(e => e.State && e.GthCandidatoId == candidatoId);
+
+            var estadoCandidatoCodigo = estadosCandidato
+                .FirstOrDefault(e => e.GthCandidatoEstadoId == cand.GthCandidatoEstadoId)?.Codigo;
+            var resultadoCodigo = evaluacion == null ? null : resultados
+                .FirstOrDefault(r => r.GthCandidatoResultadoId == evaluacion.GthCandidatoResultadoId)?.Codigo;
+
+            var etapa = DerivarEtapaRechazo(estadoCandidatoCodigo, resultadoCodigo, tuvoEntrevista)
+                ?? throw new AbrilException(
+                    "Este candidato no está rechazado: no hay proceso que retomar con él.", 400);
+
+            if (!EtapaRechazo.Retomables.Contains(etapa))
+                throw new AbrilException(
+                    "Este candidato no pasó el EMO de ingreso: no se puede retomar el proceso con él.", 400);
+
+            int ResultadoId(string codigo) => resultados
+                .FirstOrDefault(r => r.Codigo == codigo)?.GthCandidatoResultadoId
+                ?? throw new AbrilException($"No está configurado el resultado {codigo} de candidatos.", 500);
+
+            var aprobadoId = estadosCandidato
+                .FirstOrDefault(e => e.Codigo == EstadoCandidato.Aprobado)?.GthCandidatoEstadoId
+                ?? throw new AbrilException("No está configurado el estado APROBADO de candidatos.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+
+            // El candidato vuelve a estar APROBADO en la long list en todas las etapas, no solo
+            // cuando lo rechazaron ahí: es el estado que lo hace visible en las pantallas de GTH, y
+            // en las otras tres etapas ya lo estaba (su rechazo vive en el resultado de la
+            // evaluación), así que asignarlo no cambia nada y cubre el caso que sí lo necesita.
+            cand.GthCandidatoEstadoId = aprobadoId;
+            cand.DecisionDateTime     = now;
+            cand.DecisionUserId       = userId;
+            cand.UpdatedDateTime      = now;
+            cand.UpdatedUserId        = userId;
+
+            // Un rechazado de una vuelta anterior sigue con su número de long list, y la long list
+            // vigente es la del número mayor: sin subirlo, retomarlo lo dejaría fuera de todas las
+            // pantallas (ver CandidatosVigentes) y el proceso quedaría trabado sin candidato.
+            var vueltaVigente = await ctx.GthCandidato
+                .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
+                .MaxAsync(c => (int?)c.NumeroLongList) ?? cand.NumeroLongList;
+            if (cand.NumeroLongList < vueltaVigente)
+                cand.NumeroLongList = vueltaVigente;
+
+            // Fase a la que vuelve el requerimiento: la que deja el trabajo pendiente justo donde
+            // estaba cuando se lo descartó. No se retrocede más de eso — lo ya hecho con este
+            // candidato (su formulario, su entrevista, su informe) sigue guardado y sirve igual.
+            string faseDestino;
+            string siguientePaso;
+            switch (etapa)
+            {
+                case EtapaRechazo.LongList:
+                    // Lo rechazó el solicitante al revisar los CVs y nunca tuvo evaluación: basta
+                    // con devolverlo a APROBADO (ya está hecho arriba) para que GTH le mande el
+                    // formulario del postulante, que es el paso siguiente de esa fase.
+                    faseDestino   = EstadoReclutamiento.LongListAprobada;
+                    siguientePaso = "Envíale el formulario de información del postulante.";
+                    break;
+
+                case EtapaRechazo.Formulario:
+                    // GTH le rechazó el formulario. La fila del formulario se deja como está: el
+                    // reenvío ya sabe reabrir un formulario RECHAZADO (lo vuelve a ENVIADO y limpia
+                    // la fecha de completado) para que el postulante lo corrija.
+                    ReabrirEvaluacion(evaluacion!, ResultadoId(ResultadoCandidato.Pendiente), userId, now);
+                    faseDestino   = EstadoReclutamiento.LongListAprobada;
+                    siguientePaso = "Reenvíale el formulario del postulante para que lo corrija.";
+                    break;
+
+                case EtapaRechazo.Entrevistas:
+                    // GTH lo descartó tras la entrevista: su cita y su informe siguen guardados, así
+                    // que vuelve a PENDIENTE para que GTH lo reevalúe o lo cite de nuevo.
+                    ReabrirEvaluacion(evaluacion!, ResultadoId(ResultadoCandidato.Pendiente), userId, now);
+                    faseDestino   = EstadoReclutamiento.Entrevistas;
+                    siguientePaso = "Revisa su evaluación y envíalo como finalista al área solicitante.";
+                    break;
+
+                default: // EtapaRechazo.DecisionFinal
+                    // Lo rechazó el solicitante en la decisión final: vuelve a PASO, que es el
+                    // resultado con el que se lo había enviado, y la pelota vuelve a su lado.
+                    ReabrirEvaluacion(evaluacion!, ResultadoId(ResultadoCandidato.Paso), userId, now);
+                    faseDestino   = EstadoReclutamiento.SeleccionJefatura;
+                    siguientePaso = "El área solicitante tiene que volver a decidir sobre este finalista.";
+                    break;
+            }
+
+            var destino = estadosReq.FirstOrDefault(e => e.Codigo == faseDestino)
+                ?? throw new AbrilException($"No está configurado el estado {faseDestino} de reclutamiento.", 500);
+
+            req.GthEstadoRequerimientoId = destino.GthEstadoRequerimientoId;
+            req.UpdatedDateTime          = now;
+            req.UpdatedUserId            = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new RetomarCandidatoResultDto
+            {
+                EstadoCodigo    = destino.Codigo,
+                EstadoNombre    = destino.Nombre,
+                CandidatoNombre = cand.Nombre,
+                EtapaCodigo     = etapa,
+                EtapaNombre     = NombreEtapaRechazo(etapa),
+                SiguientePaso   = siguientePaso,
+            };
+        }
+
+        /// <summary>
+        /// Devuelve la evaluación de un candidato retomado al resultado con el que estaba antes del
+        /// rechazo y borra el rastro del cierre: la fecha de la decisión y el correo de fin de
+        /// proceso. Ese correo se le envió de verdad, pero dejarlo puesto haría que la pantalla lo
+        /// siga mostrando como "ya se le agradeció" mientras vuelve a estar en carrera, y bloquearía
+        /// el envío del correo de cierre que sí le corresponda al final.
+        /// </summary>
+        private static void ReabrirEvaluacion(
+            GthCandidatoEvaluacion evaluacion, int resultadoId, int? userId, DateTimeOffset now)
+        {
+            evaluacion.GthCandidatoResultadoId = resultadoId;
+            evaluacion.AgradecimientoCorreo    = null;
+            evaluacion.AgradecimientoDateTime  = null;
+            evaluacion.AgradecimientoUserId    = null;
+            evaluacion.DecisionDateTime        = null;
+            evaluacion.DecisionUserId          = null;
+            evaluacion.UpdatedDateTime         = now;
+            evaluacion.UpdatedUserId           = userId;
+        }
+
+        public async Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
+            int requerimientoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State)
+                ?? throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.EmoNoApto
+                                        || e.Codigo == EstadoReclutamiento.LongList
+                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
+                .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
+                .ToListAsync();
+
+            var actual = estados
+                .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
+            if (actual != EstadoReclutamiento.EmoNoApto)
+                throw new AbrilException(
+                    "Solo se puede preparar una nueva long list cuando el EMO de ingreso del "
+                    + "seleccionado salió No Apto.", 409);
+
+            var longList = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST de reclutamiento.", 500);
+
+            // Nada más que cambiar la fase: los rechazados se quedan como están y son el historial
+            // que GTH mira para no volver a presentar a los mismos. La próxima carga de CVs entra
+            // como una vuelta nueva (la anterior ya está decidida) y son esos los que pasan a ser la
+            // long list vigente.
+            req.GthEstadoRequerimientoId = longList.GthEstadoRequerimientoId;
+            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+            req.UpdatedUserId            = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new EstadoRequerimientoResultDto
+            {
+                EstadoCodigo = longList.Codigo,
+                EstadoNombre = longList.Nombre,
+            };
         }
 
         public async Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)
@@ -2965,9 +3295,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // list —que este flujo no tiene—, así que se dice el paso real.
                 SiguientePaso         = rechazadoGg
                     ? "Gerencia General no aprobó esta vacante. Para volver a pedirla hay que registrar una nueva solicitud."
-                    : head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormulario
-                        ? FftFlujo.SiguientePasoFormulario
-                        : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
+                    : head.EstadoCodigo == EstadoReclutamiento.EmoNoApto
+                        // La fase EMO_NO_APTO comparte el orden de EMO_INGRESO, así que sin esto el
+                        // solicitante leería "GTH le programará el examen médico" justo cuando el
+                        // examen ya se hizo y salió mal.
+                        ? "El examen médico de ingreso del candidato seleccionado salió No Apto. "
+                          + "GTH está retomando el proceso con otro candidato."
+                        : head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormulario
+                            ? FftFlujo.SiguientePasoFormulario
+                            : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
             };
         }
 
@@ -3480,16 +3816,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string SeleccionJefatura = "SELECCION_JEFATURA";
 
         /// <summary>
-        /// El solicitante aprobó al finalista y GTH tiene que programarle el EMO de Ingreso antes
-        /// de cerrar. Aprobar deja el requerimiento acá (ya no en <see cref="Cerrado"/>): la ficha
-        /// de pre-ingreso del finalista ya existe en <c>workers</c> y desde el botón de esta fase
-        /// se salta a SSOMA · Salud Ocupacional · EMOs a programarle la cita.
+        /// El solicitante aprobó al finalista y falta el EMO de Ingreso. La ficha de pre-ingreso
+        /// del finalista ya existe en <c>workers</c> y desde el botón de esta fase se salta a
+        /// SSOMA · Salud Ocupacional · EMOs a programarle la cita.
+        ///
+        /// El requerimiento se queda acá todo lo que dure el examen —programación, confirmación de
+        /// la clínica, atención y carga de resultados—: lo que cierra el proceso es la aptitud del
+        /// EMO, no la cita. Con APTO (o APTO CON RESTRICCIONES) pasa a <see cref="Cerrado"/>; con
+        /// NO APTO vuelve a <see cref="EmoNoApto"/> o a <see cref="LongList"/>.
         /// </summary>
         public const string EmoIngreso        = "EMO_INGRESO";
 
         /// <summary>
-        /// Estado final: el EMO de ingreso quedó programado, el proceso de reclutamiento termina y
-        /// el seleccionado pasa al proceso de onboarding (funcionalidad aparte).
+        /// El EMO de ingreso del finalista salió <b>No Apto</b> y el proceso volvió a manos de GTH:
+        /// tiene que retomar a alguien del historial de rechazados o preparar una nueva long list.
+        /// Es una fase de decisión y dura lo que GTH tarde en elegir.
+        ///
+        /// Está sembrado con <c>active = false</c> a propósito, igual que <see cref="RechazadoGg"/>:
+        /// es un estado del requerimiento pero no un paso por el que pasen todos, y la línea de
+        /// tiempo del seguimiento solo lista las fases activas. Su <c>orden</c> es el mismo de
+        /// <see cref="EmoIngreso"/>, que es lo que hace que esa línea marque el paso del EMO como
+        /// el actual en vez de darlo todo por cumplido.
+        ///
+        /// Solo se llega acá con rechazados que retomar: sin ninguno el requerimiento se manda
+        /// directo a <see cref="LongList"/>, que es el único trabajo que le queda a GTH.
+        /// </summary>
+        public const string EmoNoApto         = "EMO_NO_APTO";
+
+        /// <summary>
+        /// Estado final: el EMO de ingreso salió APTO, el proceso de reclutamiento termina y el
+        /// seleccionado pasa al proceso de onboarding (funcionalidad aparte). Programar la cita ya
+        /// no cierra nada: cierra el resultado del examen (ver <see cref="EmoIngreso"/>).
         /// </summary>
         public const string Cerrado           = "CERRADO";
 
@@ -3521,6 +3878,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///   la pelota está del lado del solicitante (revisar la long list / decidir al finalista).</description></item>
         ///   <item><description><see cref="Cerrado"/>: el proceso ya terminó.</description></item>
         /// </list>
+        ///
+        /// <see cref="EmoIngreso"/> y <see cref="EmoNoApto"/> sí entran: desde que el cierre lo
+        /// decide la aptitud del EMO, un requerimiento se queda en el examen todo lo que este dure y
+        /// sin ellas desaparecía de las tarjetas del solicitante sin explicación. Antes no hacía
+        /// falta porque la fase del EMO duraba lo que GTH tardaba en agendar la cita.
         /// </summary>
         public static readonly HashSet<string> FasesGth = new()
         {
@@ -3529,14 +3891,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             LongList,
             LongListAprobada,
             Entrevistas,
+            EmoIngreso,
+            EmoNoApto,
         };
     }
 
     /// <summary>
     /// Etapas del embudo "Pipeline de reclutamiento" (vista de GTH), en el orden en que se muestran.
-    /// El catálogo tiene 10 fases y el embudo las agrupa en 6 etapas legibles; cada fase pertenece a
-    /// exactamente una etapa, de modo que la suma de las etapas es siempre el total de requerimientos
-    /// vigentes y ninguno se pierde del embudo.
+    /// El embudo agrupa las fases del catálogo en etapas legibles; cada fase pertenece a exactamente
+    /// una etapa, de modo que la suma de las etapas es siempre el total de requerimientos vigentes y
+    /// ninguno se pierde del embudo.
     ///
     /// El orden sigue el <c>orden</c> del catálogo, que es el mismo que ve el solicitante en el
     /// seguimiento vertical del requerimiento.
@@ -3554,6 +3918,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                                       EstadoReclutamiento.LongListAprobada }),
             new("ENTREVISTAS", "Entrevistas", new[] { EstadoReclutamiento.Entrevistas }),
             new("SELECCION",   "Selección",   new[] { EstadoReclutamiento.SeleccionJefatura }),
+            // El EMO es etapa propia y no un apéndice del cierre: desde que el proceso cierra con la
+            // aptitud del examen, un requerimiento puede pasar semanas acá. Sin esta etapa esas dos
+            // fases no pertenecen a ninguna y sus requerimientos se caen del embudo — y de "Vacantes
+            // abiertas", que se calcula recortando estas mismas etapas.
+            new("EMO",         "EMO",         new[] { EstadoReclutamiento.EmoIngreso,
+                                                      EstadoReclutamiento.EmoNoApto }),
             new("CIERRE",      "Cierre",      new[] { EstadoReclutamiento.Cerrado }),
         };
 
@@ -3582,7 +3952,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// Códigos estables del resultado del candidato en el proceso (espejo de
     /// gth_candidato_resultado.codigo). Es una sola línea de tiempo: PENDIENTE → PASO (finalista
     /// enviado al solicitante) → SELECCIONADO / RECHAZADO por el solicitante; NO_PASO es la salida
-    /// que decide GTH tras la entrevista.
+    /// que decide GTH tras la entrevista, y NO_APTO_EMO la que decide el examen médico.
     /// </summary>
     internal static class ResultadoCandidato
     {
@@ -3591,6 +3961,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string NoPaso       = "NO_PASO";
         public const string Seleccionado = "SELECCIONADO";
         public const string Rechazado    = "RECHAZADO";
+
+        /// <summary>
+        /// El seleccionado no pasó el EMO de ingreso. Es un resultado propio y no un
+        /// <see cref="Rechazado"/> porque el historial muestra quién rechazó a cada candidato:
+        /// dejarlo en RECHAZADO diría que lo descartó el área solicitante en la decisión final, que
+        /// es lo contrario de lo que pasó — el área lo eligió y lo frenó el examen médico.
+        /// </summary>
+        public const string NoAptoEmo    = "NO_APTO_EMO";
+
+        /// <summary>
+        /// Resultados que cierran la participación de un candidato: ya no está "en carrera" y no se
+        /// le puede volver a decidir sin retomarlo desde el historial de rechazados.
+        /// </summary>
+        public static readonly HashSet<string> Cerrados = new()
+        {
+            NoPaso,
+            Seleccionado,
+            Rechazado,
+            NoAptoEmo,
+        };
     }
 
     /// <summary>
@@ -3615,12 +4005,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>El solicitante rechazó al finalista en la decisión final del proceso.</summary>
         public const string DecisionFinal = "DECISION_FINAL";
+
+        /// <summary>
+        /// El seleccionado salió No Apto en su EMO de ingreso. Es la única etapa de la que NO se
+        /// puede retomar a nadie: un examen médico no se revierte volviendo a elegir a la persona.
+        /// </summary>
+        public const string Emo           = "EMO";
+
+        /// <summary>
+        /// Etapas desde las que sí se puede retomar a un candidato (todas menos
+        /// <see cref="Emo"/>). Es la regla que enciende el botón «Retomar» del historial.
+        /// </summary>
+        public static readonly HashSet<string> Retomables = new()
+        {
+            LongList,
+            Formulario,
+            Entrevistas,
+            DecisionFinal,
+        };
     }
 
-    /// <summary>Quién tomó el rechazo en el historial: el área usuaria o GTH.</summary>
+    /// <summary>Quién tomó el rechazo en el historial: el área usuaria, GTH o el examen médico.</summary>
     internal static class RechazadoPor
     {
-        public const string Solicitante = "SOLICITANTE";
-        public const string Gth         = "GTH";
+        public const string Solicitante      = "SOLICITANTE";
+        public const string Gth              = "GTH";
+
+        /// <summary>No lo decidió una persona del proceso sino el resultado del EMO de ingreso.</summary>
+        public const string SaludOcupacional = "SALUD_OCUPACIONAL";
     }
 }

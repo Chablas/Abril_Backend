@@ -86,6 +86,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
 
         /// <summary>
+        /// Retoma el proceso con un candidato del historial de rechazados y devuelve el
+        /// requerimiento a la fase en la que se lo descartó: long list aprobada (rechazado en la
+        /// revisión de CVs o en su formulario), entrevistas (descartado por GTH tras la cita) o
+        /// selección de jefatura (rechazado por el solicitante en la decisión final).
+        ///
+        /// Es la salida de la fase EMO_NO_APTO, a la que se llega cuando el EMO de ingreso del
+        /// seleccionado sale No Apto. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/>
+        /// 409 si el requerimiento no está en esa fase, 404 si el candidato no es de este
+        /// requerimiento y 400 si no está rechazado o su rechazo fue el del propio EMO (a ese no se
+        /// lo puede retomar: el examen médico no se revierte volviendo a elegirlo).
+        /// </summary>
+        Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+            int requerimientoId, int candidatoId, int? userId);
+
+        /// <summary>
+        /// La otra salida de EMO_NO_APTO: descartar a todos los rechazados y volver a LONG_LIST para
+        /// armar una long list nueva. No toca a los candidatos —siguen siendo el historial que GTH
+        /// mira para no repetirlos— y la próxima carga de CVs entra como una vuelta nueva. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 409 si el requerimiento
+        /// no está en esa fase.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
+
+        /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato y le envía la invitación por correo.
         /// El envío es best-effort: si el correo falla, la programación queda igual guardada y se
         /// informa en el mensaje para que GTH reintente.

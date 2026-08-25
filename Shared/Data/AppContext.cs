@@ -156,9 +156,6 @@ namespace Abril_Backend.Infrastructure.Data
         /// <summary>Catálogo único de puestos (campo de presentación). Ver <see cref="Puesto"/>.</summary>
         public DbSet<Puesto> Puesto => Set<Puesto>();
 
-        /// <summary>Áreas a las que pertenece cada puesto (N:N). Ver <see cref="PuestoAreaScope"/>.</summary>
-        public DbSet<PuestoAreaScope> PuestoAreaScope => Set<PuestoAreaScope>();
-
         /// <summary>Congelado: reemplazado por <see cref="Categoria"/>. Solo lectura histórica.</summary>
         public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkersObraOficinaStaff> WorkersObraOficinaStaff => Set<WorkersObraOficinaStaff>();
@@ -168,6 +165,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+
+        /// <summary>
+        /// Pasos del trabajador por Abril (ingreso → retiro). Reemplaza a
+        /// <c>workers.fecha_ingreso</c> / <c>workers.fecha_retiro</c>: ver
+        /// <see cref="WorkersPeriodoLaboral"/>.
+        /// </summary>
+        public DbSet<WorkersPeriodoLaboral> WorkersPeriodoLaboral => Set<WorkersPeriodoLaboral>();
         public DbSet<Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharlaContratista> SsCharlaContratista { get; set; }
         public DbSet<WorkerProyecto> WorkerProyecto { get; set; }
         public DbSet<SsClinica> SsClinica { get; set; }
@@ -575,6 +579,17 @@ namespace Abril_Backend.Infrastructure.Data
 
             base.OnModelCreating(modelBuilder);
 
+            // Las fichas eliminadas de `workers` no existen para nadie. Va como filtro
+            // global y no repetido en cada consulta porque son ~1600 lecturas de
+            // ctx.Worker repartidas en 147 archivos: cualquier otra forma se olvida en
+            // alguna, y una ficha duplicada que reaparece en UNA pantalla es peor que no
+            // haberla dado de baja.
+            //
+            // Para leer el historial que quedó colgando de una ficha fusionada (EMOs,
+            // inducciones, amonestaciones: ver workers_ficha_fusionada) hay que pedirlo
+            // explícitamente con IgnoreQueryFilters().
+            modelBuilder.Entity<Worker>().HasQueryFilter(w => w.State);
+
             modelBuilder.Entity<Person>()
                 .HasOne(p => p.User)
                 .WithOne(u => u.Person)
@@ -928,16 +943,9 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.AreaScopeParentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // PuestoAreaScope: tabla intermedia puesto <-> area_scope (a qué áreas pertenece
-            // un puesto). Las dos FK son Restrict: ni el puesto ni el área se borran nunca
-            // de verdad (soft delete), así que un cascade no tendría a quién aplicarse.
-            modelBuilder.Entity<PuestoAreaScope>()
-                .HasOne(x => x.Puesto)
-                .WithMany()
-                .HasForeignKey(x => x.PuestoId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PuestoAreaScope>()
+            // El área del puesto. Restrict: el área nunca se borra de verdad (soft delete),
+            // así que un cascade no tendría a quién aplicarse.
+            modelBuilder.Entity<Puesto>()
                 .HasOne(x => x.AreaScope)
                 .WithMany()
                 .HasForeignKey(x => x.AreaScopeId)

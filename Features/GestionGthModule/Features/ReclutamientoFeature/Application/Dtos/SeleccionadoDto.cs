@@ -58,10 +58,35 @@
         public int? WorkerId { get; set; }
 
         /// <summary>
-        /// true mientras el EMO de Ingreso siga sin programarse. Es lo que mantiene el
-        /// requerimiento en la fase EMO_INGRESO y lo que enciende el botón en el detalle de GTH.
+        /// true mientras el EMO de Ingreso siga sin programarse: es lo que enciende el botón
+        /// «Programar EMO de ingreso» del detalle de GTH.
+        ///
+        /// Ya no equivale a "el proceso sigue abierto": desde que el cierre lo decide la aptitud del
+        /// examen, el requerimiento sigue en EMO_INGRESO con la cita ya creada y este flag en false.
+        /// Lo que falta en ese momento lo cuentan <see cref="EmoProgramacionEstado"/> y
+        /// <see cref="EmoAptitud"/>.
         /// </summary>
         public bool EmoIngresoPendiente { get; set; }
+
+        /// <summary>
+        /// Estado de la cita del EMO de Ingreso ("Programado", "Aceptado por Clínica", "En
+        /// Atención", "Completado"…). Null si todavía no se le programó ninguna.
+        ///
+        /// Existe para que el detalle pueda decir por qué el requerimiento sigue abierto: sin esto,
+        /// entre programar la cita y recibir el resultado GTH veía la fase «EMO de ingreso» sin
+        /// botón y sin ninguna explicación.
+        /// </summary>
+        public string? EmoProgramacionEstado { get; set; }
+
+        /// <summary>Fecha de la cita del EMO de Ingreso, en hora de Perú. Null si no hay cita.</summary>
+        public DateTime? EmoFechaProgramada { get; set; }
+
+        /// <summary>
+        /// Aptitud del EMO ya registrado ("Apto", "Apto con Restricciones", "Observado", "No
+        /// Apto"). Null mientras la clínica no cargue el resultado. "Observado" es la que deja el
+        /// proceso esperando: la aptitud final la define la interconsulta.
+        /// </summary>
+        public string? EmoAptitud { get; set; }
 
         /// <summary>
         /// true en un escenario que no debería darse: el requerimiento sigue en la fase

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
@@ -126,7 +126,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                        (array_agg(we.codigo  ORDER BY we.esta_adentro DESC, w.id DESC))[1] AS estado_codigo,
                        (array_agg(we.nombre  ORDER BY we.esta_adentro DESC, w.id DESC))[1] AS estado_nombre
                   FROM coincide c
-                  JOIN workers w         ON w.person_id = c.person_id
+                  JOIN workers w         ON w.person_id = c.person_id AND w.state
                   JOIN workers_estado we ON we.workers_estado_id = w.workers_estado_id
                  GROUP BY c.gth_candidato_id, c.person_id
             )

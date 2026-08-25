@@ -225,10 +225,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// flujo normal (reusar la ficha viva si ya existe, abrirla si no) porque es la misma cosa —
         /// alguien que todavía no ingresó pero al que hay que poder programarle su EMO.
         ///
-        /// El área sale del puesto que se pidió (<c>puesto_area_scope</c>), que es lo que permite
-        /// resolver su jefatura subiendo por el árbol. Si el puesto pertenece a varias áreas no hay
-        /// a quién preguntarle —en FFT no existe la pantalla de decisión del finalista, que es donde
-        /// se elige— así que entra al área del solicitante, que es quien pidió a esta persona.
+        /// El área sale del puesto que se pidió (<c>puesto.area_scope_id</c>), que es lo que
+        /// permite resolver su jefatura subiendo por el árbol. Si el puesto no tiene área —los de
+        /// obra no la tienen— entra al área del solicitante, que es quien pidió a esta persona.
         /// </summary>
         private static async Task<Worker?> AbrirFichaPreIngresoAsync(
             AppDbContext ctx, int candidatoId, GthRequerimiento req, DateTimeOffset now)
@@ -244,12 +243,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(s => s.AreaScopeId)
                 .FirstOrDefaultAsync();
 
-            var areasPuesto = await ctx.PuestoAreaScope
-                .Where(pas => pas.State && pas.PuestoId == req.PuestoId)
-                .Select(pas => pas.AreaScopeId)
-                .ToListAsync();
+            var areaPuesto = await ctx.Puesto
+                .Where(p => p.PuestoId == req.PuestoId)
+                .Select(p => p.AreaScopeId)
+                .FirstOrDefaultAsync();
 
-            var areaDestino = areasPuesto.Count == 1 ? areasPuesto[0] : areaSolicitante;
+            var areaDestino = areaPuesto ?? areaSolicitante;
 
             // Una persona puede tener varias fichas (reingresos): si ya tiene una viva se reusa en
             // vez de abrir otra. Se prioriza la de pre-ingreso y, si no la hay, la más reciente.
@@ -296,8 +295,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
                 ObraOficinaStaffId = await ClasificacionPreIngreso
                     .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
-                // Sin fecha de ingreso: todavía no ingresó.
-                FechaIngreso    = null,
+                // Sin periodo laboral: todavía no ingresó. Se le abre uno cuando firme
+                // (ver WorkersPeriodoLaboral).
                 CreatedAt       = now,
                 UpdatedAt       = now,
             };

@@ -11,6 +11,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Helpers;
+using Abril_Backend.Shared.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +83,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CategoriaNombre = w.PuestoCatalogo != null && w.PuestoCatalogo.Categoria != null
                         ? w.PuestoCatalogo.Categoria.Nombre : null,
                     PuestoNombre = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null,
+                    // Fecha de ingreso del último periodo laboral: antes era la columna
+                    // workers.fecha_ingreso (ver WorkersPeriodoLaboral). Se proyecta acá por el
+                    // mismo motivo que el puesto — la navegación no viene incluida.
+                    FechaIngresoPeriodo = w.PeriodosLaborales
+                        .Where(p => p.State)
+                        .OrderByDescending(p => p.FechaIngreso)
+                        .ThenByDescending(p => p.WorkersPeriodoLaboralId)
+                        .Select(p => (DateOnly?)p.FechaIngreso)
+                        .FirstOrDefault(),
                     // Vinculación activa (FechaFin == null) — usada para vista de activos
                     LatestVincActiva = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
@@ -193,7 +203,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (soloSinEmo)
                 baseQuery = baseQuery.Where(x =>
-                    x.Worker.FechaRetiro == null
+                    // "No retirado" ya no es una columna de la ficha: es tener un periodo
+                    // laboral abierto (ver WorkersPeriodoLaboral).
+                    x.Worker.PeriodosLaborales.Any(p => p.State && p.FechaRetiro == null)
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
@@ -201,7 +213,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (soloSinVidaLey)
                 baseQuery = baseQuery.Where(x =>
-                    x.Worker.FechaRetiro == null
+                    x.Worker.PeriodosLaborales.Any(p => p.State && p.FechaRetiro == null)
                     && (x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                         || x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     && x.Worker.ContrataCasa == "Casa"
@@ -364,7 +376,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         : null,
                     EstadoProgramacionEmo = estadoProg,
                     AniosExperiencia = r.Worker.AniosExperiencia,
-                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null,
+                    FechaIngreso = r.FechaIngresoPeriodo?.ToString("yyyy-MM-dd"),
                     InterconsultaEstado = tieneInterconsultaPendiente ? "Pendiente" : null,
                     InterconsultaEspecialidad = tieneInterconsultaPendiente ? interconsultaEspecialidad : null
                 };
@@ -1278,8 +1290,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
             worker.WorkersEstadoId = WorkersEstadoIds.Activo;
-            worker.FechaRetiro = null;
             worker.UpdatedAt = now;
+
+            // El reingreso ABRE un periodo laboral nuevo. Antes acá se le borraba la fecha de
+            // retiro a la ficha, con lo que el paso anterior por Abril desaparecía y la única
+            // forma de conservarlo era abrir otra ficha en `workers` — que es justamente lo
+            // que partía en dos el historial (EMOs, inducciones, amonestaciones) de la misma
+            // persona. Ver WorkersPeriodoLaboral.
+            await WorkersPeriodoLaboralHelper.AbrirAsync(ctx, workerId, fechaReingreso, now);
 
             var vinculActual = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
@@ -1729,6 +1747,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
                 .Include(x => x.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
+                // Las fechas de ingreso/retiro del detalle salen de acá (MapToDetalle).
+                .Include(x => x.PeriodosLaborales)
                 .FirstOrDefaultAsync(x => x.Id == workerId);
             if (w is null) return null;
 
@@ -1751,6 +1771,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
                 .Include(x => x.PuestoCatalogo).ThenInclude(pu => pu!.Categoria)
+                // Las fechas de ingreso/retiro del detalle salen de acá (MapToDetalle).
+                .Include(x => x.PeriodosLaborales)
                 .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -1763,8 +1785,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
             if (dto.EmailCorporativo is not null)    w.EmailCorporativo = dto.EmailCorporativo;
             if (dto.FechaNacimiento.HasValue && w.Person is not null) w.Person.FechaNacimiento = dto.FechaNacimiento;
-            if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
-            if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
+            // Las dos fechas corrigen el último periodo laboral, no la ficha (ver
+            // WorkersPeriodoLaboral). El retiro va después del ingreso a propósito: si el
+            // formulario manda las dos, la corrección del ingreso no puede pisar el cierre.
+            var ahoraPeriodo = DateTimeOffset.UtcNow;
+            if (dto.FechaIngreso.HasValue)
+                await WorkersPeriodoLaboralHelper.SetFechaIngresoAsync(
+                    ctx, w.Id, dto.FechaIngreso.Value, ahoraPeriodo);
+            if (dto.FechaRetiro.HasValue)
+                await WorkersPeriodoLaboralHelper.SetFechaRetiroAsync(
+                    ctx, w.Id, dto.FechaRetiro.Value, ahoraPeriodo);
             if (dto.PuestoId.HasValue) w.PuestoId = dto.PuestoId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
@@ -1915,7 +1945,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 <p>Por favor proceder con el registro de la <strong>Vida Ley</strong>.</p>";
         }
 
-        private static WorkerDetalleDto MapToDetalle(Worker w) => new()
+        /// <summary>
+        /// Requiere que el <see cref="Worker"/> venga con
+        /// <c>Include(x =&gt; x.PeriodosLaborales)</c>: de ahí salen las dos fechas que antes
+        /// eran columnas de la ficha.
+        /// </summary>
+        private static WorkerDetalleDto MapToDetalle(Worker w)
+        {
+            var (fechaIngreso, fechaRetiro) = WorkersPeriodoLaboralHelper.FechasDe(w);
+            return new WorkerDetalleDto
         {
             Id = w.Id,
             IdTrabajador = w.IdTrabajador,
@@ -1929,8 +1967,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             FechaNacimiento = w.Person?.FechaNacimiento,
             MostrarEnBoletin = w.Person?.MostrarEnBoletin ?? true,
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
-            FechaIngreso = w.FechaIngreso,
-            FechaRetiro = w.FechaRetiro,
+            FechaIngreso = fechaIngreso,
+            FechaRetiro = fechaRetiro,
             CategoriaId = w.PuestoCatalogo?.CategoriaId,
             Categoria = w.PuestoCatalogo?.Categoria?.Nombre,
             PuestoId = w.PuestoId,
@@ -1950,7 +1988,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Notas = w.Notas,
             PuntosInfraccion = w.PuntosInfraccion,
             AniosExperiencia = w.AniosExperiencia
-        };
+            };
+        }
 
         public async Task BajaAsync(int workerId, DateOnly fechaRetiro)
         {
@@ -1960,8 +1999,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             worker.WorkersEstadoId = WorkersEstadoIds.Retirado;
-            worker.FechaRetiro = fechaRetiro;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
+
+            // Cierra el periodo laboral vigente (ver WorkersPeriodoLaboral).
+            await WorkersPeriodoLaboralHelper.CerrarAsync(ctx, workerId, fechaRetiro, DateTimeOffset.UtcNow);
 
             var vinculacion = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
@@ -2041,11 +2082,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             foreach (var w in workers)
             {
                 w.WorkersEstadoId = WorkersEstadoIds.Retirado;
-                w.FechaRetiro = fechaRetiro;
                 w.UpdatedAt = now;
             }
 
             var workerIds = workers.Select(w => w.Id).ToList();
+
+            // Cierra el periodo laboral vigente de todos en una sola consulta
+            // (ver WorkersPeriodoLaboral).
+            await WorkersPeriodoLaboralHelper.CerrarVariosAsync(ctx, workerIds, fechaRetiro, now);
             var vinculaciones = await ctx.WorkerVinculacion
                 .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null)
                 .ToListAsync();

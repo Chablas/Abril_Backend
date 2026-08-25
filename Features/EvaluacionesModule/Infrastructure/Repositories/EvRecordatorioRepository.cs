@@ -44,7 +44,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             const string filtroBase = @"
                 w.email_corporativo IS NOT NULL
                 AND w.email_corporativo != ''
-                AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)";
+                AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy;
 
             // El jefe al que se le hace CC ya no se deduce de un mapeo subárea → cargo contra
             // cat_jefatura: se resuelve por trabajador con IJefeRevisorResolver (revisor directo
@@ -62,7 +62,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 JOIN puesto pu   ON pu.puesto_id = w.puesto_id
-                WHERE w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral}
+                WHERE w.state AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral}
                   AND w.area          = 'Proyectos'
                   AND pu.categoria_id IN ({CategoriaIds.Jefe}, {CategoriaIds.Coordinador})
                   AND w.subarea      NOT IN ('Unidad de Proyectos', 'Planeamiento BIM')
@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 JOIN person p         ON p.person_id = w.person_id
                 LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN puesto pu   ON pu.puesto_id = w.puesto_id
-                WHERE w.subarea IN ('Unidad de Proyectos', 'Planeamiento BIM')
+                WHERE w.state AND w.subarea IN ('Unidad de Proyectos', 'Planeamiento BIM')
                   AND NOT (pu.categoria_id = {CategoriaIds.Gerente} AND w.area = 'Proyectos')
                   AND {filtroBase}
                   AND EXISTS (
@@ -103,7 +103,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                                      ON eas.project_id           = wv_r.proyecto_id
                                     AND eas.supervisor_worker_id = w.id
                                     AND eas.activo              = true
-                      WHERE rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
@@ -126,7 +126,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au    ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                WHERE w.obra_oficina_staff_id <> {ObraOficinaStaffIds.OficinaCentral}
+                WHERE w.state AND w.obra_oficina_staff_id <> {ObraOficinaStaffIds.OficinaCentral}
                   AND NOT (pu.categoria_id = {CategoriaIds.Gerente} AND w.area = 'Proyectos')
                   AND {filtroBase}
                   AND EXISTS (
@@ -135,7 +135,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
@@ -147,7 +147,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id

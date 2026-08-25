@@ -186,7 +186,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                 a.estado
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
-            JOIN workers w ON w.id = a.worker_id
+            JOIN workers w ON w.id = a.worker_id AND w.state
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
@@ -198,7 +198,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             LIMIT @limit OFFSET @offset;
 
             SELECT COUNT(*) FROM ssoma_amonestaciones a
-            JOIN workers w ON w.id = a.worker_id
+            JOIN workers w ON w.id = a.worker_id AND w.state
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
@@ -262,7 +262,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                         WHERE si.worker_id = a.worker_id AND si.fecha_fin IS NULL) AS inhabilitado
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
-            JOIN workers w ON w.id = a.worker_id
+            JOIN workers w ON w.id = a.worker_id AND w.state
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN puesto wpue ON wpue.puesto_id = w.puesto_id
             LEFT JOIN categoria wcat ON wcat.categoria_id = wpue.categoria_id
@@ -370,7 +370,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                    a.estado
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
-            JOIN workers w ON w.id = a.worker_id
+            JOIN workers w ON w.id = a.worker_id AND w.state
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
@@ -437,7 +437,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             LEFT JOIN ssoma_amonestaciones a ON a.worker_id = w.id AND a.state = true
-            WHERE w.id = @wid
+            WHERE w.state AND w.id = @wid
             GROUP BY w.id, pe.full_name, pe.document_identity_code, c.contributor_id, c.contributor_name;
             """;
 

@@ -110,7 +110,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
                   LEFT JOIN workers_obra_oficina_staff oos
                          ON oos.workers_obra_oficina_staff_id = w.obra_oficina_staff_id
-                  WHERE p.user_id = @EvaluadorUserId
+                  WHERE w.state AND p.user_id = @EvaluadorUserId
                   LIMIT 1",
                 new { EvaluadorUserId = evaluadorUserId });
 
@@ -140,7 +140,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ORDER BY wv.fecha_inicio DESC
                     LIMIT 1
                 )
-                WHERE pu.categoria_id = {CategoriaIds.Residente}
+                WHERE w.state
+                  AND pu.categoria_id = {CategoriaIds.Residente}
                   AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                   AND u.active    = true";
 
@@ -184,7 +185,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       FROM workers w2
                       JOIN person p2 ON p2.person_id = w2.person_id
                       JOIN worker_vinculaciones wv2 ON wv2.worker_id = w2.id AND wv2.fecha_fin IS NULL
-                      WHERE p2.user_id = @EvaluadorUserId
+                      WHERE w2.state AND p2.user_id = @EvaluadorUserId
                       ORDER BY wv2.fecha_inicio DESC
                       LIMIT 1
                   )
@@ -213,7 +214,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 @"SELECT w.subarea
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
-                  WHERE p.user_id = @UserId
+                  WHERE w.state AND p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });
         }

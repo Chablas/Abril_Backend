@@ -10,6 +10,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
+using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
@@ -21,14 +22,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private readonly ISharePointHabService _sharePoint;
         private readonly ILogger<EmoRepository> _logger;
 
+        /// <summary>
+        /// El puente con Reclutamiento: la aptitud de un EMO de Ingreso es lo que cierra —o
+        /// reabre— el requerimiento que dejó a esa persona como finalista aprobado.
+        /// </summary>
+        private readonly IReclutamientoEmoIngresoService _reclutamientoEmo;
+
         public EmoRepository(
             IDbContextFactory<AppDbContext> factory,
             ISharePointHabService sharePoint,
-            ILogger<EmoRepository> logger)
+            ILogger<EmoRepository> logger,
+            IReclutamientoEmoIngresoService reclutamientoEmo)
         {
             _factory = factory;
             _sharePoint = sharePoint;
             _logger = logger;
+            _reclutamientoEmo = reclutamientoEmo;
         }
 
         public async Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter)
@@ -777,6 +786,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 lecturaEmo.UpdatedAt = DateTime.UtcNow;
             }
 
+            // Cierre (o reapertura) del proceso de Reclutamiento del que viene esta persona. Va
+            // antes del SaveChanges final para que el requerimiento y el EMO se guarden juntos: un
+            // EMO Apto cuyo requerimiento no llegó a cerrarse deja el proceso trabado en la fase del
+            // examen sin nada que lo destrabe. Solo hace algo con el EMO de Ingreso de una ficha de
+            // pre-ingreso; en cualquier otro caso no toca nada.
+            await _reclutamientoEmo.AplicarAptitudAsync(ctx, worker, tipo.Nombre, dto.Aptitud, userId);
+
             await ctx.SaveChangesAsync();
             return new EmoCreateResultDto
             {
@@ -893,6 +909,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     worker.UpdatedAt = DateTimeOffset.UtcNow;
                 }
                 await SincronizarEntregableEmoAsync(ctx, emo, worker);
+
+                // Editar la aptitud vale lo mismo que registrarla: es el camino por el que se
+                // resuelve un "Observado" tras la interconsulta (y por el que se corrige un No Apto
+                // mal cargado), así que el requerimiento tiene que moverse igual que en Create.
+                await _reclutamientoEmo.AplicarAptitudAsync(ctx, worker, tipo.Nombre, dto.Aptitud, userId);
             }
 
             await ctx.SaveChangesAsync();

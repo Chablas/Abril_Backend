@@ -3,6 +3,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Dapper;
@@ -133,7 +134,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         ? null : w.PuestoCatalogo.Categoria.Nombre,
                     w.WorkersEstadoId,
                     w.AniosExperiencia,
-                    w.FechaIngreso,
+                    // Fecha de ingreso del último periodo laboral (ver WorkersPeriodoLaboral):
+                    // antes era la columna workers.fecha_ingreso.
+                    FechaIngreso = w.PeriodosLaborales
+                        .Where(p => p.State)
+                        .OrderByDescending(p => p.FechaIngreso)
+                        .ThenByDescending(p => p.WorkersPeriodoLaboralId)
+                        .Select(p => (DateOnly?)p.FechaIngreso)
+                        .FirstOrDefault(),
                     w.ObraOficinaStaffId,
                     ObraOficinaStaffNombre = w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null
                 })
@@ -251,13 +259,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     SELECT w.contrata_casa, w.obra_oficina_staff_id, w.email_corporativo, p.email AS email_personal
                     FROM workers w
                     LEFT JOIN person p ON p.person_id = w.person_id
-                    WHERE @workerId::int IS NOT NULL AND w.id = @workerId::int
+                    WHERE w.state AND @workerId::int IS NOT NULL AND w.id = @workerId::int
                 ),
                 ocupado AS (
                     SELECT w.id, p.full_name, p.document_identity_code
                     FROM workers w
                     LEFT JOIN person p ON p.person_id = w.person_id
-                    WHERE @email::text IS NOT NULL
+                    WHERE w.state AND @email::text IS NOT NULL
                       AND lower(btrim(w.email_corporativo)) = @email::text
                       AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
                                                    WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'))
@@ -363,7 +371,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
-                FechaIngreso = dto.FechaIngreso,
                 PuestoId = dto.PuestoId,
                 AreaScopeId = areaResuelta.AreaScopeId,
                 Area = areaResuelta.Area,
@@ -382,6 +389,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 CreatedAt = now,
                 UpdatedAt = now,
             };
+
+            // El ingreso es su primer periodo laboral; sin fecha no se abre ninguno y la
+            // ficha queda sin periodos, igual que antes quedaba con la columna en NULL.
+            if (dto.FechaIngreso.HasValue)
+            {
+                worker.PeriodosLaborales.Add(new WorkersPeriodoLaboral
+                {
+                    FechaIngreso = dto.FechaIngreso.Value,
+                    CreatedDateTime = now,
+                });
+            }
 
             ctx.Worker.Add(worker);
             await GuardarCuidandoEmailUnicoAsync(ctx);
@@ -459,7 +477,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
             worker.EmailCorporativo = dto.EmailCorporativo;
-            worker.FechaIngreso = dto.FechaIngreso;
+            // La fecha de ingreso corrige el último periodo laboral, no la ficha. Sin fecha
+            // no se borra el periodo: el formulario manda null también cuando el campo no se
+            // tocó, y borrarlo perdería el paso completo del trabajador por Abril.
+            if (dto.FechaIngreso.HasValue)
+                await WorkersPeriodoLaboralHelper.SetFechaIngresoAsync(
+                    ctx, worker.Id, dto.FechaIngreso.Value, DateTimeOffset.UtcNow);
             // Obra, razón social, puesto (categoría/ocupación) y clasificación (Obra/Staff/
             // Oficina Central) NO se tocan desde esta edición general — deliberado. Cambiarlas
             // acá bypaseaba por completo el flujo de "Cambiar obra / puesto de trabajo"
@@ -605,8 +628,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var ahora = DateTimeOffset.UtcNow;
 
             worker.WorkersEstadoId = WorkersEstadoIds.Retirado;
-            worker.FechaRetiro = hoy;
             worker.UpdatedAt = ahora;
+
+            // Cierra el periodo laboral vigente en vez de escribir la fecha en la ficha: si
+            // mañana reingresa se le abre otro y el paso de hoy queda registrado.
+            await WorkersPeriodoLaboralHelper.CerrarAsync(ctx, id, hoy, ahora);
 
             var vinculacionesAbiertas = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == id && v.FechaFin == null)

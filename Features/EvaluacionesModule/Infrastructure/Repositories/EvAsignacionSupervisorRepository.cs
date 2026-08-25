@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p        ON p.person_id = w.person_id
                   LEFT JOIN app_user u ON u.user_id   = p.user_id
-                  WHERE w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
+                  WHERE w.state AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                     AND (u.active = true OR u.user_id IS NULL)
                     AND (
                       (w.subarea = 'Unidad de Proyectos' AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral} AND w.area = 'Proyectos')

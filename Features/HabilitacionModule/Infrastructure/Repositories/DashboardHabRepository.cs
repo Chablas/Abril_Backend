@@ -59,14 +59,14 @@ WHERE ec.active = true
 SELECT COUNT(DISTINCT w.id)
 FROM workers w
 JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-WHERE w.contrata_casa = 'Contratista'
+WHERE w.state AND w.contrata_casa = 'Contratista'
   AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
                         WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'));
 
 SELECT COUNT(DISTINCT w.id)
 FROM workers w
 JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-WHERE w.contrata_casa = 'Contratista'
+WHERE w.state AND w.contrata_casa = 'Contratista'
   AND w.workers_estado_id IN (SELECT workers_estado_id FROM workers_estado
                         WHERE state AND codigo IN ('ACTIVO','INHABILITADO_SSOMA'))
   AND NOT EXISTS (
@@ -158,7 +158,7 @@ SELECT
     )                                                                                     AS sin_induccion
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
-JOIN workers w ON w.id = ht.worker_id
+JOIN workers w ON w.id = ht.worker_id AND w.state
 LEFT JOIN person per ON per.person_id = w.person_id
 JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
 JOIN contributor ec ON ec.contributor_id = wv.empresa_id
@@ -224,7 +224,7 @@ FROM (
         EXTRACT(DAY FROM ht.vigencia - NOW())::int                      AS dias_restantes
     FROM ss_hab_trabajador ht
     JOIN ss_item_trabajador i ON i.id = ht.item_id
-    JOIN workers w ON w.id = ht.worker_id
+    JOIN workers w ON w.id = ht.worker_id AND w.state
     LEFT JOIN person per ON per.person_id = w.person_id
     LEFT JOIN LATERAL (
         SELECT proyecto_id FROM worker_vinculaciones
@@ -261,7 +261,7 @@ FROM (
         we.fecha_vencimiento::timestamp                                 AS fecha_vencimiento,
         (we.fecha_vencimiento - NOW()::date)::int                       AS dias_restantes
     FROM worker_emos we
-    JOIN workers w ON w.id = we.worker_id
+    JOIN workers w ON w.id = we.worker_id AND w.state
     LEFT JOIN person per ON per.person_id = w.person_id
     WHERE we.activo = true
       AND we.fecha_vencimiento BETWEEN NOW()::date AND (NOW() + interval '30 days')::date

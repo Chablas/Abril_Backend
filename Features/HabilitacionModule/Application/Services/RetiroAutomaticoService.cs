@@ -9,6 +9,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Services
 {
@@ -144,8 +145,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                             if (workerEnt == null || workerEnt.WorkersEstadoId != WorkersEstadoIds.Activo) continue;
 
                             workerEnt.WorkersEstadoId = WorkersEstadoIds.Retirado;
-                            workerEnt.FechaRetiro = hoy;
                             workerEnt.UpdatedAt = DateTimeOffset.UtcNow;
+
+                            // Cierra el periodo laboral vigente, igual que el retiro manual
+                            // (HabTrabajadorRepository.BajaAsync). Ver WorkersPeriodoLaboral.
+                            await WorkersPeriodoLaboralHelper.CerrarAsync(
+                                writeCtx, w.WorkerId, hoy, DateTimeOffset.UtcNow);
 
                             var vinc = await writeCtx.WorkerVinculacion
                                 .Where(v => v.WorkerId == w.WorkerId && v.FechaFin == null)

@@ -205,13 +205,16 @@
         public List<FinalistaDto> Finalistas { get; set; } = new();
 
         /// <summary>
-        /// Áreas a las que puede entrar el seleccionado: las que GTH le asoció al puesto del
-        /// requerimiento en <c>puesto_area_scope</c>. Es el desplegable «Área de destino» de la
-        /// decisión final y define el <c>area_scope_id</c> de su ficha de pre-ingreso.
+        /// Área a la que entra el seleccionado: la del puesto del requerimiento
+        /// (<c>puesto.area_scope_id</c>). Es el desplegable «Área de destino» de la decisión
+        /// final y define el <c>area_scope_id</c> de su ficha de pre-ingreso.
         ///
-        ///   • 2 o más → el solicitante elige a cuál va (obligatorio para aprobar).
+        /// Desde el corte del 2026-08-25 un puesto pertenece a UNA sola área, así que en la
+        /// práctica esto trae 0 o 1 elemento. Sigue siendo lista porque es lo que consume el
+        /// desplegable, y porque el caso «sin área» se expresa como lista vacía:
+        ///
         ///   • exactamente 1 → esa, sin preguntar (la pantalla solo la informa).
-        ///   • vacía → el puesto no tiene áreas mapeadas (el padrón de GTH solo cubrió personal de
+        ///   • vacía → el puesto no tiene área (el padrón de GTH solo cubrió personal de
         ///     oficina): se cae al área del solicitante, que es lo que se usaba antes.
         ///
         /// El nombre es el del nodo, no la rama completa: si el puesto es de un área estándar ese

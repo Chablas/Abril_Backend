@@ -63,9 +63,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p    ON p.person_id = w.person_id
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  WHERE w.email_corporativo IS NOT NULL
+                  WHERE w.state AND w.email_corporativo IS NOT NULL
                     AND w.email_corporativo != ''
-                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)
+                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
                     AND EXISTS (
                         SELECT 1 FROM worker_vinculaciones wv
                         WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL
@@ -104,7 +104,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE p.user_id = @UserId
+                  WHERE w.state AND p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });
 
@@ -152,7 +152,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       FROM workers w
                       JOIN person p ON p.person_id = w.person_id
                       JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE p.user_id = @UserId",
+                      WHERE w.state AND p.user_id = @UserId",
                     new { UserId = userId });
 
                 proyectoIds = proyectosEvaluador.ToList();

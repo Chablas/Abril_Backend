@@ -49,18 +49,14 @@
         public int CantidadTrabajadores { get; set; }
 
         /// <summary>
-        /// Áreas a las que pertenece el puesto. Un puesto puede estar en varias (CHOFER está
-        /// en Logística y en Gerencia General) y también en ninguna: los puestos de obra no
-        /// tienen área porque el padrón de GTH solo cubrió personal de oficina.
+        /// Área a la que pertenece el puesto (nodo de <c>area_scope</c>). Null = sin área,
+        /// que es un caso válido: los puestos de obra no tienen ninguna porque el padrón de
+        /// GTH solo cubrió personal de oficina.
         /// </summary>
-        public List<PuestoAreaDto> Areas { get; set; } = new();
-    }
+        public int? AreaScopeId { get; set; }
 
-    /// <summary>Un área del puesto: el nodo de <c>area_scope</c> con su nombre ya resuelto.</summary>
-    public class PuestoAreaDto
-    {
-        public int AreaScopeId { get; set; }
-        public string Nombre { get; set; } = "";
+        /// <summary>Nombre del área ya resuelto, para pintarlo sin un segundo viaje.</summary>
+        public string? AreaNombre { get; set; }
     }
 
     /// <summary>
@@ -126,11 +122,10 @@
         public int? CategoriaId { get; set; }
 
         /// <summary>
-        /// Áreas del puesto. Es el estado COMPLETO, no un delta: lo que no venga en la lista
-        /// se le quita al puesto. Vacía = el puesto se queda sin área (válido: los puestos de
-        /// obra no tienen ninguna).
+        /// Área del puesto. Una sola desde el corte del 2026-08-25. Null = el puesto se queda
+        /// sin área, que es válido (los de obra no tienen ninguna).
         /// </summary>
-        public List<int> AreaScopeIds { get; set; } = new();
+        public int? AreaScopeId { get; set; }
     }
 
     public class CatToggleRequest

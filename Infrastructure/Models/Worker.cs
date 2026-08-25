@@ -36,11 +36,14 @@ namespace Abril_Backend.Infrastructure.Models
 
         // La fecha de nacimiento dejó de vivir aquí: ahora es única en person.fecha_nacimiento.
 
-        [Column("fecha_ingreso")]
-        public DateOnly? FechaIngreso { get; set; }
-
-        [Column("fecha_retiro")]
-        public DateOnly? FechaRetiro { get; set; }
+        /// <summary>
+        /// Los pasos del trabajador por Abril (ingreso → retiro). Reemplaza a las
+        /// columnas <c>fecha_ingreso</c> / <c>fecha_retiro</c> que vivían acá y que solo
+        /// podían guardar uno: un reingreso obligaba a pisarlas o a abrir otra ficha.
+        /// Ver <see cref="WorkersPeriodoLaboral"/> — incluido cómo leer "la" fecha de
+        /// ingreso de la ficha, que es la del último periodo.
+        /// </summary>
+        public ICollection<WorkersPeriodoLaboral> PeriodosLaborales { get; set; } = new List<WorkersPeriodoLaboral>();
 
         /// <summary>
         /// Puesto del trabajador: el campo de PRESENTACIÓN (es lo que se muestra en
@@ -202,6 +205,24 @@ namespace Abril_Backend.Infrastructure.Models
         /// </summary>
         [Column("auto_approve_lesson")]
         public bool AutoApproveLesson { get; set; }
+
+        /// <summary>
+        /// Soft delete. <c>false</c> = ficha eliminada: no se muestra en ninguna pantalla,
+        /// y el filtro global de <c>AppDbContext</c> la saca de toda consulta de EF sin que
+        /// cada repositorio tenga que acordarse.
+        ///
+        /// Se agregó para las fichas duplicadas que dejó el modelo viejo de
+        /// <c>fecha_ingreso</c>/<c>fecha_retiro</c>: como eran dos columnas de la ficha, un
+        /// reingreso obligaba a abrir OTRA fila en <c>workers</c> para la misma persona.
+        /// La fusión de esas fichas está en
+        /// <c>Migrations_Manual/2026-08-25_workers_fusion_fichas_duplicadas.sql</c> y qué
+        /// ficha quedó contra cuál se lee en <c>workers_ficha_fusionada</c>.
+        ///
+        /// OJO con el <c>= true</c>: sin él, el default de <c>bool</c> haría que toda ficha
+        /// nueva naciera eliminada y desapareciera apenas se guarda.
+        /// </summary>
+        [Column("state")]
+        public bool State { get; set; } = true;
 
         [Column("created_at")]
         public DateTimeOffset? CreatedAt { get; set; }

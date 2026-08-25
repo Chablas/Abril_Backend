@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Proyectos;
@@ -76,7 +76,7 @@ SELECT
     i.requiere_vigencia as requiere_vigencia
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
-JOIN workers w ON w.id = ht.worker_id
+JOIN workers w ON w.id = ht.worker_id AND w.state
 LEFT JOIN person per ON per.person_id = w.person_id
 LEFT JOIN LATERAL (
     SELECT empresa_id, proyecto_id
@@ -208,7 +208,7 @@ SELECT
     0 as meses_pendientes,
     false as requiere_vigencia
 FROM ss_induccion i
-JOIN workers w ON w.id = i.worker_id
+JOIN workers w ON w.id = i.worker_id AND w.state
 LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
@@ -455,7 +455,7 @@ SELECT DISTINCT proyecto_id as Id, proyecto_nombre as Nombre
 FROM (
     SELECT p.project_id as proyecto_id, p.project_description as proyecto_nombre
     FROM ss_hab_trabajador ht
-    JOIN workers w ON w.id = ht.worker_id
+    JOIN workers w ON w.id = ht.worker_id AND w.state
     LEFT JOIN LATERAL (
         SELECT proyecto_id FROM worker_vinculaciones
         WHERE worker_id = w.id AND fecha_fin IS NULL

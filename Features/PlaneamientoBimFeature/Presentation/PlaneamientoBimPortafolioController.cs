@@ -1,18 +1,19 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Interfaces;
-using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
 {
     /// <summary>Landing de Planeamiento BIM (antes de elegir proyecto) — KPIs agregados de
-    /// todo el portafolio. Rol más restrictivo que el resto del feature a propósito: es
-    /// vista de solo lectura para AdministradorSistema/AdministradorUdp, sin UsuarioUdp
-    /// (no hay rol "Gerencia/Dirección" en la tabla role — decisión confirmada con el usuario).</summary>
+    /// todo el portafolio. Acceso gobernado por role_feature vía RequireFeature, igual que el
+    /// resto del feature — el feature_key "planeamiento-bim.portafolio" solo está sembrado hoy
+    /// para AdministradorSistema/AdministradorUdp (sin UsuarioUdp, ver seed 20260817).</summary>
     [ApiController]
     [Route("api/v1/planeamiento-bim/portafolio")]
-    [Authorize(Roles = $"{Roles.AdministradorSistema},{Roles.AdministradorUdp}")]
+    [Authorize]
+    [RequireFeature("planeamiento-bim.portafolio")]
     public class PlaneamientoBimPortafolioController : ControllerBase
     {
         private readonly IPlaneamientoBimPortafolioService _service;

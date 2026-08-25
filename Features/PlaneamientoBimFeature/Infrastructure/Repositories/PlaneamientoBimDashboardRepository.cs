@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     g.Key.NivelId,
                     g.Key.SectorId,
                     Total = g.Count(),
-                    Cumplidos = g.Count(x => x.Cumplida),
+                    SumaPorcentaje = g.Sum(x => x.PorcentajeAvance),
                 })
                 .ToListAsync();
 
@@ -67,8 +67,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                         SectorId = c.SectorId,
                         SectorNombre = zona.Sectores.GetValueOrDefault(c.SectorId, string.Empty),
                         TotalRegistros = c.Total,
-                        CumplidosRegistros = c.Cumplidos,
-                        PorcentajeAvance = PorcentajeDe(c.Cumplidos, c.Total),
+                        CumplidosRegistros = c.SumaPorcentaje,
+                        PorcentajeAvance = PorcentajeDe(c.SumaPorcentaje, c.Total),
                     })
                     .ToList();
 
@@ -120,7 +120,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 {
                     Fecha = g.Key,
                     Total = g.Count(),
-                    Cumplidas = g.Count(x => x.Cumplida),
+                    SumaPorcentaje = g.Sum(x => x.PorcentajeAvance),
                 })
                 .OrderBy(d => d.Fecha)
                 .ToListAsync();
@@ -132,8 +132,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 {
                     Fecha = d.Fecha,
                     TotalProgramadas = d.Total,
-                    Cumplidas = d.Cumplidas,
-                    PorcentajePpc = PorcentajeDe(d.Cumplidas, d.Total),
+                    Cumplidas = d.SumaPorcentaje,
+                    PorcentajePpc = PorcentajeDe(d.SumaPorcentaje, d.Total),
                 }).ToList(),
             };
         }
@@ -230,8 +230,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     m.MetaAvance,
                     TotalReal = ctx.BimRegistroDiario.Count(r =>
                         r.ProjectId == projectId && r.Fecha <= m.FechaFinSemana && r.Actividad.MacroActividadId == m.MacroActividadId),
-                    CumplidosReal = ctx.BimRegistroDiario.Count(r =>
-                        r.ProjectId == projectId && r.Fecha <= m.FechaFinSemana && r.Actividad.MacroActividadId == m.MacroActividadId && r.Cumplida),
+                    SumaPorcentajeReal = ctx.BimRegistroDiario
+                        .Where(r => r.ProjectId == projectId && r.Fecha <= m.FechaFinSemana && r.Actividad.MacroActividadId == m.MacroActividadId)
+                        .Sum(r => (decimal?)r.PorcentajeAvance) ?? 0m,
                 })
                 .ToListAsync();
 
@@ -242,7 +243,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 FechaInicioSemana = s.FechaInicioSemana,
                 FechaFinSemana = s.FechaFinSemana,
                 MetaAvance = s.MetaAvance,
-                AvanceReal = PorcentajeDe(s.CumplidosReal, s.TotalReal),
+                AvanceReal = PorcentajeDe(s.SumaPorcentajeReal, s.TotalReal),
             }).ToList();
         }
 
@@ -255,7 +256,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 return null;
 
             var causas = await ctx.BimRegistroDiario
-                .Where(r => r.ProjectId == projectId && !r.Cumplida && r.CausaId != null
+                .Where(r => r.ProjectId == projectId && r.PorcentajeAvance < 100 && r.CausaId != null
                     && (!desde.HasValue || r.Fecha >= desde.Value)
                     && (!hasta.HasValue || r.Fecha <= hasta.Value))
                 .GroupBy(r => new { r.CausaId, CausaNombre = r.Causa!.Nombre })
@@ -278,7 +279,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             };
         }
 
-        private static decimal PorcentajeDe(int parte, int total)
-            => total == 0 ? 0 : Math.Round(parte * 100m / total, 2);
+        /// <summary>parte es una SUMA de porcentajes (0-100 por registro), no un conteo — por eso
+        /// no se multiplica por 100 acá: ese factor ya está incluido en cada término de la suma.</summary>
+        private static decimal PorcentajeDe(decimal parte, int total)
+            => total == 0 ? 0 : Math.Round(parte / total, 2);
     }
 }

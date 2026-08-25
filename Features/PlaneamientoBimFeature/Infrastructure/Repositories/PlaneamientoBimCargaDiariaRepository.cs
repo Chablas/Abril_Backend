@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     NivelId = r.NivelId,
                     SectorId = r.SectorId,
                     ActividadId = r.ActividadId,
-                    Cumplida = r.Cumplida,
+                    PorcentajeAvance = r.PorcentajeAvance,
                     CausaId = r.CausaId,
                     CausaNombre = r.Causa != null ? r.Causa.Nombre : null,
                     CausaDetalle = r.CausaDetalle,
@@ -151,9 +151,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     registro.UpdatedDateTime = ahora;
                 }
 
-                registro.Cumplida = celda.Cumplida;
-                registro.CausaId = celda.Cumplida ? null : celda.CausaId;
-                registro.CausaDetalle = celda.Cumplida ? null : celda.CausaDetalle;
+                registro.PorcentajeAvance = celda.PorcentajeAvance;
+                registro.CausaId = celda.PorcentajeAvance == 100 ? null : celda.CausaId;
+                registro.CausaDetalle = celda.PorcentajeAvance == 100 ? null : celda.CausaDetalle;
             }
 
             await ctx.SaveChangesAsync();

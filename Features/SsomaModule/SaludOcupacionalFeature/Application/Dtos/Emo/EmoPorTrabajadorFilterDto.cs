@@ -9,6 +9,21 @@
         /// </summary>
         public int? WorkerId { get; set; }
 
+        /// <summary>
+        /// Lista TODAS las fichas de <c>workers</c> (único filtro: <c>person.state</c>), sin
+        /// exigir vinculación vigente con una empresa Abril ni un estado de ficha concreto.
+        ///
+        /// Lo activa SOLO Configuración → Trabajadores, que es el mantenedor del catálogo de
+        /// fichas: ahí hay que poder llegar a un retirado o a una ficha sin vinculación para
+        /// corregirle el puesto o el área. Sin esto, Configuración → Categorías y Puestos
+        /// contaba trabajadores (cuenta todas las filas de <c>workers</c>, sin filtro) que
+        /// después no se podían buscar para reasignarles el puesto.
+        ///
+        /// Las pantallas de EMOs (SSOMA y Clínica) NO lo mandan: para ellas un retirado o un
+        /// tercero sin vinculación a Abril sigue siendo invisible.
+        /// </summary>
+        public bool TodasLasFichas { get; set; }
+
         public string? Search { get; set; }
         public string? Aptitud { get; set; }
         public string? Estado { get; set; }

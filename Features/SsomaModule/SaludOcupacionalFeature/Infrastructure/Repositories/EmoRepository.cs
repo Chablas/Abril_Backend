@@ -133,13 +133,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from proy in proyJ.DefaultIfEmpty()
                 select new { w, ue, t, vv, em, eop, proy };
 
-            // Opt-in explicito de las fichas de pre-ingreso: un finalista aprobado no tiene
-            // vinculacion (no firmo contrato), asi que el filtro de empresa Abril lo dejaba
-            // fuera. Es justo la gente a la que GTH tiene que programarle el EMO de Ingreso
-            // antes de contratarla, y esta es la unica pantalla donde aparece: en el resto del
-            // sistema la ausencia de vinculacion la sigue manteniendo invisible.
-            q = q.Where(x => (x.em != null && x.em.EsAbril)
-                          || x.w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado);
+            if (filter.TodasLasFichas)
+            {
+                // Configuracion -> Trabajadores: el mantenedor del catalogo de fichas. Ve TODA
+                // la tabla workers y el unico filtro es el soft delete, que para una ficha vive
+                // en person.state (workers no tiene columna state). Una ficha sin persona no
+                // tiene state, asi que no se descarta: igual que el conteo de Categorias y
+                // Puestos, que la trae por LEFT JOIN para no desalinearse.
+                q = q.Where(x => x.w.Person == null || x.w.Person.State);
+            }
+            else
+            {
+                // Opt-in explicito de las fichas de pre-ingreso: un finalista aprobado no tiene
+                // vinculacion (no firmo contrato), asi que el filtro de empresa Abril lo dejaba
+                // fuera. Es justo la gente a la que GTH tiene que programarle el EMO de Ingreso
+                // antes de contratarla, y esta es la unica pantalla de EMOs donde aparece: en el
+                // resto del sistema la ausencia de vinculacion la sigue manteniendo invisible.
+                q = q.Where(x => (x.em != null && x.em.EsAbril)
+                              || x.w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado);
+            }
 
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.w.Id == filter.WorkerId.Value);

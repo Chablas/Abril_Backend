@@ -107,6 +107,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
+            // Filtro "Hoy" (encendido por defecto en Gestión de Salidas): solo las solicitudes cuya
+            // fecha de salida es la de hoy. El día se toma en hora de Perú (UTC-5) y no la del
+            // servidor, que corre en UTC: pasadas las 19:00 de Lima el UTC ya está en el día
+            // siguiente y la pantalla mostraría el día equivocado justo al final de la jornada.
+            if (filters.SoloHoy)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+                solicitudQuery = solicitudQuery.Where(s => s.FechaSalida == hoy);
+            }
+
             // Visibilidad obligatoria (server-side): el usuario SIEMPRE ve sus propias solicitudes
             // (worker_id → su user), sin importar rol ni área — así un trabajador cualquiera puede
             // ver y rendir lo suyo. Además ve las que le fueron enviadas para revisar

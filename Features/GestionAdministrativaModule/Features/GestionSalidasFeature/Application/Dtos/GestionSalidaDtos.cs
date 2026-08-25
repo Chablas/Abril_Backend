@@ -79,6 +79,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | null para todos.</summary>
         public string? EstadoAprobacion { get; set; }
 
+        /// <summary>
+        /// True = solo las solicitudes cuya <c>fecha_salida</c> es la de HOY. El día se calcula en
+        /// hora de Perú (UTC-5) y no en la del servidor, que corre en UTC. Es el filtro que la
+        /// pantalla de Gestión de Salidas manda encendido por defecto.
+        /// </summary>
+        public bool SoloHoy { get; set; }
+
         /// <summary>UserId del usuario logueado (de claims). Necesario para el scoping de visibilidad.</summary>
         public int? CurrentUserId { get; set; }
 

@@ -63,10 +63,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return l.Documento(
                 new ReclutamientoEmailLayout.Cabecera(
-                    "req-solicitud", "Solicitud de Personal", "Pendiente de tu aprobación:"),
+                    "req-solicitud", "Solicitud de Personal", "Pendiente de aprobación:"),
                 datos.EsRecordatorio
                     ? l.Franja("req-recordatorio", ReclutamientoEmailLayout.Tono.Ambar,
-                        "<b>Recordatorio:</b> sigue pendiente de tu aprobación.")
+                        "<b>Recordatorio:</b> sigue pendiente de aprobación.")
                     : "",
                 l.Tarjeta(datosSolicitud),
                 l.Seccion("req-vacantes", $"Vacantes solicitadas ({datos.Vacantes.Count})"),

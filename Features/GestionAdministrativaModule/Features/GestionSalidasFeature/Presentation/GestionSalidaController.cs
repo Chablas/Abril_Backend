@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null, [FromQuery] bool soloHoy = false)
         {
             try
             {
@@ -37,6 +37,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoRendicion     = estadoRendicion,
                     EstadoAprobacion    = estadoAprobacion,
                     FilterAreaScopeIds  = areaScopeIds,
+                    SoloHoy             = soloHoy,
                     CurrentUserId       = currentUserId,
                     SeesAllOverride     = User.IsInRole(Roles.UsuarioRecepcion),
                     Page                = page < 1 ? 1 : page,
@@ -57,7 +58,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet("exportar-excel")]
-        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null)
+        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] bool soloHoy = false)
         {
             try
             {
@@ -71,6 +72,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoRendicion    = estadoRendicion,
                     EstadoAprobacion   = estadoAprobacion,
                     FilterAreaScopeIds = areaScopeIds,
+                    SoloHoy            = soloHoy,
                     CurrentUserId      = currentUserId,
                     SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };

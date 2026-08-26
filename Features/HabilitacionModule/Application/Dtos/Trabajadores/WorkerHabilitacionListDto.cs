@@ -10,6 +10,11 @@
         public string? ProyectoActual { get; set; }
         public int? ProyectoActualId { get; set; }
         public string EstadoHabilitacion { get; set; } = string.Empty;
+        /// <summary>Habilitación SSOMA de la empresa Contratista (ignora entregables
+        /// administrativos) — siempre true para Casa/oficina central. Cuando es false y
+        /// EstadoHabilitacion es "No Autorizado", el motivo es la empresa y no la documentación
+        /// propia del trabajador.</summary>
+        public bool EmpresaHabilitada { get; set; } = true;
         /// <summary>Nombre de la categoría del puesto (campo de lógica). Solo lectura.</summary>
         public string? Categoria { get; set; }
         /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c> — necesaria

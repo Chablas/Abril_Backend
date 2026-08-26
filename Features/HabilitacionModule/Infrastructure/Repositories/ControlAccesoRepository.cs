@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -414,6 +415,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(v => v.ProyectoId!.Value)
                 .Distinct().ToList();
 
+            // Habilitación SSOMA de la empresa (solo aplica a Contratistas — ver esCasa más abajo
+            // y esOficinaCentral arriba). Fail-open: una empresa sin filas SSOMA para el proyecto
+            // (nunca activada en ese cómputo) simplemente no aparece en el diccionario y se trata
+            // como habilitada, para no bloquear a nadie por falta de datos.
+            var empresaHabilitadaMap = new Dictionary<(int EmpresaId, int ProyectoId), bool>();
+            if (!esOficinaCentral && empresaIds.Count > 0 && proyIds.Count > 0)
+            {
+                var itemsSsomaIds = await ctx.SsItemEmpresa
+                    .Where(i => i.Activo && i.Responsable == "SSOMA" && !EmpresaHabilitacionHelper.ItemsSctrVidaLey.Contains(i.Id))
+                    .Select(i => i.Id)
+                    .ToHashSetAsync();
+
+                var habEmpresaRows = await ctx.SsHabEmpresa
+                    .Where(h => empresaIds.Contains(h.EmpresaId) && proyIds.Contains(h.ProyectoId) && itemsSsomaIds.Contains(h.ItemId))
+                    .ToListAsync();
+
+                empresaHabilitadaMap = EmpresaHabilitacionHelper.CalcularHabilitadas(habEmpresaRows, itemsSsomaIds);
+            }
+
             var proyMap = await ctx.Project
                 .Where(p => proyIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
@@ -576,6 +596,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                 }
 
+                // La habilitación de empresa solo aplica a Contratistas (nunca a Casa/personal
+                // Abril ni a la vista de oficina central) — ver empresaHabilitadaMap arriba.
+                var esCasaWorker = casaIds.Contains(w.Id);
+                bool empresaHabilitada = true;
+                if (!esOficinaCentral && !esCasaWorker && vinc?.EmpresaId is int eidHab && vinc?.ProyectoId is int pidHab)
+                    empresaHabilitada = !empresaHabilitadaMap.TryGetValue((eidHab, pidHab), out var habOk) || habOk;
+
                 var dni = w.Person?.DocumentIdentityCode ?? "";
                 return new ControlAccesoWorkerDto
                 {
@@ -584,8 +611,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Dni = dni,
                     EmpresaNombre = empresaNombre,
                     ProyectoNombre = proyectoNombre,
-                    EstadoHabilitacion = hasPendientes ? "No Autorizado" : "Habilitado",
+                    EstadoHabilitacion = (hasPendientes || !empresaHabilitada) ? "No Autorizado" : "Habilitado",
                     EmpresaActiva = empresaActiva,
+                    EmpresaHabilitada = empresaHabilitada,
+                    MotivoNoAutorizado = !empresaHabilitada ? "Empresa no habilitada (SSOMA)" : null,
                     DocumentosFaltantes = faltantes,
                     DocumentosPorVencer = porVencer,
                     Entregables = entregables,

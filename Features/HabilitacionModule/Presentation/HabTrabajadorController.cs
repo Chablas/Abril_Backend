@@ -34,6 +34,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
 
+        /// <summary>Widget "Interconsultas pendientes" junto al botón "EMOs Programados": solo
+        /// trabajador, razón social, proyecto actual y días de retraso — sin datos clínicos.</summary>
+        [HttpGet("interconsultas-pendientes")]
+        public async Task<IActionResult> GetInterconsultasPendientes()
+        {
+            try
+            {
+                return Ok(await _repo.GetInterconsultasPendientesAsync());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en HabTrabajadorController.GetInterconsultasPendientes");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetWorkers(
             [FromQuery] string? search,

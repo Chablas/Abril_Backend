@@ -67,6 +67,39 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(i => i.Id)
                 .ToListAsync();
 
+            // Empresas Contratista sin habilitación SSOMA (entregables de empresa, no del
+            // trabajador) — solo aplica a Contratista, nunca a Casa/personal Abril. Fail-open:
+            // una empresa sin filas SSOMA para el proyecto (nunca activada) no entra a este set,
+            // así que no bloquea a nadie por falta de datos. Se calcula ANTES de baseQuery y se
+            // materializa como lista de claves long para poder usarla dentro de la proyección EF
+            // (List<long>.Contains se traduce a IN), igual que hace ControlAccesoRepository.
+            var itemsSsomaEmpresaIds = await ctx.SsItemEmpresa
+                .Where(i => i.Activo && i.Responsable == "SSOMA" && !EmpresaHabilitacionHelper.ItemsSctrVidaLey.Contains(i.Id))
+                .Select(i => i.Id)
+                .ToHashSetAsync();
+
+            var paresEmpresaProyectoActivos = await ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null && v.EmpresaId.HasValue && v.ProyectoId.HasValue)
+                .Select(v => new { EmpresaId = v.EmpresaId!.Value, ProyectoId = v.ProyectoId!.Value })
+                .Distinct()
+                .ToListAsync();
+
+            var empresaIdsActivas = paresEmpresaProyectoActivos.Select(p => p.EmpresaId).Distinct().ToList();
+            var proyectoIdsActivos = paresEmpresaProyectoActivos.Select(p => p.ProyectoId).Distinct().ToList();
+
+            var habEmpresaRowsSsoma = empresaIdsActivas.Count > 0 && proyectoIdsActivos.Count > 0
+                ? await ctx.SsHabEmpresa
+                    .Where(h => empresaIdsActivas.Contains(h.EmpresaId) && proyectoIdsActivos.Contains(h.ProyectoId) && itemsSsomaEmpresaIds.Contains(h.ItemId))
+                    .ToListAsync()
+                : [];
+
+            var empresaHabilitadaMap = EmpresaHabilitacionHelper.CalcularHabilitadas(habEmpresaRowsSsoma, itemsSsomaEmpresaIds);
+
+            var empresasNoHabilitadasKeys = empresaHabilitadaMap
+                .Where(kv => !kv.Value)
+                .Select(kv => (long)kv.Key.EmpresaId * 100000L + kv.Key.ProyectoId)
+                .ToList();
+
             var baseQuery = ctx.Worker
                 .Select(w => new
                 {
@@ -136,7 +169,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                  (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
                                  (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? "" : w.PuestoCatalogo.Categoria.Nombre) + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
-                             e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
+                             e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado")))
+                         // Empresa Contratista sin habilitación SSOMA — ver empresasNoHabilitadasKeys
+                         // arriba. Nunca aplica a Casa/oficina central (ya cubiertos por sus propias
+                         // ramas). Repite el subquery de vinculación activa igual que el resto de esta
+                         // expresión repite lookups de w.PuestoCatalogo — no se puede reutilizar
+                         // LatestVincActiva porque es un miembro hermano en el mismo Select.
+                         || (w.ContrataCasa == "Contratista" && empresasNoHabilitadasKeys.Contains(
+                             (long)(ctx.WorkerVinculacion.Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                                        .OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id)
+                                        .Select(v => (int?)v.EmpresaId).FirstOrDefault() ?? -1) * 100000L
+                             + (ctx.WorkerVinculacion.Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                                        .OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id)
+                                        .Select(v => (int?)v.ProyectoId).FirstOrDefault() ?? -1))))
                         ? "No Autorizado"
                         : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
                             h.ItemId != HabItemIds.LecturaEmo &&
@@ -342,6 +387,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToDictionaryAsync(x => x.WorkerId, x => x.Especialidad);
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var empresasNoHabilitadasSet = empresasNoHabilitadasKeys.ToHashSet();
 
             var items = pageRows.Select(r =>
             {
@@ -352,6 +398,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var estadoProg = progEstado != null
                     ? (tieneInterconsultaPendiente ? "Interconsulta" : progEstado)
                     : null;
+                // Solo relevante para Contratista — Casa/oficina central siempre quedan true acá
+                // (su EstadoCalc nunca depende de esta clave, ver arriba).
+                var empresaHabilitada = !(vinc?.EmpresaId is int eidHab && vinc?.ProyectoId is int pidHab
+                    && empresasNoHabilitadasSet.Contains((long)eidHab * 100000L + pidHab));
                 return new WorkerHabilitacionListDto
                 {
                     WorkerId = r.Worker.Id,
@@ -362,6 +412,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ProyectoActualId = vinc?.ProyectoId,
                     ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
                     EstadoHabilitacion = r.EstadoCalc,
+                    EmpresaHabilitada = empresaHabilitada,
                     Categoria = r.CategoriaNombre,
                     CategoriaId = r.CategoriaId,
                     Puesto = r.PuestoNombre,
@@ -2505,6 +2556,67 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
             _logger.LogWarning("[RepararVinculaciones] Total reparados: {Count}.", reparados.Count);
             return reparados;
+        }
+
+        public async Task<List<InterconsultaPendienteHabDto>> GetInterconsultasPendientesAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            // Misma resolución de "proyecto actual" que InterconsultaRepository.List: primero
+            // ss_hab_worker_proyecto (asignación activa), y solo si no hay ninguna se cae a la
+            // última vinculación activa. Sin filtro de Casa/Contratista: el administrador y el
+            // coordinador SSOMA de un proyecto responden por todos los trabajadores en obra, no
+            // solo por el personal propio de Abril.
+            var raw = await (
+                from i in ctx.SsInterconsulta
+                join w in ctx.Worker on i.WorkerId equals w.Id
+                where i.Estado == "Pendiente" && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
+                select new
+                {
+                    i.FechaDerivacion,
+                    WorkerId = w.Id,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    ProyAsignada = ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == w.Id && wp.FechaFin == null)
+                        .OrderByDescending(wp => wp.FechaInicio)
+                        .ThenByDescending(wp => wp.Id)
+                        .FirstOrDefault(),
+                    VincActiva = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault()
+                }
+            ).ToListAsync();
+
+            var proyectoIds = raw.Select(x => x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId)
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+            var empresaIds = raw.Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+            var proyectoMap = await ctx.Project
+                .Where(p => proyectoIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            return raw.Select(x =>
+            {
+                var proyectoId = x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId;
+                var empresaId = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
+                return new InterconsultaPendienteHabDto
+                {
+                    WorkerId = x.WorkerId,
+                    WorkerNombre = x.WorkerNombre ?? "—",
+                    ProyectoActual = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var pn) ? pn : null,
+                    RazonSocial = empresaId.HasValue && empresaMap.TryGetValue(empresaId.Value, out var en) ? en : null,
+                    DiasPendiente = hoy.DayNumber - x.FechaDerivacion.DayNumber
+                };
+            })
+            .OrderByDescending(x => x.DiasPendiente)
+            .ToList();
         }
 
         public async Task<string?> GetResponsableItemTrabajadorAsync(int entregableId)

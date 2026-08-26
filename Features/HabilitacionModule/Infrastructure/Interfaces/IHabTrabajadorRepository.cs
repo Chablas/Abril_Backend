@@ -49,5 +49,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<WorkerReparacionVinculacionDto>> RepararVinculacionesAsync();
 
         Task<string?> GetResponsableItemTrabajadorAsync(int entregableId);
+
+        /// <summary>Interconsultas médicas pendientes (widget junto a "EMOs Programados"), con
+        /// solo razón social/proyecto actual/días de retraso — sin datos clínicos.</summary>
+        Task<List<InterconsultaPendienteHabDto>> GetInterconsultasPendientesAsync();
     }
 }

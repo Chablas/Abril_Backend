@@ -133,6 +133,10 @@ namespace Abril_Backend.Features.Ssoma
             // Resumen diario EMO (cron 4:30pm)
             services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();
 
+            // Aviso al ingresar: interconsultas pendientes + EMOs vencidos de los proyectos del
+            // Administrador/Coordinador SSOMA logueado. Calculado en vivo, sin cron.
+            services.AddScoped<IAlertaLoginSsomaService, AlertaLoginSsomaService>();
+
             // PASO — Programa Anual de Seguridad
             services.AddScoped<IPasoService, PasoService>();
 

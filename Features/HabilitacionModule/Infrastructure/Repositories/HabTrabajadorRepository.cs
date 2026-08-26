@@ -1406,20 +1406,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = now
             });
 
-            if (esCambioProyecto && !esContratista && dto.NuevoProyectoId.HasValue)
+            // Se sincroniza siempre que el reingreso resuelva a un proyecto (haya cambiado o no) —
+            // si no, un reingreso que "mantiene el proyecto actual" deja la fila de
+            // ss_hab_worker_proyecto cerrada (como quedó al retirar), y el trabajador aparece sin
+            // proyecto asignado pese a que worker_vinculaciones sí lo preserva.
+            var proyectoResultanteId = dto.NuevoProyectoId ?? currentProyectoId;
+            if (!esContratista && proyectoResultanteId.HasValue)
             {
+                // En un reingreso con cambio de proyecto, la Inducción Obra siempre se resetea a
+                // "Falta" (itemsToReset más abajo), por lo que la fila del proyecto destino debe
+                // nacer como inducción pendiente. Si el proyecto NO cambia, itemsToReset no toca
+                // ese ítem, así que la fila reabierta debe reflejar el estado real vigente.
+                var induccionVigente = esCambioProyecto
+                    ? false
+                    : await ctx.SsHabTrabajador.AnyAsync(h =>
+                        h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
                 await SincronizarWorkerProyectoCambioAsync(
                     ctx,
                     workerId,
                     currentProyectoId,
-                    dto.NuevoProyectoId.Value,
+                    proyectoResultanteId.Value,
                     dto.NuevaEmpresaId ?? currentEmpresaId,
                     fechaReingreso,
                     now,
-                    // En un reingreso con cambio de proyecto, la Inducción Obra siempre se resetea a
-                    // "Falta" (itemsToReset más abajo), por lo que la fila del proyecto destino debe
-                    // nacer como inducción pendiente.
-                    induccionCompletadaNuevoProyecto: false);
+                    induccionCompletadaNuevoProyecto: induccionVigente);
             }
 
             if (itemsToReset.Count > 0)
@@ -2241,20 +2252,42 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var induccionYaAprobada = await ctx.SsHabTrabajador
                 .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
 
-            var asignacion = new WorkerProyecto
-            {
-                WorkerId = workerId,
-                ProyectoId = dto.ProyectoId,
-                EmpresaId = dto.EmpresaId,
-                FechaInicio = fechaInicio,
-                FechaFin = null,
-                InduccionCompletada = induccionYaAprobada,
-                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
-                CreatedAt = now,
-                UpdatedAt = null
-            };
+            // Reabre la asignación cerrada al mismo proyecto en vez de crear una fila nueva —
+            // mismo patrón que SincronizarWorkerProyectoCambioAsync, para no duplicar el historial
+            // cuando el trabajador vuelve a un proyecto en el que ya estuvo (p.ej. tras un reingreso
+            // que no sincronizó esta tabla).
+            var asignacion = await ctx.WorkerProyecto
+                .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == dto.ProyectoId && wp.FechaFin != null)
+                .OrderByDescending(wp => wp.CreatedAt)
+                .ThenByDescending(wp => wp.Id)
+                .FirstOrDefaultAsync();
 
-            ctx.WorkerProyecto.Add(asignacion);
+            if (asignacion != null)
+            {
+                asignacion.EmpresaId = dto.EmpresaId ?? asignacion.EmpresaId;
+                asignacion.FechaInicio = fechaInicio;
+                asignacion.FechaFin = null;
+                asignacion.InduccionCompletada = induccionYaAprobada;
+                asignacion.FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null;
+                asignacion.UpdatedAt = now;
+            }
+            else
+            {
+                asignacion = new WorkerProyecto
+                {
+                    WorkerId = workerId,
+                    ProyectoId = dto.ProyectoId,
+                    EmpresaId = dto.EmpresaId,
+                    FechaInicio = fechaInicio,
+                    FechaFin = null,
+                    InduccionCompletada = induccionYaAprobada,
+                    FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
+                    CreatedAt = now,
+                    UpdatedAt = null
+                };
+                ctx.WorkerProyecto.Add(asignacion);
+            }
+
             await ctx.SaveChangesAsync();
 
             string? empresaNombre = null;

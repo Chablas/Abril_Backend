@@ -217,6 +217,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var fechaIniOnly  = DateOnly.FromDateTime(fechaIni);
         var fechaFinOnly  = DateOnly.FromDateTime(fechaFin);
         var fechaCorteOnly = DateOnly.FromDateTime(fechaCorte);
+        var diasHabilesMes = ContarDiasHabilesDelMes(mes, anio);
 
         // OPT/ATS/Charlas se atribuyen a la empresa con la que el trabajador estaba vinculado
         // EL DÍA DEL EVENTO (no la vinculación de hoy) — si cambió de contratista a mitad de
@@ -407,13 +408,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var diasEmp = tareoEmp.Count;
             var promEmp = diasEmp > 0 ? (decimal)tareoEmp.Sum(d => d.CantidadPersonas) / diasEmp : 0;
 
-            // La meta de inspecciones es FIJA y, a propósito, NO se condiciona a que la empresa
-            // tenga días tareados: es la única meta que no depende del tareo, así que en una obra
-            // donde nadie cargó el tareo del mes es la única que sobrevive. Condicionarla dejaría
-            // a esas obras sin ningún indicador que medir y su % caería a 0 (se probó en ago-2026:
-            // KAURÍ 15% → 0% y MÁXIMO ABRIL 30% → 0%, ambas sin tareo cargado). Que una empresa
-            // sin tareo no arrastre al proyecto ya lo resuelve el % agregado del proyecto.
-            const int metaInsp = MetaInspeccionesContratista;
+            // La meta de inspecciones se prorratea por días tareados sobre el total de días
+            // hábiles del mes (ej. 8 días tareados de ~22 hábiles → meta ≈ 6, no 15 fijo) —
+            // para contratistas que estuvieron poco tiempo en obra. Si NO tareó ningún día se
+            // mantiene el fijo de 15: sigue siendo la única meta independiente del tareo, para
+            // sostener el indicador en obras sin tareo cargado (se probó condicionarla en
+            // ago-2026: KAURÍ 15% → 0% y MÁXIMO ABRIL 30% → 0%, ambas sin tareo cargado).
+            var metaInsp = CalcularMetaInspeccionesContratista(diasEmp, diasHabilesMes);
 
             // Meta de charlas = días efectivamente tareados (no solo días hábiles): si se
             // tareó 10 días, debe haber 10 evidencias subidas.
@@ -552,9 +553,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(i => new { i.ProyectoId, i.EmpresaId })
             .ToListAsync();
 
-        // 8. Meta inspecciones: fijas por tipo de empresa
+        // 8. Meta inspecciones: Casa fija por tipo de empresa; contratistas prorrateada por
+        // días tareados sobre días hábiles del mes — ver comentario en GetMetasEmpresaAsync.
         const int metaInspCasa = MetaInspeccionesCasa;
-        const int metaInspContratista = MetaInspeccionesContratista;
+        var diasHabilesMes = ContarDiasHabilesDelMes(mes, anio);
 
         // OPT/ATS/Charlas se atribuyen a la empresa con la que el trabajador estaba vinculado
         // EL DÍA DEL EVENTO (no la vinculación de hoy) — si cambió de contratista a mitad de
@@ -680,10 +682,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var te = tareoContrBulk.Where(t => t.ProyectoId == pid && t.EmpresaId == emp.EmpresaId).ToList();
                 var diasE = te.Count;
                 var promE = diasE > 0 ? (decimal)te.Sum(t => t.CantidadPersonas) / diasE : 0;
-                // Fija incluso sin días tareados — ver el comentario en GetMetasEmpresaAsync:
-                // es la única meta independiente del tareo y sostiene el indicador en las obras
-                // donde no se cargó el tareo del mes.
-                var metaInspE = metaInspContratista;
+                // Prorrateada por días tareados — ver el comentario en GetMetasEmpresaAsync.
+                var metaInspE = CalcularMetaInspeccionesContratista(diasE, diasHabilesMes);
                 // Meta de charlas = días efectivamente tareados: si se tareó 10 días,
                 // debe haber 10 evidencias subidas.
                 var metaCharlasE = diasE;
@@ -1170,6 +1170,29 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(f => f.Date)
             .Distinct()
             .Count();
+    }
+
+    private static int ContarDiasHabilesDelMes(int mes, int anio)
+    {
+        var feriados = FeriadosPeruDateTime(anio);
+        var totalDias = DateTime.DaysInMonth(anio, mes);
+        var habiles = 0;
+        for (var dia = 1; dia <= totalDias; dia++)
+        {
+            if (EsDiaHabilDateTime(new DateTime(anio, mes, dia), feriados)) habiles++;
+        }
+        return habiles;
+    }
+
+    // Prorratea la meta mensual fija (15) por los días que la contratista realmente tareó
+    // sobre el total de días hábiles del mes (ej. 8 días tareados de ~22 hábiles → meta ≈ 6).
+    // Si NO tareó ningún día se mantiene el fijo de 15 — sigue siendo la única meta
+    // independiente del tareo, para sostener el indicador en obras sin tareo cargado
+    // (ver ago-2026: KAURÍ 15% → 0%, MÁXIMO ABRIL 30% → 0% al condicionarla).
+    private static int CalcularMetaInspeccionesContratista(int diasTareados, int diasHabilesMes)
+    {
+        if (diasTareados <= 0 || diasHabilesMes <= 0) return MetaInspeccionesContratista;
+        return (int)Math.Ceiling(MetaInspeccionesContratista * (decimal)diasTareados / diasHabilesMes);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

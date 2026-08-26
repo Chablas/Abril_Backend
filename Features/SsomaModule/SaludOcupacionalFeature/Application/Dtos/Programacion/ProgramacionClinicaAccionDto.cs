@@ -16,5 +16,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         /// se equivocó al programar. Si viene null o igual al actual, no cambia nada.
         /// </summary>
         public int? TipoEmoId { get; set; }
+
+        /// <summary>
+        /// Solo aplica con Accion="Rechazar": si viene en false, no se envía el correo de
+        /// notificación de rechazo. Default true (mismo comportamiento que antes) — la clínica
+        /// lo desmarca cuando el rechazo es de una fila que no corresponde avisar a nadie (p.ej.
+        /// un duplicado generado por el auto-programador).
+        /// </summary>
+        public bool? EnviarCorreo { get; set; }
     }
 }

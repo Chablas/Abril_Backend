@@ -8,6 +8,28 @@ public class InspeccionTipoDto
     public bool EsColaborativa { get; set; }
 }
 
+/// <summary>
+/// Vista previa de a quién le va a llegar el correo de cierre de una inspección colaborativa —
+/// se resuelve con el mismo criterio que el envío real, para que el usuario confirme el cierre
+/// sabiendo exactamente quién se va a enterar. Un campo en null significa que ese rol no tiene
+/// correo cargado y no va a recibir el aviso.
+/// </summary>
+public class InspeccionDestinatarioDto
+{
+    public string Nombre { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+}
+
+public class InspeccionDestinatariosCierreDto
+{
+    public string? ResidenteEmail { get; set; }
+    public string? CoordSsomaEmail { get; set; }
+    public string? GerenteInmobiliarioEmail { get; set; }
+    /// <summary>Prevencionistas (rol PREVENCIONISTA) con vinculación activa al proyecto de la inspección — puede haber varios, uno por contratista.</summary>
+    public List<InspeccionDestinatarioDto> Prevencionistas { get; set; } = new();
+    public string? TuEmail { get; set; }
+}
+
 public class InspeccionChecklistItemDto
 {
     public int Id { get; set; }

@@ -5839,3 +5839,80 @@ Por qué solo afecta a los adjuntos: los `.docx`/`.xlsx` se bajan con `?format=p
 - Contra PDFsharp 6.2.4, con los archivos reales bajados de SharePoint: `Import` + `AddPage` + `Save` OK en los 3 PDFs (incluida la cotización que rompía), `Modify` + `page.Rotate` OK sobre la cotización, `XGraphics.FromPdfPage` + `DrawImage` OK con transparencia `/SMask`, y `XUnit.FromPoint` + setters de `page.Width/Height` OK.
 - Sin `XFont`/`DrawString` en el proyecto → no hace falta registrar `GlobalFontSettings.FontResolver` (PDFsharp 6 solo lo exige para dibujar texto).
 - No probado end-to-end en el navegador: falta que el usuario regenere el paquete de la adjudicación 1.
+
+## Sesión 2026-08-25 — Observaciones de Planeamiento sobre BIM: auditoría, fix de autorización, rol PLANEAMIENTO UDP, causas nuevas
+
+Rama: `victor-backend`. Punto de partida: Planeamiento probó el módulo BIM y mandó una lista de observaciones. Antes de estimar nada se pidió mapear qué ya existía vs qué era desarrollo nuevo genuino.
+
+### 1) Auditoría de las observaciones (sin tocar código)
+- **Plan Meta / dashboard / KPIs**: ya existía backend completo desde la sesión 2026-08-14 (`GET plan-maestro`, `avance`, `ppc`, `causas-pareto`, Portafolio). El Plan Maestro es **semanal** (`bim_meta_semanal`), no diario — si Planeamiento pide granularidad diaria tipo curva S, eso sí sería desarrollo nuevo (no hay tabla de meta diaria hoy). El frontend de Fase 2a/2b/3 (Dashboard/Portafolio) seguía sin confirmarse desplegado — dato que este repo no puede verificar solo (Abril-Frontend aparte).
+- **Cumplimiento parcial por %** (punto 3, prioridad alta): confirmado desarrollo real. Impacto mapeado: `BimRegistroDiario.Cumplida` (bool) se usa en `CargaDiariaDtos.cs`, `PlaneamientoBimCargaDiariaRepository/Service.cs`, 5 puntos en `PlaneamientoBimDashboardRepository.cs`, `PlaneamientoBimPortafolioRepository.cs` y `PlaneamientoBimReportePdfService.cs`. **No implementado todavía** — se armaron 4 preguntas de diseño para el usuario (columna nueva vs. migrar `cumplida` in-place, backfill histórico true/false→100/0, umbral de causa obligatoria con porcentaje, contrato del DTO fijo vs. libre) con recomendación en cada una; queda pendiente que el usuario decida con Planeamiento antes de programar.
+- **Ampliar causas de incumplimiento** (punto 4): confirmado que `bim_causa_no_cumplimiento` es tabla catálogo, no enum — cambio de datos puro.
+- **Bloqueos → Restricciones** y **Sector vs. Nivel**: confirmado que no son simples, quedan pendientes de hablar con el ingeniero antes de tocar nada (ver respuestas completas más arriba en la conversación de esa sesión).
+
+### 2) Bug de arquitectura encontrado al pedir un rol nuevo (PlaneamientoUDP)
+Al pedir crear un rol con acceso exclusivo a Planeamiento BIM + Portafolio, se descubrió que los 5 controllers de `PlaneamientoBimFeature` (`Configuracion`, `CargaDiaria`, `Bloqueo`, `Dashboard`, `Portafolio`) autorizaban con `[Authorize(Roles = "1,2,3")]` / `"1,2"` **hardcodeado por ID de rol**, sin relación con `role_feature` — cualquier rol nuevo con la feature sembrada en `role_feature` habría visto las pantallas (frontend es 100% featureKey-driven) pero recibido 403 en cada llamada API.
+
+**Fix aplicado**: migrados los 5 controllers de `[Authorize(Roles=...)]` a `[Authorize]` + `[RequireFeature("planeamiento-bim.configuracion-inicial")]` / `"planeamiento-bim.portafolio"` — mismo patrón ya usado en `EmoController`/`ProgramacionEmoController` (`Shared/Filters/RequireFeatureAttribute.cs`, autoriza contra `role_feature` en runtime, sin IDs hardcodeados).
+
+**Verificación real, no solo build**: se levantó el backend local contra la BD real (túnel SSH) y se probaron los 5 controllers × 3 roles existentes (UsuarioUdp, AdministradorUdp, AdministradorSistema) con JWTs firmados reales — 15/15 resultados idénticos al comportamiento anterior (incluido que UsuarioUdp sigue sin acceso a Portafolio, 403). Un rol de control sin ninguna feature BIM confirmó 403 en los 5. Solo hay 2 `feature_key` reales en la BD para todo el namespace `planeamiento-bim.*` (`configuracion-inicial` cubre las 4 pantallas, `portafolio` aparte) — no 5 como se asumió al principio.
+
+### 3) Rol PLANEAMIENTO UDP — creado y asignado en producción
+- `Migrations/Manual/20260825_RolPlaneamientoUdp.sql`: crea el rol (sequence normal, **sin ID fijo** — se verificó que ni backend (`RequireFeature`) ni frontend (`roleGuard`/`isNavEntryAllowed`, ambos featureKey-primero-luego-roles-como-fallback-muerto) dependen de un ID numérico para este rol) + 2 filas en `role_feature`. Corrido en prod: quedó `role_id = 80`.
+- Sección 2 del mismo archivo: `INSERT INTO user_role` para los 4 "Ingeniero de Planeamiento BIM" activos (identificados por `workers.puesto`/`subarea`, confirmados por nombre con el usuario antes de ejecutar): Dulanto Martinez Jean Franco (114), Haro Jesus Jherson Steven (306), Portilla Velasquez Lidis Dayana Marlene (239), Sanchez Taipe Arturo (243). Se excluyó a propósito a 2 personas de "Ingeniería BIM" (Modelador/Arquitecto BIM) que el comodín de búsqueda también trajo.
+- Ambos pasos corridos y verificados contra producción (vía túnel SSH, `localhost:5544`).
+
+### 4) Causas de incumplimiento — 3 nuevas
+`Migrations/Manual/20260825_BimCausasNoCumplimientoSeed.sql`: agrega "Falla de contratista", "Retrabajos", "Reprocesos por calidad" (orden 6-8) a `bim_causa_no_cumplimiento`. Corrido y verificado contra producción — 8 filas en total.
+
+### Verificado
+- Build: `dotnet build` → 0 errores, warnings preexistentes sin cambios.
+- Todas las corridas de SQL contra producción fueron confirmadas con SELECT de verificación antes de darlas por cerradas.
+
+### Pendiente
+- Decisión de Planeamiento sobre el diseño de cumplimiento por % (punto 3) — 4 preguntas respondidas con recomendación, sin implementar.
+- Confirmar con el ingeniero: Bloqueos→Restricciones (¿solo rename o cambio de flujo?) y la observación de Sector/Nivel (probable confusión de términos, no bug).
+- Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse — no verificable desde este repo.
+
+## Sesión 2026-08-25 (continuación) — Implementa cumplimiento por %, asigna 2 residentes
+
+Rama: `victor-backend`. Retoma el punto 3 (prioridad alta) dejado pendiente en la sección anterior: Planeamiento confirmó las 4 decisiones de diseño con el ingeniero.
+
+### 1) `BimRegistroDiario.Cumplida` (bool) → `PorcentajeAvance` (decimal)
+Confirmado con Planeamiento: migrar la columna existente (no una nueva), backfill true→100/false→0, causa obligatoria si `PorcentajeAvance < 100`, set fijo de valores permitidos (0/25/50/75/100) validado en código (`PlaneamientoBimCargaDiariaService.PorcentajesValidos`), no como `CHECK` en BD — para poder ajustar el set sin migración.
+
+Código migrado de punta a punta: `CargaDiariaDtos.cs`, `DashboardDtos.cs`, `PortafolioDtos.cs`, `BimRegistroDiario.cs`, `PlaneamientoBimCargaDiariaService/Repository.cs`, `PlaneamientoBimDashboardRepository.cs`, `PlaneamientoBimPortafolioRepository.cs`, `PlaneamientoBimReportePdfService.cs`. Los KPIs de Avance/PPC/Pareto pasan de `COUNT(cumplida=true)` a `SUM(PorcentajeAvance)` — `PorcentajeDe()` ya no multiplica por 100 (ese factor ahora viene incluido en cada término sumado).
+
+`Migrations_Manual/2026-08-25_bim_registro_diario_porcentaje_avance.sql`: no pasa por EF (el model snapshot tiene deuda acumulada de otras sesiones — generar la migración arrastraba ~2300 líneas ajenas, incluidos DROPs de otras features). `ALTER COLUMN ... TYPE numeric USING (CASE WHEN cumplida THEN 100 ELSE 0 END)` + `RENAME COLUMN`, con tabla de respaldo (`bim_registro_diario_backup_20260825`) y todo en una transacción. Backfill verificado de antemano (solo lectura, sin escribir nada) contra los 3 registros reales en prod, comparando la fórmula vieja vs. la nueva agrupada por zona/nivel/sector, por fecha y por macro-actividad — 0 discrepancias. **Corrido y verificado contra producción.**
+
+### 2) Dos residentes de obra asignados en producción
+`Migrations/Manual/20260825_AsignarResidenteNogales.sql` (Alfredo Canales → 9 NOGALES) y `20260825_AsignarResidenteSauceZen.sql` (Martín Véliz → SAUCE ZEN): insertan en `project_resident` (idempotente vía `ON CONFLICT`), sin IDs hardcodeados (resuelve por email/nombre de proyecto vía subqueries). Necesario porque las pantallas de Planeamiento BIM filtran el selector de proyectos por `project_resident` activo. **Corridos y verificados contra producción.**
+
+### 3) Housekeeping: `appsettings.Development.json.bak` no estaba gitignorado
+Apareció un `.bak` de `appsettings.Development.json` (mismo tipo de archivo que `CLAUDE.md` marca como "nunca commitear", con credenciales reales de SQL Server y PostgreSQL) sin regla de `.gitignore` que lo cubriera — quedaba como `??` en `git status`. Se agregó `appsettings.*.json.bak` a `.gitignore` y el archivo se dejó fuera del commit.
+
+### Verificado
+- `dotnet build` → 0 errores (251 warnings preexistentes, sin cambios).
+- Los 3 SQL de esta sesión corridos contra producción con SELECT de verificación antes de cerrar cada uno.
+
+### Pendiente
+- Confirmar con Planeamiento que el flujo de carga diaria con % parcial funciona bien end-to-end en el frontend (este repo no lo puede probar).
+- Mismos pendientes de la sección anterior: Bloqueos→Restricciones, Sector/Nivel, despliegue del frontend de Dashboard/Portafolio.
+
+## Sesión 2026-08-25 — Deploy a master: BIM observaciones de Planeamiento
+
+Merge de `victor-backend` a `master` (deploy a intranet/producción). Trae las dos sesiones de trabajo sobre las observaciones de Planeamiento en el módulo BIM de arriba (auditoría + fix de autorización + rol PlaneamientoUDP + causas nuevas, y luego la implementación de cumplimiento por % + asignación de 2 residentes). Resumen de lo que queda en producción tras este deploy:
+- `BimRegistroDiario.Cumplida` (bool) migrado a `PorcentajeAvance` (decimal 0/25/50/75/100) de punta a punta (DTOs, servicio, repos de dashboard/portafolio, PDF).
+- Los 5 controllers de `PlaneamientoBimFeature` migrados de `[Authorize(Roles=...)]` hardcodeado por ID a `[RequireFeature(...)]`.
+- Rol PLANEAMIENTO UDP creado y asignado a los 4 ingenieros de Planeamiento BIM activos.
+- 3 causas de incumplimiento nuevas en el catálogo.
+- Residentes de obra asignados: Alfredo Canales → 9 NOGALES, Martín Véliz → SAUCE ZEN.
+- `appsettings.*.json.bak` agregado a `.gitignore` (housekeeping, credenciales expuestas sin querer).
+
+### Verificado
+- `dotnet build` en `master` tras el merge: 0 errores.
+
+### Pendiente
+- Decisión de Planeamiento sobre Bloqueos→Restricciones y la observación de Sector/Nivel.
+- Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse.
+- Confirmar con Planeamiento que el flujo de carga diaria con % parcial funciona bien end-to-end en el frontend.

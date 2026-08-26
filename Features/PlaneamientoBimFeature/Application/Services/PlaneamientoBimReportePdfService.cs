@@ -74,7 +74,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                             }
 
                             Celda("Programadas:", totalProgramadas.ToString());
-                            Celda("Cumplidas:", cumplidas.ToString());
+                            Celda("Cumplidas:", cumplidas.ToString("0.##"));
                             Celda("PPC del día:", $"{porcentajePpc:0.##}%");
                             Celda("Meta PPC:", ppc.MetaPpc.HasValue ? $"{ppc.MetaPpc:0.##}%" : "-");
                         });
@@ -92,7 +92,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 
                             void Encabezado(string texto) => table.Cell().Background(ColorGrupo).Padding(3).Text(texto).Bold().FontSize(8);
                             Encabezado("Zona"); Encabezado("Nivel"); Encabezado("Sector");
-                            Encabezado("Actividad"); Encabezado("Cumplida"); Encabezado("Causa");
+                            Encabezado("Actividad"); Encabezado("% Avance"); Encabezado("Causa");
 
                             foreach (var celda in carga.Celdas.OrderBy(c => c.ZonaId).ThenBy(c => c.NivelId).ThenBy(c => c.SectorId))
                             {
@@ -105,9 +105,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
                                     .Text(actividadNombrePorId.GetValueOrDefault(celda.ActividadId, "-")).FontSize(8);
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
-                                    .Text(celda.Cumplida ? "Sí" : "No").FontSize(8);
+                                    .Text($"{celda.PorcentajeAvance:0}%").FontSize(8);
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
-                                    .Text(celda.Cumplida ? "-" : (celda.CausaNombre ?? "-")).FontSize(8);
+                                    .Text(celda.PorcentajeAvance == 100 ? "-" : (celda.CausaNombre ?? "-")).FontSize(8);
                             }
 
                             if (carga.Celdas.Count == 0)

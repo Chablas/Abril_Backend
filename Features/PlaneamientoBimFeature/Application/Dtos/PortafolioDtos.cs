@@ -28,7 +28,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int ProjectId { get; set; }
         public string ProjectNombre { get; set; } = string.Empty;
         public int TotalRegistros { get; set; }
-        public int CumplidosRegistros { get; set; }
+        public decimal CumplidosRegistros { get; set; }
         /// <summary>null = sin registros (Semaforo = "GRIS").</summary>
         public decimal? PorcentajeAvance { get; set; }
         /// <summary>"VERDE" (≥90%) | "AMARILLO" (70-89%) | "ROJO" (&lt;70%) | "GRIS" (sin registros).</summary>

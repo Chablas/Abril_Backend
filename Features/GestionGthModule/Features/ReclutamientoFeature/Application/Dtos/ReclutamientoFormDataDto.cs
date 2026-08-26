@@ -33,9 +33,9 @@
 
     /// <summary>
     /// Datos que necesita el formulario "Nueva solicitud de personal" en una sola petición:
-    /// el área del solicitante (derivada del usuario, no editable), los catálogos de los
-    /// desplegables (puestos, tipos de requerimiento y proyectos/obras) y los destinatarios a
-    /// los que le llegará la solicitud.
+    /// la ficha del solicitante (área, puesto y categoría, derivados del usuario y no editables),
+    /// los catálogos de los desplegables (puestos, tipos de requerimiento y proyectos/obras) y los
+    /// destinatarios a los que le llegará la solicitud.
     /// </summary>
     public class ReclutamientoFormDataDto
     {
@@ -49,6 +49,23 @@
 
         /// <summary>Nodo de <c>area_scope</c> del solicitante; es el que define el subárbol de <see cref="TrabajadoresArea"/> y a qué gerente se le notifica.</summary>
         public int? AreaScopeId { get; set; }
+
+        /// <summary>
+        /// Puesto del propio solicitante, para el campo de solo lectura "Tu puesto". Sale de
+        /// <c>workers.puesto_id → puesto.nombre</c> (el catálogo único), nunca de la columna
+        /// congelada <c>workers.puesto</c>. Null cuando el usuario no tiene ficha de trabajador o
+        /// su ficha todavía no tiene puesto asignado.
+        /// </summary>
+        public string? PuestoNombre { get; set; }
+
+        /// <summary>
+        /// Categoría del propio solicitante, para el campo de solo lectura "Tu categoría". No se
+        /// guarda en la ficha: se llega por <c>workers.puesto_id → puesto.categoria_id →
+        /// categoria.nombre</c>, que es el único camino a la categoría de un trabajador. Null por
+        /// lo mismo que <see cref="PuestoNombre"/> — sin puesto no hay categoría.
+        /// </summary>
+        public string? CategoriaNombre { get; set; }
+
         public int MaxVacantes { get; set; } = 10;
 
         /// <summary>

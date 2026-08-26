@@ -7,10 +7,22 @@
     public static class CorreoTipoReclutamiento
     {
         /// <summary>
-        /// Correo de "solicitud de personal por aprobar" (va al Gerente General). Es el primer
-        /// correo del flujo: hasta que el GG no aprueba, GTH no recibe nada.
+        /// Correo de "vacantes NUEVAS por aprobar" (va al Gerente General). Es el primer correo del
+        /// flujo para las vacantes de ruta <see cref="RutaAprobacion.GerenciaGeneral"/>: hasta que
+        /// el GG no aprueba, GTH no recibe nada. Desde el corte por tipo de requerimiento ya no
+        /// lleva al gerente del área — los reemplazos salen por
+        /// <see cref="AprobacionReemplazo"/>.
         /// </summary>
         public const string AprobacionGg = "APROBACION_GG";
+
+        /// <summary>
+        /// Correo de "vacantes de REEMPLAZO por aprobar" (va al gerente del área del solicitante y
+        /// a GTH). Es el equivalente de <see cref="AprobacionGg"/> para la ruta
+        /// <see cref="RutaAprobacion.AreaYGth"/>: mismo momento —al registrarse la solicitud— pero
+        /// otros destinatarios y otras vacantes. Una solicitud que mezcla tipos dispara los dos, y
+        /// cada uno lista solo las suyas.
+        /// </summary>
+        public const string AprobacionReemplazo = "APROBACION_REEMPLAZO";
 
         /// <summary>
         /// Correo de "aprobación de Gerencia a GTH". Sale recién cuando Gerencia General aprueba, y
@@ -131,6 +143,7 @@
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
             "aprobacion-gg"          => AprobacionGg,
+            "aprobacion-reemplazo"   => AprobacionReemplazo,
             "solicitud"              => Solicitud,
             "ti-vacantes"            => Ti,
             "fft-solicitud-gg"       => FftSolicitudGg,

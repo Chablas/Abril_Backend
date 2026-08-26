@@ -1,5 +1,9 @@
 ﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
+    // RutaAprobacion vive en el namespace padre (Application): la ruta de una vacante es
+    // regla de negocio, no forma del DTO, pero varios de estos la derivan.
+    using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
+
     /// <summary>
     /// Una de las dos casillas de decisión de la solicitud (gerente del área o Gerencia General),
     /// tal como se muestra en la lista y en el modal. Las dos tienen la misma forma para que la
@@ -57,20 +61,33 @@
         /// <summary>Fecha de registro de la solicitud en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }
 
-        // ── Las dos casillas ─────────────────────────────────────────────────
-        /// <summary>Visto bueno del gerente del área. No condiciona el avance de la solicitud.</summary>
+        // ── Las tres casillas ────────────────────────────────────────────────
+        /// <summary>Decisión del gerente del área. Solo aplica si la solicitud trae reemplazos.</summary>
         public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
 
-        /// <summary>Decisión de Gerencia General: la obligatoria, la que manda las vacantes a GTH.</summary>
+        /// <summary>Decisión de Gerencia General. Solo aplica si la solicitud trae vacantes nuevas o FFT.</summary>
         public AprobacionNivelResumenDto GerenteGeneral { get; set; } = new();
 
+        /// <summary>Decisión de GTH. Solo aplica si la solicitud trae reemplazos.</summary>
+        public AprobacionNivelResumenDto Gth { get; set; } = new();
+
+        // ── Qué firmas necesita ESTA solicitud ───────────────────────────────
+        // Se derivan de las vacantes: una solicitud solo de reemplazos no necesita a Gerencia
+        // General, y una solo de vacantes nuevas no necesita ni al gerente del área ni a GTH. La
+        // pantalla pinta únicamente las casillas que hacen falta en vez de mostrar tres siempre,
+        // dos de ellas eternamente en "pendiente" sin que nadie las vaya a tocar.
+        public bool RequiereGerenteGeneral { get; set; }
+        public bool RequiereGerenteArea { get; set; }
+        public bool RequiereGth { get; set; }
+
         // ── Con qué poder entra el usuario que abrió el modal ────────────────
-        /// <summary>GERENTE_GENERAL / GERENTE_AREA / NINGUNO (ver <c>AprobacionNivel</c>).</summary>
+        /// <summary>GERENTE_GENERAL / GERENTE_AREA / GTH / NINGUNO (ver <c>AprobacionNivel</c>).</summary>
         public string Nivel { get; set; } = string.Empty;
 
         /// <summary>
         /// true si este usuario todavía puede registrar SU decisión sobre esta solicitud: tiene
-        /// nivel y ese nivel sigue pendiente. false ⇒ el modal abre en lectura.
+        /// nivel, la solicitud trae vacantes de su ruta y su casilla sigue pendiente. false ⇒ el
+        /// modal abre en lectura.
         /// </summary>
         public bool PuedeDecidir { get; set; }
 
@@ -143,11 +160,22 @@
 
         public int TotalVacantes { get; set; }
 
-        /// <summary>Visto bueno del gerente del área.</summary>
+        /// <summary>Cuántas de esas vacantes le tocan al usuario que consulta (las de su ruta).</summary>
+        public int VacantesDeMiRuta { get; set; }
+
+        /// <summary>Decisión del gerente del área (mueve los reemplazos, junto con la de GTH).</summary>
         public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
 
-        /// <summary>Decisión de Gerencia General (la que hace avanzar la solicitud).</summary>
+        /// <summary>Decisión de Gerencia General (mueve las vacantes nuevas y las FFT).</summary>
         public AprobacionNivelResumenDto GerenteGeneral { get; set; } = new();
+
+        /// <summary>Decisión de GTH (mueve los reemplazos, junto con la del gerente del área).</summary>
+        public AprobacionNivelResumenDto Gth { get; set; } = new();
+
+        /// <summary>Qué firmas necesita esta solicitud, derivadas de los tipos de sus vacantes.</summary>
+        public bool RequiereGerenteGeneral { get; set; }
+        public bool RequiereGerenteArea { get; set; }
+        public bool RequiereGth { get; set; }
 
         /// <summary>
         /// true si esta fila espera la decisión del usuario que consulta. Es lo que decide el orden
@@ -191,14 +219,39 @@
         /// <summary>Nombre del candidato FFT que nombró el solicitante. Null en las vacantes normales.</summary>
         public string? FftCandidatoNombre { get; set; }
 
+        /// <summary>
+        /// DNI del candidato FFT. Va en el modal y en el correo por la misma razón que el nombre: lo
+        /// que se aprueba es a una persona concreta, y el documento es lo único que la identifica sin
+        /// ambigüedad (dos candidatos pueden llamarse igual). Null en las vacantes normales y en los
+        /// FFT anteriores a que se pidiera el dato.
+        /// </summary>
+        public string? FftCandidatoDocumento { get; set; }
+
         /// <summary>Correo personal del candidato FFT. Null en las vacantes normales.</summary>
         public string? FftCandidatoCorreo { get; set; }
 
-        /// <summary>Visto bueno del gerente del área: true / false / null = no opinó.</summary>
+        /// <summary>
+        /// Código estable del tipo (<c>NUEVO</c> / <c>REEMPLAZO</c>). Es lo que decide la
+        /// <see cref="Ruta"/>: el nombre de al lado es presentación y se puede renombrar.
+        /// </summary>
+        public string TipoRequerimientoCodigo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Por dónde se aprueba esta vacante: <c>GG</c> (solo Gerencia General) o <c>AREA_GTH</c>
+        /// (gerente del área + GTH, los dos). Se deriva y no se guarda — ver
+        /// <see cref="RutaAprobacion"/>. La pantalla la usa para mostrar solo las casillas que
+        /// aplican y para saber qué vacantes puede marcar quien tiene el modal abierto.
+        /// </summary>
+        public string Ruta => RutaAprobacion.De(EsFft, TipoRequerimientoCodigo);
+
+        /// <summary>Decisión del gerente del área: true / false / null = sin decidir.</summary>
         public bool? AprobadoGerenteArea { get; set; }
 
         /// <summary>Decisión de Gerencia General: true = aprobada, false = rechazada, null = sin decidir.</summary>
         public bool? AprobadoGerenteGeneral { get; set; }
+
+        /// <summary>Decisión de GTH: true / false / null = sin decidir. Solo aplica en la ruta <c>AREA_GTH</c>.</summary>
+        public bool? AprobadoGth { get; set; }
     }
 
     /// <summary>
@@ -334,13 +387,36 @@
         public string? SustentoNombre { get; set; }
         public string? SustentoUrl { get; set; }
 
-        /// <summary>
-        /// true si Gerencia General ya decidió. Es lo que cierra la solicitud: con esto no se
-        /// reenvía el correo (el visto bueno del área pendiente no lo justifica, ya no cambia nada).
-        /// </summary>
-        public bool Decidida { get; set; }
+        /// <summary>true si Gerencia General ya decidió (cierra las vacantes de ruta <c>GG</c>).</summary>
+        public bool DecididaGg { get; set; }
+
+        /// <summary>true si el gerente del área ya decidió (una de las dos firmas de los reemplazos).</summary>
+        public bool DecididaGerenteArea { get; set; }
+
+        /// <summary>true si GTH ya decidió (la otra firma de los reemplazos).</summary>
+        public bool DecididaGth { get; set; }
 
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
+
+        /// <summary>
+        /// Las vacantes que aprueba Gerencia General: las nuevas y las FFT. Es exactamente lo que
+        /// lista su correo — una solicitud que solo trae reemplazos no le manda nada.
+        /// </summary>
+        public List<AprobacionGgVacanteDto> VacantesGg =>
+            Vacantes.Where(v => v.Ruta == RutaAprobacion.GerenciaGeneral).ToList();
+
+        /// <summary>Las vacantes que aprueban el gerente del área y GTH: los reemplazos no-FFT.</summary>
+        public List<AprobacionGgVacanteDto> VacantesReemplazo =>
+            Vacantes.Where(v => v.Ruta == RutaAprobacion.AreaYGth).ToList();
+
+        /// <summary>
+        /// ¿Queda algo por reenviar? Un correo se reenvía mientras su ruta siga esperando alguna
+        /// firma; el de reemplazos, mientras falte la del área o la de GTH.
+        /// </summary>
+        public bool PendienteGg => VacantesGg.Count > 0 && !DecididaGg;
+
+        public bool PendienteReemplazo =>
+            VacantesReemplazo.Count > 0 && (!DecididaGerenteArea || !DecididaGth);
     }
 
     /// <summary>
@@ -405,6 +481,27 @@
 
         /// <summary>Comentario del gerente del área.</summary>
         public string? GerenteAreaComentario { get; set; }
+
+        // ── GTH (solo en los reemplazos) ─────────────────────────────────────
+        /// <summary>Estado de la decisión de GTH sobre la solicitud completa.</summary>
+        public string GthEstadoCodigo { get; set; } = string.Empty;
+        public string GthEstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>Decisión de GTH sobre ESTA vacante: true / false / null = sin decidir.</summary>
+        public bool? AprobadoGth { get; set; }
+
+        /// <summary>Momento de la decisión de GTH en hora Perú.</summary>
+        public DateTime? GthDecididoEn { get; set; }
+
+        /// <summary>Comentario de GTH.</summary>
+        public string? GthComentario { get; set; }
+
+        /// <summary>
+        /// Ruta de esta vacante (<c>GG</c> / <c>AREA_GTH</c>): le dice al modal de seguimiento del
+        /// solicitante qué firmas mostrar. Sin esto pintaría las tres y dos quedarían siempre en
+        /// pendiente sin que nadie las vaya a tocar.
+        /// </summary>
+        public string Ruta { get; set; } = RutaAprobacion.GerenciaGeneral;
     }
 
     /// <summary>Resultado de reenviar el correo de aprobación a los gerentes.</summary>

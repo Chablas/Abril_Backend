@@ -19,7 +19,15 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null)
+        /// <summary>
+        /// Página de la tabla de Usuarios. <paramref name="categoriaId"/> filtra por la
+        /// categoría del trabajador, a la que se llega por
+        /// <c>person → workers.puesto_id → puesto.categoria_id</c> (la ficha ya no guarda la
+        /// categoría). Un usuario sin ficha viva de trabajador — contratistas, colaboradores
+        /// externos — queda fuera en cuanto se elige una categoría, que es lo correcto: no
+        /// tiene ninguna.
+        /// </summary>
+        public async Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null, int? categoriaId = null)
         {
             page = page < 1 ? 1 : page;
             using var ctx = _factory.CreateDbContext();
@@ -28,80 +36,74 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             // Búsqueda por palabras en cualquier orden: cada palabra debe aparecer en el
             // nombre, DNI o correo (misma semántica que SearchInput.matches del frontend).
             // Así "jairo diaz" encuentra a "DIAZ BUIZA JAIRO ELIU".
+            //
+            // Sin búsqueda el patrón es un único '%', que casa con todo: así el WHERE queda
+            // uno solo para los dos casos en vez de duplicar la consulta entera. El texto
+            // contra el que se compara nunca es NULL (app_user.email es NOT NULL y el resto
+            // va con COALESCE), así que ese '%' no descarta ninguna fila.
             var likePatterns = hasSearch
                 ? search!.Trim().ToLower()
                     .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Select(w => $"%{w}%")
                     .ToArray()
-                : Array.Empty<string>();
+                : new[] { "%" };
 
-            int totalRecords;
-            List<UserBaseRow> baseRows;
+            // 0 = sin filtro de categoría. Se usa un centinela y no NULL porque el parámetro
+            // viaja en SQL crudo, donde un NULL suelto no tiene tipo inferible para Postgres;
+            // categoria_id es una identity que arranca en 1, así que el 0 nunca colisiona.
+            var categoriaFilter = categoriaId ?? 0;
+            var hasFilters = hasSearch || categoriaFilter != 0;
 
-            if (hasSearch)
-            {
-                var counts = await ctx.Database
-                    .SqlQuery<int>($"""
-                        SELECT COUNT(DISTINCT u.user_id)::int AS "Value"
-                        FROM app_user u
-                        LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
-                        WHERE u.state = true
-                          AND LOWER(COALESCE(p.full_name, '') || ' ' || COALESCE(p.document_identity_code, '') || ' ' || u.email)
-                              LIKE ALL ({likePatterns})
-                        """)
-                    .ToListAsync();
-                totalRecords = counts.FirstOrDefault();
-
-                baseRows = await ctx.Database.SqlQuery<UserBaseRow>($"""
-                    SELECT DISTINCT ON (u.user_id)
-                        u.user_id,
-                        u.email,
-                        u.active,
-                        CASE WHEN cu.contractor_user_id IS NOT NULL THEN 'CONTRATISTA'
-                             WHEN p.person_id IS NOT NULL THEN 'PERSONA'
-                             ELSE 'COLABORADOR' END AS user_type,
-                        p.full_name AS display_name,
-                        p.document_identity_code,
-                        p.first_names,
-                        p.first_last_name,
-                        p.second_last_name,
-                        p.phone_number
+            // Sin ningún filtro el total es la cantidad de usuarios vivos, sin pagar los
+            // joins de la consulta filtrada.
+            var totalRecords = hasFilters
+                ? (await ctx.Database.SqlQuery<int>($"""
+                    SELECT COUNT(DISTINCT u.user_id)::int AS "Value"
                     FROM app_user u
                     LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
-                    LEFT JOIN contractor_user cu ON cu.user_id = u.user_id AND cu.state = true
                     WHERE u.state = true
                       AND LOWER(COALESCE(p.full_name, '') || ' ' || COALESCE(p.document_identity_code, '') || ' ' || u.email)
                           LIKE ALL ({likePatterns})
-                    ORDER BY u.user_id DESC
-                    LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
-                    """).ToListAsync();
-            }
-            else
-            {
-                totalRecords = await ctx.User.CountAsync(u => u.State);
+                      AND ({categoriaFilter} = 0 OR EXISTS (
+                            SELECT 1
+                            FROM workers w
+                            JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                            WHERE w.person_id = p.person_id
+                              AND w.state = true
+                              AND pu.categoria_id = {categoriaFilter}))
+                    """).ToListAsync()).FirstOrDefault()
+                : await ctx.User.CountAsync(u => u.State);
 
-                baseRows = await ctx.Database.SqlQuery<UserBaseRow>($"""
-                    SELECT DISTINCT ON (u.user_id)
-                        u.user_id,
-                        u.email,
-                        u.active,
-                        CASE WHEN cu.contractor_user_id IS NOT NULL THEN 'CONTRATISTA'
-                             WHEN p.person_id IS NOT NULL THEN 'PERSONA'
-                             ELSE 'COLABORADOR' END AS user_type,
-                        p.full_name AS display_name,
-                        p.document_identity_code,
-                        p.first_names,
-                        p.first_last_name,
-                        p.second_last_name,
-                        p.phone_number
-                    FROM app_user u
-                    LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
-                    LEFT JOIN contractor_user cu ON cu.user_id = u.user_id AND cu.state = true
-                    WHERE u.state = true
-                    ORDER BY u.user_id DESC
-                    LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
-                    """).ToListAsync();
-            }
+            var baseRows = await ctx.Database.SqlQuery<UserBaseRow>($"""
+                SELECT DISTINCT ON (u.user_id)
+                    u.user_id,
+                    u.email,
+                    u.active,
+                    CASE WHEN cu.contractor_user_id IS NOT NULL THEN 'CONTRATISTA'
+                         WHEN p.person_id IS NOT NULL THEN 'PERSONA'
+                         ELSE 'COLABORADOR' END AS user_type,
+                    p.full_name AS display_name,
+                    p.document_identity_code,
+                    p.first_names,
+                    p.first_last_name,
+                    p.second_last_name,
+                    p.phone_number
+                FROM app_user u
+                LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
+                LEFT JOIN contractor_user cu ON cu.user_id = u.user_id AND cu.state = true
+                WHERE u.state = true
+                  AND LOWER(COALESCE(p.full_name, '') || ' ' || COALESCE(p.document_identity_code, '') || ' ' || u.email)
+                      LIKE ALL ({likePatterns})
+                  AND ({categoriaFilter} = 0 OR EXISTS (
+                        SELECT 1
+                        FROM workers w
+                        JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                        WHERE w.person_id = p.person_id
+                          AND w.state = true
+                          AND pu.categoria_id = {categoriaFilter}))
+                ORDER BY u.user_id DESC
+                LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
+                """).ToListAsync();
 
             var userIds = baseRows.Select(r => r.UserId).ToList();
 
@@ -142,6 +144,31 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 Data = data
             };
+        }
+
+        /// <summary>
+        /// Categorías para el desplegable del filtro: solo las que tienen al menos un usuario
+        /// del sistema detrás, para no ofrecer opciones que dejarían la tabla vacía. Salen del
+        /// mismo camino que usa el filtro (<c>workers.puesto_id → puesto.categoria_id</c>), así
+        /// que la lista de opciones y el filtro no pueden contradecirse.
+        ///
+        /// A propósito NO se filtra por <c>puesto.active</c> ni <c>categoria.active</c>: si un
+        /// trabajador con usuario tiene ese puesto, esa categoría es real y hay que poder filtrarla.
+        /// </summary>
+        public async Task<List<UserCategoriaOptionDto>> GetCategoriaOptions()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.Database.SqlQuery<UserCategoriaOptionDto>($"""
+                SELECT DISTINCT c.categoria_id, c.nombre
+                FROM app_user u
+                JOIN person p ON p.user_id = u.user_id AND p.state = true
+                JOIN workers w ON w.person_id = p.person_id AND w.state = true
+                JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                JOIN categoria c ON c.categoria_id = pu.categoria_id
+                WHERE u.state = true
+                ORDER BY c.nombre
+                """).ToListAsync();
         }
 
         public async Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser()

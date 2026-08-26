@@ -90,6 +90,30 @@
         /// </summary>
         public string? FftCandidatoCorreo { get; set; }
 
+        /// <summary>
+        /// DNI del candidato FFT (8 dígitos) que declaró el solicitante. Es la llave con la que el
+        /// candidato entra a <c>person</c> en el mismo momento en que se registra la solicitud, sin
+        /// esperar a su formulario.
+        ///
+        /// A diferencia del nombre y el correo, esta columna NO entra en
+        /// <c>ck_gth_requerimiento_fft_candidato</c>: los FFT registrados antes de que se pidiera el
+        /// dato no lo tienen, y un CHECK se revalida en cada UPDATE de esas filas — el primer cambio
+        /// de estado de un requerimiento viejo moriría. La obligatoriedad vive en el servicio, que
+        /// es quien crea las filas nuevas. Null = vacante normal, o FFT anterior al dato.
+        /// </summary>
+        public string? FftCandidatoDocumento { get; set; }
+
+        /// <summary>
+        /// Fila de <c>person</c> en la que quedó registrado el candidato FFT al crearse la
+        /// solicitud. No es un dato del pedido sino el resultado de registrarlo: puede ser una fila
+        /// nueva o una que ya existía con ese mismo documento.
+        ///
+        /// Sirve para rastrear qué se creó y, sobre todo, para que el aviso de «esta persona ya
+        /// existe» que ve GTH al aprobar el formulario del candidato no señale a la fila que este
+        /// mismo pedido acababa de crear (ver <c>CoincidenciaPersonaQuery</c>).
+        /// </summary>
+        public int? FftPersonId { get; set; }
+
         public int GthEstadoRequerimientoId { get; set; }
 
         /// <summary>FK a <c>gth_prioridad</c> (Alta/Media/Baja). Null = sin prioridad asignada.</summary>

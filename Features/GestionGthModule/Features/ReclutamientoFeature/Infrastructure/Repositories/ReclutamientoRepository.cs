@@ -8,7 +8,9 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Models;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
@@ -525,9 +527,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (userId.HasValue)
             {
-                var (areaNombre, areaScopeId, _) = await ResolveSolicitanteInternal(ctx, userId.Value);
-                dto.AreaNombre = areaNombre;
-                dto.AreaScopeId = areaScopeId;
+                var ficha = await ResolveSolicitanteInternal(ctx, userId.Value);
+                dto.AreaNombre = ficha.AreaNombre;
+                dto.AreaScopeId = ficha.AreaScopeId;
+                dto.PuestoNombre = ficha.PuestoNombre;
+                dto.CategoriaNombre = ficha.CategoriaNombre;
             }
 
             dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId);
@@ -692,7 +696,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<(string? AreaNombre, int? AreaScopeId, int? WorkerId)> ResolveSolicitante(int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ResolveSolicitanteInternal(ctx, userId);
+            var ficha = await ResolveSolicitanteInternal(ctx, userId);
+            return (ficha.AreaNombre, ficha.AreaScopeId, ficha.WorkerId);
         }
 
         public async Task<string?> GetSustentoFolderUrl()
@@ -1196,6 +1201,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.SalarioBrutoMensual,
                     r.EsFft,
                     r.FftCandidatoNombre,
+                    r.FftCandidatoDocumento,
                     r.FftCandidatoCorreo,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
@@ -1459,6 +1465,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SalarioBrutoMensual   = head.SalarioBrutoMensual,
                 EsFft                 = head.EsFft,
                 FftCandidatoNombre    = head.FftCandidatoNombre,
+                FftCandidatoDocumento = head.FftCandidatoDocumento,
                 Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
@@ -3511,15 +3518,58 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return tipoId.Value;
         }
 
-        private static async Task<(string? AreaNombre, int? AreaScopeId, int? WorkerId)> ResolveSolicitanteInternal(AppDbContext ctx, int userId)
+        /// <summary>
+        /// La ficha del solicitante tal como la muestra el encabezado de "Nueva solicitud de
+        /// personal": área, puesto y categoría. Los tres son de solo lectura — se derivan del
+        /// usuario y no se preguntan.
+        ///
+        /// El puesto y la categoría salen del catálogo por <c>workers.puesto_id</c> y no de las
+        /// columnas congeladas <c>workers.puesto</c> / <c>workers.categoria</c>, que son texto
+        /// plano del padrón viejo que dejó de mantenerse. La categoría además ya no vive en la
+        /// ficha: el único camino es <c>puesto.categoria_id</c>.
+        ///
+        /// Ambos van en el mismo <c>SELECT</c> que el área: no cuestan ningún roundtrip extra.
+        /// </summary>
+        private static async Task<SolicitanteFicha> ResolveSolicitanteInternal(AppDbContext ctx, int userId)
         {
             var w = await ctx.Worker
                 .Where(x => x.Person != null && x.Person.UserId == userId)
-                .Select(x => new { x.Id, x.AreaScopeId })
+                .Select(x => new
+                {
+                    x.Id,
+                    x.AreaScopeId,
+                    // Sin puesto no hay categoría: una ficha con puesto_id null deja los dos
+                    // campos vacíos, y el formulario lo dice en vez de mostrar un hueco.
+                    Puesto = x.PuestoCatalogo != null && x.PuestoCatalogo.State
+                        ? x.PuestoCatalogo.Nombre
+                        : null,
+                    Categoria = x.PuestoCatalogo != null && x.PuestoCatalogo.State
+                                && x.PuestoCatalogo.Categoria != null && x.PuestoCatalogo.Categoria.State
+                        ? x.PuestoCatalogo.Categoria.Nombre
+                        : null,
+                })
+                .AsNoTracking()
                 .FirstOrDefaultAsync();
-            if (w == null) return (null, null, null);
+            if (w == null) return new SolicitanteFicha();
 
-            return (await ResolveAreaNombreInternal(ctx, w.AreaScopeId), w.AreaScopeId, w.Id);
+            return new SolicitanteFicha
+            {
+                AreaNombre      = await ResolveAreaNombreInternal(ctx, w.AreaScopeId),
+                AreaScopeId     = w.AreaScopeId,
+                WorkerId        = w.Id,
+                PuestoNombre    = w.Puesto,
+                CategoriaNombre = w.Categoria,
+            };
+        }
+
+        /// <summary>Ficha del solicitante resuelta desde su usuario. Todo null = no tiene ficha de trabajador.</summary>
+        private sealed class SolicitanteFicha
+        {
+            public string? AreaNombre { get; init; }
+            public int? AreaScopeId { get; init; }
+            public int? WorkerId { get; init; }
+            public string? PuestoNombre { get; init; }
+            public string? CategoriaNombre { get; init; }
         }
 
         /// <summary>
@@ -3572,6 +3622,99 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             return nodoPropio;
+        }
+
+        /// <summary>
+        /// Mete a los candidatos FFT de la solicitud en <c>person</c> (la base maestra de personas)
+        /// y devuelve el <c>person_id</c> de cada uno indexado por su documento. Diccionario vacío
+        /// cuando la solicitud no tiene ninguna vacante FFT: no cuesta ningún roundtrip.
+        ///
+        /// <b>Por qué acá y no al llenar el formulario.</b> El candidato de un ingreso directo ya
+        /// tiene nombre, DNI y correo desde el momento en que se pide: hacerlo esperar hasta que
+        /// llene su formulario y GTH lo apruebe lo dejaba fuera de la base maestra durante todo el
+        /// trámite. Con esto existe desde el pedido.
+        ///
+        /// <b>Política de escritura: lo que ya está en la base gana.</b> Es la inversa de la del
+        /// formulario del postulante (<c>SincronizarPersonAsync</c>), y a propósito: allá los datos
+        /// llegan revisados por GTH, que además ve el aviso de que la persona ya existía; acá los
+        /// escribió de memoria quien pide la vacante. Si el documento ya tiene ficha, solo se
+        /// rellenan sus huecos — nunca se pisa un nombre ni un correo que ya estaban. Un dedazo en
+        /// el DNI no puede renombrar a un trabajador de la empresa. Cuando el candidato llene su
+        /// formulario de verdad, ese sí corrige todo con datos validados.
+        ///
+        /// El <c>ON CONFLICT</c> es sobre <c>document_identity_code</c>, que tiene UNIQUE sin
+        /// filtrar por <c>state</c>: una ficha dada de baja con ese mismo documento también lo
+        /// atrapa y se reusa, que es justo lo que hay que hacer (insertar reventaría). Ni
+        /// <c>state</c> ni <c>active</c> se tocan: revivir una ficha de baja es una decisión de GTH,
+        /// no el efecto colateral de pedir una vacante.
+        ///
+        /// Un solo roundtrip para todos los candidatos del lote. Los documentos repetidos dentro de
+        /// la misma solicitud se colapsan antes de mandar la sentencia: Postgres no admite que un
+        /// <c>ON CONFLICT DO UPDATE</c> toque la misma fila dos veces en un mismo comando.
+        /// </summary>
+        private static async Task<Dictionary<string, int>> RegistrarPersonasFftAsync(
+            AppDbContext ctx, List<VacanteCreateDto> vacantes, int? userId)
+        {
+            var candidatos = vacantes
+                .Where(v => v.EsFft && !string.IsNullOrWhiteSpace(v.FftCandidatoDocumento))
+                .GroupBy(v => v.FftCandidatoDocumento!)
+                .Select(g => g.First())
+                .ToList();
+
+            if (candidatos.Count == 0) return new Dictionary<string, int>();
+
+            // El tipo de documento se fija en DNI: es lo único que pide la casilla FFT (el carné de
+            // extranjería entra por el formulario del postulante, que sí ofrece los dos).
+            const string sql = """
+                INSERT INTO person (
+                    document_identity_type_id, document_identity_code, full_name, email,
+                    created_date_time, created_user_id, active, state, mostrar_en_boletin)
+                SELECT (SELECT dit.document_identity_type_id
+                          FROM document_identity_type dit
+                         WHERE upper(btrim(dit.document_identity_type_abbreviation)) = 'DNI'
+                           AND dit.state = true
+                         LIMIT 1),
+                       v.doc, upper(btrim(v.nombre)), v.email,
+                       now(), @userId, true, true, true
+                  FROM unnest(@docs::text[], @nombres::text[], @correos::text[])
+                    AS v(doc, nombre, email)
+                ON CONFLICT (document_identity_code) DO UPDATE SET
+                    -- Solo se rellenan huecos: lo que la base maestra ya tenía manda.
+                    full_name                 = coalesce(nullif(btrim(person.full_name), ''), EXCLUDED.full_name),
+                    email                     = coalesce(nullif(btrim(person.email), ''),     EXCLUDED.email),
+                    document_identity_type_id = coalesce(person.document_identity_type_id,    EXCLUDED.document_identity_type_id),
+                    -- La marca de auditoría solo se mueve si de verdad se llenó algo: una ficha ya
+                    -- completa sale de acá exactamente como entró.
+                    updated_date_time = CASE WHEN nullif(btrim(person.full_name), '') IS NULL
+                                               OR nullif(btrim(person.email), '')     IS NULL
+                                               OR person.document_identity_type_id    IS NULL
+                                             THEN now() ELSE person.updated_date_time END,
+                    updated_user_id   = CASE WHEN nullif(btrim(person.full_name), '') IS NULL
+                                               OR nullif(btrim(person.email), '')     IS NULL
+                                               OR person.document_identity_type_id    IS NULL
+                                             THEN @userId ELSE person.updated_user_id END
+                RETURNING person_id, document_identity_code;
+                """;
+
+            var filas = await ctx.Database.GetDbConnection().QueryAsync<PersonFftRow>(
+                sql,
+                new
+                {
+                    docs    = candidatos.Select(v => v.FftCandidatoDocumento!).ToArray(),
+                    nombres = candidatos.Select(v => v.FftCandidatoNombre ?? string.Empty).ToArray(),
+                    correos = candidatos.Select(v => v.FftCandidatoCorreo).ToArray(),
+                    userId,
+                },
+                transaction: ctx.Database.CurrentTransaction?.GetDbTransaction());
+
+            return filas.ToDictionary(f => f.DocumentIdentityCode, f => f.PersonId);
+        }
+
+        /// <summary>Fila que devuelve el upsert de candidatos FFT en <c>person</c>.</summary>
+        private sealed class PersonFftRow
+        {
+            public int PersonId { get; set; }
+            public string DocumentIdentityCode { get; set; } = string.Empty;
         }
 
         public async Task<SolicitudPersonalCreateResultDto> Create(
@@ -3690,15 +3833,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 await using var tx = await ctx.Database.BeginTransactionAsync();
 
-                // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5). El máximo se
-                // busca SOLO dentro del año, así que el correlativo se reinicia solo al cambiar de
-                // año: el 31/12 se cierra en REQ-2026-9874 y el 01/01 arranca en REQ-2027-0001 sin
-                // que haya que correr nada. El año se toma en hora Perú y no en UTC para que el
-                // corte sea la medianoche de acá y no las 19:00 del 31/12.
+                // Correlativo anual del código REQ-AAAA-NNNN (año en hora Perú, UTC-5). Se busca
+                // SOLO dentro del año, así que se reinicia solo al cambiar de año: el 31/12 se
+                // cierra en REQ-2026-9874 y el 01/01 arranca en REQ-2027-0001 sin que haya que
+                // correr nada. El año se toma en hora Perú y no en UTC para que el corte sea la
+                // medianoche de acá y no las 19:00 del 31/12.
                 var anio = now.ToOffset(PeruOffset).Year;
 
-                // Candado por año antes de leer el máximo. La transacción sola NO alcanza: en READ
-                // COMMITTED dos solicitudes simultáneas leen el mismo máximo, arman el mismo código
+                // Candado por año antes de leer los números usados. La transacción sola NO alcanza:
+                // en READ COMMITTED dos solicitudes simultáneas leen lo mismo, arman el mismo código
                 // y la segunda muere con violación del índice único de `codigo` — que no es un error
                 // transitorio, así que la execution strategy tampoco lo reintenta. El candado lo
                 // suelta Postgres al cerrar la transacción, y al ser por año no serializa los
@@ -3706,26 +3849,52 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await ctx.Database.ExecuteSqlInterpolatedAsync(
                     $"SELECT pg_advisory_xact_lock({CorrelativoLockNamespace}, {anio})");
 
-                var maxNumero = await ctx.GthRequerimiento
-                    .Where(r => r.Anio == anio)
-                    .Select(r => (int?)r.Numero)
-                    .MaxAsync() ?? 0;
+                // El número es el MENOR libre del año, no el máximo + 1. La diferencia solo importa
+                // cuando el año tiene huecos, y hoy tiene uno a propósito: la limpieza de la data de
+                // prueba del 2026-08-26 borró todo menos REQ-2026-0015 y REQ-2026-0016 —esos ya
+                // habían salido por correo y no se podían renumerar sin romper el enlace—, así que
+                // el año arranca en 0001 y salta esos dos al llegar.
+                //
+                // No se filtra por State: el índice único de `codigo` tampoco lo hace, así que una
+                // vacante dada de baja sigue ocupando su número. Es una tabla de decenas de filas
+                // por año; traerlas cuesta lo mismo que el MAX.
+                var numerosUsados = (await ctx.GthRequerimiento
+                        .Where(r => r.Anio == anio)
+                        .Select(r => r.Numero)
+                        .ToListAsync())
+                    .ToHashSet();
+
+                var ultimoNumero = 0;
+
+                // Devuelve el siguiente número libre y lo marca como tomado, así dos vacantes del
+                // mismo lote tampoco chocan entre ellas.
+                int SiguienteNumeroLibre()
+                {
+                    while (!numerosUsados.Add(++ultimoNumero)) { }
+                    return ultimoNumero;
+                }
 
                 solicitud.CreatedDateTime = now;
                 solicitud.CreatedUserId   = userId;
                 solicitud.Active          = true;
                 solicitud.State           = true;
 
+                // Los candidatos FFT entran a la base maestra acá mismo, con el pedido: el
+                // solicitante ya declaró su DNI, así que no hay por qué esperar a que llenen su
+                // formulario para que existan. Va adentro de la transacción para que un pedido que
+                // no llega a registrarse tampoco deje personas sueltas.
+                var personIdPorDocumento = await RegistrarPersonasFftAsync(ctx, vacantes, userId);
+
                 foreach (var v in vacantes)
                 {
-                    maxNumero++;
-                    var codigo = $"REQ-{anio}-{maxNumero:D4}";
+                    var numero = SiguienteNumeroLibre();
+                    var codigo = $"REQ-{anio}-{numero:D4}";
                     codigos.Add(codigo);
                     solicitud.Requerimientos.Add(new GthRequerimiento
                     {
                         Codigo                   = codigo,
                         Anio                     = anio,
-                        Numero                   = maxNumero,
+                        Numero                   = numero,
                         PuestoId                 = v.PuestoId!.Value,
                         GthTipoRequerimientoId   = v.TipoRequerimientoId,
                         // Ya normalizado arriba: null en todo lo que no sea un reemplazo.
@@ -3733,11 +3902,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         ProjectId                = v.ProjectId,
                         // Ya validado y redondeado a 2 decimales en el servicio.
                         SalarioBrutoMensual      = v.SalarioBrutoMensual,
-                        // Ya validado en el servicio: el nombre y el correo del candidato solo
-                        // viajan en las vacantes FFT y son obligatorios en ellas.
+                        // Ya validado en el servicio: el nombre, el DNI y el correo del candidato
+                        // solo viajan en las vacantes FFT y son obligatorios en ellas.
                         EsFft                    = v.EsFft,
                         FftCandidatoNombre       = v.EsFft ? v.FftCandidatoNombre : null,
                         FftCandidatoCorreo       = v.EsFft ? v.FftCandidatoCorreo : null,
+                        FftCandidatoDocumento    = v.EsFft ? v.FftCandidatoDocumento : null,
+                        // A qué fila de `person` quedó enganchado el candidato. Siempre hay una en
+                        // una vacante FFT (el upsert de arriba la creó o la encontró).
+                        FftPersonId              = v.EsFft
+                            ? personIdPorDocumento.GetValueOrDefault(v.FftCandidatoDocumento ?? string.Empty)
+                            : null,
                         GthEstadoRequerimientoId = estadoInicialId,
                         GthPrioridadId           = prioridadMediaId,
                         CreatedDateTime          = now,

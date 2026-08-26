@@ -56,6 +56,14 @@
         /// <summary>Nombre del candidato FFT que nombró el solicitante. Null cuando no es FFT.</summary>
         public string? FftCandidatoNombre { get; set; }
 
+        /// <summary>
+        /// DNI del candidato FFT. GTH lo necesita para saber a quién le está mandando el formulario
+        /// cuando hay nombres parecidos, y es el documento con el que el candidato ya quedó
+        /// registrado en la base maestra al pedirse la vacante. Null cuando no es FFT o cuando el
+        /// requerimiento es anterior a que se pidiera el dato.
+        /// </summary>
+        public string? FftCandidatoDocumento { get; set; }
+
         /// <summary>Vacantes de este requerimiento (cada vacante genera un requerimiento → 1).</summary>
         public int Vacantes { get; set; } = 1;
 

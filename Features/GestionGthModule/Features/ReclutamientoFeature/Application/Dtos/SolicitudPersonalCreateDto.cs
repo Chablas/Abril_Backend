@@ -45,14 +45,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// true = la vacante es un ingreso directo <b>FFT</b>: el solicitante ya sabe a quién
-        /// quiere, así que obliga a declarar <see cref="FftCandidatoNombre"/> y
-        /// <see cref="FftCandidatoCorreo"/> y el proceso se salta publicación, revisión de CV, long
-        /// list, entrevistas y finalistas.
+        /// quiere, así que obliga a declarar <see cref="FftCandidatoNombre"/>,
+        /// <see cref="FftCandidatoDocumento"/> y <see cref="FftCandidatoCorreo"/>, y el proceso se
+        /// salta publicación, revisión de CV, long list, entrevistas y finalistas.
         /// </summary>
         public bool EsFft { get; set; }
 
         /// <summary>Nombre completo del candidato FFT. Obligatorio cuando <see cref="EsFft"/>.</summary>
         public string? FftCandidatoNombre { get; set; }
+
+        /// <summary>
+        /// DNI del candidato FFT: 8 dígitos, obligatorio cuando <see cref="EsFft"/>. Es la llave con
+        /// la que el candidato entra a <c>person</c> apenas se registra la solicitud, así que no es
+        /// un dato más del pedido — sin él no habría forma de saber si esa persona ya existe en la
+        /// base maestra y se duplicarían fichas.
+        /// </summary>
+        public string? FftCandidatoDocumento { get; set; }
 
         /// <summary>
         /// Correo personal del candidato FFT: el buzón al que GTH le enviará su formulario.

@@ -36,6 +36,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public DateTimeOffset? GerenteAreaDecididoDateTime { get; set; }
 
+        /// <summary>
+        /// Decisión de GTH sobre esta vacante: true = aprobada; false = rechazada; null = no
+        /// decidió. Solo aplica a las vacantes de ruta <c>AREA_GTH</c> (reemplazos no-FFT), donde va
+        /// de la mano con <see cref="AprobadoGerenteArea"/>: la vacante avanza con las dos en true y
+        /// se rechaza con que una sola diga false.
+        /// </summary>
+        public bool? AprobadoGth { get; set; }
+
+        public DateTimeOffset? GthDecididoDateTime { get; set; }
+
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

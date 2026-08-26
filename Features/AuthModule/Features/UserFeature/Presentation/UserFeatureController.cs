@@ -18,19 +18,45 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
             _service = service;
         }
 
+        /// <summary>
+        /// Carga inicial de la pantalla: opciones del filtro de categoría + primera página de
+        /// la tabla en una sola petición. Los cambios de búsqueda, filtro o página van a
+        /// <c>paged</c>, que ya no necesita reenviar las opciones.
+        /// </summary>
         [Authorize]
-        [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged(
+        [HttpGet("initial")]
+        public async Task<IActionResult> GetInitial(
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10,
-            [FromQuery] string? search = null)
+            [FromQuery] int pageSize = 10)
         {
             try
             {
                 if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page, pageSize, search);
+                var result = await _service.GetInitial(page, pageSize);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("paged")]
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null,
+            [FromQuery] int? categoriaId = null)
+        {
+            try
+            {
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetPaged(page, pageSize, search, categoriaId);
                 return Ok(result);
             }
             catch (Exception)

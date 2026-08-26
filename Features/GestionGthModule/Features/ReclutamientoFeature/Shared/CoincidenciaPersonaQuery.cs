@@ -87,17 +87,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// La ficha que el propio formulario ya escribió (<c>gth_postulante_formulario.person_id</c>)
         /// no cuenta como coincidencia: si no, al reabrir un formulario ya aprobado el aviso diría
         /// «esta persona ya existe» señalando a la ficha que esa misma aprobación acababa de crear.
-        /// La excepción es cuando esa ficha está adentro de la empresa: ahí el aviso se mantiene
-        /// igual, porque el bloqueo de la aprobación no puede depender de si alguien ya aprobó ese
-        /// formulario antes.
+        /// Lo mismo vale para la ficha que registró el propio pedido en un ingreso directo
+        /// (<c>gth_requerimiento.fft_person_id</c>): desde que la casilla FFT pide el DNI, el
+        /// candidato entra a <c>person</c> al crearse la solicitud, así que TODO candidato FFT
+        /// coincidiría consigo mismo y GTH vería el aviso en cada uno.
+        ///
+        /// La excepción es la misma en los dos casos: cuando esa ficha está adentro de la empresa el
+        /// aviso se mantiene igual, porque el bloqueo de la aprobación no puede depender de si
+        /// alguien ya aprobó ese formulario antes ni de por dónde entró el candidato.
         /// </summary>
         private const string Sql = """
             WITH declarado AS (
                 SELECT f.gth_candidato_id,
                        upper(btrim(f.numero_documento)) AS documento,
                        f.person_id                      AS person_id_formulario,
+                       r.fft_person_id                  AS person_id_fft,
                        td.nombre                        AS tipo_documento
                   FROM gth_postulante_formulario f
+                  LEFT JOIN gth_candidato c
+                         ON c.gth_candidato_id = f.gth_candidato_id
+                  LEFT JOIN gth_requerimiento r
+                         ON r.gth_requerimiento_id = c.gth_requerimiento_id
                   LEFT JOIN gth_tipo_documento td
                          ON td.gth_tipo_documento_id = f.gth_tipo_documento_id
                  WHERE f.state
@@ -110,7 +120,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                        d.tipo_documento,
                        p.person_id,
                        p.full_name,
-                       (p.person_id = d.person_id_formulario) AS es_ficha_propia
+                       (p.person_id = d.person_id_formulario
+                        OR p.person_id = d.person_id_fft) AS es_ficha_propia
                   FROM declarado d
                   JOIN person p
                     ON upper(btrim(p.document_identity_code)) = d.documento

@@ -61,6 +61,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private static readonly Regex FftCorreoRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
 
+        /// <summary>
+        /// DNI del candidato FFT: exactamente 8 dígitos, la misma regla con la que el formulario del
+        /// postulante valida el suyo. Tiene que ser la misma porque los dos terminan en la misma
+        /// columna (<c>person.document_identity_code</c>, que tiene UNIQUE): si acá se aceptara un
+        /// formato más suelto, el mismo documento entraría dos veces escrito distinto y quedarían
+        /// dos personas donde hay una.
+        ///
+        /// Solo DNI, no carné de extranjería: la casilla FFT pide DNI y el tipo de documento con el
+        /// que entra a <c>person</c> está fijado a DNI. Un extranjero se registra por el camino
+        /// normal (el formulario del postulante sí ofrece las dos opciones).
+        /// </summary>
+        private static readonly Regex FftDocumentoRegex = new(@"^\d{8}$", RegexOptions.Compiled);
+
         public ReclutamientoService(
             IReclutamientoRepository repo,
             IAprobacionGgRepository aprobacionGgRepo,
@@ -1457,14 +1470,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 v.SalarioBrutoMensual = Math.Round(v.SalarioBrutoMensual.Value, 2, MidpointRounding.AwayFromZero);
 
                 // FFT: el solicitante ya sabe a quién quiere, así que la vacante no vale sin ese
-                // nombre y ese correo — son el único destinatario posible del formulario, que es el
-                // siguiente (y casi único) paso del flujo. Lo que llegue en una vacante que NO es
-                // FFT se descarta: el formulario no lo muestra y guardarlo dejaría un candidato
-                // fantasma en un proceso que sí va a publicar la vacante.
+                // nombre, ese DNI y ese correo — el correo es el único destinatario posible del
+                // formulario (el siguiente y casi único paso del flujo) y el DNI es la llave con la
+                // que el candidato entra a la base maestra apenas se registra el pedido. Lo que
+                // llegue en una vacante que NO es FFT se descarta: el formulario no lo muestra y
+                // guardarlo dejaría un candidato fantasma en un proceso que sí va a publicar la
+                // vacante.
                 if (!v.EsFft)
                 {
-                    v.FftCandidatoNombre = null;
-                    v.FftCandidatoCorreo = null;
+                    v.FftCandidatoNombre    = null;
+                    v.FftCandidatoCorreo    = null;
+                    v.FftCandidatoDocumento = null;
                     continue;
                 }
 
@@ -1476,13 +1492,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     throw new AbrilException(
                         $"Vacante {pos}: el nombre del candidato FFT no puede superar los {MaxFftNombreLength} caracteres.", 400);
 
+                // Se limpian los separadores que se copian junto con el número ("12.345.678",
+                // "12 345 678") antes de exigir el formato: es un dedazo de tipeo, no un DNI mal
+                // declarado, y rechazarlo obligaría al solicitante a adivinar qué está mal.
+                var fftDocumento = new string((v.FftCandidatoDocumento ?? string.Empty)
+                    .Where(char.IsDigit).ToArray());
+                if (!FftDocumentoRegex.IsMatch(fftDocumento))
+                    throw new AbrilException(
+                        $"Vacante {pos}: debe indicar el DNI del candidato FFT (8 dígitos).", 400);
+
                 var fftCorreo = v.FftCandidatoCorreo?.Trim().ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(fftCorreo) || !FftCorreoRegex.IsMatch(fftCorreo))
                     throw new AbrilException(
                         $"Vacante {pos}: debe indicar un correo personal válido del candidato FFT.", 400);
 
-                v.FftCandidatoNombre = fftNombre;
-                v.FftCandidatoCorreo = fftCorreo;
+                v.FftCandidatoNombre    = fftNombre;
+                v.FftCandidatoDocumento = fftDocumento;
+                v.FftCandidatoCorreo    = fftCorreo;
             }
 
             // Área del solicitante: se deriva del usuario autenticado (no se confía en el cliente).

@@ -36,8 +36,19 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             _graphUserService = graphUserService;
         }
 
-        public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null) =>
-            _repo.GetPaged(page, pageSize, search);
+        public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null, int? categoriaId = null) =>
+            _repo.GetPaged(page, pageSize, search, categoriaId);
+
+        /// <summary>
+        /// Carga inicial de la pantalla: opciones del filtro + primera página de la tabla en
+        /// una sola llamada. Secuencial y no con Task.WhenAll a propósito, para no tomar dos
+        /// conexiones de la base de datos a la vez.
+        /// </summary>
+        public async Task<UserListInitialDto> GetInitial(int page, int pageSize) => new()
+        {
+            Categorias = await _repo.GetCategoriaOptions(),
+            Users = await _repo.GetPaged(page, pageSize),
+        };
 
         public Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser() =>
             _repo.GetAbrilWorkersWithoutUser();

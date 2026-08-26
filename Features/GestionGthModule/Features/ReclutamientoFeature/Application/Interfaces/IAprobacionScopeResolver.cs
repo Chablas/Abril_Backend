@@ -5,10 +5,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// </summary>
     /// <param name="Nivel">
     /// <see cref="Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.AprobacionNivel"/>:
-    /// GERENTE_GENERAL, GERENTE_AREA o NINGUNO.
+    /// GERENTE_GENERAL, GERENTE_AREA, GTH o NINGUNO.
     /// </param>
     /// <param name="VeTodo">
-    /// true solo para el Gerente General: no se filtra por área. Cuando es true,
+    /// true para el Gerente General y para GTH: no se filtra por área. El GG porque decide todas
+    /// las vacantes nuevas de la empresa y GTH porque decide todos los reemplazos. Cuando es true,
     /// <paramref name="AreaScopeIds"/> viene vacío (no hay nada que filtrar).
     /// </param>
     /// <param name="AreaScopeIds">

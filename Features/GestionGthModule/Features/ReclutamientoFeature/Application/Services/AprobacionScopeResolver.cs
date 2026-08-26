@@ -16,8 +16,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     ///      <c>ReclutamientoRepository.GetGerenteDeArea</c> lo elige como destinatario del correo,
     ///      pero al revés: allá se sube desde el solicitante hasta encontrarlo, acá se baja desde él.
     ///      Por eso alcanza a las solicitudes de las áreas que cuelgan de su gerencia.
-    ///   3. Cualquier otra categoría → nada. Entra a la pantalla porque su rol se lo permite, pero
-    ///      no hay solicitudes bajo su alcance.
+    ///   3. <b>GTH</b> → cualquier ficha cuyo <c>area_scope_id</c> sea el nodo de Gestión del
+    ///      Talento Humano. Ve todo, como el GG, porque los reemplazos que decide son de toda la
+    ///      empresa. Es el único nivel que no mira la categoría: acá no se aprueba como jefatura
+    ///      sino como el área dueña del proceso, así que sirve cualquiera de sus integrantes.
+    ///   4. Cualquier otro caso → nada. Entra a la pantalla porque su rol se lo permite, pero no hay
+    ///      solicitudes bajo su alcance.
+    ///
+    /// El orden importa cuando alguien cae en dos reglas — un gerente que además esté registrado en
+    /// el área de GTH: gana la jefatura, que es el nivel con más alcance de los dos.
     ///
     /// La categoría se compara por id y las áreas por árbol, nunca por nombre: renombrar una
     /// categoría desde Configuración no puede apagar esta regla en silencio.
@@ -66,7 +73,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Distinct()
                 .ToList();
 
-            if (nodosGerente.Count == 0) return AprobacionScope.Ninguno();
+            // 3) GTH: se pregunta después de la jefatura porque un gerente registrado en el área de
+            //    GTH tiene que seguir entrando como gerente, que alcanza más. Ve todo (los
+            //    reemplazos que decide son de toda la empresa), así que no necesita el árbol.
+            if (nodosGerente.Count == 0)
+            {
+                return fichas.Any(f => f.AreaScopeId == AreaScopeIds.GestionDelTalentoHumano)
+                    ? new AprobacionScope(AprobacionNivel.Gth, true, new HashSet<int>(), null)
+                    : AprobacionScope.Ninguno();
+            }
 
             // El árbol es una tabla chica: se arma en memoria, igual que en SalidaVisibilityResolver
             // y en GetGerenteDeArea.

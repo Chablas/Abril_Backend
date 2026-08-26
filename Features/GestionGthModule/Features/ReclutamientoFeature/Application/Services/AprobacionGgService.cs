@@ -15,18 +15,22 @@ using Textos = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFea
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
     /// <summary>
-    /// Aprobación de la solicitud de personal, en dos niveles.
+    /// Aprobación de la solicitud de personal. Quién firma lo decide el TIPO de cada vacante, no la
+    /// solicitud completa (ver <see cref="RutaAprobacion"/>):
     ///
-    /// Flujo: el solicitante registra la solicitud → UN solo correo al Gerente General y al gerente
-    /// del área del solicitante, con todas sus vacantes y un enlace a la pantalla «Aprobaciones»
-    /// del módulo Gestión GTH → cada uno decide ahí (con su sesión; si no la tiene, el login lo
-    /// devuelve a esa misma pantalla) → cuando la decisión es la de <b>Gerencia General</b> recién
-    /// ahí se le notifica a GTH y a TI, y solo lo aprobado.
+    /// <list type="bullet">
+    ///   <item><b>Vacante nueva o FFT</b> → la firma Gerencia General, y su firma sola la mueve.</item>
+    ///   <item><b>Reemplazo</b> → la firman el gerente del área del solicitante Y GTH; la vacante
+    ///   avanza recién con las dos, y se cae apenas una diga que no.</item>
+    /// </list>
     ///
-    /// Los dos niveles son independientes y sin orden impuesto. El visto bueno del gerente del área
-    /// es redundante por diseño: queda registrado, se muestra en la pantalla y viaja como contexto
-    /// en el correo a GTH, pero no mueve el pipeline ni dispara correos. La aprobación de Gerencia
-    /// General es la obligatoria para toda solicitud.
+    /// Flujo: el solicitante registra la solicitud → sale un correo por ruta con vacantes (hasta
+    /// dos, si la solicitud mezcla tipos), cada uno listando solo las suyas y con un enlace a la
+    /// pantalla «Aprobaciones» del módulo Gestión GTH → cada firmante decide ahí (con su sesión; si
+    /// no la tiene, el login lo devuelve a esa misma pantalla) → en cuanto una vacante junta todas
+    /// las firmas de su ruta se le notifica a GTH y a TI.
+    ///
+    /// Las firmas son independientes y sin orden impuesto entre ellas.
     ///
     /// El enlace del correo NO ejecuta la decisión: abre la solicitud y la decisión se confirma
     /// dentro de la app. Es a propósito — los clientes de correo (Outlook/Safe Links) precargan
@@ -60,7 +64,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _logger         = logger;
         }
 
-        // ── Envío al Gerente General ──────────────────────────────────────────
+        // ── Envío a quien tenga que aprobar ───────────────────────────────────
+        /// <summary>
+        /// Manda la solicitud a aprobar. Ya no es un solo correo: cada vacante va por su ruta según
+        /// el tipo de requerimiento, así que salen hasta DOS —el de Gerencia General con las
+        /// vacantes nuevas y las FFT, y el del gerente del área + GTH con los reemplazos—, cada uno
+        /// listando solo las suyas. Una solicitud de un solo tipo dispara uno solo.
+        ///
+        /// Devuelve true solo si salió TODO lo que tenía que salir: con dos rutas y una sin
+        /// destinatarios configurados, la solicitud queda a medio avisar y el solicitante tiene que
+        /// verlo para poder reenviarla.
+        /// </summary>
         public async Task<bool> EnviarSolicitudAGerencia(int solicitudId, int? userId)
         {
             try
@@ -69,29 +83,81 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // acceso a nada: la decisión se toma dentro de la app, con sesión.
                 var nuevoToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
                 var ctx  = await _repo.PrepararEnvio(solicitudId, nuevoToken, userId);
-                // Lo que esté activo en la sección "Aprobación GG" de la Configuración:
-                // Gerente General, gerente del área del solicitante y correos adicionales.
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.AprobacionGg, ctx.AreaScopeId);
 
-                if (dest.Para.Count == 0)
-                {
-                    _logger.LogWarning(
-                        "No hay destinatarios para el correo de aprobación de Gerencia General " +
-                        "(solicitud {SolicitudId}); no se envía. El solicitante puede reintentarlo con «Reenviar a Gerencia General».",
-                        solicitudId);
-                    return false;
-                }
-
-                await EnviarCorreoAsync(ctx, dest.EmailsPara, dest.EmailsCopias, esReenvio: false, userId);
-                return true;
+                var todosSalieron = await EnviarPorRutasAsync(ctx, esReenvio: false, userId);
+                return todosSalieron;
             }
             catch (Exception ex)
             {
                 // La solicitud ya quedó registrada: un fallo del correo no la revierte. El
                 // solicitante lo reintenta desde su panel.
-                _logger.LogWarning(ex, "No se pudo enviar el correo de aprobación de Gerencia General de la solicitud {SolicitudId}", solicitudId);
+                _logger.LogWarning(ex, "No se pudieron enviar los correos de aprobación de la solicitud {SolicitudId}", solicitudId);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// El envío (o reenvío) de los correos de aprobación de una solicitud, uno por ruta con
+        /// vacantes pendientes. Registra UN solo envío en la aprobación con la unión de todos los
+        /// destinatarios: la columna es una y lo que interesa es a quién se le avisó.
+        /// </summary>
+        /// <returns>true si salieron todos los correos que correspondían.</returns>
+        private async Task<bool> EnviarPorRutasAsync(
+            AprobacionGgEnvioContextoDto ctx, bool esReenvio, int? userId)
+        {
+            var principales = new List<string>();
+            var copias      = new List<string>();
+            var esperados   = 0;
+            var enviados    = 0;
+
+            // En el reenvío solo se repite lo que sigue pendiente: volver a pedirle su firma a quien
+            // ya la dio es ruido. En el primer envío las dos rutas están pendientes por definición.
+            foreach (var ruta in RutasAEnviar(ctx, esReenvio))
+            {
+                esperados++;
+                var dest = await _destinatarios.ResolverAsync(ruta.TipoCorreo, ctx.AreaScopeId);
+                if (dest.Para.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "No hay destinatarios para el correo {Tipo} de la solicitud {SolicitudId}; no se envía. " +
+                        "El solicitante puede reintentarlo desde «Mis solicitudes de vacante».",
+                        ruta.TipoCorreo, ctx.SolicitudId);
+                    continue;
+                }
+
+                await EnviarCorreoRutaAsync(ctx, ruta.Vacantes, dest, esReenvio);
+                principales.AddRange(dest.EmailsPara);
+                copias.AddRange(dest.EmailsCopias);
+                enviados++;
+            }
+
+            if (enviados > 0)
+            {
+                await _repo.RegistrarEnvio(
+                    ctx.AprobacionId, principales.Distinct().ToList(), copias.Distinct().ToList(), esReenvio, userId);
+                await CrearNotificacionAprobacionAsync(ctx, principales, copias, userId);
+            }
+
+            return esperados > 0 && enviados == esperados;
+        }
+
+        /// <summary>
+        /// Las rutas que hay que avisar: la de Gerencia General si la solicitud trae vacantes nuevas
+        /// o FFT, y la del gerente del área + GTH si trae reemplazos. En un reenvío se descartan las
+        /// que ya tienen todas sus firmas.
+        /// </summary>
+        private static List<(string TipoCorreo, List<AprobacionGgVacanteDto> Vacantes)> RutasAEnviar(
+            AprobacionGgEnvioContextoDto ctx, bool esReenvio)
+        {
+            var rutas = new List<(string, List<AprobacionGgVacanteDto>)>();
+
+            if (ctx.VacantesGg.Count > 0 && (!esReenvio || ctx.PendienteGg))
+                rutas.Add((CorreoTipoReclutamiento.AprobacionGg, ctx.VacantesGg));
+
+            if (ctx.VacantesReemplazo.Count > 0 && (!esReenvio || ctx.PendienteReemplazo))
+                rutas.Add((CorreoTipoReclutamiento.AprobacionReemplazo, ctx.VacantesReemplazo));
+
+            return rutas;
         }
 
         // ── FFT pedido por el propio Gerente General ──────────────────────────
@@ -152,30 +218,46 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var ctx = await _repo.GetEnvioContextoByRequerimiento(requerimientoId, userId.Value);
             if (ctx == null)
                 throw new AbrilException("No se encontró la aprobación de esta solicitud.", 404);
-            // Solo cierra la decisión del GG: mientras ella siga pendiente, reenviar tiene sentido
-            // aunque el gerente del área ya haya dado su visto bueno.
-            if (ctx.Decidida)
-                throw new AbrilException("Gerencia General ya decidió sobre esta solicitud.", 409);
 
-            // Mismos destinatarios que el primer envío.
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.AprobacionGg, ctx.AreaScopeId);
-            if (dest.Para.Count == 0)
-                throw new AbrilException(
-                    "No hay destinatarios activos para el correo de Gerencia General. " +
-                    "Revísalos en «Configuración» (sección «Aprobación de Gerencia General») e inténtalo de nuevo.", 409);
+            // Se reenvía lo que siga esperando una firma. Con las dos rutas ya cerradas no queda
+            // nada que recordar y decirlo es mejor que mandar un correo que nadie tiene que atender.
+            var rutas = RutasAEnviar(ctx, esReenvio: true);
+            if (rutas.Count == 0)
+                throw new AbrilException("Esta solicitud ya fue decidida: no queda nada por reenviar.", 409);
 
-            var principales = dest.EmailsPara;
-
-            // Reenvío bloqueante: el usuario lo pidió explícitamente, así que si falla debe saberlo.
-            try
+            // Mismos destinatarios que el primer envío, resueltos ruta por ruta.
+            var principales = new List<string>();
+            var copias      = new List<string>();
+            foreach (var ruta in rutas)
             {
-                await EnviarCorreoAsync(ctx, principales, dest.EmailsCopias, esReenvio: true, userId);
+                var dest = await _destinatarios.ResolverAsync(ruta.TipoCorreo, ctx.AreaScopeId);
+                if (dest.Para.Count == 0)
+                    throw new AbrilException(
+                        "No hay destinatarios activos para el correo de aprobación. " +
+                        "Revísalos en «Configuración» de Solicitud de Personal e inténtalo de nuevo.", 409);
+
+                // Reenvío bloqueante: el usuario lo pidió explícitamente, así que si falla debe saberlo.
+                try
+                {
+                    await EnviarCorreoRutaAsync(ctx, ruta.Vacantes, dest, esReenvio: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Falló el reenvío del correo {Tipo} (requerimiento {RequerimientoId})",
+                        ruta.TipoCorreo, requerimientoId);
+                    throw new AbrilException("No se pudo enviar el correo de aprobación. Vuelve a intentarlo.", 502);
+                }
+
+                principales.AddRange(dest.EmailsPara);
+                copias.AddRange(dest.EmailsCopias);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló el reenvío del correo de aprobación de Gerencia General (requerimiento {RequerimientoId})", requerimientoId);
-                throw new AbrilException("No se pudo enviar el correo a Gerencia General. Vuelve a intentarlo.", 502);
-            }
+
+            principales = principales.Distinct().ToList();
+            copias      = copias.Distinct().ToList();
+
+            await _repo.RegistrarEnvio(ctx.AprobacionId, principales, copias, esReenvio: true, userId);
+            await CrearNotificacionAprobacionAsync(ctx, principales, copias, userId);
 
             return new AprobacionGgReenvioResultDto
             {
@@ -185,28 +267,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Envía el correo del GG, deja registrado el envío (destinatarios + fecha) y crea la
-        /// notificación in-app para los destinatarios que sean usuarios del sistema.
+        /// Envía el correo de UNA ruta, con solo las vacantes de esa ruta. El registro del envío y
+        /// la campanita van aparte (una sola vez por solicitud, aunque salgan los dos correos): son
+        /// de la solicitud, no del correo.
         /// </summary>
-        private async Task EnviarCorreoAsync(
-            AprobacionGgEnvioContextoDto ctx, List<string> principales, List<string> copias, bool esReenvio, int? userId)
+        private async Task EnviarCorreoRutaAsync(
+            AprobacionGgEnvioContextoDto ctx,
+            List<AprobacionGgVacanteDto> vacantes,
+            SolicitudDestinatariosDto dest,
+            bool esReenvio)
         {
-            var asunto = ctx.Vacantes.Count == 1
-                ? $"[Reclutamiento] Aprobación de vacante — {ctx.Vacantes[0].Codigo}"
-                : $"[Reclutamiento] Aprobación de {ctx.Vacantes.Count} vacantes — {ctx.Area}";
+            var asunto = vacantes.Count == 1
+                ? $"[Reclutamiento] Aprobación de vacante — {vacantes[0].Codigo}"
+                : $"[Reclutamiento] Aprobación de {vacantes.Count} vacantes — {ctx.Area}";
             if (esReenvio) asunto = $"[Recordatorio] {asunto}";
 
             await _email.SendAsync(
-                to:      principales,
+                to:      dest.EmailsPara,
                 subject: asunto,
-                body:    ConstruirCuerpoGerencia(ctx, esReenvio),
+                body:    ConstruirCuerpoGerencia(ctx, vacantes, esReenvio),
                 isHtml:  true,
-                cc:      copias.Count > 0 ? copias : null);
+                cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
+        }
 
-            await _repo.RegistrarEnvio(ctx.AprobacionId, principales, copias, esReenvio, userId);
-
-            // Campanita para los destinatarios que sí tengan usuario (los buzones grupales se ignoran).
-            // Una sola notificación por solicitud: es un único pendiente de decisión, no uno por vacante.
+        /// <summary>
+        /// Campanita para los destinatarios que sí tengan usuario (los buzones grupales se ignoran).
+        /// Una sola notificación por solicitud aunque hayan salido los dos correos: para quien la
+        /// recibe es un único pendiente —entrar a «Aprobaciones» y decidir lo suyo—, y partirla en
+        /// dos solo duplicaría el aviso al gerente de un área que pidió de los dos tipos.
+        /// </summary>
+        private async Task CrearNotificacionAprobacionAsync(
+            AprobacionGgEnvioContextoDto ctx, List<string> principales, List<string> copias, int? userId)
+        {
             try
             {
                 var resumen = ctx.Vacantes.Count == 1
@@ -214,7 +306,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : $"{ctx.Vacantes.Count} vacantes";
                 await _notificaciones.CrearPorCorreosAsync(
                     NotificacionTipoCodigo.GthAprobacionGg,
-                    principales.Concat(copias).ToList(),
+                    principales.Concat(copias).Distinct().ToList(),
                     userId,
                     new List<NuevaNotificacionDto>
                     {
@@ -229,7 +321,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la aprobación de Gerencia General (solicitud {SolicitudId})", ctx.SolicitudId);
+                _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la aprobación (solicitud {SolicitudId})", ctx.SolicitudId);
             }
         }
 
@@ -244,17 +336,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : "—";
 
         /// <summary>
-        /// Cuerpo del correo a los gerentes: la solicitud completa en una tabla + un acceso a la
-        /// pantalla «Aprobaciones», donde cada uno decide vacante por vacante. Es UN solo correo
-        /// con varios destinatarios (Gerente General y gerente del área), así que el texto no puede
-        /// hablarle a uno solo: dentro de la pantalla cada quien ve su propia casilla. Por eso el
-        /// correo no explica el flujo de aprobación ni qué hace el botón — solo lleva los datos de
-        /// la solicitud y el acceso.
+        /// Cuerpo del correo de aprobación: las vacantes de ESA ruta en una tabla + un acceso a la
+        /// pantalla «Aprobaciones», donde cada uno decide vacante por vacante. El mismo cuerpo sirve
+        /// para las dos rutas porque el texto no le habla a nadie en particular —dentro de la
+        /// pantalla cada quien ve su propia casilla—, y lo que cambia entre una y otra es a quién se
+        /// le manda y qué vacantes lleva, no cómo se ve.
         ///
         /// El HTML vive en <see cref="AprobacionGgEmailTemplate"/>, con la misma identidad visual
         /// que el correo de «EMO Confirmado».
         /// </summary>
-        private string ConstruirCuerpoGerencia(AprobacionGgEnvioContextoDto ctx, bool esReenvio)
+        private string ConstruirCuerpoGerencia(
+            AprobacionGgEnvioContextoDto ctx, List<AprobacionGgVacanteDto> vacantesDeLaRuta, bool esReenvio)
         {
             // El origen de las imágenes es una clave aparte de App:FrontendUrl a propósito: Outlook
             // no las descarga desde el cliente sino a través del proxy de imágenes de Microsoft, que
@@ -265,7 +357,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ?? _configuration["App:FrontendUrl"]
                 ?? "https://intranet.abril.pe";
 
-            var vacantes = ctx.Vacantes
+            var vacantes = vacantesDeLaRuta
                 .Select(v => new AprobacionGgEmailTemplate.Vacante(
                     Codigo:       v.Codigo,
                     Puesto:       v.Puesto,
@@ -299,9 +391,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static readonly IReadOnlyList<Layout.Columna> ColumnasFft = new List<Layout.Columna>
         {
             new("Código", 104),
-            new("Puesto", 104),
-            new("Candidato", 132),
-            new("Correo personal", 148),
+            new("Puesto", 96),
+            new("Candidato", 124),
+            new("DNI", 72, Layout.Alineacion.Derecha),
+            new("Correo personal", 140),
             new("Salario bruto", 92, Layout.Alineacion.Derecha),
         };
 
@@ -364,8 +457,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Filas de la tabla de los correos FFT: el candidato que nombró el solicitante, con su
-        /// correo personal (que es el buzón al que GTH le va a mandar el formulario).
+        /// Filas de la tabla de los correos FFT: el candidato que nombró el solicitante, con su DNI
+        /// (lo que lo identifica sin ambigüedad y con lo que ya quedó registrado en la base maestra)
+        /// y su correo personal (el buzón al que GTH le va a mandar el formulario).
         /// </summary>
         private static List<IReadOnlyList<Layout.Celda>> FilasFft(
             IReadOnlyList<AprobacionGgVacanteDto> vacantes) =>
@@ -375,6 +469,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     new(Layout.Esc(v.Codigo), Negrita: true, Color: Layout.Azul, NoWrap: true),
                     new(Layout.Esc(v.Puesto)),
                     new(Textos.OGuion(v.FftCandidatoNombre), Negrita: true),
+                    new(Textos.OGuion(v.FftCandidatoDocumento), NoWrap: true),
                     new(Textos.OGuion(v.FftCandidatoCorreo)),
                     new(Layout.Esc(SalarioTexto(v)), Negrita: true, NoWrap: true),
                 })
@@ -572,13 +667,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             else
             {
-                // El visto bueno del área no manda nada a GTH: el mensaje lo dice para que el
-                // gerente no se quede esperando un correo que no sale.
-                res.Message = res.Aprobados == 0
-                    ? "Visto bueno registrado: observaste todas las vacantes. Gerencia General verá tu postura al decidir."
-                    : res.Rechazados == 0
-                        ? $"Visto bueno registrado: aprobaste {res.Aprobados} vacante(s). La solicitud continúa a la espera de la aprobación de Gerencia General."
-                        : $"Visto bueno registrado: aprobaste {res.Aprobados} vacante(s) y observaste {res.Rechazados}. Gerencia General verá tu postura al decidir.";
+                // Ruta de reemplazo: la firma del gerente del área y la de GTH mandan juntas. Lo que
+                // aprobó ESTA decisión puede haber salido ya a GTH (si la otra firma estaba puesta)
+                // o quedar esperándola, así que el mensaje se arma con lo que realmente se movió y
+                // no con lo que el usuario marcó.
+                var salieron  = ctx.Aprobadas.Count;
+                var esperando = res.Aprobados - salieron;
+                var faltante  = res.Nivel == AprobacionNivel.Gth ? "el gerente del área" : "GTH";
+
+                if (res.Aprobados == 0)
+                {
+                    res.Message = "Decisión registrada: rechazaste todas las vacantes. Ninguna continúa.";
+                }
+                else
+                {
+                    var partes = new List<string> { $"Decisión registrada: aprobaste {res.Aprobados} vacante(s)" };
+                    if (res.Rechazados > 0) partes.Add($" y rechazaste {res.Rechazados}");
+                    partes.Add(". ");
+                    partes.Add(salieron > 0
+                        ? $"{salieron} ya se enviaron a Gestión de Talento Humano"
+                        : string.Empty);
+                    if (salieron > 0 && esperando > 0) partes.Add(" y ");
+                    partes.Add(esperando > 0
+                        ? $"{esperando} esperan la aprobación de {faltante}"
+                        : string.Empty);
+                    partes.Add(".");
+                    res.Message = string.Concat(partes);
+                }
             }
 
             return res;
@@ -689,9 +804,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : $"Rechazaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Ninguna continúa y no se enviaron a Gestión de Talento Humano.{omitidas}";
             }
 
+            var faltante = res.Nivel == AprobacionNivel.Gth ? "el gerente del área" : "GTH";
             return res.Aprobado
-                ? $"Visto bueno registrado en {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Avanzan recién con la aprobación de Gerencia General.{omitidas}"
-                : $"Observaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Gerencia General verá tu postura al decidir.{omitidas}";
+                ? $"Aprobaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Cada vacante pasa a Gestión de Talento Humano en cuanto tenga también la aprobación de {faltante}.{omitidas}"
+                : $"Rechazaste {res.Solicitudes} solicitud(es) ({res.Vacantes} vacante(s)). Ninguna continúa.{omitidas}";
         }
 
         /// <summary>

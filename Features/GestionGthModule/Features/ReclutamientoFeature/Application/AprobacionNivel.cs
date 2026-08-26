@@ -12,19 +12,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public static class AprobacionNivel
     {
         /// <summary>
-        /// Gerencia General (<c>categoria_id</c> = GERENTE GENERAL). Ve TODAS las solicitudes y su
-        /// decisión es la obligatoria: mueve las vacantes y dispara el correo a GTH.
+        /// Gerencia General (<c>categoria_id</c> = GERENTE GENERAL). Ve TODAS las solicitudes y
+        /// decide las vacantes de ruta <see cref="RutaAprobacion.GerenciaGeneral"/> — las nuevas y
+        /// las FFT. Su firma sola las mueve y dispara el correo a GTH.
         /// </summary>
         public const string GerenteGeneral = "GERENTE_GENERAL";
 
         /// <summary>
-        /// Gerente de área (<c>categoria_id</c> = GERENTE). Ve y decide solo las solicitudes de su
-        /// <c>area_scope</c> hacia abajo. Su decisión es un visto bueno: no mueve el flujo.
+        /// Gerente de área (<c>categoria_id</c> = GERENTE). Ve las solicitudes de su
+        /// <c>area_scope</c> hacia abajo y decide las vacantes de ruta
+        /// <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos. Ya no da un visto bueno sobre
+        /// los requerimientos nuevos: esos salieron de su circuito.
         /// </summary>
         public const string GerenteArea = "GERENTE_AREA";
 
         /// <summary>
-        /// Cualquier otra categoría. Tiene acceso a la pantalla por su rol, pero no hay solicitudes
+        /// Gestión del Talento Humano: cualquier trabajador ACTIVO cuyo <c>area_scope_id</c> sea el
+        /// nodo de GTH (<see cref="Abril_Backend.Shared.Constants.AreaScopeIds.GestionDelTalentoHumano"/>).
+        /// Es el único nivel que NO sale de la categoría del puesto sino del área: GTH no aprueba
+        /// como jefatura sino como el área dueña del proceso, y quien esté ahí adentro sirve.
+        ///
+        /// Decide las vacantes de ruta <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos — a la
+        /// par del gerente del área: una vacante de reemplazo avanza recién con las DOS firmas.
+        /// Ve los reemplazos de toda la empresa, no solo los de su área.
+        /// </summary>
+        public const string Gth = "GTH";
+
+        /// <summary>
+        /// Cualquier otro caso. Tiene acceso a la pantalla por su rol, pero no hay solicitudes
         /// bajo su alcance: la ve vacía y no puede decidir nada.
         /// </summary>
         public const string Ninguno = "NINGUNO";

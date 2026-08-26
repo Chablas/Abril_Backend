@@ -51,8 +51,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (aprobacion == null)
             {
-                // Las dos casillas nacen pendientes: el correo les llega a ambos gerentes a la vez
-                // y cualquiera puede decidir primero.
+                // Las tres casillas nacen pendientes, decida quien decida después: cuál de ellas
+                // cuenta lo deciden los tipos de las vacantes, y eso se evalúa al leer. Una
+                // solicitud sin reemplazos deja las de área y GTH en pendiente para siempre, y eso
+                // no significa nada — la pantalla ni las muestra.
                 var pendienteId = await ResolveEstadoId(ctx, AprobacionGgEstadoCodigo.Pendiente);
                 aprobacion = new GthAprobacionGg
                 {
@@ -60,6 +62,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Token                  = nuevoToken,
                     EstadoGerenteGeneralId = pendienteId,
                     EstadoGerenteAreaId    = pendienteId,
+                    EstadoGthId            = pendienteId,
                     CreatedDateTime        = now,
                     CreatedUserId          = userId,
                     Active                 = true,
@@ -149,10 +152,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Justificacion     = solicitud.Justificacion,
                 SustentoNombre    = solicitud.SustentoNombre,
                 SustentoUrl       = solicitud.SustentoUrl,
-                // La fecha de decisión y el estado se escriben juntos, así que basta con una para
-                // saber si el GG ya cerró la solicitud (evita un join extra solo para leer el
-                // código del estado). El visto bueno del área no cuenta: no cierra nada.
-                Decidida          = aprobacion.GerenteGeneralDecididoDateTime.HasValue,
+                // La fecha de decisión y el estado se escriben juntos, así que basta con la fecha
+                // para saber si esa casilla ya cerró (evita tres joins solo para leer códigos de
+                // estado). Las tres viajan porque cada ruta se cierra por su lado: una solicitud
+                // mixta puede tener los nuevos ya aprobados y los reemplazos todavía esperando.
+                DecididaGg          = aprobacion.GerenteGeneralDecididoDateTime.HasValue,
+                DecididaGerenteArea = aprobacion.GerenteAreaDecididoDateTime.HasValue,
+                DecididaGth         = aprobacion.GthDecididoDateTime.HasValue,
                 Vacantes          = await QueryVacantes(ctx, aprobacion.GthAprobacionGgId, aprobacion.GthSolicitudId),
             };
         }
@@ -184,15 +190,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Codigo                 = r.Codigo,
                     Puesto                 = p.Nombre,
                     TipoRequerimiento      = t.Nombre,
+                    // El código además del nombre: es lo que decide la ruta de aprobación de la
+                    // vacante (ver AprobacionGgVacanteDto.Ruta).
+                    TipoRequerimientoCodigo = t.Codigo,
                     TrabajadorReemplazado  = wr == null ? null
                         : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
                     ProyectoObra           = pr.ProjectDescription,
                     SalarioBrutoMensual    = r.SalarioBrutoMensual,
                     EsFft                  = r.EsFft,
                     FftCandidatoNombre     = r.FftCandidatoNombre,
+                    FftCandidatoDocumento  = r.FftCandidatoDocumento,
                     FftCandidatoCorreo     = r.FftCandidatoCorreo,
                     AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
+                    AprobadoGth            = d != null ? d.AprobadoGth : null,
                 }).ToListAsync();
         }
 
@@ -227,7 +238,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Justificacion     = solicitud.Justificacion,
                 SustentoNombre    = solicitud.SustentoNombre,
                 SustentoUrl       = solicitud.SustentoUrl,
-                Decidida          = false,
                 Vacantes          = await QueryVacantes(ctx, aprobacionId: 0, solicitudId),
             };
         }
@@ -284,12 +294,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       && (scope.VeTodo || (s.AreaScopeId != null && areaIds.Contains(s.AreaScopeId.Value)))
                 join egg in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGerenteGeneralId equals egg.GthAprobacionGgEstadoId
                 join ega in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGerenteAreaId equals ega.GthAprobacionGgEstadoId
+                join egt in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGthId equals egt.GthAprobacionGgEstadoId
                 join ps in ctx.Person.AsNoTracking() on s.SolicitanteUserId equals ps.UserId into solicitanteJoin
                 from ps in solicitanteJoin.DefaultIfEmpty()
                 join pgg in ctx.Person.AsNoTracking() on a.GerenteGeneralDecididoUserId equals pgg.UserId into ggJoin
                 from pgg in ggJoin.DefaultIfEmpty()
                 join pga in ctx.Person.AsNoTracking() on a.GerenteAreaDecididoUserId equals pga.UserId into gaJoin
                 from pga in gaJoin.DefaultIfEmpty()
+                join pgt in ctx.Person.AsNoTracking() on a.GthDecididoUserId equals pgt.UserId into gthJoin
+                from pgt in gthJoin.DefaultIfEmpty()
                 orderby a.GthAprobacionGgId descending
                 select new
                 {
@@ -310,6 +323,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     GaDecididoEn   = a.GerenteAreaDecididoDateTime,
                     GaDecididoPor  = pga != null ? pga.FullName : null,
                     GaComentario   = a.GerenteAreaComentario,
+
+                    GtEstadoCodigo = egt.Codigo,
+                    GtEstadoNombre = egt.Nombre,
+                    GtDecididoEn   = a.GthDecididoDateTime,
+                    GtDecididoPor  = pgt != null ? pgt.FullName : null,
+                    GtComentario   = a.GthComentario,
                 }).ToListAsync();
 
             if (cabeceras.Count == 0) return bandeja;
@@ -326,6 +345,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where ids.Contains(a.GthAprobacionGgId)
                 join r in ctx.GthRequerimiento.AsNoTracking() on a.GthSolicitudId equals r.GthSolicitudId
                 where r.State
+                join t in ctx.GthTipoRequerimiento.AsNoTracking() on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join d in ctx.GthAprobacionGgDetalle.AsNoTracking().Where(x => x.State)
                     on new { A = a.GthAprobacionGgId, R = r.GthRequerimientoId }
                     equals new { A = d.GthAprobacionGgId, R = d.GthRequerimientoId } into detalleJoin
@@ -335,16 +355,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     a.GthAprobacionGgId,
                     r.Codigo,
-                    AprobadoGg = d != null ? d.AprobadoGerenteGeneral : null,
-                    AprobadoGa = d != null ? d.AprobadoGerenteArea : null,
+                    r.EsFft,
+                    TipoCodigo  = t.Codigo,
+                    AprobadoGg  = d != null ? d.AprobadoGerenteGeneral : null,
+                    AprobadoGa  = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGt  = d != null ? d.AprobadoGth : null,
                 }).ToListAsync();
 
             var porAprobacion = vacantes.ToLookup(v => v.GthAprobacionGgId);
-            var esGg = scope.Nivel == AprobacionNivel.GerenteGeneral;
 
             bandeja.Aprobaciones = cabeceras.Select(c =>
             {
-                var vs = porAprobacion[c.GthAprobacionGgId].ToList();
+                var vs = porAprobacion[c.GthAprobacionGgId]
+                    .Select(v => new { v.Codigo, v.AprobadoGg, v.AprobadoGa, v.AprobadoGt,
+                                       Ruta = RutaAprobacion.De(v.EsFft, v.TipoCodigo) })
+                    .ToList();
+
+                // Cada casilla cuenta solo sus vacantes: en una solicitud mixta, "2 aprobadas" del
+                // GG son sus dos vacantes nuevas, no las cuatro de la solicitud.
+                var deGg   = vs.Where(v => v.Ruta == RutaAprobacion.GerenciaGeneral).ToList();
+                var deArea = vs.Where(v => v.Ruta == RutaAprobacion.AreaYGth).ToList();
 
                 var gg = new AprobacionNivelResumenDto
                 {
@@ -354,8 +384,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     DecididoEn         = c.GgDecididoEn?.ToOffset(PeruOffset).DateTime,
                     DecididoPor        = c.GgDecididoPor,
                     Comentario         = c.GgComentario,
-                    VacantesAprobadas  = vs.Count(v => v.AprobadoGg == true),
-                    VacantesRechazadas = vs.Count(v => v.AprobadoGg == false),
+                    VacantesAprobadas  = deGg.Count(v => v.AprobadoGg == true),
+                    VacantesRechazadas = deGg.Count(v => v.AprobadoGg == false),
                 };
 
                 var ga = new AprobacionNivelResumenDto
@@ -366,42 +396,106 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     DecididoEn         = c.GaDecididoEn?.ToOffset(PeruOffset).DateTime,
                     DecididoPor        = c.GaDecididoPor,
                     Comentario         = c.GaComentario,
-                    VacantesAprobadas  = vs.Count(v => v.AprobadoGa == true),
-                    VacantesRechazadas = vs.Count(v => v.AprobadoGa == false),
+                    VacantesAprobadas  = deArea.Count(v => v.AprobadoGa == true),
+                    VacantesRechazadas = deArea.Count(v => v.AprobadoGa == false),
                 };
+
+                var gth = new AprobacionNivelResumenDto
+                {
+                    EstadoCodigo       = c.GtEstadoCodigo,
+                    EstadoNombre       = c.GtEstadoNombre,
+                    Decidida           = c.GtEstadoCodigo != AprobacionGgEstadoCodigo.Pendiente,
+                    DecididoEn         = c.GtDecididoEn?.ToOffset(PeruOffset).DateTime,
+                    DecididoPor        = c.GtDecididoPor,
+                    Comentario         = c.GtComentario,
+                    VacantesAprobadas  = deArea.Count(v => v.AprobadoGt == true),
+                    VacantesRechazadas = deArea.Count(v => v.AprobadoGt == false),
+                };
+
+                var mias = vs.Count(v => RutaAprobacion.DecideEsteNivel(v.Ruta, scope.Nivel));
+                var miCasilla = MiCasilla(scope.Nivel, gg, ga, gth);
 
                 return new AprobacionGgBandejaItemDto
                 {
-                    AprobacionId      = c.GthAprobacionGgId,
-                    Codigos           = string.Join(", ", vs.Select(v => v.Codigo)),
-                    Area              = c.AreaNombre,
-                    SolicitanteNombre = c.SolicitanteNombre,
-                    Justificacion     = c.Justificacion,
-                    Enviado           = c.CreatedDateTime.ToOffset(PeruOffset).DateTime,
-                    TotalVacantes     = vs.Count,
-                    GerenteGeneral    = gg,
-                    GerenteArea       = ga,
-                    EsperaMiDecision  = esGg ? !gg.Decidida : !ga.Decidida,
+                    AprobacionId           = c.GthAprobacionGgId,
+                    Codigos                = string.Join(", ", vs.Select(v => v.Codigo)),
+                    Area                   = c.AreaNombre,
+                    SolicitanteNombre      = c.SolicitanteNombre,
+                    Justificacion          = c.Justificacion,
+                    Enviado                = c.CreatedDateTime.ToOffset(PeruOffset).DateTime,
+                    TotalVacantes          = vs.Count,
+                    VacantesDeMiRuta       = mias,
+                    GerenteGeneral         = gg,
+                    GerenteArea            = ga,
+                    Gth                    = gth,
+                    RequiereGerenteGeneral = deGg.Count > 0,
+                    RequiereGerenteArea    = deArea.Count > 0,
+                    RequiereGth            = deArea.Count > 0,
+                    // Espera mi firma solo si además hay algo mío que firmar: al gerente de un área
+                    // que solo pidió vacantes nuevas esta solicitud no le toca, y ponérsela como
+                    // pendiente le dejaría en la bandeja un trabajo que no puede hacer.
+                    EsperaMiDecision       = mias > 0 && miCasilla is { Decidida: false },
                 };
-            }).ToList();
+            })
+            // Solo lo que este usuario puede aprobar. Desde el corte por tipo de requerimiento una
+            // solicitud puede no tener ninguna vacante suya —un gerente de área frente a una de
+            // puras vacantes nuevas, GTH frente a lo mismo—, y esta pantalla es la de aprobaciones:
+            // una fila sin un solo botón que pulsar solo ensucia la bandeja y descuadra los
+            // contadores. El solicitante sigue viendo su solicitud completa en «Solicitud de
+            // Personal», que es donde le corresponde seguirla.
+            .Where(i => i.VacantesDeMiRuta > 0)
+            .ToList();
 
-            // 3) Tarjetas: siempre contra la casilla del usuario que consulta. "Por aprobar" es lo
-            //    que espera SU firma, no la del otro nivel.
-            var mias = bandeja.Aprobaciones
-                .Select(i => new { Item = i, Mi = esGg ? i.GerenteGeneral : i.GerenteArea })
+            // 3) Tarjetas: siempre contra la casilla del usuario que consulta.
+            var propias = bandeja.Aprobaciones
+                .Select(i => new { Item = i, Mi = MiCasilla(scope.Nivel, i.GerenteGeneral, i.GerenteArea, i.Gth)! })
                 .ToList();
 
             bandeja.Resumen = new AprobacionGgBandejaResumenDto
             {
-                Pendientes         = mias.Count(x => !x.Mi.Decidida),
-                VacantesPendientes = mias.Where(x => !x.Mi.Decidida).Sum(x => x.Item.TotalVacantes),
+                Pendientes         = propias.Count(x => !x.Mi.Decidida),
+                VacantesPendientes = propias.Where(x => !x.Mi.Decidida).Sum(x => x.Item.VacantesDeMiRuta),
                 // "Aprobadas" incluye las parciales: en ambas hay vacantes que sí tuvieron el visto bueno.
-                Aprobadas          = mias.Count(x => x.Mi.Decidida && x.Mi.VacantesAprobadas > 0),
-                Rechazadas         = mias.Count(x => x.Mi.Decidida && x.Mi.VacantesAprobadas == 0),
+                Aprobadas          = propias.Count(x => x.Mi.Decidida && x.Mi.VacantesAprobadas > 0),
+                Rechazadas         = propias.Count(x => x.Mi.Decidida && x.Mi.VacantesAprobadas == 0),
             };
 
             return bandeja;
         }
+
+        /// <summary>
+        /// La casilla que le toca a un nivel. Null cuando el nivel no decide nada (NINGUNO): es la
+        /// diferencia entre "mi casilla sigue pendiente" y "no tengo casilla".
+        /// </summary>
+        private static AprobacionNivelResumenDto? MiCasilla(
+            string nivel,
+            AprobacionNivelResumenDto gg,
+            AprobacionNivelResumenDto ga,
+            AprobacionNivelResumenDto gth) => nivel switch
+        {
+            AprobacionNivel.GerenteGeneral => gg,
+            AprobacionNivel.GerenteArea    => ga,
+            AprobacionNivel.Gth            => gth,
+            _                              => null,
+        };
+
+        /// <summary>Id del estado de la casilla que le toca a un nivel (para el chequeo de "ya decidió").</summary>
+        private static int EstadoDeMiCasilla(GthAprobacionGg a, string nivel) => nivel switch
+        {
+            AprobacionNivel.GerenteGeneral => a.EstadoGerenteGeneralId,
+            AprobacionNivel.GerenteArea    => a.EstadoGerenteAreaId,
+            AprobacionNivel.Gth            => a.EstadoGthId,
+            _                              => a.EstadoGerenteGeneralId,
+        };
+
+        /// <summary>Mensaje de "esta casilla ya está cerrada", con el nombre de quien la cerró.</summary>
+        private static string YaDecidio(string nivel) => nivel switch
+        {
+            AprobacionNivel.GerenteGeneral => "Gerencia General ya decidió sobre esta solicitud.",
+            AprobacionNivel.GerenteArea    => "El gerente del área ya decidió sobre esta solicitud.",
+            AprobacionNivel.Gth            => "Gestión del Talento Humano ya decidió sobre esta solicitud.",
+            _                              => "Esta solicitud ya fue decidida.",
+        };
 
         public async Task<AprobacionGgDetalleDto?> GetDetalle(int aprobacionId, AprobacionScope scope)
         {
@@ -414,12 +508,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where s.State
                 join egg in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGerenteGeneralId equals egg.GthAprobacionGgEstadoId
                 join ega in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGerenteAreaId equals ega.GthAprobacionGgEstadoId
+                join egt in ctx.GthAprobacionGgEstado.AsNoTracking() on a.EstadoGthId equals egt.GthAprobacionGgEstadoId
                 join ps in ctx.Person.AsNoTracking() on s.SolicitanteUserId equals ps.UserId into solicitanteJoin
                 from ps in solicitanteJoin.DefaultIfEmpty()
                 join pgg in ctx.Person.AsNoTracking() on a.GerenteGeneralDecididoUserId equals pgg.UserId into ggJoin
                 from pgg in ggJoin.DefaultIfEmpty()
                 join pga in ctx.Person.AsNoTracking() on a.GerenteAreaDecididoUserId equals pga.UserId into gaJoin
                 from pga in gaJoin.DefaultIfEmpty()
+                join pgt in ctx.Person.AsNoTracking() on a.GthDecididoUserId equals pgt.UserId into gthJoin
+                from pgt in gthJoin.DefaultIfEmpty()
                 select new
                 {
                     a.GthAprobacionGgId,
@@ -443,6 +540,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     GaDecididoEn   = a.GerenteAreaDecididoDateTime,
                     GaDecididoPor  = pga != null ? pga.FullName : null,
                     GaComentario   = a.GerenteAreaComentario,
+
+                    GtEstadoCodigo = egt.Codigo,
+                    GtEstadoNombre = egt.Nombre,
+                    GtDecididoEn   = a.GthDecididoDateTime,
+                    GtDecididoPor  = pgt != null ? pgt.FullName : null,
+                    GtComentario   = a.GthComentario,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
@@ -454,6 +557,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var vacantes = await QueryVacantes(ctx, head.GthAprobacionGgId, head.GthSolicitudId);
 
+            // Cada casilla cuenta solo las vacantes de su ruta (ver GetBandeja).
+            var deGg   = vacantes.Where(v => v.Ruta == RutaAprobacion.GerenciaGeneral).ToList();
+            var deArea = vacantes.Where(v => v.Ruta == RutaAprobacion.AreaYGth).ToList();
+
             var gg = new AprobacionNivelResumenDto
             {
                 EstadoCodigo       = head.GgEstadoCodigo,
@@ -462,8 +569,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 DecididoEn         = head.GgDecididoEn?.ToOffset(PeruOffset).DateTime,
                 DecididoPor        = head.GgDecididoPor,
                 Comentario         = head.GgComentario,
-                VacantesAprobadas  = vacantes.Count(v => v.AprobadoGerenteGeneral == true),
-                VacantesRechazadas = vacantes.Count(v => v.AprobadoGerenteGeneral == false),
+                VacantesAprobadas  = deGg.Count(v => v.AprobadoGerenteGeneral == true),
+                VacantesRechazadas = deGg.Count(v => v.AprobadoGerenteGeneral == false),
             };
 
             var ga = new AprobacionNivelResumenDto
@@ -474,26 +581,47 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 DecididoEn         = head.GaDecididoEn?.ToOffset(PeruOffset).DateTime,
                 DecididoPor        = head.GaDecididoPor,
                 Comentario         = head.GaComentario,
-                VacantesAprobadas  = vacantes.Count(v => v.AprobadoGerenteArea == true),
-                VacantesRechazadas = vacantes.Count(v => v.AprobadoGerenteArea == false),
+                VacantesAprobadas  = deArea.Count(v => v.AprobadoGerenteArea == true),
+                VacantesRechazadas = deArea.Count(v => v.AprobadoGerenteArea == false),
             };
 
-            var miCasilla = scope.Nivel == AprobacionNivel.GerenteGeneral ? gg : ga;
+            var gth = new AprobacionNivelResumenDto
+            {
+                EstadoCodigo       = head.GtEstadoCodigo,
+                EstadoNombre       = head.GtEstadoNombre,
+                Decidida           = head.GtEstadoCodigo != AprobacionGgEstadoCodigo.Pendiente,
+                DecididoEn         = head.GtDecididoEn?.ToOffset(PeruOffset).DateTime,
+                DecididoPor        = head.GtDecididoPor,
+                Comentario         = head.GtComentario,
+                VacantesAprobadas  = deArea.Count(v => v.AprobadoGth == true),
+                VacantesRechazadas = deArea.Count(v => v.AprobadoGth == false),
+            };
+
+            var miCasilla = MiCasilla(scope.Nivel, gg, ga, gth);
+            var miasCount = vacantes.Count(v => RutaAprobacion.DecideEsteNivel(v.Ruta, scope.Nivel));
 
             return new AprobacionGgDetalleDto
             {
-                AprobacionId      = head.GthAprobacionGgId,
-                Area              = head.AreaNombre,
-                SolicitanteNombre = head.SolicitanteNombre,
-                Justificacion     = head.Justificacion,
-                SustentoNombre    = head.SustentoNombre,
-                SustentoUrl       = head.SustentoUrl,
-                Enviado           = head.CreatedDateTime.ToOffset(PeruOffset).DateTime,
-                GerenteGeneral    = gg,
-                GerenteArea       = ga,
-                Nivel             = scope.Nivel,
-                PuedeDecidir      = scope.PuedeDecidir && !miCasilla.Decidida,
-                Vacantes          = vacantes,
+                AprobacionId           = head.GthAprobacionGgId,
+                Area                   = head.AreaNombre,
+                SolicitanteNombre      = head.SolicitanteNombre,
+                Justificacion          = head.Justificacion,
+                SustentoNombre         = head.SustentoNombre,
+                SustentoUrl            = head.SustentoUrl,
+                Enviado                = head.CreatedDateTime.ToOffset(PeruOffset).DateTime,
+                GerenteGeneral         = gg,
+                GerenteArea            = ga,
+                Gth                    = gth,
+                RequiereGerenteGeneral = deGg.Count > 0,
+                RequiereGerenteArea    = deArea.Count > 0,
+                RequiereGth            = deArea.Count > 0,
+                Nivel                  = scope.Nivel,
+                // Tres condiciones, no una: tener nivel, que la solicitud traiga vacantes de ese
+                // nivel y que su casilla siga abierta. Sin la del medio, un gerente de área abriría
+                // en modo decisión una solicitud de puras vacantes nuevas y no tendría nada que
+                // marcar.
+                PuedeDecidir           = miasCount > 0 && miCasilla is { Decidida: false },
+                Vacantes               = vacantes,
             };
         }
 
@@ -502,8 +630,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             if (!scope.PuedeDecidir)
                 throw new AbrilException(
-                    "Tu ficha de trabajador no es de Gerencia General ni de gerente de área, " +
-                    "así que no puedes aprobar ni rechazar solicitudes de personal.", 403);
+                    "Tu ficha de trabajador no es de Gerencia General, ni de gerente de área, ni del " +
+                    "área de Gestión del Talento Humano, así que no puedes aprobar ni rechazar " +
+                    "solicitudes de personal.", 403);
 
             using var ctx = _factory.CreateDbContext();
 
@@ -520,54 +649,76 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var esGg = scope.Nivel == AprobacionNivel.GerenteGeneral;
 
-            // Cada nivel decide UNA sola vez. Se lee el estado de SU casilla: que el otro nivel ya
-            // haya decidido no bloquea (dos gerentes pueden tener el modal abierto a la vez).
-            var estadoActualId = esGg ? aprobacion.EstadoGerenteGeneralId : aprobacion.EstadoGerenteAreaId;
+            // Cada nivel decide UNA sola vez. Se lee el estado de SU casilla: que otro nivel ya
+            // haya decidido no bloquea (los tres pueden tener el modal abierto a la vez).
+            var estadoActualId = EstadoDeMiCasilla(aprobacion, scope.Nivel);
             var estadoActual = await ctx.GthAprobacionGgEstado
                 .Where(e => e.GthAprobacionGgEstadoId == estadoActualId)
                 .Select(e => e.Codigo)
                 .FirstOrDefaultAsync();
             if (estadoActual != AprobacionGgEstadoCodigo.Pendiente)
-                throw new AbrilException(
-                    esGg ? "Gerencia General ya decidió sobre esta solicitud."
-                         : "El gerente del área ya registró su visto bueno en esta solicitud.", 409);
+                throw new AbrilException(YaDecidio(scope.Nivel), 409);
 
-            // Vacantes vigentes de la solicitud (entidades: al decidir el GG se les cambia el estado).
-            var requerimientos = await ctx.GthRequerimiento
-                .Where(r => r.GthSolicitudId == aprobacion.GthSolicitudId && r.State)
-                .OrderBy(r => r.GthRequerimientoId)
-                .ToListAsync();
-            if (requerimientos.Count == 0)
+            // Vacantes vigentes de la solicitud, con el código de su tipo: es lo que decide por qué
+            // ruta va cada una y, con eso, cuáles le tocan a este nivel.
+            var todas = await (
+                from r in ctx.GthRequerimiento
+                where r.GthSolicitudId == aprobacion.GthSolicitudId && r.State
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
+                orderby r.GthRequerimientoId
+                select new { Req = r, TipoCodigo = t.Codigo }).ToListAsync();
+            if (todas.Count == 0)
                 throw new AbrilException("La solicitud no tiene vacantes por aprobar.", 400);
 
-            // La decisión debe cubrir exactamente a las vacantes vigentes.
+            // Solo las de SU ruta: un gerente de área no firma vacantes nuevas y el Gerente General
+            // no firma reemplazos. Una solicitud mixta se decide en dos actos, uno por cada lado.
+            var mias = todas
+                .Where(x => RutaAprobacion.DecideEsteNivel(
+                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo), scope.Nivel))
+                .ToList();
+            if (mias.Count == 0)
+                throw new AbrilException(
+                    "Esta solicitud no tiene vacantes que te toque aprobar a ti.", 403);
+
+            var requerimientos = mias.Select(x => x.Req).ToList();
+
+            // La decisión debe cubrir exactamente a las vacantes de su ruta. Lo que venga de las
+            // otras se ignora: el modal no las deja marcar, y aceptarlas sería dejar que un nivel
+            // firme por otro.
             var decisionPorId = new Dictionary<int, bool>();
             foreach (var d in dto.Decisiones) decisionPorId[d.RequerimientoId] = d.Aprobado;
             if (requerimientos.Any(r => !decisionPorId.ContainsKey(r.GthRequerimientoId)))
-                throw new AbrilException("Debes aprobar o rechazar todas las vacantes de la solicitud.", 400);
+                throw new AbrilException("Debes aprobar o rechazar todas las vacantes que te corresponden.", 400);
 
-            // Estados destino del requerimiento: solo los mueve Gerencia General. El visto bueno
-            // del gerente del área es redundante por diseño y no toca el pipeline — si lo moviera,
-            // una vacante entraría a GTH sin la aprobación obligatoria.
+            // Estados destino del requerimiento. Ya no los mueve solo Gerencia General: cada vacante
+            // avanza cuando junta TODAS las firmas de su ruta. Las de ruta GG con la del Gerente
+            // General; las de reemplazo, recién cuando el gerente del área Y GTH la aprobaron — la
+            // primera de las dos decisiones la deja donde está.
+            //
+            // Un rechazo, en cambio, corta al toque: con que uno de los dos diga que no, la vacante
+            // se cae y ya no tiene sentido esperar al otro.
             //
             // Una vacante FFT aprobada no va a VALIDACION_GTH sino directo a la fase del formulario:
             // no hay nada que publicar ni long list que armar, el candidato ya viene con nombre.
-            GthEstadoRequerimiento? validacionGth = null, rechazadoGg = null, faseFft = null;
+            // Eso solo pasa por la ruta GG (un FFT nunca va por la del área).
+            GthEstadoRequerimiento? faseFft = null;
+            GthEstadoRequerimiento estadoValidacionGth, estadoRechazado;
             int estadoCandidatoAprobadoId = 0;
             var hayFft = requerimientos.Any(r => r.EsFft);
-            if (esGg)
             {
                 var estadosReq = await ctx.GthEstadoRequerimiento
                     .Where(e => e.State && (e.Codigo == EstadoReclutamiento.ValidacionGth
                                             || e.Codigo == EstadoReclutamiento.RechazadoGg
                                             || e.Codigo == FftFlujo.FaseFormulario))
                     .ToListAsync();
-                validacionGth = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.ValidacionGth)
+                var validacionGth = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.ValidacionGth)
                     ?? throw new AbrilException("No está configurado el estado VALIDACION_GTH de reclutamiento.", 500);
-                rechazadoGg = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.RechazadoGg)
+                var rechazadoGg = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.RechazadoGg)
                     ?? throw new AbrilException("No está configurado el estado RECHAZADO_GG de reclutamiento.", 500);
+                estadoValidacionGth = validacionGth;
+                estadoRechazado     = rechazadoGg;
 
-                if (hayFft)
+                if (esGg && hayFft)
                 {
                     faseFft = estadosReq.FirstOrDefault(e => e.Codigo == FftFlujo.FaseFormulario)
                         ?? throw new AbrilException(
@@ -603,31 +754,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var now = DateTimeOffset.UtcNow;
             int aprobados = 0, rechazados = 0;
 
+            // Las vacantes que quedaron COMPLETAMENTE aprobadas con esta decisión: son las únicas
+            // que se le mandan a GTH. En la ruta GG son las que el Gerente General aprobó; en la de
+            // reemplazo, solo las que con esta firma juntaron las dos.
+            var completadas = new HashSet<int>();
+
             foreach (var r in requerimientos)
             {
                 var aprobado = decisionPorId[r.GthRequerimientoId];
                 if (aprobado) aprobados++; else rechazados++;
-
-                if (esGg)
-                {
-                    if (aprobado && r.EsFft)
-                    {
-                        // Aprobar un FFT es dárselo a GTH ya con su candidato abierto: se salta
-                        // publicación, revisión de CV, long list, entrevistas y finalistas, y lo
-                        // único que queda es enviarle el formulario.
-                        FftFlujo.AbrirCandidato(
-                            ctx, r, faseFft!.GthEstadoRequerimientoId, estadoCandidatoAprobadoId,
-                            nombrePorPuesto.GetValueOrDefault(r.PuestoId), yaConCandidato, userId, now);
-                    }
-                    else
-                    {
-                        r.GthEstadoRequerimientoId = aprobado
-                            ? validacionGth!.GthEstadoRequerimientoId
-                            : rechazadoGg!.GthEstadoRequerimientoId;
-                        r.UpdatedDateTime = now;
-                        r.UpdatedUserId   = userId;
-                    }
-                }
 
                 var detalle = detalles.FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId);
                 if (detalle == null)
@@ -649,17 +784,51 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     detalle.UpdatedUserId   = userId;
                 }
 
-                // Solo se escribe la columna del nivel que está decidiendo: la del otro queda como
-                // esté (puede tener ya una decisión distinta, y esa discrepancia es información).
-                if (esGg)
+                // Solo se escribe la columna del nivel que está decidiendo: las de los otros quedan
+                // como estén (pueden tener ya una decisión distinta, y esa discrepancia es
+                // información). Se escribe ANTES de mover el requerimiento porque la regla de los
+                // reemplazos se evalúa sobre el detalle ya actualizado.
+                switch (scope.Nivel)
                 {
-                    detalle.AprobadoGerenteGeneral         = aprobado;
-                    detalle.GerenteGeneralDecididoDateTime = now;
+                    case AprobacionNivel.GerenteGeneral:
+                        detalle.AprobadoGerenteGeneral         = aprobado;
+                        detalle.GerenteGeneralDecididoDateTime = now;
+                        break;
+                    case AprobacionNivel.GerenteArea:
+                        detalle.AprobadoGerenteArea         = aprobado;
+                        detalle.GerenteAreaDecididoDateTime = now;
+                        break;
+                    case AprobacionNivel.Gth:
+                        detalle.AprobadoGth         = aprobado;
+                        detalle.GthDecididoDateTime = now;
+                        break;
+                }
+
+                // ¿Esta decisión mueve la vacante? Un rechazo la corta siempre; una aprobación solo
+                // cuando ya no falta ninguna firma de su ruta.
+                var completa = !aprobado || (esGg
+                    ? true
+                    : detalle.AprobadoGerenteArea == true && detalle.AprobadoGth == true);
+                if (!completa) continue;   // el reemplazo espera la otra firma; nada que mover
+
+                if (aprobado) completadas.Add(r.GthRequerimientoId);
+
+                if (aprobado && r.EsFft)
+                {
+                    // Aprobar un FFT es dárselo a GTH ya con su candidato abierto: se salta
+                    // publicación, revisión de CV, long list, entrevistas y finalistas, y lo
+                    // único que queda es enviarle el formulario.
+                    FftFlujo.AbrirCandidato(
+                        ctx, r, faseFft!.GthEstadoRequerimientoId, estadoCandidatoAprobadoId,
+                        nombrePorPuesto.GetValueOrDefault(r.PuestoId), yaConCandidato, userId, now);
                 }
                 else
                 {
-                    detalle.AprobadoGerenteArea         = aprobado;
-                    detalle.GerenteAreaDecididoDateTime = now;
+                    r.GthEstadoRequerimientoId = aprobado
+                        ? estadoValidacionGth.GthEstadoRequerimientoId
+                        : estadoRechazado.GthEstadoRequerimientoId;
+                    r.UpdatedDateTime = now;
+                    r.UpdatedUserId   = userId;
                 }
             }
 
@@ -672,21 +841,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var comentario = string.IsNullOrWhiteSpace(dto.Comentario) ? null : dto.Comentario.Trim();
 
-            if (esGg)
+            // Traza de quién decidió, aparte de updated_user_id para que un update posterior (la
+            // firma tardía de otro nivel) no la pise.
+            switch (scope.Nivel)
             {
-                aprobacion.EstadoGerenteGeneralId         = estadoDestino.GthAprobacionGgEstadoId;
-                aprobacion.GerenteGeneralDecididoDateTime = now;
-                // Traza de quién decidió, aparte de updated_user_id para que un update posterior
-                // (p. ej. el visto bueno tardío del área) no la pise.
-                aprobacion.GerenteGeneralDecididoUserId   = userId;
-                aprobacion.GerenteGeneralComentario       = comentario;
-            }
-            else
-            {
-                aprobacion.EstadoGerenteAreaId         = estadoDestino.GthAprobacionGgEstadoId;
-                aprobacion.GerenteAreaDecididoDateTime = now;
-                aprobacion.GerenteAreaDecididoUserId   = userId;
-                aprobacion.GerenteAreaComentario       = comentario;
+                case AprobacionNivel.GerenteGeneral:
+                    aprobacion.EstadoGerenteGeneralId         = estadoDestino.GthAprobacionGgEstadoId;
+                    aprobacion.GerenteGeneralDecididoDateTime = now;
+                    aprobacion.GerenteGeneralDecididoUserId   = userId;
+                    aprobacion.GerenteGeneralComentario       = comentario;
+                    break;
+                case AprobacionNivel.GerenteArea:
+                    aprobacion.EstadoGerenteAreaId         = estadoDestino.GthAprobacionGgEstadoId;
+                    aprobacion.GerenteAreaDecididoDateTime = now;
+                    aprobacion.GerenteAreaDecididoUserId   = userId;
+                    aprobacion.GerenteAreaComentario       = comentario;
+                    break;
+                case AprobacionNivel.Gth:
+                    aprobacion.EstadoGthId          = estadoDestino.GthAprobacionGgEstadoId;
+                    aprobacion.GthDecididoDateTime  = now;
+                    aprobacion.GthDecididoUserId    = userId;
+                    aprobacion.GthComentario        = comentario;
+                    break;
             }
 
             aprobacion.UpdatedDateTime = now;
@@ -705,10 +881,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await ctx.SaveChangesAsync();
 
-            // Vacantes con sus datos legibles para el correo a GTH (una sola consulta para ambas listas).
+            // Vacantes con sus datos legibles para el correo a GTH. Solo las que esta decisión dejó
+            // completamente aprobadas: en un reemplazo, la primera de las dos firmas todavía no
+            // manda nada — la vacante sigue esperando a la otra.
             var vacantes = await QueryVacantes(ctx, aprobacion.GthAprobacionGgId, aprobacion.GthSolicitudId);
-            Func<AprobacionGgVacanteDto, bool?> decisionDeEsteNivel =
-                esGg ? v => v.AprobadoGerenteGeneral : v => v.AprobadoGerenteArea;
 
             return new AprobacionGgDecisionContextoDto
             {
@@ -728,7 +904,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SustentoUrl        = solicitud.SustentoUrl,
                 Comentario         = comentario,
                 GerenteAreaResumen = esGg ? gerenteAreaResumen : null,
-                Aprobadas          = vacantes.Where(v => decisionDeEsteNivel(v) == true).ToList(),
+                Aprobadas          = vacantes.Where(v => completadas.Contains(v.RequerimientoId)).ToList(),
             };
         }
 
@@ -749,8 +925,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             if (!scope.PuedeDecidir)
                 throw new AbrilException(
-                    "Tu ficha de trabajador no es de Gerencia General ni de gerente de área, " +
-                    "así que no puedes aprobar ni rechazar solicitudes de personal.", 403);
+                    "Tu ficha de trabajador no es de Gerencia General, ni de gerente de área, ni del " +
+                    "área de Gestión del Talento Humano, así que no puedes aprobar ni rechazar " +
+                    "solicitudes de personal.", 403);
 
             var resultado = new AprobacionGgDecisionMasivaContextoDto { Nivel = scope.Nivel };
             if (aprobacionIds.Count == 0) return resultado;
@@ -786,13 +963,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var estados = await ctx.GthAprobacionGgEstado.AsNoTracking().ToListAsync();
 
             var solicitudIds = cabeceras.Select(c => c.Solicitud.GthSolicitudId).ToList();
-            var requerimientos = await ctx.GthRequerimiento
-                .Where(r => solicitudIds.Contains(r.GthSolicitudId) && r.State)
-                .OrderBy(r => r.GthRequerimientoId)
-                .ToListAsync();
-            var reqPorSolicitud = requerimientos
-                .GroupBy(r => r.GthSolicitudId)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            // Con el código del tipo: es lo que decide la ruta de cada vacante y, con ella, cuáles
+            // de las de cada solicitud le tocan a este nivel.
+            var reqConTipo = await (
+                from r in ctx.GthRequerimiento
+                where solicitudIds.Contains(r.GthSolicitudId) && r.State
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
+                orderby r.GthRequerimientoId
+                select new { Req = r, TipoCodigo = t.Codigo }).ToListAsync();
+            var requerimientos = reqConTipo.Select(x => x.Req).ToList();
+            // Solo las de la ruta de este nivel: aprobar "toda la fila" desde la lista significa
+            // aprobar todo lo que a ESTE usuario le toca de ella, no las vacantes de los demás.
+            var reqPorSolicitud = reqConTipo
+                .Where(x => RutaAprobacion.DecideEsteNivel(
+                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo), scope.Nivel))
+                .GroupBy(x => x.Req.GthSolicitudId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Req).ToList());
 
             var idsVivos = cabeceras.Select(c => c.Aprobacion.GthAprobacionGgId).ToList();
             var detalles = await ctx.GthAprobacionGgDetalle
@@ -802,14 +988,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .GroupBy(d => d.GthAprobacionGgId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Estados destino del requerimiento: solo los mueve Gerencia General (ver RegistrarDecision).
+            // Estados destino del requerimiento. Los mueve el nivel que completa la ruta de la
+            // vacante (ver RegistrarDecision), así que hacen falta siempre y no solo con el GG.
             // Las vacantes FFT aprobadas van directo a la fase del formulario, no a VALIDACION_GTH.
-            GthEstadoRequerimiento? validacionGth = null, rechazadoGg = null, faseFft = null;
+            GthEstadoRequerimiento validacionGth, rechazadoGg;
+            GthEstadoRequerimiento? faseFft = null;
             int estadoCandidatoAprobadoId = 0;
             var puestoIdsFft = requerimientos.Where(r => r.EsFft).Select(r => r.PuestoId).Distinct().ToList();
             var nombrePorPuesto = new Dictionary<int, string>();
             var yaConCandidato = new HashSet<int>();
-            if (esGg)
             {
                 var estadosReq = await ctx.GthEstadoRequerimiento
                     .Where(e => e.State && (e.Codigo == EstadoReclutamiento.ValidacionGth
@@ -821,7 +1008,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 rechazadoGg = estadosReq.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.RechazadoGg)
                     ?? throw new AbrilException("No está configurado el estado RECHAZADO_GG de reclutamiento.", 500);
 
-                if (puestoIdsFft.Count > 0)
+                if (esGg && puestoIdsFft.Count > 0)
                 {
                     faseFft = estadosReq.FirstOrDefault(e => e.Codigo == FftFlujo.FaseFormulario)
                         ?? throw new AbrilException(
@@ -856,6 +1043,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 3) La decisión, solicitud por solicitud pero sin volver a la BD.
             var decididas = new List<(GthAprobacionGg Aprobacion, GthSolicitud Solicitud, int Vacantes)>();
 
+            // Qué vacantes quedaron COMPLETAMENTE aprobadas en cada solicitud: son las únicas que
+            // salen en el correo a GTH. En un reemplazo, la primera de las dos firmas no completa
+            // nada todavía.
+            var completadasPorAprobacion = new Dictionary<int, HashSet<int>>();
+
             foreach (var c in cabeceras)
             {
                 var aprobacion = c.Aprobacion;
@@ -873,30 +1065,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     continue;
                 }
 
-                // Cada nivel decide UNA sola vez, y solo se mira SU casilla: que el otro nivel ya
-                // haya decidido no impide registrar la propia.
-                var estadoActualId = esGg ? aprobacion.EstadoGerenteGeneralId : aprobacion.EstadoGerenteAreaId;
+                // Cada nivel decide UNA sola vez, y solo se mira SU casilla: que otro nivel ya haya
+                // decidido no impide registrar la propia.
+                var estadoActualId = EstadoDeMiCasilla(aprobacion, scope.Nivel);
                 var codigoActual = estados.FirstOrDefault(e => e.GthAprobacionGgEstadoId == estadoActualId)?.Codigo;
                 if (codigoActual != AprobacionGgEstadoCodigo.Pendiente)
                 {
                     resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
                     {
                         AprobacionId = aprobacion.GthAprobacionGgId,
-                        Motivo       = esGg ? "Gerencia General ya decidió sobre esta solicitud."
-                                            : "El gerente del área ya registró su visto bueno.",
+                        Motivo       = YaDecidio(scope.Nivel),
                     });
                     continue;
                 }
 
+                // `reqPorSolicitud` ya viene filtrado por ruta: si acá no hay nada es que esta
+                // solicitud no tiene vacantes de este nivel (p. ej. el GG seleccionó una de puros
+                // reemplazos), y hay que decirlo en vez de dejarla desaparecer del conteo.
                 if (!reqPorSolicitud.TryGetValue(solicitud.GthSolicitudId, out var vacantes) || vacantes.Count == 0)
                 {
                     resultado.Omitidas.Add(new AprobacionGgDecisionOmitidaDto
                     {
                         AprobacionId = aprobacion.GthAprobacionGgId,
-                        Motivo       = "La solicitud no tiene vacantes por aprobar.",
+                        Motivo       = "No tiene vacantes que te toque aprobar a ti.",
                     });
                     continue;
                 }
+
+                var completadas = new HashSet<int>();
+                completadasPorAprobacion[aprobacion.GthAprobacionGgId] = completadas;
 
                 detallePorAprobacion.TryGetValue(aprobacion.GthAprobacionGgId, out var detallesDeEsta);
 
@@ -904,26 +1101,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // significa aprobar o rechazar la fila completa desde la lista.
                 foreach (var r in vacantes)
                 {
-                    if (esGg)
-                    {
-                        if (aprobado && r.EsFft)
-                        {
-                            // Igual que en la decisión de una: el FFT aprobado va derecho a la fase
-                            // del formulario, con su candidato ya abierto (ver FftFlujo).
-                            FftFlujo.AbrirCandidato(
-                                ctx, r, faseFft!.GthEstadoRequerimientoId, estadoCandidatoAprobadoId,
-                                nombrePorPuesto.GetValueOrDefault(r.PuestoId), yaConCandidato, userId, now);
-                        }
-                        else
-                        {
-                            r.GthEstadoRequerimientoId = aprobado
-                                ? validacionGth!.GthEstadoRequerimientoId
-                                : rechazadoGg!.GthEstadoRequerimientoId;
-                            r.UpdatedDateTime = now;
-                            r.UpdatedUserId   = userId;
-                        }
-                    }
-
                     var detalle = detallesDeEsta?.FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId);
                     if (detalle == null)
                     {
@@ -944,32 +1121,70 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         detalle.UpdatedUserId   = userId;
                     }
 
-                    // Solo la columna del nivel que decide: la del otro queda como esté.
-                    if (esGg)
+                    // Solo la columna del nivel que decide: las de los otros quedan como estén. Va
+                    // antes de mover el requerimiento, igual que en la decisión de una.
+                    switch (scope.Nivel)
                     {
-                        detalle.AprobadoGerenteGeneral         = aprobado;
-                        detalle.GerenteGeneralDecididoDateTime = now;
+                        case AprobacionNivel.GerenteGeneral:
+                            detalle.AprobadoGerenteGeneral         = aprobado;
+                            detalle.GerenteGeneralDecididoDateTime = now;
+                            break;
+                        case AprobacionNivel.GerenteArea:
+                            detalle.AprobadoGerenteArea         = aprobado;
+                            detalle.GerenteAreaDecididoDateTime = now;
+                            break;
+                        case AprobacionNivel.Gth:
+                            detalle.AprobadoGth         = aprobado;
+                            detalle.GthDecididoDateTime = now;
+                            break;
+                    }
+
+                    // Un rechazo corta la vacante al toque; una aprobación la mueve solo cuando ya
+                    // no falta ninguna firma de su ruta (ver RegistrarDecision).
+                    var completa = !aprobado || esGg
+                        || (detalle.AprobadoGerenteArea == true && detalle.AprobadoGth == true);
+                    if (!completa) continue;
+
+                    if (aprobado) completadas.Add(r.GthRequerimientoId);
+
+                    if (aprobado && r.EsFft)
+                    {
+                        // Igual que en la decisión de una: el FFT aprobado va derecho a la fase
+                        // del formulario, con su candidato ya abierto (ver FftFlujo).
+                        FftFlujo.AbrirCandidato(
+                            ctx, r, faseFft!.GthEstadoRequerimientoId, estadoCandidatoAprobadoId,
+                            nombrePorPuesto.GetValueOrDefault(r.PuestoId), yaConCandidato, userId, now);
                     }
                     else
                     {
-                        detalle.AprobadoGerenteArea         = aprobado;
-                        detalle.GerenteAreaDecididoDateTime = now;
+                        r.GthEstadoRequerimientoId = aprobado
+                            ? validacionGth.GthEstadoRequerimientoId
+                            : rechazadoGg.GthEstadoRequerimientoId;
+                        r.UpdatedDateTime = now;
+                        r.UpdatedUserId   = userId;
                     }
                 }
 
-                if (esGg)
+                switch (scope.Nivel)
                 {
-                    aprobacion.EstadoGerenteGeneralId         = estadoDestino.GthAprobacionGgEstadoId;
-                    aprobacion.GerenteGeneralDecididoDateTime = now;
-                    aprobacion.GerenteGeneralDecididoUserId   = userId;
-                    aprobacion.GerenteGeneralComentario       = comentarioLimpio;
-                }
-                else
-                {
-                    aprobacion.EstadoGerenteAreaId         = estadoDestino.GthAprobacionGgEstadoId;
-                    aprobacion.GerenteAreaDecididoDateTime = now;
-                    aprobacion.GerenteAreaDecididoUserId   = userId;
-                    aprobacion.GerenteAreaComentario       = comentarioLimpio;
+                    case AprobacionNivel.GerenteGeneral:
+                        aprobacion.EstadoGerenteGeneralId         = estadoDestino.GthAprobacionGgEstadoId;
+                        aprobacion.GerenteGeneralDecididoDateTime = now;
+                        aprobacion.GerenteGeneralDecididoUserId   = userId;
+                        aprobacion.GerenteGeneralComentario       = comentarioLimpio;
+                        break;
+                    case AprobacionNivel.GerenteArea:
+                        aprobacion.EstadoGerenteAreaId         = estadoDestino.GthAprobacionGgEstadoId;
+                        aprobacion.GerenteAreaDecididoDateTime = now;
+                        aprobacion.GerenteAreaDecididoUserId   = userId;
+                        aprobacion.GerenteAreaComentario       = comentarioLimpio;
+                        break;
+                    case AprobacionNivel.Gth:
+                        aprobacion.EstadoGthId         = estadoDestino.GthAprobacionGgEstadoId;
+                        aprobacion.GthDecididoDateTime = now;
+                        aprobacion.GthDecididoUserId   = userId;
+                        aprobacion.GthComentario       = comentarioLimpio;
+                        break;
                 }
 
                 aprobacion.UpdatedDateTime = now;
@@ -988,13 +1203,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    cabeceras con sus conteos y listo.
             var aprobacionIdsDecididas = decididas.Select(d => d.Aprobacion.GthAprobacionGgId).ToList();
 
-            var vacantesPorAprobacion = esGg
+            // Los datos legibles hacen falta siempre que haya algo que mandarle a GTH, y eso ya no
+            // es exclusivo del Gerente General: la firma de GTH (o la del área, si GTH ya había
+            // firmado) también puede completar un reemplazo.
+            var hayCompletadas = completadasPorAprobacion.Values.Any(v => v.Count > 0);
+            var vacantesPorAprobacion = hayCompletadas
                 ? await QueryVacantesDeVarias(ctx, aprobacionIdsDecididas)
                 : new Dictionary<int, List<AprobacionGgVacanteDto>>();
 
             var nombresPorUser = new Dictionary<int, string?>();
             var resumenAreaPorAprobacion = new Dictionary<int, string?>();
-            if (esGg)
+            if (hayCompletadas)
             {
                 // Nombres del solicitante de cada solicitud y del gerente de área que ya dio su
                 // visto bueno, en una sola consulta a person para todos los usuarios del lote.
@@ -1038,6 +1257,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var vacantes = vacantesPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId)
                                ?? new List<AprobacionGgVacanteDto>();
+                var completas = completadasPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId)
+                                ?? new HashSet<int>();
 
                 resultado.Registradas.Add(new AprobacionGgDecisionContextoDto
                 {
@@ -1059,7 +1280,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     SustentoUrl        = d.Solicitud.SustentoUrl,
                     Comentario         = comentarioLimpio,
                     GerenteAreaResumen = resumenAreaPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId),
-                    Aprobadas          = aprobado ? vacantes : new List<AprobacionGgVacanteDto>(),
+                    Aprobadas          = vacantes.Where(v => completas.Contains(v.RequerimientoId)).ToList(),
                 });
             }
 
@@ -1151,6 +1372,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where a.State
                 join egg in ctx.GthAprobacionGgEstado on a.EstadoGerenteGeneralId equals egg.GthAprobacionGgEstadoId
                 join ega in ctx.GthAprobacionGgEstado on a.EstadoGerenteAreaId equals ega.GthAprobacionGgEstadoId
+                join egt in ctx.GthAprobacionGgEstado on a.EstadoGthId equals egt.GthAprobacionGgEstadoId
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join d in ctx.GthAprobacionGgDetalle.Where(x => x.State)
                     on new { A = a.GthAprobacionGgId, R = r.GthRequerimientoId }
                     equals new { A = d.GthAprobacionGgId, R = d.GthRequerimientoId } into detalleJoin
@@ -1161,13 +1384,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     GgEstadoNombre = egg.Nombre,
                     GaEstadoCodigo = ega.Codigo,
                     GaEstadoNombre = ega.Nombre,
+                    GtEstadoCodigo = egt.Codigo,
+                    GtEstadoNombre = egt.Nombre,
                     AprobadoGg     = d != null ? d.AprobadoGerenteGeneral : null,
                     AprobadoGa     = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGt     = d != null ? d.AprobadoGth : null,
                     a.GerenteGeneralComentario,
                     a.GerenteAreaComentario,
+                    a.GthComentario,
                     a.EnviadoDateTime,
                     a.GerenteGeneralDecididoDateTime,
                     a.GerenteAreaDecididoDateTime,
+                    a.GthDecididoDateTime,
+                    r.EsFft,
+                    TipoCodigo = t.Codigo,
                 }).FirstOrDefaultAsync();
 
             if (raw == null) return null;
@@ -1181,11 +1411,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 GerenteAreaEstadoCodigo = raw.GaEstadoCodigo,
                 GerenteAreaEstadoNombre = raw.GaEstadoNombre,
                 AprobadoGerenteArea     = raw.AprobadoGa,
+                GthEstadoCodigo         = raw.GtEstadoCodigo,
+                GthEstadoNombre         = raw.GtEstadoNombre,
+                AprobadoGth             = raw.AprobadoGt,
                 Comentario              = raw.GerenteGeneralComentario,
                 GerenteAreaComentario   = raw.GerenteAreaComentario,
+                GthComentario           = raw.GthComentario,
                 EnviadoEn               = raw.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
                 DecididoEn              = raw.GerenteGeneralDecididoDateTime?.ToOffset(PeruOffset).DateTime,
                 GerenteAreaDecididoEn   = raw.GerenteAreaDecididoDateTime?.ToOffset(PeruOffset).DateTime,
+                GthDecididoEn           = raw.GthDecididoDateTime?.ToOffset(PeruOffset).DateTime,
+                // Con esto el seguimiento pinta solo las firmas que esta vacante necesita.
+                Ruta                    = RutaAprobacion.De(raw.EsFft, raw.TipoCodigo),
             };
         }
 

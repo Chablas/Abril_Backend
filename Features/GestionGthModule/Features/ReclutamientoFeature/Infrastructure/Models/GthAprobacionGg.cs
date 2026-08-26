@@ -66,6 +66,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Comentario opcional del gerente del área.</summary>
         public string? GerenteAreaComentario { get; set; }
 
+        // ── Casilla de GTH (la tercera, solo para reemplazos) ────────────────
+        /// <summary>
+        /// FK a <see cref="GthAprobacionGgEstado"/> (mismo catálogo que las otras dos). Solo cuenta
+        /// para las vacantes de ruta <c>AREA_GTH</c> — los reemplazos que no son FFT—, donde la
+        /// vacante avanza recién con la firma de GTH Y la del gerente del área. En una solicitud sin
+        /// reemplazos se queda en PENDIENTE para siempre y no significa nada.
+        /// </summary>
+        public int EstadoGthId { get; set; }
+
+        public DateTimeOffset? GthDecididoDateTime { get; set; }
+
+        /// <summary>Usuario del área de GTH que registró la decisión.</summary>
+        public int? GthDecididoUserId { get; set; }
+
+        /// <summary>Comentario opcional de GTH.</summary>
+        public string? GthComentario { get; set; }
+
         // ── Correo enviado a AMBOS gerentes (uno solo, con n destinatarios) ──
         /// <summary>Destinatarios principales (Para) a los que se envió el correo, separados por "; ".</summary>
         public string? CorreoEnvio { get; set; }

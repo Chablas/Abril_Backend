@@ -21,7 +21,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// no es cosmético: es lo que impide que desde una pantalla se toque la configuración de la
         /// otra. La clave es el slug de la URL (<c>api/v1/gestion-gth/{modulo}/configuracion</c>).
         ///   • solicitud-personal → los correos del flujo del solicitante.
-        ///   • aprobaciones       → los que salen cuando Gerencia decide (sus avisos a GTH y a TI).
+        ///   • aprobaciones       → los que dispara una decisión de esa pantalla (los avisos a GTH
+        ///                            y a TI).
         ///   • reclutamiento      → los que salen desde la bandeja de GTH.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, string[]> CorreosPorPantalla =
@@ -41,12 +42,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.LongListDecision,
                     CorreoTipoReclutamiento.FinalistaDecision,
                 },
-                // SOLICITUD, TI_VACANTES y FFT_APROBACION_GG los dispara la decisión de Gerencia, no
-                // el solicitante: se configuran desde Aprobaciones, que es la pantalla donde esa
-                // decisión se toma.
+                // Los correos que dispara una decisión de la pantalla «Aprobaciones», no el
+                // solicitante: se configuran acá, que es donde esas decisiones se toman.
+                // SOLICITUD, TI_VACANTES y FFT_APROBACION_GG salen de la del Gerente General;
+                // REEMPLAZO_APROBADO, de la segunda firma de un reemplazo (la del gerente del área
+                // o la de GTH, la que llegue última).
                 ["aprobaciones"] = new[]
                 {
                     CorreoTipoReclutamiento.Solicitud,
+                    CorreoTipoReclutamiento.ReemplazoAprobado,
                     CorreoTipoReclutamiento.Ti,
                     CorreoTipoReclutamiento.FftAprobacionGg,
                 },

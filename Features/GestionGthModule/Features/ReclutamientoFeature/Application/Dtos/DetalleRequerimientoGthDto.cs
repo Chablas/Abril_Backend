@@ -46,10 +46,10 @@
         public decimal? SalarioBrutoMensual { get; set; }
 
         /// <summary>
-        /// true = ingreso directo <b>FFT</b>: el requerimiento nace con su candidato puesto y se
-        /// salta publicación, revisión de CV, long list, entrevistas y finalistas. GTH solo tiene
-        /// que enviarle el formulario y, al aprobarlo, programarle el EMO de ingreso. El modal usa
-        /// esto para no ofrecer los pasos que no existen en este flujo.
+        /// true = ingreso directo <b>FFT</b>: el requerimiento nace con su candidato puesto y ya
+        /// seleccionado, y se salta publicación, revisión de CV, long list, formulario del
+        /// postulante, entrevistas y finalistas. Lo único que le queda a GTH es programarle el EMO
+        /// de ingreso. El modal usa esto para no ofrecer los pasos que no existen en este flujo.
         /// </summary>
         public bool EsFft { get; set; }
 
@@ -57,10 +57,13 @@
         public string? FftCandidatoNombre { get; set; }
 
         /// <summary>
-        /// DNI del candidato FFT. GTH lo necesita para saber a quién le está mandando el formulario
-        /// cuando hay nombres parecidos, y es el documento con el que el candidato ya quedó
-        /// registrado en la base maestra al pedirse la vacante. Null cuando no es FFT o cuando el
-        /// requerimiento es anterior a que se pidiera el dato.
+        /// Documento del candidato FFT, con su tipo: «DNI 12345678». GTH lo necesita para saber de
+        /// quién se trata cuando hay nombres parecidos, y es el documento con el que el candidato ya
+        /// quedó registrado en la base maestra al pedirse la vacante. Null cuando no es FFT o cuando
+        /// el requerimiento es anterior a que se pidiera el dato.
+        ///
+        /// Viaja ya armado y no en dos campos porque la pantalla lo muestra en una sola línea: el
+        /// tipo suelto no le sirve de nada.
         /// </summary>
         public string? FftCandidatoDocumento { get; set; }
 

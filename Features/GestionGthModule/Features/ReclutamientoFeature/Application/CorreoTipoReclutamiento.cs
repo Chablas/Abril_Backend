@@ -32,6 +32,16 @@
         public const string Solicitud = "SOLICITUD";
 
         /// <summary>
+        /// Correo de "reemplazos aprobados a GTH". Es el equivalente de <see cref="Solicitud"/> para
+        /// la ruta <see cref="RutaAprobacion.AreaYGth"/>: mismo destinatario y mismo trabajo del otro
+        /// lado —publicar la vacante y reclutar—, pero lo dispara otra decisión. Sale recién cuando
+        /// una vacante de reemplazo junta las DOS firmas (la del gerente del área y la de GTH), y
+        /// solo con las que quedaron completas en esa decisión: la primera de las dos firmas todavía
+        /// no manda nada. Se configura desde Aprobaciones, que es donde esas firmas se registran.
+        /// </summary>
+        public const string ReemplazoAprobado = "REEMPLAZO_APROBADO";
+
+        /// <summary>
         /// Correo de "vacantes aprobadas a TI". Sale junto con el de GTH, en la misma decisión de
         /// Gerencia General y con las mismas vacantes aprobadas, pero es un aviso de preparación:
         /// TI necesita la anticipación para alistar equipo, usuario y accesos de cada ingreso. Es
@@ -43,23 +53,25 @@
         /// Correo del candidato <b>FFT</b> que pide el propio Gerente General. Es el que arranca el
         /// flujo cuando quien registra la solicitud es él: su aprobación se omite (se estaría
         /// aprobando a sí mismo), así que este correo reemplaza al de <see cref="AprobacionGg"/> y
-        /// va directo a GTH. Se configura desde Solicitud de Personal, que es de donde sale.
+        /// va directo a GTH, que lo único que tiene que hacer es programarle el EMO. Se configura
+        /// desde Solicitud de Personal, que es de donde sale.
         /// </summary>
         public const string FftSolicitudGg = "FFT_SOLICITUD_GG";
 
         /// <summary>
         /// Correo del candidato <b>FFT</b> que Gerencia General aprobó. Es la contraparte de
         /// <see cref="Solicitud"/> para las vacantes FFT: mismo momento (la decisión del GG) y
-        /// mismo destinatario (GTH), pero otro cuerpo — no hay vacante que publicar, hay un
-        /// candidato al que mandarle el formulario. Se configura desde Aprobaciones.
+        /// mismo destinatario (GTH), pero otro cuerpo — no hay vacante que publicar ni proceso que
+        /// arrancar, hay un candidato al que programarle su EMO. Se configura desde Aprobaciones.
         /// </summary>
         public const string FftAprobacionGg = "FFT_APROBACION_GG";
 
         /// <summary>
-        /// Correo de "el candidato FFT pasa a su EMO". Lo dispara GTH al aprobar el formulario de un
-        /// candidato FFT: como el flujo no tiene entrevistas ni decisión de finalista, este correo
-        /// ocupa el lugar que en el flujo normal tiene <see cref="FinalistaDecision"/>. Se configura
-        /// desde Reclutamiento, que es la pantalla donde se aprueba el formulario.
+        /// Correo de "el candidato FFT pasa a su EMO". Lo dispara GTH al aprobar el formulario de
+        /// un candidato FFT de los que quedaron del flujo <b>anterior</b>, el que sí pedía
+        /// formulario. En el flujo actual el ingreso directo va derecho al EMO al aprobarse la
+        /// vacante y quien lo anuncia es <see cref="FftAprobacionGg"/> (o
+        /// <see cref="FftSolicitudGg"/>), así que este correo ya no sale para los pedidos nuevos.
         /// </summary>
         public const string FftEmo = "FFT_EMO";
 
@@ -133,7 +145,8 @@
         public const string Agradecimiento = "AGRADECIMIENTO";
 
         /// <summary>
-        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> / <c>ti-vacantes</c> /
+        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> /
+        /// <c>reemplazo-aprobado</c> / <c>ti-vacantes</c> /
         /// <c>fft-solicitud-gg</c> / <c>fft-aprobacion-gg</c> / <c>fft-emo</c> / <c>long-list</c> /
         /// <c>decision-long-list</c> / <c>finalista-envio</c> / <c>decision-finalista</c> /
         /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
@@ -145,6 +158,7 @@
             "aprobacion-gg"          => AprobacionGg,
             "aprobacion-reemplazo"   => AprobacionReemplazo,
             "solicitud"              => Solicitud,
+            "reemplazo-aprobado"     => ReemplazoAprobado,
             "ti-vacantes"            => Ti,
             "fft-solicitud-gg"       => FftSolicitudGg,
             "fft-aprobacion-gg"      => FftAprobacionGg,

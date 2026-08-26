@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
 {
     /// <summary>
     /// Evaluación de la entrevista de un candidato (tabla <c>gth_candidato_evaluacion</c>):
@@ -19,6 +19,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>FK al candidato evaluado (1:1 entre las filas vigentes).</summary>
         public int GthCandidatoId { get; set; }
+
+        /// <summary>
+        /// El candidato evaluado. Existe por el ingreso directo <b>FFT</b>: ahí el candidato y su
+        /// evaluación (que lo deja SELECCIONADO) nacen en el mismo acto, y sin navegación habría que
+        /// guardar dos veces —el <c>GthCandidatoId</c> no existe hasta el primer <c>SaveChanges</c>—
+        /// partiendo en dos una operación que tiene que ser atómica. Con ella, EF resuelve la FK
+        /// sola. El resto del módulo sigue leyendo por <see cref="GthCandidatoId"/>.
+        /// </summary>
+        public GthCandidato? Candidato { get; set; }
 
         /// <summary>FK a <c>gth_candidato_resultado</c>: PENDIENTE / PASO / NO_PASO.</summary>
         public int GthCandidatoResultadoId { get; set; }

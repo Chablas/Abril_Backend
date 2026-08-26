@@ -8,6 +8,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Infra
 using Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories;
 
@@ -24,6 +25,11 @@ namespace Abril_Backend.Features.GestionGthModule
             // Reclutamiento
             services.AddScoped<IReclutamientoRepository, ReclutamientoRepository>();
             services.AddScoped<IReclutamientoService, ReclutamientoService>();
+
+            // Bitácora de fases del requerimiento. Es un interceptor de EF y no un servicio de la
+            // feature porque el estado se mueve desde una docena de sitios: acá se registra y en
+            // Program.cs se engancha al DbContext (ver RequerimientoEstadoHistorialInterceptor).
+            services.AddSingleton<RequerimientoEstadoHistorialInterceptor>();
 
             // Archivos del requerimiento en SharePoint (CVs y anexos de la long list, archivos del
             // informe, CV documentado del postulante). Lo comparten la bandeja de GTH y la página

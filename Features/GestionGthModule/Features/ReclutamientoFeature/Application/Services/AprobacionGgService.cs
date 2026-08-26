@@ -28,7 +28,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// dos, si la solicitud mezcla tipos), cada uno listando solo las suyas y con un enlace a la
     /// pantalla «Aprobaciones» del módulo Gestión GTH → cada firmante decide ahí (con su sesión; si
     /// no la tiene, el login lo devuelve a esa misma pantalla) → en cuanto una vacante junta todas
-    /// las firmas de su ruta se le notifica a GTH y a TI.
+    /// las firmas de su ruta se le notifica a GTH.
+    ///
+    /// El aviso a GTH es un correo por ruta —<c>SOLICITUD</c> para lo que aprueba Gerencia General,
+    /// <c>REEMPLAZO_APROBADO</c> para los reemplazos que juntaron las dos firmas—, cada uno con su
+    /// propia configuración de destinatarios. El de TI (<c>TI_VACANTES</c>) sale solo con la
+    /// decisión de Gerencia General.
     ///
     /// Las firmas son independientes y sin orden impuesto entre ellas.
     ///
@@ -328,12 +333,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Salario bruto mensual de la vacante formateado en soles para la tabla de los correos a
         /// los gerentes y a GTH (los dos que sí lo necesitan: uno lo aprueba y el otro arma la
-        /// oferta). Guion cuando la vacante es anterior a que se pidiera el dato.
+        /// oferta). Null cuando la vacante no lo declara: los reemplazos ya no lo piden, y los
+        /// requerimientos anteriores a que existiera el campo tampoco lo tienen. Con todas las
+        /// vacantes del correo en null, la tabla sale sin esa columna.
         /// </summary>
-        private static string SalarioTexto(AprobacionGgVacanteDto v) =>
+        private static string? SalarioTexto(AprobacionGgVacanteDto v) =>
             v.SalarioBrutoMensual.HasValue
                 ? $"S/ {v.SalarioBrutoMensual.Value.ToString("N2", CultureInfo.InvariantCulture)}"
-                : "—";
+                : null;
+
+        /// <summary>
+        /// ¿Alguna de estas vacantes declara sueldo? Es lo que decide si la tabla del correo lleva
+        /// la columna: una solicitud de puros reemplazos la dejaría llena de guiones.
+        /// </summary>
+        private static bool ConSalario(IReadOnlyList<AprobacionGgVacanteDto> vacantes) =>
+            vacantes.Any(v => v.SalarioBrutoMensual.HasValue);
 
         /// <summary>
         /// Cuerpo del correo de aprobación: las vacantes de ESA ruta en una tabla + un acceso a la
@@ -385,17 +399,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Columnas de la tabla de los correos FFT. Reemplaza a la de vacantes normales: en FFT lo
         /// que importa no es el tipo de requerimiento (siempre es un ingreso directo) sino a QUIÉN
-        /// se está pidiendo, así que las dos columnas del candidato ocupan ese lugar. Los anchos
-        /// suman el ancho interno de la tarjeta (580).
+        /// se está pidiendo, así que las dos columnas del candidato ocupan ese lugar. La del
+        /// documento dice también de qué tipo es: desde que la casilla FFT ofrece DNI y carné de
+        /// extranjería, el número solo no alcanza para identificarlo.
         /// </summary>
         private static readonly IReadOnlyList<Layout.Columna> ColumnasFft = new List<Layout.Columna>
         {
-            new("Código", 104),
-            new("Puesto", 96),
-            new("Candidato", 124),
-            new("DNI", 72, Layout.Alineacion.Derecha),
-            new("Correo personal", 140),
+            new("Código", 100),
+            new("Puesto", 92),
+            new("Candidato", 116),
+            new("Documento", 96, Layout.Alineacion.Derecha),
+            new("Correo personal", 132),
             new("Salario bruto", 92, Layout.Alineacion.Derecha),
+        };
+
+        /// <summary>
+        /// La misma tabla sin la columna del sueldo, para los FFT que no lo declaran (los de tipo
+        /// reemplazo ya no lo piden). Los anchos se reparten el espacio que deja.
+        /// </summary>
+        private static readonly IReadOnlyList<Layout.Columna> ColumnasFftSinSalario = new List<Layout.Columna>
+        {
+            new("Código", 116),
+            new("Puesto", 112),
+            new("Candidato", 140),
+            new("Documento", 100, Layout.Alineacion.Derecha),
+            new("Correo personal", 160),
         };
 
         /// <summary>
@@ -436,6 +464,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // El plural cambia con la cantidad: una solicitud FFT puede traer varias vacantes, cada
             // una con su propio candidato.
             var uno = vacantes.Count == 1;
+            var conSalario = ConSalario(vacantes);
             var bajada = pedidoPorGg
                 ? $"Gerencia General pide el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:"
                 : $"Gerencia General aprobó el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:";
@@ -444,15 +473,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 new Layout.Cabecera("req-formulario", "Ingreso Directo FFT", bajada),
                 l.Tarjeta(datos),
                 l.Seccion("req-candidatos", uno ? "Candidato solicitado" : $"Candidatos solicitados ({vacantes.Count})"),
-                l.Tabla(ColumnasFft, FilasFft(vacantes)),
+                l.Tabla(conSalario ? ColumnasFft : ColumnasFftSinSalario, FilasFft(vacantes, conSalario)),
                 l.Tarjeta(contexto),
-                // El paso que sigue, en una línea: el FFT no publica la vacante ni arma long list,
-                // así que lo único pendiente es el formulario del postulante.
+                // El paso que sigue, en una línea: el ingreso directo no publica la vacante, ni arma
+                // long list, ni le manda formulario a nadie —sus datos ya los declaró quien lo
+                // pidió—, así que lo único pendiente es el examen médico de ingreso.
                 l.Franja("req-aviso", Layout.Tono.Info,
                     uno
-                        ? "<b>Siguiente paso:</b> enviarle el formulario de información al postulante."
-                        : "<b>Siguiente paso:</b> enviarles el formulario de información a los postulantes."),
-                l.Boton(uno ? "Enviar formulario" : "Ver requerimientos", link),
+                        ? "<b>Siguiente paso:</b> programarle su EMO de ingreso."
+                        : "<b>Siguiente paso:</b> programarles su EMO de ingreso."),
+                l.Boton(uno ? "Programar EMO de ingreso" : "Ver requerimientos", link),
                 l.EnlaceDirecto(link));
         }
 
@@ -462,23 +492,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// y su correo personal (el buzón al que GTH le va a mandar el formulario).
         /// </summary>
         private static List<IReadOnlyList<Layout.Celda>> FilasFft(
-            IReadOnlyList<AprobacionGgVacanteDto> vacantes) =>
-            vacantes
-                .Select(v => (IReadOnlyList<Layout.Celda>)new List<Layout.Celda>
+            IReadOnlyList<AprobacionGgVacanteDto> vacantes, bool conSalario)
+        {
+            var filas = new List<IReadOnlyList<Layout.Celda>>(vacantes.Count);
+            foreach (var v in vacantes)
+            {
+                var celdas = new List<Layout.Celda>
                 {
                     new(Layout.Esc(v.Codigo), Negrita: true, Color: Layout.Azul, NoWrap: true),
                     new(Layout.Esc(v.Puesto)),
                     new(Textos.OGuion(v.FftCandidatoNombre), Negrita: true),
-                    new(Textos.OGuion(v.FftCandidatoDocumento), NoWrap: true),
+                    // "DNI 12345678": el tipo va pegado al número y no en una columna aparte —
+                    // agregarle una séptima columna a esta tabla la dejaría ilegible en Outlook.
+                    new(Textos.OGuion(v.FftDocumentoTexto), NoWrap: true),
                     new(Textos.OGuion(v.FftCandidatoCorreo)),
-                    new(Layout.Esc(SalarioTexto(v)), Negrita: true, NoWrap: true),
-                })
-                .ToList();
+                };
+                if (conSalario) celdas.Add(new(Textos.OGuion(SalarioTexto(v)), Negrita: true, NoWrap: true));
+                filas.Add(celdas);
+            }
+            return filas;
+        }
 
         /// <summary>
         /// Enlace del botón de los correos FFT. Con UN candidato va al detalle del requerimiento,
-        /// que abre el modal ya parado en la fase del formulario — el único paso pendiente. Con
-        /// varios lleva a la bandeja: un enlace abre un modal y hay un requerimiento por vacante.
+        /// que abre el modal ya parado en el EMO de ingreso —el único paso pendiente— con el botón
+        /// para programarlo a la vista. Con varios lleva a la bandeja: un enlace abre un modal y hay
+        /// un requerimiento por vacante.
         /// </summary>
         private string ConstruirLinkFft(IReadOnlyList<AprobacionGgVacanteDto> vacantes)
         {
@@ -566,30 +605,39 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("La solicitud por aprobar no existe o ya no está disponible.", 404);
 
             // Aviso "a quién le llegará esta decisión" del modal. Son exactamente los destinatarios
-            // que usan al confirmar NotificarAGthAsync (tipo SOLICITUD) y NotificarATiAsync (tipo
-            // TI_VACANTES) y, como allá, sin área — ninguno de los dos depende del área del
-            // solicitante. Va en la misma petición que el detalle.
+            // que se usan al confirmar y, como allá, sin área — ninguno de estos correos depende del
+            // área del solicitante. Va en la misma petición que el detalle.
             //
-            // Los dos correos se muestran juntos: al gerente le importa a quién le llega su
-            // decisión, no cuántos correos salen por detrás.
+            // Cuáles se consultan depende del nivel de quien abre, porque cada decisión dispara
+            // otros correos: la de Gerencia General manda el aviso a GTH (SOLICITUD); la del gerente
+            // del área y la de GTH, el de reemplazos aprobados (REEMPLAZO_APROBADO), que sale recién
+            // cuando esa firma completa las dos que necesita un reemplazo. El de vacantes aprobadas
+            // a TI (TI_VACANTES) sale por las dos rutas.
             //
-            // Solo se consultan cuando quien abre es Gerencia General y aún no decidió: es el único
-            // caso en el que esos correos van a salir. Al gerente del área no se le promete un envío
-            // que su visto bueno no dispara.
-            if (dto.PuedeDecidir && dto.Nivel == AprobacionNivel.GerenteGeneral)
+            // Los correos de una misma decisión se muestran juntos: al gerente le importa a quién le
+            // llega su decisión, no cuántos correos salen por detrás.
+            //
+            // Solo se consultan cuando el usuario aún no decidió: en lectura no va a salir nada.
+            if (dto.PuedeDecidir && dto.Nivel != AprobacionNivel.Ninguno)
             {
                 try
                 {
-                    // Con vacantes FFT sale además su propio aviso a GTH, así que sus destinatarios
-                    // entran en la misma lista: el gerente tiene que ver a quién le llega TODO lo
-                    // que dispara su decisión, no una parte.
-                    var fuentes = new List<SolicitudDestinatariosDto>
+                    var fuentes = new List<SolicitudDestinatariosDto>();
+                    if (dto.Nivel == AprobacionNivel.GerenteGeneral)
                     {
-                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud),
-                        await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti),
-                    };
-                    if (dto.Vacantes.Any(v => v.EsFft))
-                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
+                        // Con vacantes FFT sale además su propio aviso a GTH, así que sus
+                        // destinatarios entran en la misma lista: el gerente tiene que ver a quién
+                        // le llega TODO lo que dispara su decisión, no una parte.
+                        if (dto.Vacantes.Any(v => v.EsFft))
+                            fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg));
+                    }
+                    else
+                    {
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.ReemplazoAprobado));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
+                    }
 
                     dto.Destinatarios = Fusionar(fuentes.ToArray());
                 }
@@ -667,10 +715,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             else
             {
-                // Ruta de reemplazo: la firma del gerente del área y la de GTH mandan juntas. Lo que
-                // aprobó ESTA decisión puede haber salido ya a GTH (si la otra firma estaba puesta)
-                // o quedar esperándola, así que el mensaje se arma con lo que realmente se movió y
-                // no con lo que el usuario marcó.
+                // Ruta de reemplazo: la vacante se mueve recién con las dos firmas, así que los
+                // avisos los dispara la SEGUNDA —la que llegue última, sea la del gerente del área o
+                // la de GTH—. ctx.Aprobadas trae solo las que quedaron completas con esta decisión,
+                // que son exactamente las que hay que mandar: la primera firma no avisa nada.
+                //
+                // A TI le llega el mismo correo que por la ruta de Gerencia General: un reemplazo
+                // también es alguien que entra, y necesita la misma anticipación para alistarle
+                // equipo, usuario y accesos.
+                //
+                // Best-effort los dos, como en la ruta de Gerencia General: la decisión ya quedó
+                // registrada y no se revierte porque un correo falle.
+                if (ctx.Aprobadas.Count > 0)
+                {
+                    await NotificarAGthAsync(ctx, userId, tipoCorreo: CorreoTipoReclutamiento.ReemplazoAprobado);
+                    await NotificarATiAsync(ctx);
+                }
+
+                // Lo que aprobó ESTA decisión puede haber salido ya a GTH (si la otra firma estaba
+                // puesta) o quedar esperándola, así que el mensaje se arma con lo que realmente se
+                // movió y no con lo que el usuario marcó.
                 var salieron  = ctx.Aprobadas.Count;
                 var esperando = res.Aprobados - salieron;
                 var faltante  = res.Nivel == AprobacionNivel.Gth ? "el gerente del área" : "GTH";
@@ -732,14 +796,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Omitidas    = ctx.Omitidas,
             };
 
-            // Los correos salen como en la decisión de una: UNO por solicitud aprobada. GTH y TI
-            // trabajan por solicitud (cada correo lleva sus códigos de vacante y su justificación),
-            // así que fusionarlas en un solo correo cambiaría lo que reciben. Solo el visto bueno del
-            // gerente del área sigue sin disparar nada.
-            if (ctx.Nivel == AprobacionNivel.GerenteGeneral)
+            // Los correos salen como en la decisión de una: UNO por solicitud con vacantes que se
+            // hayan movido. GTH y TI trabajan por solicitud (cada correo lleva sus códigos de
+            // vacante y su justificación), así que fusionarlas en un solo correo cambiaría lo que
+            // reciben.
+            //
+            // Qué sale depende del nivel: la decisión de Gerencia General manda lo aprobado a GTH y
+            // a TI; la del gerente del área o la de GTH avisa a GTH solo los reemplazos que ESTA
+            // firma dejó completos (los que ya tenían la otra). En las dos, `Aprobadas` es lo que
+            // realmente se movió, así que la lista de solicitudes con algo que mandar se calcula
+            // igual.
+            var conAprobadas = ctx.Registradas.Where(c => c.Aprobadas.Count > 0).ToList();
+            if (conAprobadas.Count > 0)
             {
-                var conAprobadas = ctx.Registradas.Where(c => c.Aprobadas.Count > 0).ToList();
-                if (conAprobadas.Count > 0)
+                if (ctx.Nivel == AprobacionNivel.GerenteGeneral)
                 {
                     var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Solicitud);
                     var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
@@ -756,6 +826,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         if (destGth != null) await NotificarAGthAsync(c, userId, destGth);
                         if (destFft != null) await NotificarFftAprobadoAGthAsync(c, userId, destFft);
                         if (destTi  != null) await NotificarATiAsync(c, destTi);
+                    }
+                }
+                else
+                {
+                    // Un lote de reemplazos no puede traer vacantes FFT: siempre van por la ruta de
+                    // Gerencia General. El aviso a TI sí sale, igual que en esa ruta.
+                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.ReemplazoAprobado);
+                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
+
+                    foreach (var c in conAprobadas)
+                    {
+                        if (destGth != null)
+                            await NotificarAGthAsync(
+                                c, userId, destGth, CorreoTipoReclutamiento.ReemplazoAprobado);
+                        if (destTi != null) await NotificarATiAsync(c, destTi);
                     }
                 }
             }
@@ -811,18 +896,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Correo + campanita a GTH con las vacantes que Gerencia General aprobó (tipo SOLICITUD).
-        /// Es el correo de "nueva solicitud de personal" que antes salía al registrar la solicitud:
-        /// ahora espera la aprobación del GG y solo lleva lo aprobado. No bloquea.
+        /// Correo + campanita a GTH con las vacantes que quedaron aprobadas en esta decisión: las
+        /// que hay que publicar y reclutar. Es el correo de "nueva solicitud de personal" que antes
+        /// salía al registrar la solicitud — ahora espera las firmas y solo lleva lo aprobado. No
+        /// bloquea.
         /// </summary>
+        /// <param name="tipoCorreo">
+        /// Cuál de los dos avisos a GTH es, que es lo único que cambia entre las dos rutas: el
+        /// trabajo del otro lado es el mismo (reclutar), pero lo dispara otra decisión y cada uno
+        /// tiene su propia configuración de destinatarios.
+        /// <list type="bullet">
+        ///   <item><see cref="CorreoTipoReclutamiento.Solicitud"/> — lo aprobado por Gerencia General.</item>
+        ///   <item><see cref="CorreoTipoReclutamiento.ReemplazoAprobado"/> — los reemplazos que
+        ///   juntaron las firmas del gerente del área y de GTH.</item>
+        /// </list>
+        /// </param>
         private async Task NotificarAGthAsync(
-            AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null)
+            AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null,
+            string tipoCorreo = CorreoTipoReclutamiento.Solicitud)
         {
             // Las vacantes FFT tienen su propio correo (NotificarFftAprobadoAGthAsync): este es el
             // de las que sí hay que publicar y reclutar. Una solicitud puede traer solo FFT, y
-            // entonces acá no queda nada que mandar.
+            // entonces acá no queda nada que mandar. (Por la ruta del reemplazo nunca llega una:
+            // un FFT siempre lo aprueba Gerencia General.)
             var vacantes = ctx.Aprobadas.Where(v => !v.EsFft).ToList();
             if (vacantes.Count == 0) return;
+
+            var esReemplazo = tipoCorreo == CorreoTipoReclutamiento.ReemplazoAprobado;
 
             // En la decisión de UNA solicitud los destinatarios se resuelven acá. En la decisión en
             // bloque llegan ya resueltos, una sola vez para todo el lote: no dependen de la
@@ -833,11 +933,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 try
                 {
-                    dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud);
+                    dest = await _destinatarios.ResolverAsync(tipoCorreo);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "No se pudo resolver a los destinatarios de GTH de la solicitud {SolicitudId}", ctx.SolicitudId);
+                    _logger.LogWarning(ex,
+                        "No se pudieron resolver los destinatarios del correo {Tipo} a GTH de la solicitud {SolicitudId}",
+                        tipoCorreo, ctx.SolicitudId);
                     return;
                 }
             }
@@ -847,22 +949,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 if (dest.Para.Count > 0) // sin destinatario principal → no se envía
                 {
+                    var titulo = esReemplazo ? "Reemplazo aprobado" : "Nueva solicitud de personal aprobada";
                     var subject = vacantes.Count == 1
-                        ? $"[Reclutamiento] Nueva solicitud de personal aprobada — {vacantes[0].Codigo}"
-                        : $"[Reclutamiento] Nueva solicitud de personal aprobada — {vacantes.Count} vacantes";
+                        ? $"[Reclutamiento] {titulo} — {vacantes[0].Codigo}"
+                        : $"[Reclutamiento] {(esReemplazo ? "Reemplazos aprobados" : titulo)} — {vacantes.Count} vacantes";
 
                     await _email.SendAsync(
                         to:      dest.EmailsPara,
                         subject: subject,
-                        body:    ConstruirCuerpoGth(ctx, vacantes),
+                        body:    ConstruirCuerpoGth(ctx, vacantes, esReemplazo),
                         isHtml:  true,
                         cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
                 }
                 else
                 {
+                    // También entra acá cuando el correo está apagado con su interruptor maestro:
+                    // en ese caso es una decisión de la Configuración, no una falla.
                     _logger.LogWarning(
-                        "No hay destinatarios principales activos para el correo de nueva solicitud (solicitud {SolicitudId}); no se envía.",
-                        ctx.SolicitudId);
+                        "No hay destinatarios principales activos para el correo {Tipo} a GTH (solicitud {SolicitudId}); no se envía.",
+                        tipoCorreo, ctx.SolicitudId);
                 }
             }
             catch (Exception ex)
@@ -953,7 +1058,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Correo a TI con las vacantes que Gerencia General aprobó (tipo TI_VACANTES). Sale en la
+        /// Correo a TI con las vacantes que la decisión dejó aprobadas (tipo TI_VACANTES). Sale por
+        /// las dos rutas —con la firma de Gerencia General, y con la segunda firma de un reemplazo—
+        /// porque lo que le importa a TI es que alguien va a entrar, no quién lo autorizó. Va en la
         /// misma decisión que el de GTH pero es otro correo y otra configuración: TI no participa
         /// del reclutamiento, lo que necesita es la anticipación para alistar equipo, usuario y
         /// accesos de cada ingreso.
@@ -1020,7 +1127,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     new(Layout.Esc(v.TipoRequerimiento) + Textos.Reemplaza(v.TrabajadorReemplazado)),
                     new(Textos.OGuion(v.ProyectoObra)),
                 };
-                if (conSalario) celdas.Add(new(Layout.Esc(SalarioTexto(v)), Negrita: true, NoWrap: true));
+                if (conSalario) celdas.Add(new(Textos.OGuion(SalarioTexto(v)), Negrita: true, NoWrap: true));
                 filas.Add(celdas);
             }
             return filas;
@@ -1044,27 +1151,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (!string.IsNullOrWhiteSpace(ctx.SolicitanteNombre))
                 datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(ctx.SolicitanteNombre)));
 
+            // Quién aprobó cambia con la ruta de la vacante, y el correo puede traer las dos: se
+            // dice "Se aprobaron" en vez de atribuirlo a quien no fue.
             return l.Documento(
                 new Layout.Cabecera(
-                    "req-ti", "Vacantes Aprobadas", "Gerencia General aprobó estas vacantes:"),
+                    "req-ti", "Vacantes Aprobadas", "Se aprobaron estas vacantes:"),
                 l.Tarjeta(datos),
                 l.Seccion("req-vacantes", $"Vacantes aprobadas ({ctx.Aprobadas.Count})"),
                 l.Tabla(Textos.ColumnasVacantes, FilasVacantes(ctx.Aprobadas, conSalario: false)));
         }
 
         /// <summary>
-        /// Cuerpo del correo a GTH: las vacantes que aprobó Gerencia General, con el contexto de la
-        /// decisión (justificación, comentario del GG, visto bueno del gerente del área y sustento)
-        /// y el botón que lleva a «Reclutamiento» a trabajarlas. Lo que el GG no aprobó no se
-        /// menciona: no genera trabajo para GTH y el conteo del asunto ya se refiere solo a lo
-        /// aprobado.
+        /// Cuerpo de los dos correos a GTH con vacantes aprobadas: el de Gerencia General y el de
+        /// los reemplazos que juntaron las dos firmas. Son el mismo correo con otra bajada —lo que
+        /// cambia es de dónde viene la aprobación, no lo que GTH tiene que hacer con ella— así que
+        /// comparten cuerpo en vez de duplicarse.
+        ///
+        /// Lleva las vacantes aprobadas, el contexto de la decisión (justificación, comentario de
+        /// quien decidió, visto bueno del gerente del área y sustento) y el botón que lleva a
+        /// «Reclutamiento» a trabajarlas. Lo que no se aprobó no se menciona: no genera trabajo para
+        /// GTH y el conteo del asunto ya se refiere solo a lo aprobado.
         /// </summary>
         /// <param name="vacantes">
         /// Las aprobadas que le toca reclutar a GTH: las FFT quedan fuera porque van en su propio
         /// correo, con su propio cuerpo y su propio siguiente paso.
         /// </param>
+        /// <param name="esReemplazo">
+        /// true = el correo de la ruta del gerente del área + GTH. Cambia la bajada y la etiqueta
+        /// del comentario: esa decisión no la firmó Gerencia General.
+        /// </param>
         private string ConstruirCuerpoGth(
-            AprobacionGgDecisionContextoDto ctx, IReadOnlyList<AprobacionGgVacanteDto> vacantes)
+            AprobacionGgDecisionContextoDto ctx, IReadOnlyList<AprobacionGgVacanteDto> vacantes,
+            bool esReemplazo = false)
         {
             var l    = Layout.Desde(_configuration);
             var link = ConstruirLinkReclutamiento(vacantes);
@@ -1076,25 +1194,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (!string.IsNullOrWhiteSpace(ctx.SolicitanteNombre))
                 datos.Add(new("req-solicitante", "Solicitante", Layout.Esc(ctx.SolicitanteNombre)));
 
-            // El visto bueno del gerente del área no condiciona nada, pero saber que opinó (y qué
-            // opinó) le da contexto a GTH. Vacío si nunca llegó a registrarlo.
+            // El visto bueno del gerente del área no condiciona nada en la ruta de Gerencia General,
+            // pero saber que opinó (y qué opinó) le da contexto a GTH. En la del reemplazo es una de
+            // las dos firmas que movieron la vacante, así que ahí vale todavía más. Vacío si nunca
+            // llegó a registrarlo.
             var contexto = new List<Layout.Fila>();
             if (!string.IsNullOrWhiteSpace(ctx.Justificacion))
                 contexto.Add(new("req-justificacion", "Justificación", Layout.EscMultilinea(ctx.Justificacion)));
             if (!string.IsNullOrWhiteSpace(ctx.Comentario))
-                contexto.Add(new("req-comentario", "Comentario de GG", Layout.EscMultilinea(ctx.Comentario)));
+                contexto.Add(new("req-comentario", esReemplazo ? "Comentario" : "Comentario de GG",
+                    Layout.EscMultilinea(ctx.Comentario)));
             if (!string.IsNullOrWhiteSpace(ctx.GerenteAreaResumen))
                 contexto.Add(new("req-vistobueno", "Visto bueno del área", Layout.Esc(ctx.GerenteAreaResumen)));
             if (!string.IsNullOrWhiteSpace(ctx.SustentoUrl))
                 contexto.Add(new("req-sustento", "Sustento adjunto",
                     Textos.Enlace(ctx.SustentoUrl!, ctx.SustentoNombre ?? "Ver documento")));
 
+            var uno = vacantes.Count == 1;
+            var conSalario = ConSalario(vacantes);
+
             return l.Documento(
                 new Layout.Cabecera(
-                    "req-aprobada", "Solicitud Aprobada", "Gerencia General aprobó estas vacantes:"),
+                    "req-aprobada",
+                    esReemplazo ? "Vacantes Aprobadas" : "Solicitud Aprobada",
+                    esReemplazo
+                        ? $"El gerente del área y GTH aprobaron {(uno ? "este reemplazo" : "estos reemplazos")}:"
+                        : "Gerencia General aprobó estas vacantes:"),
                 l.Tarjeta(datos),
                 l.Seccion("req-vacantes", $"Vacantes aprobadas ({vacantes.Count})"),
-                l.Tabla(Textos.ColumnasVacantesConSalario, FilasVacantes(vacantes, conSalario: true)),
+                l.Tabla(
+                    conSalario ? Textos.ColumnasVacantesConSalario : Textos.ColumnasVacantes,
+                    FilasVacantes(vacantes, conSalario)),
                 l.Tarjeta(contexto),
                 // «Iniciar el reclutamiento» y no «Publicar la vacante»: al aprobar, la vacante
                 // queda en VALIDACION_GTH, así que lo primero que abre el modal es la asignación

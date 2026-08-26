@@ -15,9 +15,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// la pantalla y, si no tiene sesión, el login lo devuelve a esa misma URL.
     ///
     /// El rol (<c>role_feature</c>) abre la pantalla; qué solicitudes se ven y con qué poder se
-    /// decide lo resuelve el servicio desde la CATEGORÍA de la ficha de trabajador del usuario
-    /// (Gerente General → todas; Gerente → su área hacia abajo; cualquier otra → ninguna). Por eso
-    /// todos los endpoints de gerencia mandan el id del usuario autenticado.
+    /// decide lo resuelve el servicio desde la CATEGORÍA de la ficha de trabajador del usuario. El
+    /// alcance tiene dos ejes que se aplican juntos:
+    ///   • por ÁREA: Gerente General y GTH ven toda la empresa; el gerente de área, su nodo hacia
+    ///     abajo; cualquier otra categoría, nada.
+    ///   • por TIPO de vacante: el Gerente General solo las NUEVAS y las FFT; el gerente del área y
+    ///     GTH solo los REEMPLAZOS. Es el corte de <c>RutaAprobacion</c>, y recorta lo que se
+    ///     DEVUELVE (códigos, conteos, casillas y datos de cada vacante), no solo lo que se pinta.
+    /// Por eso todos los endpoints de gerencia mandan el id del usuario autenticado.
     /// </summary>
     [ApiController]
     [Authorize]
@@ -41,7 +46,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Pantalla completa en una sola petición: el nivel del usuario, las tarjetas de resumen y
-        /// las solicitudes que alcanza (pendientes de su decisión e historial).
+        /// las solicitudes que alcanza (pendientes de su decisión e historial), cada una recortada a
+        /// las vacantes de su ruta.
         /// </summary>
         [HttpGet("bandeja")]
         public async Task<IActionResult> GetBandeja()
@@ -62,9 +68,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Detalle de una solicitud a decidir: cabecera + todas sus vacantes + las dos casillas de
-        /// decisión. Si el nivel del usuario ya decidió, la respuesta lo indica y el modal se
-        /// muestra en modo lectura (historial). 403 si la solicitud es de otra área.
+        /// Detalle de una solicitud a decidir: cabecera + las vacantes de la ruta del usuario + las
+        /// casillas de decisión. Si su nivel ya decidió, la respuesta lo indica y el modal se muestra
+        /// en modo lectura (historial). 403 si la solicitud es de otra área o si no le toca decidir
+        /// ninguna de sus vacantes (el enlace de un correo de la otra ruta).
         /// </summary>
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetDetalle(int id)

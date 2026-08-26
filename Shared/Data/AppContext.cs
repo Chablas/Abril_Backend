@@ -502,6 +502,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad> GthPrioridad => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud> GthSolicitud => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento> GthRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoEstadoHistorial> GthRequerimientoEstadoHistorial => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoEstadoHistorial>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder> GthSustentoFolder => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo> GthCorreoTipo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>();
@@ -1429,6 +1430,11 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(r => r.GthTipoRequerimientoId)
                  .OnDelete(DeleteBehavior.Restrict);
+                // Tipo del documento del candidato FFT (DNI / CE). Solo lo llenan las vacantes FFT.
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoDocumento>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthTipoDocumentoId)
+                 .OnDelete(DeleteBehavior.Restrict);
                 // Trabajador reemplazado (solo en las vacantes de tipo REEMPLAZO).
                 e.HasIndex(r => r.ReemplazaWorkerId);
                 e.HasOne<Worker>()
@@ -1458,6 +1464,26 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne<Contributor>()
                  .WithMany()
                  .HasForeignKey(r => r.ContributorId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Bitácora de fases del requerimiento: una fila por cambio de estado, escrita por
+            // RequerimientoEstadoHistorialInterceptor dentro del mismo SaveChanges que lo mueve.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoEstadoHistorial>(e =>
+            {
+                // La línea de tiempo de un requerimiento se lee siempre así: sus filas en orden.
+                e.HasIndex(h => new { h.GthRequerimientoId, h.CambioDateTime });
+                e.HasOne(h => h.Requerimiento)
+                 .WithMany()
+                 .HasForeignKey(h => h.GthRequerimientoId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(h => h.GthEstadoRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(h => h.EstadoAnteriorId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 
@@ -1559,7 +1585,9 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 // Una sola evaluación vigente por candidato: volver a guardar actualiza esa fila.
                 e.HasIndex(x => x.GthCandidatoId).IsUnique().HasFilter("state = true");
-                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
+                // Con navegación: el ingreso directo FFT crea al candidato y su evaluación en el
+                // mismo SaveChanges, y es EF quien copia la FK (ver GthCandidatoEvaluacion.Candidato).
+                e.HasOne(x => x.Candidato)
                  .WithMany()
                  .HasForeignKey(x => x.GthCandidatoId)
                  .OnDelete(DeleteBehavior.Restrict);

@@ -9,43 +9,51 @@ using Microsoft.EntityFrameworkCore;
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared
 {
     /// <summary>
-    /// Los dos saltos del flujo <b>FFT</b> (ingreso directo), en un solo lugar porque los disparan
-    /// tres repositorios distintos y tienen que hacer exactamente lo mismo en los tres:
+    /// El salto del flujo <b>FFT</b> (ingreso directo), en un solo lugar porque lo disparan tres
+    /// repositorios distintos y tiene que hacer exactamente lo mismo en los tres.
     ///
-    /// <list type="number">
-    ///   <item><description>
-    ///     <see cref="AbrirCandidatoAsync"/> — al entrar el requerimiento a manos de GTH (lo
-    ///     registra el propio Gerente General, o Gerencia General lo aprueba) se le abre la ficha
-    ///     de candidato a la persona que nombró el solicitante, ya APROBADA. Sin esa ficha no hay
-    ///     a quién enviarle el formulario, que es el único paso que le queda a GTH.
-    ///   </description></item>
-    ///   <item><description>
-    ///     <see cref="CerrarConSeleccionadoAsync"/> — al aprobar GTH el formulario del candidato
-    ///     FFT, el proceso se salta entrevistas, multitest, envío de finalistas y decisión del
-    ///     solicitante, y queda en EMO de ingreso con el candidato ya marcado como seleccionado y
-    ///     su ficha de pre-ingreso abierta.
-    ///   </description></item>
-    /// </list>
+    /// <see cref="AbrirIngresoDirecto"/> — en cuanto el requerimiento entra a manos de GTH (lo
+    /// registra el propio Gerente General, o Gerencia General lo aprueba) el proceso se salta TODO
+    /// el pipeline de selección: publicación, revisión de CV, long list, formulario del postulante,
+    /// entrevistas, finalistas y decisión del solicitante. No hay nada que decidir — quien pidió la
+    /// vacante ya nombró a la persona — así que la vacante nace con su candidato SELECCIONADO, su
+    /// ficha de pre-ingreso abierta y el requerimiento en EMO de ingreso, que es lo único que queda
+    /// por hacer.
     ///
-    /// Ninguno de los dos guarda: dejan los cambios en el <see cref="AppDbContext"/> que se les
-    /// pasa para que entren en el mismo <c>SaveChanges</c> que la operación que los disparó. Un
-    /// requerimiento FFT sin su candidato (o un formulario aprobado sin su ficha) sería un proceso
-    /// trabado sin forma de destrabarlo desde la pantalla.
+    /// El candidato no llena formulario: sus datos (nombre, tipo y número de documento y correo
+    /// personal) los declaró el solicitante y ya entraron a <c>person</c> al registrarse el pedido
+    /// (<c>gth_requerimiento.fft_person_id</c>), que es de donde sale la ficha.
+    ///
+    /// No guarda: deja los cambios en el <see cref="AppDbContext"/> que se le pasa para que entren
+    /// en el mismo <c>SaveChanges</c> que la operación que lo disparó. Un requerimiento FFT a medio
+    /// abrir sería un proceso trabado sin forma de destrabarlo desde la pantalla.
+    ///
+    /// <see cref="CerrarConSeleccionadoAsync"/> sigue existiendo para los FFT <b>anteriores</b> a
+    /// este salto, que quedaron parados en el formulario del postulante: al aprobárselo, cierran
+    /// como cerraban antes.
     /// </summary>
     internal static class FftFlujo
     {
         /// <summary>
-        /// Fase en la que espera un requerimiento FFT que ya está en manos de GTH: la misma en la
-        /// que el flujo normal deja al proceso cuando el solicitante aprobó la long list, porque es
-        /// exactamente el mismo trabajo pendiente — mandarle el formulario al candidato. El catálogo
-        /// la llama «Long list aprobada / Formulario pendiente»; en FFT solo aplica la segunda mitad.
+        /// Fase en la que espera un requerimiento FFT que ya está en manos de GTH: el EMO de
+        /// ingreso del candidato, que es lo único que le queda al proceso. Antes esperaba en el
+        /// formulario del postulante; desde que el ingreso directo no lo pide, esa parada
+        /// desapareció.
         /// </summary>
-        public const string FaseFormulario = EstadoReclutamiento.LongListAprobada;
+        public const string FaseDestino = EstadoReclutamiento.EmoIngreso;
 
         /// <summary>
-        /// Texto del "siguiente paso" de un requerimiento FFT parado en
-        /// <see cref="FaseFormulario"/>. La descripción del catálogo habla de la long list, que en
-        /// este flujo no existe.
+        /// Fase en la que quedaron parados los FFT <b>anteriores</b> a que el flujo se saltara el
+        /// formulario del postulante: la misma en la que el flujo normal deja al proceso cuando el
+        /// solicitante aprobó la long list. Ya no se manda a nadie ahí — solo se reconoce, para que
+        /// los que quedaron puedan terminar por el camino viejo.
+        /// </summary>
+        public const string FaseFormularioLegado = EstadoReclutamiento.LongListAprobada;
+
+        /// <summary>
+        /// Texto del "siguiente paso" de un requerimiento FFT de los que quedaron parados en
+        /// <see cref="FaseFormularioLegado"/>. La descripción del catálogo habla de la long list,
+        /// que en este flujo no existe.
         /// </summary>
         public const string SiguientePasoFormulario =
             "GTH le enviará el formulario de información al candidato del ingreso directo (FFT).";
@@ -55,31 +63,80 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// del seguimiento: mostrar «Publicación», «Long list» o «Entrevistas» como pasos pendientes
         /// de un proceso que no los tiene deja al solicitante esperando algo que no va a pasar.
         ///
-        /// <see cref="FaseFormulario"/> NO está acá: es la fase en la que el proceso realmente se
-        /// para. APROBACION_GG tampoco, porque depende de quién pidió (solo se omite cuando el
-        /// pedido lo registra el propio Gerente General) y eso se resuelve al leer.
+        /// <see cref="FaseFormularioLegado"/> entró a la lista cuando el ingreso directo dejó de
+        /// pedir el formulario. Los FFT viejos que quedaron parados ahí son la excepción: quien
+        /// recorta la línea no puede quitar la fase en la que el requerimiento está de verdad.
+        ///
+        /// APROBACION_GG no está acá porque depende de quién pidió (solo se omite cuando el pedido
+        /// lo registra el propio Gerente General) y eso se resuelve al leer.
         /// </summary>
         public static readonly HashSet<string> FasesOmitidas = new()
         {
             EstadoReclutamiento.Publicacion,
             EstadoReclutamiento.LongList,
             EstadoReclutamiento.LongListEnviada,
+            EstadoReclutamiento.LongListAprobada,
             EstadoReclutamiento.Entrevistas,
             EstadoReclutamiento.SeleccionJefatura,
         };
 
         /// <summary>
-        /// Abre la ficha de candidato del ingreso FFT y deja el requerimiento en
-        /// <see cref="FaseFormulario"/>. Idempotente: si el candidato ya existe (reintento de la
-        /// execution strategy, o una aprobación que se registró dos veces) no crea otro.
+        /// Los tres ids de catálogo que necesita <see cref="AbrirIngresoDirecto"/>. Se resuelven una
+        /// sola vez por operación con <see cref="CargarCatalogoAsync"/>, aunque el lote traiga varias
+        /// vacantes FFT.
         /// </summary>
-        /// <param name="estadoFormularioId">
-        /// Id de <see cref="FaseFormulario"/> ya resuelto por el llamador: casi siempre lo necesita
-        /// junto con otros estados y así no se paga un roundtrip por vacante.
-        /// </param>
-        /// <param name="estadoCandidatoAprobadoId">
-        /// Id del estado APROBADO de <c>gth_candidato_estado</c>, por el mismo motivo.
-        /// </param>
+        public sealed record Catalogo(
+            int EstadoEmoIngresoId,
+            string EstadoEmoIngresoNombre,
+            int CandidatoAprobadoId,
+            int ResultadoSeleccionadoId);
+
+        /// <summary>
+        /// Ids de catálogo del salto FFT. Solo se llama cuando la operación trae alguna vacante FFT:
+        /// en una solicitud normal no cuesta ningún roundtrip.
+        /// </summary>
+        public static async Task<Catalogo> CargarCatalogoAsync(AppDbContext ctx)
+        {
+            var emo = await ctx.GthEstadoRequerimiento
+                .Where(e => e.Codigo == FaseDestino && e.State)
+                .Select(e => new { e.GthEstadoRequerimientoId, e.Nombre })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException(
+                    $"No está configurado el estado {FaseDestino} de reclutamiento.", 500);
+
+            var aprobadoId = await ctx.GthCandidatoEstado
+                .Where(e => e.Codigo == EstadoCandidato.Aprobado && e.State)
+                .Select(e => e.GthCandidatoEstadoId)
+                .FirstOrDefaultAsync();
+            if (aprobadoId == 0)
+                throw new AbrilException(
+                    "No está configurado el estado APROBADO de candidatos de reclutamiento.", 500);
+
+            var seleccionadoId = await ctx.GthCandidatoResultado
+                .Where(r => r.Codigo == ResultadoCandidato.Seleccionado && r.State)
+                .Select(r => r.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync();
+            if (seleccionadoId == 0)
+                throw new AbrilException(
+                    "No está configurado el resultado SELECCIONADO de candidatos.", 500);
+
+            return new Catalogo(
+                emo.GthEstadoRequerimientoId, emo.Nombre, aprobadoId, seleccionadoId);
+        }
+
+        /// <summary>
+        /// Abre el ingreso directo entero: le crea al candidato su ficha (ya APROBADA y ya
+        /// SELECCIONADA), le abre su ficha de pre-ingreso en <c>workers</c> y deja el requerimiento
+        /// en <see cref="FaseDestino"/> — el EMO de ingreso, lo único que le queda al proceso.
+        ///
+        /// No hay formulario del postulante de por medio: el ingreso directo no lo pide. Los datos
+        /// del candidato los declaró el solicitante y ya están en <c>person</c> desde que se
+        /// registró el pedido, así que no hay nada que preguntarle antes de programarle el examen.
+        ///
+        /// Idempotente: si el candidato ya existe (reintento de la execution strategy, o una
+        /// aprobación que se registró dos veces) no crea otro ni vuelve a mover nada.
+        /// </summary>
+        /// <param name="catalogo">Ids de catálogo resueltos una vez por operación (ver <see cref="CargarCatalogoAsync"/>).</param>
         /// <param name="puestoNombre">
         /// Nombre del puesto del requerimiento, para el snapshot del candidato (igual que en la long
         /// list normal, donde lo copia el sistema y no lo escribe GTH). Lo pasa el llamador, que ya
@@ -91,24 +148,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// vacantes FFT y preguntarlo por cada una sería un roundtrip por vacante). El método lo
         /// actualiza al crear, así que también protege de una doble llamada dentro del mismo lote.
         /// </param>
+        /// <returns>
+        /// La ficha de pre-ingreso del candidato (su <c>Id</c> queda en 0 hasta el
+        /// <c>SaveChanges</c> si es nueva), para poder enlazar el correo directo a su programación
+        /// de EMO. Null cuando el requerimiento no es FFT, cuando el candidato ya estaba abierto o
+        /// cuando la vacante no dejó <c>fft_person_id</c> — los FFT anteriores a que la casilla
+        /// pidiera el documento no lo tienen y no hay a quién programarle nada.
+        /// </returns>
         /// <remarks>
         /// El requerimiento tiene que estar YA persistido: <c>gth_candidato</c> no tiene navegación
         /// hacia él, así que la FK se copia a mano y un id en 0 dejaría al candidato colgado. Los
-        /// dos llamadores lo cumplen (la creación de la solicitud guarda antes de llamar acá).
+        /// tres llamadores lo cumplen (la creación de la solicitud guarda antes de llamar acá).
+        /// La evaluación sí va por navegación, que es lo que permite que todo esto entre en un solo
+        /// <c>SaveChanges</c> (ver <c>GthCandidatoEvaluacion.Candidato</c>).
         /// </remarks>
-        public static void AbrirCandidato(
+        public static async Task<Worker?> AbrirIngresoDirectoAsync(
             AppDbContext ctx,
             GthRequerimiento req,
-            int estadoFormularioId,
-            int estadoCandidatoAprobadoId,
+            Catalogo catalogo,
             string? puestoNombre,
             ISet<int> yaConCandidato,
             int? userId,
             DateTimeOffset now)
         {
-            if (!req.EsFft) return;
+            if (!req.EsFft) return null;
 
-            req.GthEstadoRequerimientoId = estadoFormularioId;
+            req.GthEstadoRequerimientoId = catalogo.EstadoEmoIngresoId;
             req.UpdatedDateTime          = now;
             req.UpdatedUserId            = userId;
 
@@ -118,28 +183,51 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Idempotente: un reintento de la execution strategy o una aprobación que se registró
             // dos veces no puede dejar dos candidatos en el mismo proceso.
-            if (!yaConCandidato.Add(req.GthRequerimientoId)) return;
+            if (!yaConCandidato.Add(req.GthRequerimientoId)) return null;
 
-            ctx.GthCandidato.Add(new GthCandidato
+            var candidato = new GthCandidato
             {
                 GthRequerimientoId   = req.GthRequerimientoId,
                 Nombre               = req.FftCandidatoNombre?.Trim() ?? "Candidato FFT",
                 Puesto               = puestoNombre,
-                // Sin CV: en FFT no hay revisión curricular. El CV llega, si llega, como el
-                // documentado que el propio postulante adjunta en su formulario.
-                GthCandidatoEstadoId = estadoCandidatoAprobadoId,
+                // Sin CV: en FFT no hay revisión curricular ni formulario en el que el postulante
+                // pueda adjuntar el suyo.
+                GthCandidatoEstadoId = catalogo.CandidatoAprobadoId,
                 Orden                = 0,
                 NumeroLongList       = 1,
                 CreatedDateTime      = now,
                 CreatedUserId        = userId,
                 Active               = true,
                 State                = true,
+            };
+            ctx.GthCandidato.Add(candidato);
+
+            // El candidato queda SELECCIONADO en el mismo acto: no hay entrevista que evaluar ni
+            // finalista que decidir — quien pidió la vacante ya eligió. La decisión se registra a
+            // nombre de quien aprobó (o registró) el ingreso, que es cuando realmente ocurre.
+            ctx.GthCandidatoEvaluacion.Add(new GthCandidatoEvaluacion
+            {
+                Candidato               = candidato,
+                GthCandidatoResultadoId = catalogo.ResultadoSeleccionadoId,
+                DecisionDateTime        = now,
+                DecisionUserId          = userId,
+                CreatedDateTime         = now,
+                CreatedUserId           = userId,
+                Active                  = true,
+                State                   = true,
             });
+
+            // La ficha de pre-ingreso sale de la persona que el pedido dejó registrada en `person`.
+            // Sin ella no hay a quién programarle el EMO: el requerimiento igual avanza y la
+            // pantalla lo dice, como en el flujo normal cuando el formulario no dejó person_id.
+            return req.FftPersonId.HasValue
+                ? await AbrirFichaPreIngresoAsync(ctx, req.FftPersonId.Value, req, now)
+                : null;
         }
 
         /// <summary>
         /// De los requerimientos indicados, cuáles ya tienen candidato. Una sola consulta para todo
-        /// el lote: es el guardia de idempotencia de <see cref="AbrirCandidato"/>. Vacío (sin tocar
+        /// el lote: es el guardia de idempotencia de <see cref="AbrirIngresoDirectoAsync"/>. Vacío (sin tocar
         /// la BD) cuando no hay ninguna vacante FFT que abrir.
         /// </summary>
         public static async Task<HashSet<int>> RequerimientosConCandidatoAsync(
@@ -157,10 +245,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Cierra la parte de selección de un proceso FFT: marca al candidato como SELECCIONADO,
-        /// mueve el requerimiento a EMO de ingreso y le abre su ficha de pre-ingreso en
-        /// <c>workers</c>. Es el equivalente de la decisión del finalista del flujo normal, con la
-        /// diferencia de que acá no hay nada que decidir — el candidato lo eligió quien lo pidió.
+        /// Cierre de los FFT <b>anteriores</b> a que el ingreso directo se saltara el formulario:
+        /// los que quedaron parados en <see cref="FaseFormularioLegado"/> siguen terminando por acá
+        /// cuando GTH les aprueba el formulario. Marca al candidato como SELECCIONADO, mueve el
+        /// requerimiento a EMO de ingreso y le abre su ficha de pre-ingreso en <c>workers</c>.
+        ///
+        /// Los FFT nuevos ya no pasan por este método: nacen así desde
+        /// <see cref="AbrirIngresoDirectoAsync"/>.
         /// </summary>
         /// <returns>
         /// La ficha de pre-ingreso (su <c>Id</c> queda en 0 hasta el <c>SaveChanges</c> si es nueva) y
@@ -217,7 +308,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             req.UpdatedDateTime          = now;
             req.UpdatedUserId            = userId;
 
-            return (await AbrirFichaPreIngresoAsync(ctx, candidatoId, req, now), emoIngreso.Nombre);
+            // En el camino legado la persona sale del formulario que el candidato sí llenó.
+            var personId = await ctx.GthPostulanteFormulario
+                .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
+                .Select(f => f.PersonId)
+                .FirstOrDefaultAsync();
+
+            var ficha = personId.HasValue
+                ? await AbrirFichaPreIngresoAsync(ctx, personId.Value, req, now)
+                : null;
+
+            return (ficha, emoIngreso.Nombre);
         }
 
         /// <summary>
@@ -230,15 +331,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// destino —los de obra no lo tienen— entra al área del solicitante, que es quien pidió a
         /// esta persona.
         /// </summary>
+        /// <param name="personId">
+        /// De quién es la ficha. Lo resuelve el llamador porque cada camino lo saca de otro lado: el
+        /// ingreso directo, del <c>fft_person_id</c> que dejó el pedido; el cierre legado, del
+        /// formulario que el candidato llenó.
+        /// </param>
         private static async Task<Worker?> AbrirFichaPreIngresoAsync(
-            AppDbContext ctx, int candidatoId, GthRequerimiento req, DateTimeOffset now)
+            AppDbContext ctx, int personId, GthRequerimiento req, DateTimeOffset now)
         {
-            var personId = await ctx.GthPostulanteFormulario
-                .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
-                .Select(f => f.PersonId)
-                .FirstOrDefaultAsync();
-            if (personId == null) return null;
-
             var areaSolicitante = await ctx.GthSolicitud
                 .Where(s => s.GthSolicitudId == req.GthSolicitudId)
                 .Select(s => s.AreaScopeId)

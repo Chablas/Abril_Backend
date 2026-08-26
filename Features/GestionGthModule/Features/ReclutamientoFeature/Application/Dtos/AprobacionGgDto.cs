@@ -3,6 +3,8 @@
     // RutaAprobacion vive en el namespace padre (Application): la ruta de una vacante es
     // regla de negocio, no forma del DTO, pero varios de estos la derivan.
     using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
+    // FftDocumento: cómo se escribe el documento del candidato de un ingreso directo.
+    using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
 
     /// <summary>
     /// Una de las dos casillas de decisión de la solicitud (gerente del área o Gerencia General),
@@ -34,12 +36,17 @@
     }
 
     /// <summary>
-    /// Detalle de una aprobación para el modal de «Aprobaciones»: cabecera de la solicitud, sus
-    /// vacantes y las DOS casillas de decisión, en una sola petición.
+    /// Detalle de una aprobación para el modal de «Aprobaciones»: cabecera de la solicitud, las
+    /// vacantes de la ruta del usuario y sus casillas de decisión, en una sola petición.
     ///
-    /// El modal se arma según <see cref="Nivel"/>: el usuario solo puede marcar la casilla que le
-    /// corresponde y ve la otra como información. Si su nivel ya decidió (o no tiene ninguno),
-    /// abre completo en modo lectura.
+    /// <b>Solo trae las vacantes de la ruta de quien pregunta</b> (ver <see cref="Nivel"/>): el
+    /// Gerente General recibe las nuevas y las FFT, y el gerente del área y GTH los reemplazos.
+    /// Las de la otra ruta no viajan — ni sus datos ni sus casillas —, así que el modal no puede
+    /// mostrar por error algo que no le toca decidir.
+    ///
+    /// El modal se arma según <see cref="Nivel"/>: el usuario marca su casilla y ve la del otro
+    /// firmante de su misma ruta (gerente del área ↔ GTH en un reemplazo) como información. Si su
+    /// nivel ya decidió, abre completo en modo lectura.
     /// </summary>
     public class AprobacionGgDetalleDto
     {
@@ -71,11 +78,11 @@
         /// <summary>Decisión de GTH. Solo aplica si la solicitud trae reemplazos.</summary>
         public AprobacionNivelResumenDto Gth { get; set; } = new();
 
-        // ── Qué firmas necesita ESTA solicitud ───────────────────────────────
-        // Se derivan de las vacantes: una solicitud solo de reemplazos no necesita a Gerencia
-        // General, y una solo de vacantes nuevas no necesita ni al gerente del área ni a GTH. La
-        // pantalla pinta únicamente las casillas que hacen falta en vez de mostrar tres siempre,
-        // dos de ellas eternamente en "pendiente" sin que nadie las vaya a tocar.
+        // ── Qué firmas necesita lo que este usuario VE ───────────────────────
+        // Se derivan de las vacantes que viajan, que ya son solo las de su ruta. Por eso la casilla
+        // de la otra ruta llega siempre en false: al Gerente General no se le pintan las del
+        // gerente del área ni de GTH, y a ellos no se les pinta la de Gerencia General. Dentro de
+        // una misma ruta sí se pintan las dos, porque el reemplazo necesita las dos firmas.
         public bool RequiereGerenteGeneral { get; set; }
         public bool RequiereGerenteArea { get; set; }
         public bool RequiereGth { get; set; }
@@ -94,11 +101,16 @@
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
 
         /// <summary>
-        /// A quién le llegarán los correos que dispara la decisión: el de GTH (tipo SOLICITUD) y el
-        /// de TI (tipo TI_VACANTES), fusionados en una sola lista. Salen del mismo resolver que usa
-        /// el envío, así que el aviso del modal no puede prometer algo distinto de lo que se manda.
-        /// Solo se resuelve cuando quien abre el modal es el Gerente General y aún no ha decidido:
-        /// es el único caso en el que esos correos van a salir.
+        /// A quién le llegarán los correos que dispara la decisión de quien abre el modal,
+        /// fusionados en una sola lista: para el Gerente General, el aviso a GTH (tipo SOLICITUD) y
+        /// el de TI (tipo TI_VACANTES); para el gerente del área y para GTH, el de reemplazos
+        /// aprobados (tipo REEMPLAZO_APROBADO). Salen del mismo resolver que usa el envío, así que
+        /// el aviso del modal no puede prometer algo distinto de lo que se manda. Solo se resuelve
+        /// cuando el usuario aún no ha decidido.
+        ///
+        /// Que estén resueltos no significa que el correo vaya a salir: un reemplazo lo dispara
+        /// recién la SEGUNDA firma, así que la pantalla solo muestra el aviso cuando la decisión en
+        /// curso completa alguna vacante.
         /// </summary>
         public SolicitudDestinatariosDto? Destinatarios { get; set; }
     }
@@ -148,7 +160,11 @@
     {
         public int AprobacionId { get; set; }
 
-        /// <summary>Códigos de las vacantes de la solicitud, separados por ", " (para buscar y mostrar).</summary>
+        /// <summary>
+        /// Códigos de las vacantes que este usuario ve —las de su ruta—, separados por ", " (para
+        /// buscar y mostrar). Una solicitud mixta se lee distinto según quién pregunta: el Gerente
+        /// General ve solo los códigos de sus vacantes nuevas.
+        /// </summary>
         public string Codigos { get; set; } = string.Empty;
 
         public string? Area { get; set; }
@@ -158,10 +174,12 @@
         /// <summary>Fecha de registro de la solicitud en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }
 
+        /// <summary>
+        /// Cuántas vacantes de esta solicitud le tocan al usuario que consulta. NO es el total de la
+        /// solicitud: las de la otra ruta no se cuentan porque no se le muestran. El total real lo
+        /// ve el solicitante en «Solicitud de Personal».
+        /// </summary>
         public int TotalVacantes { get; set; }
-
-        /// <summary>Cuántas de esas vacantes le tocan al usuario que consulta (las de su ruta).</summary>
-        public int VacantesDeMiRuta { get; set; }
 
         /// <summary>Decisión del gerente del área (mueve los reemplazos, junto con la de GTH).</summary>
         public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
@@ -172,7 +190,10 @@
         /// <summary>Decisión de GTH (mueve los reemplazos, junto con la del gerente del área).</summary>
         public AprobacionNivelResumenDto Gth { get; set; } = new();
 
-        /// <summary>Qué firmas necesita esta solicitud, derivadas de los tipos de sus vacantes.</summary>
+        /// <summary>
+        /// Qué firmas necesita lo que este usuario ve, derivado de los tipos de las vacantes de su
+        /// ruta. La casilla de la otra ruta llega siempre en false (ver <see cref="TotalVacantes"/>).
+        /// </summary>
         public bool RequiereGerenteGeneral { get; set; }
         public bool RequiereGerenteArea { get; set; }
         public bool RequiereGth { get; set; }
@@ -220,12 +241,26 @@
         public string? FftCandidatoNombre { get; set; }
 
         /// <summary>
-        /// DNI del candidato FFT. Va en el modal y en el correo por la misma razón que el nombre: lo
-        /// que se aprueba es a una persona concreta, y el documento es lo único que la identifica sin
-        /// ambigüedad (dos candidatos pueden llamarse igual). Null en las vacantes normales y en los
-        /// FFT anteriores a que se pidiera el dato.
+        /// Número de documento del candidato FFT. Va en el modal y en el correo por la misma razón
+        /// que el nombre: lo que se aprueba es a una persona concreta, y el documento es lo único
+        /// que la identifica sin ambigüedad (dos candidatos pueden llamarse igual). Null en las
+        /// vacantes normales y en los FFT anteriores a que se pidiera el dato.
         /// </summary>
         public string? FftCandidatoDocumento { get; set; }
+
+        /// <summary>
+        /// Nombre del tipo de ese documento (DNI / CE). Null en las vacantes normales y en los FFT
+        /// anteriores al desplegable — esos eran todos DNI, que era lo único que se podía declarar.
+        /// </summary>
+        public string? FftTipoDocumento { get; set; }
+
+        /// <summary>
+        /// El documento como se muestra: «DNI 12345678». Desde que la casilla FFT ofrece dos tipos,
+        /// el número solo no dice cuál es. Los FFT anteriores al desplegable se muestran como DNI,
+        /// que es lo que efectivamente eran.
+        /// </summary>
+        public string? FftDocumentoTexto =>
+            FftDocumento.Texto(FftTipoDocumento ?? FftDocumento.Dni, FftCandidatoDocumento);
 
         /// <summary>Correo personal del candidato FFT. Null en las vacantes normales.</summary>
         public string? FftCandidatoCorreo { get; set; }
@@ -420,8 +455,8 @@
     }
 
     /// <summary>
-    /// Contexto de la decisión ya registrada: lo que necesita el servicio para notificar a GTH
-    /// (solo cuando decide el GG, y solo con las vacantes aprobadas) y para armar el mensaje de
+    /// Contexto de la decisión ya registrada: lo que necesita el servicio para notificar a GTH —solo
+    /// con las vacantes que esta decisión dejó completamente aprobadas— y para armar el mensaje de
     /// respuesta de la pantalla.
     /// </summary>
     public class AprobacionGgDecisionContextoDto
@@ -437,12 +472,17 @@
         public string? Comentario { get; set; }
 
         /// <summary>
-        /// Visto bueno que el gerente del área dejó registrado, si ya lo hizo. Va en el correo a GTH
-        /// como contexto de la decisión del GG (null si el área nunca opinó).
+        /// Visto bueno que el gerente del área dejó registrado, si ya lo hizo. Va como contexto en
+        /// los dos correos a GTH: en el de Gerencia General es una opinión que no condiciona nada, y
+        /// en el del reemplazo es una de las dos firmas que lo movieron. Null si el área nunca opinó.
         /// </summary>
         public string? GerenteAreaResumen { get; set; }
 
-        /// <summary>Vacantes aprobadas en esta decisión: son las únicas que se le mandan a GTH.</summary>
+        /// <summary>
+        /// Vacantes que ESTA decisión dejó completamente aprobadas: son las únicas que se le mandan
+        /// a GTH. En la ruta de Gerencia General son las que el GG aprobó; en la del reemplazo, solo
+        /// las que con esta firma juntaron las dos — la primera de las dos no manda nada.
+        /// </summary>
         public List<AprobacionGgVacanteDto> Aprobadas { get; set; } = new();
     }
 

@@ -14,13 +14,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public static class AprobacionGgEmailTemplate
     {
         /// <summary>Una vacante de la solicitud, con los importes y textos ya formateados.</summary>
+        /// <param name="Salario">
+        /// Sueldo ya formateado, o null cuando la vacante no lo declara — los reemplazos no lo
+        /// piden. Si NINGUNA de las vacantes del correo lo trae, la tabla sale sin esa columna en
+        /// vez de con una fila de guiones.
+        /// </param>
         public sealed record Vacante(
             string Codigo,
             string Puesto,
             string Tipo,
             string? Reemplazado,
             string ProyectoObra,
-            string Salario);
+            string? Salario);
 
         /// <summary>Datos que se muestran en el correo.</summary>
         /// <param name="EsRecordatorio">true en el reenvío: agrega la franja ámbar de recordatorio.</param>
@@ -61,6 +66,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "Sustento adjunto",
                     ReclutamientoEmailTextos.Enlace(datos.SustentoUrl!, datos.SustentoNombre ?? "Ver documento")));
 
+            // La columna del sueldo solo aparece si alguna vacante lo trae: una solicitud de puros
+            // reemplazos no lo declara y la columna quedaría llena de guiones.
+            var conSalario = datos.Vacantes.Any(v => !string.IsNullOrWhiteSpace(v.Salario));
+
             return l.Documento(
                 new ReclutamientoEmailLayout.Cabecera(
                     "req-solicitud", "Solicitud de Personal", "Pendiente de aprobación:"),
@@ -70,7 +79,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : "",
                 l.Tarjeta(datosSolicitud),
                 l.Seccion("req-vacantes", $"Vacantes solicitadas ({datos.Vacantes.Count})"),
-                l.Tabla(ReclutamientoEmailTextos.ColumnasVacantesConSalario, FilasVacantes(datos.Vacantes)),
+                l.Tabla(
+                    conSalario
+                        ? ReclutamientoEmailTextos.ColumnasVacantesConSalario
+                        : ReclutamientoEmailTextos.ColumnasVacantes,
+                    FilasVacantes(datos.Vacantes, conSalario)),
                 l.Tarjeta(datosSustento),
                 l.Boton("Revisar y aprobar", datos.Link),
                 l.EnlaceDirecto(datos.Link));
@@ -81,17 +94,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// del tipo (vacía en las vacantes nuevas y en los requerimientos anteriores a que se
         /// pidiera ese dato) para no agregar una columna a una tabla que ya tiene cinco.
         /// </summary>
+        /// <param name="conSalario">false cuando ninguna vacante del correo declara sueldo.</param>
         private static List<IReadOnlyList<ReclutamientoEmailLayout.Celda>> FilasVacantes(
-            IReadOnlyList<Vacante> vacantes) =>
-            vacantes
-                .Select(v => (IReadOnlyList<ReclutamientoEmailLayout.Celda>)new List<ReclutamientoEmailLayout.Celda>
+            IReadOnlyList<Vacante> vacantes, bool conSalario)
+        {
+            var filas = new List<IReadOnlyList<ReclutamientoEmailLayout.Celda>>(vacantes.Count);
+            foreach (var v in vacantes)
+            {
+                var celdas = new List<ReclutamientoEmailLayout.Celda>
                 {
                     new(ReclutamientoEmailLayout.Esc(v.Codigo), Negrita: true, Color: ReclutamientoEmailLayout.Azul, NoWrap: true),
                     new(ReclutamientoEmailLayout.Esc(v.Puesto)),
                     new(ReclutamientoEmailLayout.Esc(v.Tipo) + ReclutamientoEmailTextos.Reemplaza(v.Reemplazado)),
                     new(ReclutamientoEmailLayout.Esc(v.ProyectoObra)),
-                    new(ReclutamientoEmailLayout.Esc(v.Salario), Negrita: true, NoWrap: true),
-                })
-                .ToList();
+                };
+                if (conSalario)
+                    celdas.Add(new(ReclutamientoEmailTextos.OGuion(v.Salario), Negrita: true, NoWrap: true));
+                filas.Add(celdas);
+            }
+            return filas;
+        }
     }
 }

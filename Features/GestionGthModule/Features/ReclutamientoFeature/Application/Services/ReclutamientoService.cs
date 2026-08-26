@@ -61,18 +61,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private static readonly Regex FftCorreoRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
 
-        /// <summary>
-        /// DNI del candidato FFT: exactamente 8 dígitos, la misma regla con la que el formulario del
-        /// postulante valida el suyo. Tiene que ser la misma porque los dos terminan en la misma
-        /// columna (<c>person.document_identity_code</c>, que tiene UNIQUE): si acá se aceptara un
-        /// formato más suelto, el mismo documento entraría dos veces escrito distinto y quedarían
-        /// dos personas donde hay una.
-        ///
-        /// Solo DNI, no carné de extranjería: la casilla FFT pide DNI y el tipo de documento con el
-        /// que entra a <c>person</c> está fijado a DNI. Un extranjero se registra por el camino
-        /// normal (el formulario del postulante sí ofrece las dos opciones).
-        /// </summary>
-        private static readonly Regex FftDocumentoRegex = new(@"^\d{8}$", RegexOptions.Compiled);
+        // El largo del documento del candidato FFT ya no es una expresión fija acá: lo decide su
+        // tipo (DNI 8 exactos, CE de 8 a 12) y esa regla vive en FftDocumento, que la comparten
+        // esta validación y el formulario. Tiene que ser la misma que la del formulario del
+        // postulante porque los dos terminan en la misma columna (person.document_identity_code,
+        // que tiene UNIQUE): con un formato más suelto de un lado, el mismo documento entraría dos
+        // veces escrito distinto y quedarían dos personas donde hay una.
 
         public ReclutamientoService(
             IReclutamientoRepository repo,
@@ -1444,6 +1438,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException(
                     $"La justificación no puede superar los {MaxJustificacionLength} caracteres.", 400);
 
+            // Catálogo de tipos de documento, solo si hay algún ingreso directo que validar: es lo
+            // que dice cuántos dígitos admite cada uno (ver FftDocumento). Una solicitud sin FFT no
+            // paga este roundtrip.
+            var tiposDocumento = dto.Vacantes.Any(v => v.EsFft)
+                ? (await _repo.GetTiposDocumento()).ToDictionary(t => t.Id, t => t.Codigo)
+                : new Dictionary<int, string>();
+
             for (int i = 0; i < dto.Vacantes.Count; i++)
             {
                 var v = dto.Vacantes[i];
@@ -1457,17 +1458,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (v.TipoRequerimientoId <= 0)   throw new AbrilException($"Vacante {pos}: debe seleccionar el tipo de requerimiento.", 400);
                 if (v.ProjectId <= 0)             throw new AbrilException($"Vacante {pos}: debe seleccionar un proyecto/obra.", 400);
 
-                // Salario bruto mensual: obligatorio y positivo. El tope es el de la columna
-                // (numeric(12,2)) y ataja el dedazo de escribir el sueldo con céntimos pegados.
-                if (v.SalarioBrutoMensual is null or <= 0)
-                    throw new AbrilException($"Vacante {pos}: debe indicar el salario bruto mensual.", 400);
-                if (v.SalarioBrutoMensual > MaxSalarioBrutoMensual)
-                    throw new AbrilException(
-                        $"Vacante {pos}: el salario bruto mensual no puede superar S/ {MaxSalarioBrutoMensual:N2}.", 400);
+                // Salario bruto mensual: acá solo se valida el rango de lo que venga. Si es
+                // OBLIGATORIO o no depende del tipo de requerimiento —los reemplazos ya no lo
+                // piden— y el código del tipo lo resuelve el repositorio, que ya lo trae para la
+                // regla del trabajador reemplazado. El tope es el de la columna (numeric(12,2)) y
+                // ataja el dedazo de escribir el sueldo con los céntimos pegados.
+                if (v.SalarioBrutoMensual.HasValue)
+                {
+                    if (v.SalarioBrutoMensual <= 0)
+                        throw new AbrilException(
+                            $"Vacante {pos}: el salario bruto mensual debe ser mayor que cero.", 400);
+                    if (v.SalarioBrutoMensual > MaxSalarioBrutoMensual)
+                        throw new AbrilException(
+                            $"Vacante {pos}: el salario bruto mensual no puede superar S/ {MaxSalarioBrutoMensual:N2}.", 400);
 
-                // Se guarda con 2 decimales: la columna es numeric(12,2) y redondear acá deja el
-                // dato igual en la BD y en el correo que ve el gerente.
-                v.SalarioBrutoMensual = Math.Round(v.SalarioBrutoMensual.Value, 2, MidpointRounding.AwayFromZero);
+                    // Se guarda con 2 decimales: la columna es numeric(12,2) y redondear acá deja
+                    // el dato igual en la BD y en el correo que ve el gerente.
+                    v.SalarioBrutoMensual = Math.Round(v.SalarioBrutoMensual.Value, 2, MidpointRounding.AwayFromZero);
+                }
 
                 // FFT: el solicitante ya sabe a quién quiere, así que la vacante no vale sin ese
                 // nombre, ese DNI y ese correo — el correo es el único destinatario posible del
@@ -1481,6 +1489,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     v.FftCandidatoNombre    = null;
                     v.FftCandidatoCorreo    = null;
                     v.FftCandidatoDocumento = null;
+                    v.FftTipoDocumentoId    = null;
                     continue;
                 }
 
@@ -1492,14 +1501,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     throw new AbrilException(
                         $"Vacante {pos}: el nombre del candidato FFT no puede superar los {MaxFftNombreLength} caracteres.", 400);
 
-                // Se limpian los separadores que se copian junto con el número ("12.345.678",
-                // "12 345 678") antes de exigir el formato: es un dedazo de tipeo, no un DNI mal
-                // declarado, y rechazarlo obligaría al solicitante a adivinar qué está mal.
-                var fftDocumento = new string((v.FftCandidatoDocumento ?? string.Empty)
-                    .Where(char.IsDigit).ToArray());
-                if (!FftDocumentoRegex.IsMatch(fftDocumento))
+                // El tipo decide cuántos dígitos admite el número, así que se valida primero.
+                if (v.FftTipoDocumentoId is null or <= 0
+                    || !tiposDocumento.TryGetValue(v.FftTipoDocumentoId.Value, out var tipoDocCodigo))
                     throw new AbrilException(
-                        $"Vacante {pos}: debe indicar el DNI del candidato FFT (8 dígitos).", 400);
+                        $"Vacante {pos}: debe indicar el tipo de documento del candidato FFT.", 400);
+
+                // Se limpian los separadores que se copian junto con el número ("12.345.678",
+                // "12 345 678") antes de exigir el largo: es un dedazo de tipeo, no un documento
+                // mal declarado, y rechazarlo obligaría al solicitante a adivinar qué está mal.
+                var fftDocumento = FftDocumento.SoloDigitos(v.FftCandidatoDocumento);
+                if (!FftDocumento.EsValido(tipoDocCodigo, fftDocumento))
+                    throw new AbrilException(
+                        $"Vacante {pos}: el {tipoDocCodigo} del candidato FFT debe tener "
+                        + $"{FftDocumento.ReglaTexto(tipoDocCodigo)}.", 400);
 
                 var fftCorreo = v.FftCandidatoCorreo?.Trim().ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(fftCorreo) || !FftCorreoRegex.IsMatch(fftCorreo))
@@ -1534,7 +1549,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // propio Gerente General y TODAS sus vacantes son FFT: pedirle su propia firma sobre un
             // candidato que él nombró no aprueba nada. Si mezcla un FFT con una vacante normal, la
             // solicitud sí pasa por la pantalla de Aprobaciones —la vacante normal la necesita— y
-            // ahí la FFT saltará igual al formulario. El nivel sale de la categoría de su ficha, la
+            // ahí la FFT saltará igual al EMO. El nivel sale de la categoría de su ficha, la
             // misma regla de «Aprobaciones», nunca del rol ni de nada que mande el cliente.
             // El orden importa: la categoría solo se consulta cuando puede cambiar algo (todas las
             // vacantes FFT). En una solicitud normal esto no cuesta ningún roundtrip.
@@ -1549,8 +1564,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // creación: si el correo falla, la solicitud ya quedó registrada esperando el reenvío.
             //
             // En el FFT del propio Gerente General no hay aprobación que pedir: el correo que
-            // arranca el flujo es el aviso a GTH de que ya tiene un candidato al que mandarle el
-            // formulario (mismo criterio, tampoco bloquea).
+            // arranca el flujo es el aviso a GTH de que ya tiene un candidato al que programarle su
+            // EMO de ingreso (mismo criterio, tampoco bloquea).
             result.CorreoGerenciaEnviado = omitirAprobacion
                 ? await _aprobacionGg.EnviarFftPedidoPorGerenciaGeneral(result.SolicitudId, userId)
                 : await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);

@@ -38,8 +38,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int ProjectId { get; set; }
 
         /// <summary>
-        /// Salario bruto mensual de la vacante, en soles. Obligatorio: es parte de lo que el
-        /// gerente del área y Gerencia General aprueban. Se guarda redondeado a 2 decimales.
+        /// Salario bruto mensual de la vacante, en soles. Obligatorio en las vacantes NUEVAS: es
+        /// parte de lo que Gerencia General aprueba. En los REEMPLAZOS no se pide —el puesto y su
+        /// banda ya existen— y lo que llegue se descarta. Se guarda redondeado a 2 decimales.
         /// </summary>
         public decimal? SalarioBrutoMensual { get; set; }
 
@@ -55,10 +56,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? FftCandidatoNombre { get; set; }
 
         /// <summary>
-        /// DNI del candidato FFT: 8 dígitos, obligatorio cuando <see cref="EsFft"/>. Es la llave con
-        /// la que el candidato entra a <c>person</c> apenas se registra la solicitud, así que no es
-        /// un dato más del pedido — sin él no habría forma de saber si esa persona ya existe en la
-        /// base maestra y se duplicarían fichas.
+        /// Tipo de documento del candidato FFT (id de <c>gth_tipo_documento</c>: DNI / CE).
+        /// Obligatorio cuando <see cref="EsFft"/> — es lo que decide cuántos dígitos admite
+        /// <see cref="FftCandidatoDocumento"/>.
+        /// </summary>
+        public int? FftTipoDocumentoId { get; set; }
+
+        /// <summary>
+        /// Número de documento del candidato FFT, obligatorio cuando <see cref="EsFft"/>. El largo
+        /// depende del tipo: 8 dígitos exactos para el DNI, entre 8 y 12 para el carné de
+        /// extranjería. Es la llave con la que el candidato entra a <c>person</c> apenas se registra
+        /// la solicitud, así que no es un dato más del pedido — sin él no habría forma de saber si
+        /// esa persona ya existe en la base maestra y se duplicarían fichas.
         /// </summary>
         public string? FftCandidatoDocumento { get; set; }
 
@@ -87,7 +96,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// true = la solicitud no pasa por la aprobación de Gerencia General porque quien la
         /// registró ES el Gerente General y todas sus vacantes son FFT. El requerimiento nace ya
-        /// en manos de GTH, esperando el envío del formulario al candidato.
+        /// en manos de GTH, con su candidato seleccionado y esperando el EMO de ingreso.
         /// </summary>
         public bool AprobacionGgOmitida { get; set; }
     }

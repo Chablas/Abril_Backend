@@ -8,6 +8,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<ReclutamientoFormDataDto> GetFormData(int? userId);
 
         /// <summary>
+        /// Catálogo de tipos de documento (DNI / CE) con su código estable. Lo necesita la
+        /// validación de una solicitud con vacantes FFT: el largo del número lo decide el tipo, y
+        /// el código vive en la base. Es una tabla de dos filas y solo se consulta cuando hay FFT.
+        /// </summary>
+        Task<List<TipoDocumentoOpcionDto>> GetTiposDocumento();
+
+        /// <summary>
         /// Área (nombre + area_scope) del worker vinculado al usuario. (null, null, null) si no
         /// resuelve. El nombre se deriva del árbol de áreas — el nodo de <c>area_scope_id</c> o su
         /// primer ancestro que no sea gerencia — y no de <c>workers.area</c>, texto congelado.

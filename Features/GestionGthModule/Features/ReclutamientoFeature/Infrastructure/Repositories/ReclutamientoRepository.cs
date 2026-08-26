@@ -387,6 +387,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CvPostulanteUrl    = fm != null ? fm.CvUrl : null,
                     ev.DecisionDateTime,
                     ev.DecisionUserId,
+                    // Persona del ingreso directo: es por donde se llega a su ficha, porque un FFT
+                    // no tiene formulario del que leerla. Null en el flujo normal.
+                    r.FftPersonId,
                     EstadoRequerimiento = er.Codigo,
                     ResponsableGth = rp == null ? null
                         : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : rp.Worker.ApellidoNombre),
@@ -413,17 +416,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
                     .FirstOrDefaultAsync();
 
-            // Ficha de pre-ingreso del seleccionado. Se llega por person_id (el formulario del
-            // postulante ya escribio la data maestra al aprobarse), que es el unico enlace entre
-            // el candidato y su ficha: no hace falta una columna nueva en ninguna de las dos.
-            var ficha = await (
-                from f in ctx.GthPostulanteFormulario
-                where f.GthCandidatoId == raw.GthCandidatoId && f.State && f.PersonId != null
-                join w in ctx.Worker on f.PersonId equals w.PersonId
-                join we in ctx.WorkersEstado on w.WorkersEstadoId equals we.WorkersEstadoId
-                orderby w.Id descending
-                select new { w.Id, w.WorkersEstadoId, we.EstaAdentro, EstadoNombre = we.Nombre })
-                .FirstOrDefaultAsync();
+            // Ficha de pre-ingreso del seleccionado. Se llega por person_id, que es el unico
+            // enlace entre el candidato y su ficha, pero ese person_id sale de dos lados distintos:
+            // en el flujo normal lo dejo el formulario del postulante al aprobarse, y en un ingreso
+            // directo —que no tiene formulario— lo dejo el propio pedido (fft_person_id). Cada
+            // camino resuelve la ficha en una sola consulta.
+            var ficha = raw.FftPersonId.HasValue
+                ? await (
+                    from w in ctx.Worker
+                    where w.PersonId == raw.FftPersonId
+                    join we in ctx.WorkersEstado on w.WorkersEstadoId equals we.WorkersEstadoId
+                    orderby w.Id descending
+                    select new { w.Id, w.WorkersEstadoId, we.EstaAdentro, EstadoNombre = we.Nombre })
+                    .FirstOrDefaultAsync()
+                : await (
+                    from f in ctx.GthPostulanteFormulario
+                    where f.GthCandidatoId == raw.GthCandidatoId && f.State && f.PersonId != null
+                    join w in ctx.Worker on f.PersonId equals w.PersonId
+                    join we in ctx.WorkersEstado on w.WorkersEstadoId equals we.WorkersEstadoId
+                    orderby w.Id descending
+                    select new { w.Id, w.WorkersEstadoId, we.EstaAdentro, EstadoNombre = we.Nombre })
+                    .FirstOrDefaultAsync();
 
             var esPreIngreso = ficha?.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado;
 
@@ -553,12 +566,40 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(p => new OpcionDto { Id = p.ProjectId, Nombre = p.ProjectDescription })
                 .ToListAsync();
 
+            // Tipos de documento del candidato de un ingreso directo FFT. Mismo catálogo que el
+            // formulario del postulante: es la misma persona y termina en la misma columna de
+            // `person`, así que ofrecer dos listas distintas dejaría documentos incomparables.
+            dto.TiposDocumento = await QueryTiposDocumento(ctx);
+
             // Candidatos a "trabajador reemplazado" del tipo Reemplazo. Sin área del solicitante no
             // hay subárbol que recorrer, así que la lista queda vacía y el campo deja de exigirse.
             dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId);
 
             return dto;
         }
+
+        /// <inheritdoc/>
+        public async Task<List<TipoDocumentoOpcionDto>> GetTiposDocumento()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await QueryTiposDocumento(ctx);
+        }
+
+        /// <summary>
+        /// Catálogo <c>gth_tipo_documento</c> (DNI / CE) con su código estable: es por el código que
+        /// se decide cuántos dígitos admite el número, tanto en el formulario como al validar.
+        /// </summary>
+        private static Task<List<TipoDocumentoOpcionDto>> QueryTiposDocumento(AppDbContext ctx) =>
+            ctx.GthTipoDocumento
+                .Where(t => t.State && t.Active)
+                .OrderBy(t => t.Orden)
+                .Select(t => new TipoDocumentoOpcionDto
+                {
+                    Id     = t.GthTipoDocumentoId,
+                    Nombre = t.Nombre,
+                    Codigo = t.Codigo,
+                })
+                .ToListAsync();
 
         /// <summary>
         /// Puestos que se le ofrecen al solicitante: aquellos cuya ÁREA SOLICITANTE
@@ -646,10 +687,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// contra la que se valida lo que llega del cliente, así que ambos usan este mismo método:
         /// lo que no se ofrece tampoco se acepta.
         ///
-        /// Incluye al solicitante (puede pedir su propio reemplazo) y a los trabajadores retirados
-        /// (lo habitual es pedir el reemplazo de alguien que ya se fue). Una persona con varias
-        /// fichas por reingreso aparece una sola vez, con la vigente — ver
-        /// <c>workers</c> duplicadas por reingreso.
+        /// Solo los que trabajan en Abril HOY: <c>workers_estado.esta_adentro = true</c> (ACTIVO e
+        /// INHABILITADO_SSOMA). Antes no se filtraba por estado y se colaban dos cosas:
+        /// - las fichas de PRE-INGRESO (FINALISTA_APROBADO / NO_INGRESO), que no son trabajadores.
+        ///   Además ensuciaban el desplegable con repetidos: cada finalista aprobado abre una
+        ///   <c>person</c> nueva, así que la deduplicación por <c>person_id</c> de más abajo no las
+        ///   junta con la ficha real de esa misma persona y el mismo nombre salía varias veces;
+        /// - los RETIRADOS, que ya no están en el área.
+        ///
+        /// Incluye al solicitante: pedir el reemplazo de uno mismo por renuncia o promoción es un
+        /// caso real. Una persona con varias fichas por reingreso aparece una sola vez, con la
+        /// vigente — ver <c>workers</c> duplicadas por reingreso.
         /// </summary>
         private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(AppDbContext ctx, int? areaScopeId)
         {
@@ -658,7 +706,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
 
             var raw = await ctx.Worker
-                .Where(w => w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))
+                // El estado se filtra por id y no con un join a workers_estado: la consulta no
+                // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
+                .Where(w => WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
+                         && w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))
                 .Select(w => new
                 {
                     w.Id,
@@ -1182,6 +1233,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Reemplazo registradas desde que se pide ese dato.
                 join wr in ctx.Worker on r.ReemplazaWorkerId equals (int?)wr.Id into reemplazaJoin
                 from wr in reemplazaJoin.DefaultIfEmpty()
+                // Tipo del documento del candidato FFT: left join por lo mismo que el de arriba.
+                join td in ctx.GthTipoDocumento on r.GthTipoDocumentoId equals (int?)td.GthTipoDocumentoId into tipoDocJoin
+                from td in tipoDocJoin.DefaultIfEmpty()
                 select new
                 {
                     r.GthRequerimientoId,
@@ -1202,6 +1256,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.EsFft,
                     r.FftCandidatoNombre,
                     r.FftCandidatoDocumento,
+                    FftTipoDocumento = td != null ? td.Nombre : null,
                     r.FftCandidatoCorreo,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
@@ -1465,7 +1520,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SalarioBrutoMensual   = head.SalarioBrutoMensual,
                 EsFft                 = head.EsFft,
                 FftCandidatoNombre    = head.FftCandidatoNombre,
-                FftCandidatoDocumento = head.FftCandidatoDocumento,
+                // Con su tipo: «DNI 12345678». Los FFT anteriores al desplegable eran todos DNI.
+                FftCandidatoDocumento = FftDocumento.Texto(
+                    head.FftTipoDocumento ?? FftDocumento.Dni, head.FftCandidatoDocumento),
                 Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
                 EstadoCodigo          = head.EstadoCodigo,
                 EstadoNombre          = head.EstadoNombre,
@@ -2846,12 +2903,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (!ok) throw new AbrilException("La razón social seleccionada no es válida.", 400);
             }
 
+            var razonSocialCambio = req.ContributorId != dto.ContributorId;
+
             req.GthResponsableProcesoId = dto.ResponsableId;
             req.GthTipoProcesoId        = dto.TipoProcesoId;
             req.GthPrioridadId          = dto.PrioridadId;
             req.ContributorId           = dto.ContributorId;
             req.UpdatedDateTime         = DateTimeOffset.UtcNow;
             req.UpdatedUserId           = userId;
+
+            // En un ingreso directo la ficha de pre-ingreso ya existe desde que se aprobó la
+            // vacante (no espera ningún formulario), así que la razón social que se asigna acá
+            // llega tarde para el momento en que se creó: hay que bajársela. En el flujo normal no
+            // aplica — ahí la ficha nace después, con la razón social ya puesta.
+            if (req.EsFft && razonSocialCambio && req.FftPersonId.HasValue)
+            {
+                var ficha = await ctx.Worker
+                    .Where(w => w.PersonId == req.FftPersonId.Value
+                             && w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado)
+                    .OrderByDescending(w => w.Id)
+                    .FirstOrDefaultAsync();
+                if (ficha != null)
+                {
+                    ficha.ContributorId = dto.ContributorId;
+                    ficha.UpdatedAt     = DateTimeOffset.UtcNow;
+                }
+            }
+
             await ctx.SaveChangesAsync();
         }
 
@@ -3249,16 +3327,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .ToListAsync();
 
             // El ingreso directo FFT no recorre el pipeline completo: dejar «Publicación», «Long
-            // list» o «Entrevistas» como pasos pendientes dejaría al solicitante esperando algo que
-            // no va a pasar. La aprobación de Gerencia General se recorta solo cuando el proceso
-            // nunca la tuvo — pasa cuando el pedido lo registró el propio Gerente General.
+            // list», «Formulario» o «Entrevistas» como pasos pendientes dejaría al solicitante
+            // esperando algo que no va a pasar. La aprobación de Gerencia General se recorta solo
+            // cuando el proceso nunca la tuvo — pasa cuando el pedido lo registró el propio Gerente
+            // General.
+            //
+            // La fase en la que el requerimiento ESTÁ nunca se recorta, aunque esté en la lista:
+            // los FFT anteriores a que el flujo se saltara el formulario quedaron parados ahí, y
+            // quitarles su fase actual daría el proceso por más avanzado de lo que está.
             if (head.EsFft)
             {
                 var tuvoAprobacionGg = await ctx.GthAprobacionGg
                     .AnyAsync(a => a.State && a.GthSolicitudId == head.GthSolicitudId);
 
-                fases.RemoveAll(f => FftFlujo.FasesOmitidas.Contains(f.Codigo)
-                                  || (!tuvoAprobacionGg && f.Codigo == EstadoReclutamiento.AprobacionGg));
+                fases.RemoveAll(f => f.Codigo != head.EstadoCodigo
+                                  && (FftFlujo.FasesOmitidas.Contains(f.Codigo)
+                                   || (!tuvoAprobacionGg && f.Codigo == EstadoReclutamiento.AprobacionGg)));
             }
 
             // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
@@ -3313,7 +3397,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         // examen ya se hizo y salió mal.
                         ? "El examen médico de ingreso del candidato seleccionado salió No Apto. "
                           + "GTH está retomando el proceso con otro candidato."
-                        : head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormulario
+                        : head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormularioLegado
                             ? FftFlujo.SiguientePasoFormulario
                             : fases.FirstOrDefault(f => f.Estado == "current")?.Descripcion,
             };
@@ -3663,21 +3747,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (candidatos.Count == 0) return new Dictionary<string, int>();
 
-            // El tipo de documento se fija en DNI: es lo único que pide la casilla FFT (el carné de
-            // extranjería entra por el formulario del postulante, que sí ofrece los dos).
+            // El tipo de documento sale del que eligió el solicitante (gth_tipo_documento) y se
+            // traduce al de la base maestra por el código: DNI ↔ DNI, CE ↔ CE. Es el mismo puente
+            // que usa el formulario del postulante — la misma persona no puede entrar con un tipo
+            // por un camino y con otro por el otro. Los FFT anteriores al desplegable no traen tipo
+            // y caen en DNI, que era lo único que se podía declarar entonces.
             const string sql = """
                 INSERT INTO person (
                     document_identity_type_id, document_identity_code, full_name, email,
                     created_date_time, created_user_id, active, state, mostrar_en_boletin)
                 SELECT (SELECT dit.document_identity_type_id
                           FROM document_identity_type dit
-                         WHERE upper(btrim(dit.document_identity_type_abbreviation)) = 'DNI'
+                          LEFT JOIN gth_tipo_documento gtd
+                                 ON gtd.gth_tipo_documento_id = v.tipo_id
+                         WHERE upper(btrim(dit.document_identity_type_abbreviation))
+                               = upper(btrim(coalesce(gtd.codigo, 'DNI')))
                            AND dit.state = true
                          LIMIT 1),
                        v.doc, upper(btrim(v.nombre)), v.email,
                        now(), @userId, true, true, true
-                  FROM unnest(@docs::text[], @nombres::text[], @correos::text[])
-                    AS v(doc, nombre, email)
+                  FROM unnest(@docs::text[], @nombres::text[], @correos::text[], @tipos::int[])
+                    AS v(doc, nombre, email, tipo_id)
                 ON CONFLICT (document_identity_code) DO UPDATE SET
                     -- Solo se rellenan huecos: lo que la base maestra ya tenía manda.
                     full_name                 = coalesce(nullif(btrim(person.full_name), ''), EXCLUDED.full_name),
@@ -3703,6 +3793,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     docs    = candidatos.Select(v => v.FftCandidatoDocumento!).ToArray(),
                     nombres = candidatos.Select(v => v.FftCandidatoNombre ?? string.Empty).ToArray(),
                     correos = candidatos.Select(v => v.FftCandidatoCorreo).ToArray(),
+                    tipos   = candidatos.Select(v => v.FftTipoDocumentoId).ToArray(),
                     userId,
                 },
                 transaction: ctx.Database.CurrentTransaction?.GetDbTransaction());
@@ -3725,10 +3816,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Estado inicial del pipeline: la solicitud nace esperando la aprobación de Gerencia
             // General (la fase NUEVO — "solicitud registrada" — queda como paso ya cumplido). La
             // excepción es el FFT que registra el propio Gerente General: no se aprueba a sí mismo,
-            // así que sus vacantes arrancan directamente en la fase del formulario, ya en manos de
-            // GTH (ver FftFlujo).
+            // así que sus vacantes arrancan directamente en el EMO de ingreso, que es lo único que
+            // le queda a un ingreso directo (ver FftFlujo).
             var codigoEstadoInicial = omitirAprobacionGg
-                ? FftFlujo.FaseFormulario
+                ? FftFlujo.FaseDestino
                 : EstadoReclutamiento.AprobacionGg;
             var estadoInicialId = await ctx.GthEstadoRequerimiento
                 .Where(e => e.Codigo == codigoEstadoInicial && e.State)
@@ -3786,12 +3877,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var v in vacantes)
                 if (!tiposReemplazo.Contains(v.TipoRequerimientoId)) v.ReemplazaWorkerId = null;
 
+            // Salario bruto mensual: obligatorio en las vacantes NUEVAS —es parte de lo que aprueba
+            // Gerencia General— y descartado en los REEMPLAZOS, donde el formulario ya no lo pide.
+            // La regla vive acá y no en el servicio porque depende del código del tipo, que es lo
+            // que se acaba de traer: preguntarlo dos veces sería un roundtrip de más.
+            for (int i = 0; i < vacantes.Count; i++)
+            {
+                var v = vacantes[i];
+                if (tiposReemplazo.Contains(v.TipoRequerimientoId))
+                    v.SalarioBrutoMensual = null;
+                else if (v.SalarioBrutoMensual is null)
+                    throw new AbrilException($"Vacante {i + 1}: debe indicar el salario bruto mensual.", 400);
+            }
+
             if (vacantes.Any(v => tiposReemplazo.Contains(v.TipoRequerimientoId)))
             {
                 // Se revalida contra la MISMA lista que ofrece el formulario (área del solicitante
-                // y áreas hijas): lo que no se ofrece tampoco se acepta. Si el solicitante no tiene
-                // area_scope la lista queda vacía y el campo no se exige — exigir algo que el
-                // formulario no puede ofrecer dejaría bloqueado el registro de la solicitud.
+                // y áreas hijas, y solo quienes están adentro hoy): lo que no se ofrece tampoco se
+                // acepta. Si el solicitante no tiene area_scope la lista queda vacía y el campo no
+                // se exige — exigir algo que el formulario no puede ofrecer dejaría bloqueado el
+                // registro de la solicitud.
                 var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId))
                     .Select(t => t.Id).ToHashSet();
 
@@ -3806,9 +3911,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         throw new AbrilException($"Vacante {i + 1}: debe seleccionar el trabajador al que reemplaza.", 400);
                     }
 
+                    // Un id fuera de la lista puede ser de otra área o de alguien que ya no está
+                    // adentro (retirado, o una ficha de pre-ingreso): el mensaje cubre los dos.
                     if (!workerIdsArea.Contains(v.ReemplazaWorkerId.Value))
                         throw new AbrilException(
-                            $"Vacante {i + 1}: el trabajador al que reemplaza no pertenece a tu área ni a un área hija.", 400);
+                            $"Vacante {i + 1}: el trabajador al que reemplaza debe ser alguien de tu área (o de un área hija) que trabaje actualmente en Abril.", 400);
                 }
             }
 
@@ -3908,6 +4015,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         FftCandidatoNombre       = v.EsFft ? v.FftCandidatoNombre : null,
                         FftCandidatoCorreo       = v.EsFft ? v.FftCandidatoCorreo : null,
                         FftCandidatoDocumento    = v.EsFft ? v.FftCandidatoDocumento : null,
+                        GthTipoDocumentoId       = v.EsFft ? v.FftTipoDocumentoId : null,
                         // A qué fila de `person` quedó enganchado el candidato. Siempre hay una en
                         // una vacante FFT (el upsert de arriba la creó o la encontró).
                         FftPersonId              = v.EsFft
@@ -3926,19 +4034,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await ctx.SaveChangesAsync();
 
                 // FFT del propio Gerente General: la solicitud no espera aprobación de nadie, así
-                // que acá mismo se le abre la ficha del candidato a cada vacante. Va en un segundo
+                // que acá mismo se abre el ingreso directo completo de cada vacante — candidato
+                // seleccionado y ficha de pre-ingreso lista para su EMO. Va en un segundo
                 // SaveChanges dentro de la MISMA transacción porque gth_candidato copia la FK del
                 // requerimiento a mano (no tiene navegación) y hasta el primer guardado no hay id
-                // que copiar: o queda la solicitud con sus candidatos, o no queda nada.
+                // que copiar: o queda la solicitud con sus ingresos abiertos, o no queda nada.
                 if (omitirAprobacionGg)
                 {
-                    var estadoCandidatoAprobadoId = await ctx.GthCandidatoEstado
-                        .Where(e => e.Codigo == EstadoCandidato.Aprobado && e.State)
-                        .Select(e => e.GthCandidatoEstadoId)
-                        .FirstOrDefaultAsync();
-                    if (estadoCandidatoAprobadoId == 0)
-                        throw new AbrilException(
-                            "No está configurado el estado APROBADO de candidatos de reclutamiento.", 500);
+                    var catalogoFft = await FftFlujo.CargarCatalogoAsync(ctx);
 
                     // En una solicitud recién creada ningún requerimiento tiene candidato todavía,
                     // así que el guardia de idempotencia arranca vacío: lo único que tiene que
@@ -3947,8 +4050,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         ctx, solicitud.Requerimientos.Select(r => r.GthRequerimientoId).ToList());
 
                     foreach (var req in solicitud.Requerimientos)
-                        FftFlujo.AbrirCandidato(
-                            ctx, req, estadoInicialId, estadoCandidatoAprobadoId,
+                        await FftFlujo.AbrirIngresoDirectoAsync(
+                            ctx, req, catalogoFft,
                             nombrePorPuesto.GetValueOrDefault(req.PuestoId), yaConCandidato, userId, now);
 
                     await ctx.SaveChangesAsync();

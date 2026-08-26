@@ -65,10 +65,10 @@
 
         /// <summary>
         /// true = la vacante es un ingreso directo <b>FFT</b>: el solicitante ya sabe a quién
-        /// quiere, así que el proceso omite publicación, revisión de CV, long list, entrevistas y
-        /// envío de finalistas. Del pedido se salta al formulario de información del postulante y,
-        /// cuando GTH lo aprueba, a la programación de su EMO de ingreso (regla 8.8 del
-        /// requerimiento funcional).
+        /// quiere, así que el proceso omite publicación, revisión de CV, long list, formulario del
+        /// postulante, entrevistas y envío de finalistas. Del pedido —o de su aprobación— se salta
+        /// derecho a la programación del EMO de ingreso del candidato (regla 8.8 del requerimiento
+        /// funcional).
         ///
         /// El flujo se decide por esta columna y nunca por el proyecto: "FFT" era una fuente de
         /// reclutamiento del catálogo, pero atar el salto de fases a un proyecto/obra dejaría la
@@ -91,9 +91,20 @@
         public string? FftCandidatoCorreo { get; set; }
 
         /// <summary>
-        /// DNI del candidato FFT (8 dígitos) que declaró el solicitante. Es la llave con la que el
-        /// candidato entra a <c>person</c> en el mismo momento en que se registra la solicitud, sin
-        /// esperar a su formulario.
+        /// Tipo del documento del candidato FFT (FK a <c>gth_tipo_documento</c>: DNI / CE). Es lo
+        /// que decide cuántos dígitos admite <see cref="FftCandidatoDocumento"/> y con qué
+        /// <c>document_identity_type</c> entra el candidato a <c>person</c>.
+        ///
+        /// Null en las vacantes normales y en los FFT anteriores a que la casilla ofreciera el
+        /// desplegable: esos son todos DNI, que era lo único que se podía declarar.
+        /// </summary>
+        public int? GthTipoDocumentoId { get; set; }
+
+        /// <summary>
+        /// Número de documento del candidato FFT que declaró el solicitante (solo dígitos; el largo
+        /// lo decide <see cref="GthTipoDocumentoId"/>). Es la llave con la que el candidato entra a
+        /// <c>person</c> en el mismo momento en que se registra la solicitud, sin esperar a su
+        /// formulario — que en el ingreso directo ya ni se le pide.
         ///
         /// A diferencia del nombre y el correo, esta columna NO entra en
         /// <c>ck_gth_requerimiento_fft_candidato</c>: los FFT registrados antes de que se pidiera el

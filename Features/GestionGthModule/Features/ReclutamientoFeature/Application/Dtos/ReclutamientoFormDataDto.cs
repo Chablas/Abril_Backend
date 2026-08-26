@@ -77,10 +77,20 @@
         public List<OpcionDto> Proyectos { get; set; } = new();
 
         /// <summary>
+        /// Tipos de documento del candidato de un ingreso directo <b>FFT</b> (DNI / CE), del mismo
+        /// catálogo que usa el formulario del postulante. Llevan el código estable porque el
+        /// formulario decide por él cuántos dígitos admite el campo del número.
+        /// </summary>
+        public List<TipoDocumentoOpcionDto> TiposDocumento { get; set; } = new();
+
+        /// <summary>
         /// Trabajadores entre los que se elige al reemplazado cuando el tipo de requerimiento es
         /// <c>REEMPLAZO</c>: los del <c>area_scope</c> del solicitante y los de cualquier área hija
         /// (mismo subárbol que el filtro de Área del resto del sistema), incluido el propio
         /// solicitante — pedir el reemplazo de uno mismo por renuncia o promoción es un caso real.
+        ///
+        /// Solo los que trabajan en Abril hoy (<c>workers_estado.esta_adentro = true</c>): quedan
+        /// fuera los retirados y las fichas de pre-ingreso de Reclutamiento.
         ///
         /// Se sirve acá y no en un endpoint aparte porque es una lista chica (los trabajadores de
         /// un área) y así abrir el modal sigue siendo una sola petición. Vacía cuando el

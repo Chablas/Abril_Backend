@@ -179,6 +179,20 @@ public class InspeccionController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error agregar hallazgo a inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("{id:int}/destinatarios-cierre-colaborativa")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> DestinatariosCierreColaborativa(int id)
+    {
+        try
+        {
+            if (EsContratista()) return Forbid();
+            var dto = await _service.GetDestinatariosCierreColaborativaAsync(id, GetUserId());
+            return Ok(dto);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error resolver destinatarios de cierre de inspeccion colaborativa {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPatch("{id:int}/cerrar-colaborativa")]
     [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> CerrarColaborativa(int id)
@@ -187,7 +201,7 @@ public class InspeccionController : ControllerBase
         {
             // Solo staff interno de Abril puede cerrar una inspección grupal (no contratistas).
             if (EsContratista()) return Forbid();
-            await _service.CerrarInspeccionColaborativaAsync(id);
+            await _service.CerrarInspeccionColaborativaAsync(id, GetUserId());
             return Ok(new { message = "Inspección cerrada correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

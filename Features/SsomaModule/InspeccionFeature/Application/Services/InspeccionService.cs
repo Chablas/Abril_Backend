@@ -170,7 +170,9 @@ public class InspeccionService : IInspeccionService
 
     public Task<int> GetProyectoIdAsync(int inspeccionId) => _repo.GetProyectoIdAsync(inspeccionId);
 
-    public Task CerrarInspeccionColaborativaAsync(int inspeccionId) => _repo.CerrarInspeccionColaborativaAsync(inspeccionId);
+    public Task CerrarInspeccionColaborativaAsync(int inspeccionId, int? userId) => _repo.CerrarInspeccionColaborativaAsync(inspeccionId, userId);
+
+    public Task<InspeccionDestinatariosCierreDto> GetDestinatariosCierreColaborativaAsync(int inspeccionId, int? userId) => _repo.GetDestinatariosCierreColaborativaAsync(inspeccionId, userId);
 
     public Task ReabrirInspeccionColaborativaAsync(int inspeccionId) => _repo.ReabrirInspeccionColaborativaAsync(inspeccionId);
 

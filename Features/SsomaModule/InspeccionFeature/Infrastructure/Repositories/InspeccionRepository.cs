@@ -3,6 +3,8 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Interfaces;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Repositories;
@@ -10,9 +12,15 @@ namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Re
 public class InspeccionRepository : IInspeccionRepository
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly IEmailService _emailService;
+    private readonly ILogger<InspeccionRepository> _logger;
 
-    public InspeccionRepository(IDbContextFactory<AppDbContext> factory)
-        => _factory = factory;
+    public InspeccionRepository(IDbContextFactory<AppDbContext> factory, IEmailService emailService, ILogger<InspeccionRepository> logger)
+    {
+        _factory = factory;
+        _emailService = emailService;
+        _logger = logger;
+    }
 
     public async Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId)
     {
@@ -690,7 +698,7 @@ public class InspeccionRepository : IInspeccionRepository
         return insp.ProyectoId;
     }
 
-    public async Task CerrarInspeccionColaborativaAsync(int inspeccionId)
+    public async Task CerrarInspeccionColaborativaAsync(int inspeccionId, int? userId)
     {
         using var ctx = _factory.CreateDbContext();
         var insp = await ctx.SsomaInspeccion.Include(i => i.Hallazgos)
@@ -701,6 +709,141 @@ public class InspeccionRepository : IInspeccionRepository
 
         insp.Estado = insp.Hallazgos.Any() ? "En Proceso" : "Cerrada";
         await ctx.SaveChangesAsync();
+
+        await EnviarNotificacionCierreColaborativaAsync(ctx, insp, userId);
+    }
+
+    public async Task<InspeccionDestinatariosCierreDto> GetDestinatariosCierreColaborativaAsync(int inspeccionId, int? userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+
+        return await ResolverDestinatariosCierreAsync(ctx, insp, userId);
+    }
+
+    /// <summary>
+    /// Resuelve a quién le llega el correo de cierre de una inspección colaborativa (gerencial/
+    /// cruzada): residente del proyecto, coordinador SSOMA del proyecto (ambos ya configurables
+    /// en Configuración → Proyectos → Emails SSOMA) y quien ocupe el puesto "Gerente
+    /// Inmobiliario" — hoy es uno solo en toda la empresa, se resuelve por nombre de puesto y no
+    /// por un campo nuevo por proyecto. Más quien cierra la inspección, en copia. Usado tanto
+    /// para el envío real como para la vista previa que confirma el usuario antes de cerrar —
+    /// mismo criterio en los dos lados, para que la vista previa nunca mienta.
+    /// </summary>
+    private async Task<InspeccionDestinatariosCierreDto> ResolverDestinatariosCierreAsync(AppDbContext ctx, SsomaInspeccion insp, int? userId)
+    {
+        var dto = new InspeccionDestinatariosCierreDto();
+
+        var proyecto = await ctx.Project.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.ProjectId == insp.ProyectoId);
+        if (proyecto == null) return dto;
+
+        if (proyecto.ResidenteWorkersId.HasValue)
+        {
+            dto.ResidenteEmail = await ctx.Worker.AsNoTracking()
+                .Where(w => w.Id == proyecto.ResidenteWorkersId.Value)
+                .Select(w => w.EmailCorporativo)
+                .FirstOrDefaultAsync();
+        }
+
+        dto.CoordSsomaEmail = proyecto.EmailCoordSsoma;
+
+        dto.GerenteInmobiliarioEmail = await ctx.Worker.AsNoTracking()
+            .Where(w => w.PuestoCatalogo != null && w.PuestoCatalogo.Nombre.ToUpper() == "GERENTE INMOBILIARIO"
+                     && w.Estado == "ACTIVO")
+            .Select(w => w.EmailCorporativo)
+            .FirstOrDefaultAsync();
+
+        // Prevencionistas (rol 72, ver Roles.Prevencionista): uno por contratista con
+        // vinculación activa al proyecto de la inspección. Mismo criterio de resolución que
+        // EvPrevencionistaRepository.GetInicioAsync (evaluaciones de desempeño), que ya matchea
+        // por correo entre workers y app_user en vez de por person.user_id, porque no todos los
+        // prevencionistas de contratista tienen ese campo poblado.
+        await ctx.Database.OpenConnectionAsync();
+        var conn = ctx.Database.GetDbConnection();
+        var prevencionistas = await conn.QueryAsync<(string Nombre, string Email)>(
+            @"SELECT DISTINCT p.full_name AS Nombre, au.email AS Email
+              FROM workers w
+              JOIN person p ON p.person_id = w.person_id
+              JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+              JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id = 72 AND ur.active = TRUE AND ur.state = TRUE
+              JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+              WHERE w.state AND wv.proyecto_id = @ProyectoId AND au.email IS NOT NULL",
+            new { ProyectoId = insp.ProyectoId });
+        dto.Prevencionistas = prevencionistas
+            .Select(p => new InspeccionDestinatarioDto { Nombre = p.Nombre, Email = p.Email })
+            .ToList();
+
+        if (userId.HasValue)
+        {
+            dto.TuEmail = await ctx.User.AsNoTracking()
+                .Where(u => u.UserId == userId.Value)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync();
+        }
+
+        return dto;
+    }
+
+    /// <summary>
+    /// Envía el correo real de cierre, con el mismo destinatarios que ya vio el usuario en la
+    /// vista previa (<see cref="ResolverDestinatariosCierreAsync"/>).
+    /// </summary>
+    private async Task EnviarNotificacionCierreColaborativaAsync(AppDbContext ctx, SsomaInspeccion insp, int? userId)
+    {
+        try
+        {
+            var destinatarios = await ResolverDestinatariosCierreAsync(ctx, insp, userId);
+
+            var to = new List<string?> { destinatarios.ResidenteEmail, destinatarios.CoordSsomaEmail, destinatarios.GerenteInmobiliarioEmail }
+                .Concat(destinatarios.Prevencionistas.Select(p => (string?)p.Email))
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!)
+                .Distinct()
+                .ToList();
+            if (to.Count == 0) return;
+
+            List<string>? cc = !string.IsNullOrWhiteSpace(destinatarios.TuEmail)
+                ? new List<string> { destinatarios.TuEmail! }
+                : null;
+
+            var proyecto = await ctx.Project.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.ProjectId == insp.ProyectoId);
+            if (proyecto == null) return;
+
+            var tipoNombre = await ctx.SsomaInspeccionTipo.AsNoTracking()
+                .Where(t => t.Id == insp.TipoId)
+                .Select(t => t.Nombre)
+                .FirstOrDefaultAsync();
+
+            var hallazgosAbiertos = insp.Hallazgos.Count(h => h.Estado != "Cerrado");
+            var fechaStr = insp.Fecha.ToString("dd/MM/yyyy");
+
+            var html = $@"<h2>Inspección {(insp.Estado == "Cerrada" ? "cerrada" : "cerrada — con hallazgos pendientes")}</h2>
+<p>Se cerró la inspección colaborativa del proyecto <strong>{proyecto.ProjectDescription}</strong>:</p>
+<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Proyecto</td><td style='padding:6px 12px'>{proyecto.ProjectDescription}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo de inspección</td><td style='padding:6px 12px'>{tipoNombre ?? "—"}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Área</td><td style='padding:6px 12px'>{insp.Area ?? "—"}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Estado</td><td style='padding:6px 12px'>{insp.Estado}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos totales</td><td style='padding:6px 12px'>{insp.Hallazgos.Count}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos pendientes de cierre</td><td style='padding:6px 12px'>{hallazgosAbiertos}</td></tr>
+</table>
+<p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
+
+            await _emailService.SendAsync(
+                to: to,
+                subject: $"[Inspección Colaborativa Cerrada] {proyecto.ProjectDescription} — {fechaStr}",
+                body: html,
+                isHtml: true,
+                cc: cc);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo enviar la notificación de cierre de inspección colaborativa {InspeccionId}.", insp.Id);
+        }
     }
 
     public async Task ReabrirInspeccionColaborativaAsync(int inspeccionId)

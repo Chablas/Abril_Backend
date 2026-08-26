@@ -21,6 +21,7 @@ public interface IInspeccionService
     Task UnirseAsync(int inspeccionId, int? userId, bool esContratista);
     Task<List<InspeccionAbiertaListItemDto>> GetAbiertasAsync(int? proyectoId);
     Task<int> GetProyectoIdAsync(int inspeccionId);
-    Task CerrarInspeccionColaborativaAsync(int inspeccionId);
+    Task CerrarInspeccionColaborativaAsync(int inspeccionId, int? userId);
+    Task<InspeccionDestinatariosCierreDto> GetDestinatariosCierreColaborativaAsync(int inspeccionId, int? userId);
     Task ReabrirInspeccionColaborativaAsync(int inspeccionId);
 }

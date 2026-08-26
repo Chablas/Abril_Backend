@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var idsProyecto = await ctx.WorkerProyecto
-                .Where(wp => wp.ProyectoId == proyectoId)
+                .Where(wp => wp.ProyectoId == proyectoId && wp.FechaFin == null)
                 .Select(wp => wp.WorkerId)
                 .ToListAsync();
 

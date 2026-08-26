@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Services
@@ -67,6 +68,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             {
                 e.Estado = "Vencido";
                 e.UpdatedAt = DateTimeOffset.UtcNow;
+
+                // Mantener sincronizado el checklist genérico (item Certificado de Aptitud) con
+                // el estado real del EMO — si no, el checklist sigue mostrando "Aprobado" con la
+                // vigencia vieja aunque el EMO real ya haya vencido (caso Sánchez Taipe).
+                var hab = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == e.WorkerId && h.ItemId == HabItemIds.CertAptitud);
+                if (hab != null)
+                {
+                    hab.Estado = "Vencido";
+                    hab.UpdatedAt = DateTime.UtcNow;
+                }
             }
 
             await ctx.SaveChangesAsync();

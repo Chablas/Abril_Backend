@@ -137,7 +137,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             {
                 try
                 {
-                    var tipoEmoId = c.Emo.TipoEmoId!.Value;
+                    var tipoEmoIdOriginal = c.Emo.TipoEmoId!.Value;
+                    var tipoEmoId = tipoEmoIdOriginal;
                     var tipoEmoNombre = c.TipoEmoNombre;
                     if (periodicoAnualTipoId.HasValue && string.Equals(c.TipoEmoNombre?.Trim(), "Ingreso", StringComparison.OrdinalIgnoreCase))
                     {
@@ -146,8 +147,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     }
 
                     var clave = (c.Emo.WorkerId, tipoEmoId);
+                    // Si el Ingreso original todavía tiene una programación activa (p.ej.
+                    // "Aceptado por Clínica"), también hay que omitir: de lo contrario el
+                    // chequeo de arriba solo mira la clave remapeada (Periódico Anual) y crea
+                    // una segunda fila para el mismo trabajador mientras la de Ingreso sigue
+                    // abierta (bug real reportado — se detectaron ~16 casos en producción).
+                    var claveOriginal = (c.Emo.WorkerId, tipoEmoIdOriginal);
 
-                    if (existentesSet.Contains(clave))
+                    if (existentesSet.Contains(clave) || existentesSet.Contains(claveOriginal))
                     {
                         result.YaTenianProgramacion++;
                         result.Detalle.Add($"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — ya tiene programación activa. Omitido.");

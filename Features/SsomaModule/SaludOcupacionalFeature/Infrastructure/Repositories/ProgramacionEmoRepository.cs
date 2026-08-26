@@ -596,7 +596,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ent.MotivoRechazo = dto.MotivoRechazo;
                     ent.UpdatedAt = DateTimeOffset.UtcNow;
                     await ctx.SaveChangesAsync();
-                    await EnviarNotificacionRechazoAsync(ctx, ent, worker, dto.MotivoRechazo);
+                    if (dto.EnviarCorreo ?? true)
+                        await EnviarNotificacionRechazoAsync(ctx, ent, worker, dto.MotivoRechazo);
                     return;
                 case "CheckIn":
                     // Mismo caso que "Aceptar": si esta fila estaba cerrada, reabrirla en "En

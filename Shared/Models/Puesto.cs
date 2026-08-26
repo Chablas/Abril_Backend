@@ -45,29 +45,52 @@ namespace Abril_Backend.Shared.Models
         public Categoria? Categoria { get; set; }
 
         /// <summary>
-        /// Área a la que pertenece el puesto, como nodo del árbol y no como <c>area_item</c>:
-        /// el mismo nombre de área existe en varias ramas y lo que se filtra es la rama.
+        /// Área en la que tiene que estar el solicitante para poder pedir este puesto en
+        /// Solicitud de Personal: se le ofrecen los puestos de su área y de sus áreas hijas,
+        /// en vez del catálogo completo. Es un nodo del árbol y no un <c>area_item</c>: el
+        /// mismo nombre de área existe en varias ramas y lo que se filtra es la rama.
         ///
         /// Una sola, desde el corte del 2026-08-25
         /// (<c>Migrations_Manual/2026-08-25_puesto_una_sola_area.sql</c>): antes vivía en la
         /// intermedia <c>puesto_area_scope</c> y un puesto podía estar en varias. Los que
         /// estaban en más de una se duplicaron, uno por área, así que un cargo que existe en
         /// dos áreas hoy son dos puestos con el mismo nombre — el índice
-        /// <c>ux_puesto_nombre_area_vivo</c> es el que permite esa repetición y a la vez
-        /// prohíbe el nombre repetido DENTRO de un área.
+        /// <c>ux_puesto_nombre_area_solicitante_vivo</c> es el que permite esa repetición y a
+        /// la vez prohíbe el nombre repetido DENTRO de un área.
         ///
         /// Nullable a propósito: el puesto sin área es un caso válido y no un pendiente. Los
         /// ~190 puestos de obra nunca la tuvieron (el padrón de GTH solo cubrió oficina) y
         /// salen como «Sin área» en pantalla.
         ///
-        /// Su razón de ser es Solicitud de Personal: al solicitante se le ofrecen solo los
-        /// puestos de su área y de sus áreas hijas, en vez del catálogo completo.
+        /// Se llamaba <c>area_scope_id</c> hasta
+        /// <c>Migrations_Manual/2026-08-25_puesto_area_solicitante_y_destino.sql</c>, cuando
+        /// esa columna se partió en dos porque hacía también de
+        /// <see cref="AreaDestinoScopeId"/>.
         /// </summary>
-        [Column("area_scope_id")]
-        public int? AreaScopeId { get; set; }
+        [Column("area_solicitante_scope_id")]
+        public int? AreaSolicitanteScopeId { get; set; }
 
-        [ForeignKey(nameof(AreaScopeId))]
-        public AreaScope? AreaScope { get; set; }
+        [ForeignKey(nameof(AreaSolicitanteScopeId))]
+        public AreaScope? AreaSolicitanteScope { get; set; }
+
+        /// <summary>
+        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista: es la que
+        /// queda en <c>workers.area_scope_id</c> de su ficha de pre-ingreso, y con ella se
+        /// resuelve después su jefatura.
+        ///
+        /// No es lo mismo que <see cref="AreaSolicitanteScopeId"/> y por eso son dos columnas:
+        /// INGENIERO RESIDENTE lo pide la Gerencia Inmobiliaria, pero el residente trabaja en
+        /// Residencia. En la mayoría de los puestos coinciden; hoy solo difieren en los 6 que
+        /// dependen de esa gerencia (producción, residencia y administración de obra).
+        ///
+        /// Nullable por lo mismo que la otra: sin destino, el finalista se cae al área del
+        /// solicitante, que es el comportamiento que hubo siempre.
+        /// </summary>
+        [Column("area_destino_scope_id")]
+        public int? AreaDestinoScopeId { get; set; }
+
+        [ForeignKey(nameof(AreaDestinoScopeId))]
+        public AreaScope? AreaDestinoScope { get; set; }
 
         [Column("orden")]
         public int Orden { get; set; }

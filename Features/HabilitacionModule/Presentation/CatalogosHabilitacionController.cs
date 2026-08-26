@@ -483,8 +483,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "El nombre es requerido." });
                 if (req.CategoriaId is null or <= 0)
                     return BadRequest(new { message = "La categoría es requerida." });
-                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeId);
-                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, AreaScopeId = puesto.AreaScopeId, Orden = puesto.Orden, Activo = puesto.Active });
+                var puesto = await _repo.CrearPuestoAsync(req.Nombre.Trim(), req.CategoriaId.Value, req.AreaSolicitanteScopeId, req.AreaDestinoScopeId);
+                return Ok(MapPuesto(puesto));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CrearPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -499,8 +499,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "El nombre es requerido." });
                 if (req.CategoriaId is null or <= 0)
                     return BadRequest(new { message = "La categoría es requerida." });
-                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value, req.AreaScopeId);
-                return Ok(new PuestoAdminDto { Id = puesto.PuestoId, Nombre = puesto.Nombre, CategoriaId = puesto.CategoriaId, AreaScopeId = puesto.AreaScopeId, Orden = puesto.Orden, Activo = puesto.Active });
+                var puesto = await _repo.ActualizarPuestoAsync(id, req.Nombre.Trim(), req.CategoriaId.Value, req.AreaSolicitanteScopeId, req.AreaDestinoScopeId);
+                return Ok(MapPuesto(puesto));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ActualizarPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -555,6 +555,22 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         private static CatCategoriaAdminDto MapCategoria(Categoria x) => new()
         {
             Id = x.CategoriaId, Nombre = x.Nombre, Orden = x.Orden, Activo = x.Active
+        };
+
+        /// <summary>
+        /// Respuesta de alta/edición de un puesto. Los nombres de las áreas van en null a
+        /// propósito: el que guarda ya las tiene en pantalla y la tabla se recarga entera
+        /// después de guardar, así que resolverlas acá serían dos joins para nada.
+        /// </summary>
+        private static PuestoAdminDto MapPuesto(Puesto x) => new()
+        {
+            Id = x.PuestoId,
+            Nombre = x.Nombre,
+            CategoriaId = x.CategoriaId,
+            AreaSolicitanteScopeId = x.AreaSolicitanteScopeId,
+            AreaDestinoScopeId = x.AreaDestinoScopeId,
+            Orden = x.Orden,
+            Activo = x.Active
         };
 
         private static TipoEquipoAdminDto MapTipoEquipo(SsTipoEquipo x) => new()

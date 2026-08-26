@@ -17,6 +17,15 @@
         /// <summary>Área solicitante (snapshot al registrar).</summary>
         public string? Area { get; set; }
 
+        /// <summary>
+        /// Área a la que ENTRA el contratado: la de destino del puesto que se pidió
+        /// (<c>puesto.area_destino_scope_id</c>). No siempre es la del solicitante — la Gerencia
+        /// Inmobiliaria pide un INGENIERO RESIDENTE y el residente entra a Residencia.
+        ///
+        /// Null cuando el puesto no tiene destino (los de obra): entra al área del solicitante.
+        /// </summary>
+        public string? AreaDestino { get; set; }
+
         /// <summary>Proyecto/obra destino de la vacante.</summary>
         public string? ProyectoObra { get; set; }
 

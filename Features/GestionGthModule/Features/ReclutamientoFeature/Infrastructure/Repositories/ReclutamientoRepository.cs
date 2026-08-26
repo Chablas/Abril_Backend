@@ -557,47 +557,58 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Puestos que se le ofrecen al solicitante: los que GTH asoció a su <c>area_scope</c> o a
-        /// cualquier área hija (mismo subárbol que el resto de filtros por área del sistema). Un
-        /// gerente de Proyectos ve además los de Unidad de Proyectos, SSOMA, Calidad, etc.
+        /// Puestos que se le ofrecen al solicitante: aquellos cuya ÁREA SOLICITANTE
+        /// (<c>puesto.area_solicitante_scope_id</c>) es la suya o una de sus áreas hijas (mismo
+        /// subárbol que el resto de filtros por área del sistema). Un gerente de Proyectos ve
+        /// además los de Unidad de Proyectos, SSOMA, Calidad, etc.
+        ///
+        /// El área a la que ENTRARÁ el trabajador es otra columna y no interviene acá: la
+        /// Gerencia Inmobiliaria puede pedir un INGENIERO RESIDENTE, que entra a Residencia.
         ///
         /// Es también la lista contra la que se valida lo que llega del cliente, igual que
         /// <see cref="QueryTrabajadoresDelArea"/>: lo que no se ofrece tampoco se acepta.
         ///
-        /// Los puestos sin ninguna área quedan fuera a propósito: el padrón de GTH solo cubrió
-        /// personal de oficina, y esta pantalla es justamente la de oficina.
+        /// Los puestos sin área solicitante quedan fuera a propósito: el padrón de GTH solo
+        /// cubrió personal de oficina, y esta pantalla es justamente la de oficina.
         ///
         /// Sin área del solicitante se cae al catálogo COMPLETO en vez de a una lista vacía: un
         /// usuario recién creado al que todavía no le asignaron área podría necesitar pedir
         /// personal, y dejarlo sin ningún puesto lo bloquearía del todo.
         /// </summary>
-        private static async Task<List<OpcionDto>> QueryPuestosDelArea(AppDbContext ctx, int? areaScopeId)
+        private static async Task<List<PuestoOpcionDto>> QueryPuestosDelArea(AppDbContext ctx, int? areaScopeId)
         {
             var puestos = ctx.Puesto.Where(p => p.State && p.Active);
 
             if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-                puestos = puestos.Where(p => p.AreaScopeId != null
-                                          && idsArea.Contains(p.AreaScopeId.Value));
+                puestos = puestos.Where(p => p.AreaSolicitanteScopeId != null
+                                          && idsArea.Contains(p.AreaSolicitanteScopeId.Value));
             }
 
             return await puestos
                 .OrderBy(p => p.Orden).ThenBy(p => p.Nombre)
-                .Select(p => new OpcionDto { Id = p.PuestoId, Nombre = p.Nombre })
+                .Select(p => new PuestoOpcionDto
+                {
+                    Id     = p.PuestoId,
+                    Nombre = p.Nombre,
+                    // El área a la que entrará quien ocupe el puesto: el formulario la muestra al
+                    // elegirlo, en vez de preguntarla.
+                    AreaDestino = p.AreaDestinoScope != null && p.AreaDestinoScope.State
+                                  && p.AreaDestinoScope.AreaItem != null
+                                  && p.AreaDestinoScope.AreaItem.State
+                                      ? p.AreaDestinoScope.AreaItem.AreaItemName
+                                      : null,
+                })
                 .AsNoTracking()
                 .ToListAsync();
         }
 
         /// <summary>
-        /// Área a la que pertenece un puesto (<c>puesto.area_scope_id</c>). Es el desplegable
-        /// «Área de destino» de la decisión final del solicitante y, como el resto de
-        /// desplegables del sistema, también la lista contra la que se valida lo que llega del
-        /// cliente: lo que no se ofrece tampoco se acepta.
-        ///
-        /// Sigue devolviendo una lista aunque el área sea una sola: es lo que consume el
-        /// desplegable y la validación, y de paso el caso «sin área» se sigue expresando como
-        /// lista vacía en vez de como un null que cada llamador tendría que interpretar.
+        /// Área a la que ENTRA el trabajador que ocupe un puesto
+        /// (<c>puesto.area_destino_scope_id</c>). El solicitante ya no la elige: se le muestra
+        /// para que sepa a dónde va el candidato que aprueba, y es la misma que el backend
+        /// escribe en la ficha de pre-ingreso.
         ///
         /// El nombre que se devuelve es el del nodo y no su rama completa. No es una simplificación
         /// visual: un puesto asociado a un área estándar tiene en ese nodo el primer área estándar
@@ -605,23 +616,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// gerente general, que cuelgan del nodo de su gerencia— tiene ahí su área real. En los dos
         /// casos el nodo propio ES el área, así que no hay ancestros que agregar.
         ///
-        /// Vacía cuando el puesto no tiene área: el padrón de GTH solo cubrió personal de
-        /// oficina, así que los puestos de obra no la tienen y eso es lo esperado.
+        /// Null cuando el puesto no tiene área de destino: el padrón de GTH solo cubrió personal
+        /// de oficina, así que los puestos de obra no la tienen y el finalista se cae al área del
+        /// solicitante.
         /// </summary>
-        private static async Task<List<OpcionDto>> QueryAreasDelPuesto(AppDbContext ctx, int? puestoId)
+        private static async Task<OpcionDto?> QueryAreaDestinoDelPuesto(AppDbContext ctx, int? puestoId)
         {
-            if (puestoId is not > 0) return new List<OpcionDto>();
+            if (puestoId is not > 0) return null;
 
             return await (
                 from p in ctx.Puesto
-                where p.PuestoId == puestoId.Value && p.AreaScopeId != null
-                join s in ctx.AreaScope on p.AreaScopeId equals s.AreaScopeId
+                where p.PuestoId == puestoId.Value && p.AreaDestinoScopeId != null
+                join s in ctx.AreaScope on p.AreaDestinoScopeId equals s.AreaScopeId
                 where s.State
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 where ai.State
                 select new OpcionDto { Id = s.AreaScopeId, Nombre = ai.AreaItemName })
                 .AsNoTracking()
-                .ToListAsync();
+                .FirstOrDefaultAsync();
         }
 
         /// <summary>
@@ -1172,6 +1184,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto       = p.Nombre,
                     Tipo         = t.Nombre,
                     Area         = r.Solicitud!.AreaNombre,
+                    // Área a la que entrará el contratado: la de destino del puesto. Sale del
+                    // mismo join que ya trae el puesto, así que no cuesta un viaje extra.
+                    AreaDestino  = p.AreaDestinoScope != null && p.AreaDestinoScope.State
+                                   && p.AreaDestinoScope.AreaItem != null
+                                       ? p.AreaDestinoScope.AreaItem.AreaItemName
+                                       : null,
                     ProyectoObra = pr.ProjectDescription,
                     TrabajadorReemplazado = wr == null ? null
                         : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
@@ -1434,6 +1452,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Codigo                = head.Codigo,
                 Puesto                = head.Puesto,
                 Area                  = head.Area,
+                AreaDestino           = head.AreaDestino,
                 ProyectoObra          = head.ProyectoObra,
                 TipoRequerimiento     = head.Tipo,
                 TrabajadorReemplazado = head.TrabajadorReemplazado,
@@ -2138,8 +2157,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (head == null) return null;
 
-            // Áreas del puesto: son las opciones del «Área de destino» de la decisión final.
-            var areasDestino = await QueryAreasDelPuesto(ctx, head.PuestoId);
+            // Área de destino del puesto: informativa, para que el solicitante vea a qué área
+            // entra el candidato que apruebe. No se elige — la decide el puesto.
+            var areaDestino = await QueryAreaDestinoDelPuesto(ctx, head.PuestoId);
 
             // Finalistas: candidatos aprobados en la long list con evaluación registrada por GTH.
             // Los que no continúan (resultado NO_PASO, con su correo de agradecimiento ya enviado)
@@ -2202,7 +2222,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra    = head.ProyectoObra,
                 EstadoCodigo    = head.EstadoCodigo,
                 EstadoNombre    = head.EstadoNombre,
-                AreasDestino    = areasDestino,
+                AreaDestino     = areaDestino,
                 // Sin puntajes que los ordenen, los finalistas van alfabéticamente.
                 Finalistas      = candidatos
                     .OrderBy(x => x.Nombre)
@@ -2237,11 +2257,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
         /// vera el aviso de que falta el formulario.
         ///
-        /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la del PUESTO
-        /// que se pidio (<c>puesto.area_scope_id</c>), no la del solicitante. Un jefe pide una
-        /// vacante para un puesto que puede pertenecer a otra area de su gerencia, y el area del
-        /// puesto es la del trabajador que va a ocuparlo. Cuando el puesto no tiene area se cae a
-        /// la del solicitante.
+        /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la de DESTINO
+        /// del PUESTO que se pidio (<c>puesto.area_destino_scope_id</c>), no la del solicitante ni
+        /// la que puede pedir el puesto. La Gerencia Inmobiliaria pide un INGENIERO RESIDENTE y el
+        /// residente entra a Residencia. Cuando el puesto no tiene destino se cae al area del
+        /// solicitante.
         /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
         /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
         /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
@@ -2317,7 +2337,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
-            int requerimientoId, int candidatoId, bool aprobado, int? areaScopeId, int userId)
+            int requerimientoId, int candidatoId, bool aprobado, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -2370,10 +2390,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (ResultadoCandidato.Cerrados.Contains(elegido.ResultadoCodigo))
                 throw new AbrilException("Ya registraste una decisión sobre este finalista.", 409);
 
-            // Área a la que entra el seleccionado. Se resuelve (y valida) antes de tocar nada: un
-            // puesto con varias áreas y sin elección no debería llegar a mover la decisión.
+            // Área a la que entra el seleccionado: la de destino de su puesto, con el área del
+            // solicitante como respaldo. Se resuelve antes de tocar nada.
             var areaDestino = aprobado
-                ? await ResolverAreaDestinoAsync(ctx, head.PuestoId, areaScopeId, head.AreaScopeId)
+                ? await ResolverAreaDestinoAsync(ctx, head.PuestoId, head.AreaScopeId)
                 : null;
 
             var codigoResultado = aprobado ? ResultadoCandidato.Seleccionado : ResultadoCandidato.Rechazado;
@@ -2518,35 +2538,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
-        /// ficha de pre-ingreso. Sale del PUESTO que se pidió (<c>puesto.area_scope_id</c>) y no
-        /// del solicitante: un jefe puede pedir una vacante de un puesto que pertenece a otra área
-        /// de su gerencia, y el trabajador que ocupe ese puesto va al área del puesto.
+        /// ficha de pre-ingreso. Sale del PUESTO que se pidió
+        /// (<c>puesto.area_destino_scope_id</c>) y no del solicitante ni de una elección en
+        /// pantalla: la Gerencia Inmobiliaria pide un INGENIERO RESIDENTE, y el residente entra a
+        /// Residencia.
         ///
-        ///   • El puesto tiene área → esa, sin preguntar (ni aceptar otra).
-        ///   • El puesto no tiene ninguna → el área del solicitante, que es lo que se usaba antes de
-        ///     esta regla. Pasa con los puestos de obra, que el padrón de GTH nunca mapeó.
-        ///
-        /// La rama de «varias áreas» quedó inalcanzable con el corte del 2026-08-25 (un puesto
-        /// pertenece a una sola), pero se conserva como guarda: si algún día vuelve a haber más de
-        /// una, falla pidiendo que se elija en vez de tomar una en silencio.
+        ///   • El puesto tiene destino → ese, sin preguntar.
+        ///   • El puesto no tiene ninguno → el área del solicitante, que es lo que se usaba antes
+        ///     de esta regla. Pasa con los puestos de obra, que el padrón de GTH nunca mapeó.
         /// </summary>
         private static async Task<int?> ResolverAreaDestinoAsync(
-            AppDbContext ctx, int? puestoId, int? elegida, int? areaSolicitante)
+            AppDbContext ctx, int? puestoId, int? areaSolicitante)
         {
-            var areas = await QueryAreasDelPuesto(ctx, puestoId);
-
-            if (areas.Count == 0) return areaSolicitante;
-            if (areas.Count == 1) return areas[0].Id;
-
-            if (elegida is not > 0)
-                throw new AbrilException(
-                    "Este puesto pertenece a más de un área: elige a qué área entra el seleccionado "
-                    + "antes de aprobarlo.", 400);
-
-            if (!areas.Any(a => a.Id == elegida.Value))
-                throw new AbrilException("El área seleccionada no corresponde al puesto del requerimiento.", 400);
-
-            return elegida;
+            var destino = await QueryAreaDestinoDelPuesto(ctx, puestoId);
+            return destino?.Id ?? areaSolicitante;
         }
 
         // ── Reapertura del proceso tras un EMO de ingreso No Apto ────────────────────────

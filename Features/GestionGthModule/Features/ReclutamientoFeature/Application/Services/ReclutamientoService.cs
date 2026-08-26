@@ -921,10 +921,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (dto == null || dto.CandidatoId <= 0)
                 throw new AbrilException("Selecciona al finalista sobre el que quieres decidir.", 400);
 
-            // El área de destino la valida el repositorio contra las del puesto: es él quien
-            // conoce el puesto del requerimiento y la lista que se le ofreció al solicitante.
+            // El área a la que entra el seleccionado no se pregunta: la resuelve el repositorio
+            // desde el puesto del requerimiento, que es quien lo conoce.
             var ctx = await _repo.RegistrarDecisionFinalista(
-                requerimientoId, dto.CandidatoId, dto.Aprobado, dto.AreaScopeId, userId.Value);
+                requerimientoId, dto.CandidatoId, dto.Aprobado, userId.Value);
             var res = ctx.Resultado;
 
             // 1) Al rechazar, el finalista recibe el mismo correo de fin de proceso que le envía GTH

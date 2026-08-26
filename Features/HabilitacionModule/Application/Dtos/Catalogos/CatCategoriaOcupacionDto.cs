@@ -49,14 +49,23 @@
         public int CantidadTrabajadores { get; set; }
 
         /// <summary>
-        /// Área a la que pertenece el puesto (nodo de <c>area_scope</c>). Null = sin área,
-        /// que es un caso válido: los puestos de obra no tienen ninguna porque el padrón de
-        /// GTH solo cubrió personal de oficina.
+        /// Área que puede PEDIR este puesto en Solicitud de Personal (nodo de
+        /// <c>area_scope</c>). Null = sin área, que es un caso válido: los puestos de obra no
+        /// tienen ninguna porque el padrón de GTH solo cubrió personal de oficina.
         /// </summary>
-        public int? AreaScopeId { get; set; }
+        public int? AreaSolicitanteScopeId { get; set; }
 
-        /// <summary>Nombre del área ya resuelto, para pintarlo sin un segundo viaje.</summary>
-        public string? AreaNombre { get; set; }
+        /// <summary>Nombre del área solicitante ya resuelto, para pintarlo sin un segundo viaje.</summary>
+        public string? AreaSolicitanteNombre { get; set; }
+
+        /// <summary>
+        /// Área a la que ENTRA el postulante si lo aprueban como finalista. Null = se cae al
+        /// área del solicitante, igual que antes de que existiera esta columna.
+        /// </summary>
+        public int? AreaDestinoScopeId { get; set; }
+
+        /// <summary>Nombre del área de destino ya resuelto.</summary>
+        public string? AreaDestinoNombre { get; set; }
     }
 
     /// <summary>
@@ -112,7 +121,7 @@
         public string Nombre { get; set; } = "";
     }
 
-    /// <summary>Alta/edición de un puesto: nombre, categoría y las áreas a las que pertenece.</summary>
+    /// <summary>Alta/edición de un puesto: nombre, categoría y sus dos áreas.</summary>
     public class PuestoUpsertRequest
     {
         public string Nombre { get; set; } = "";
@@ -122,10 +131,16 @@
         public int? CategoriaId { get; set; }
 
         /// <summary>
-        /// Área del puesto. Una sola desde el corte del 2026-08-25. Null = el puesto se queda
-        /// sin área, que es válido (los de obra no tienen ninguna).
+        /// Área que puede pedir el puesto. Una sola. Null = el puesto se queda sin área, que
+        /// es válido (los de obra no tienen ninguna).
         /// </summary>
-        public int? AreaScopeId { get; set; }
+        public int? AreaSolicitanteScopeId { get; set; }
+
+        /// <summary>
+        /// Área a la que entra el postulante si lo eligen. Null = se cae al área del
+        /// solicitante al aprobar al finalista.
+        /// </summary>
+        public int? AreaDestinoScopeId { get; set; }
     }
 
     public class CatToggleRequest

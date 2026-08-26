@@ -377,14 +377,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Nombre = x.Nombre,
                     CategoriaId = x.CategoriaId,
                     CategoriaNombre = x.Categoria == null ? null : x.Categoria.Nombre,
-                    // El área sale de la propia fila del puesto, así que entra en la misma
-                    // consulta: antes vivía en la intermedia `puesto_area_scope` y costaba un
-                    // segundo viaje para agrupar los vínculos en memoria.
-                    AreaScopeId = x.AreaScope != null && x.AreaScope.State ? x.AreaScopeId : null,
-                    AreaNombre = x.AreaScope != null && x.AreaScope.State
-                                 && x.AreaScope.AreaItem != null && x.AreaScope.AreaItem.State
-                                     ? x.AreaScope.AreaItem.AreaItemName
-                                     : null,
+                    // Las dos áreas salen de la propia fila del puesto, así que entran en la
+                    // misma consulta: antes vivían en la intermedia `puesto_area_scope` y
+                    // costaban un segundo viaje para agrupar los vínculos en memoria.
+                    AreaSolicitanteScopeId = x.AreaSolicitanteScope != null && x.AreaSolicitanteScope.State
+                                                 ? x.AreaSolicitanteScopeId
+                                                 : null,
+                    AreaSolicitanteNombre = x.AreaSolicitanteScope != null && x.AreaSolicitanteScope.State
+                                            && x.AreaSolicitanteScope.AreaItem != null
+                                            && x.AreaSolicitanteScope.AreaItem.State
+                                                ? x.AreaSolicitanteScope.AreaItem.AreaItemName
+                                                : null,
+                    AreaDestinoScopeId = x.AreaDestinoScope != null && x.AreaDestinoScope.State
+                                             ? x.AreaDestinoScopeId
+                                             : null,
+                    AreaDestinoNombre = x.AreaDestinoScope != null && x.AreaDestinoScope.State
+                                        && x.AreaDestinoScope.AreaItem != null
+                                        && x.AreaDestinoScope.AreaItem.State
+                                            ? x.AreaDestinoScope.AreaItem.AreaItemName
+                                            : null,
                     Orden = x.Orden,
                     Activo = x.Active,
                     CantidadTrabajadores = ctx.Worker.Count(w => w.PuestoId == x.PuestoId)
@@ -438,20 +449,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<Puesto> CrearPuestoAsync(string nombre, int categoriaId, int? areaScopeId)
+        public async Task<Puesto> CrearPuestoAsync(
+            string nombre, int categoriaId, int? areaSolicitanteScopeId, int? areaDestinoScopeId)
         {
             using var ctx = _factory.CreateDbContext();
             var nombreNorm = NormalizarNombre(nombre);
             await ValidarCategoriaAsync(ctx, categoriaId);
-            var area = await ValidarAreaAsync(ctx, areaScopeId);
-            await ValidarNombreLibreAsync(ctx, nombreNorm, area, null);
+            var solicitante = await ValidarAreaAsync(ctx, areaSolicitanteScopeId, "que puede pedir el puesto");
+            var destino = await ValidarAreaAsync(ctx, areaDestinoScopeId, "de destino");
+            await ValidarNombreLibreAsync(ctx, nombreNorm, solicitante, null);
 
             var maxOrden = await ctx.Puesto.MaxAsync(x => (int?)x.Orden) ?? 0;
             var puesto = new Puesto
             {
                 Nombre = nombreNorm,
                 CategoriaId = categoriaId,
-                AreaScopeId = area,
+                AreaSolicitanteScopeId = solicitante,
+                AreaDestinoScopeId = destino,
                 Orden = maxOrden + 1,
                 CreatedDateTime = DateTime.UtcNow
             };
@@ -461,7 +475,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return puesto;
         }
 
-        public async Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int categoriaId, int? areaScopeId)
+        public async Task<Puesto> ActualizarPuestoAsync(
+            int id, string nombre, int categoriaId, int? areaSolicitanteScopeId, int? areaDestinoScopeId)
         {
             using var ctx = _factory.CreateDbContext();
             var puesto = await ctx.Puesto.FirstOrDefaultAsync(x => x.PuestoId == id && x.State)
@@ -469,12 +484,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var nombreNorm = NormalizarNombre(nombre);
             await ValidarCategoriaAsync(ctx, categoriaId);
-            var area = await ValidarAreaAsync(ctx, areaScopeId);
-            await ValidarNombreLibreAsync(ctx, nombreNorm, area, id);
+            var solicitante = await ValidarAreaAsync(ctx, areaSolicitanteScopeId, "que puede pedir el puesto");
+            var destino = await ValidarAreaAsync(ctx, areaDestinoScopeId, "de destino");
+            await ValidarNombreLibreAsync(ctx, nombreNorm, solicitante, id);
 
             puesto.Nombre = nombreNorm;
             puesto.CategoriaId = categoriaId;
-            puesto.AreaScopeId = area;
+            puesto.AreaSolicitanteScopeId = solicitante;
+            puesto.AreaDestinoScopeId = destino;
             puesto.UpdatedDateTime = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
@@ -482,43 +499,48 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         /// <summary>
-        /// El nombre del puesto es único DENTRO de un área, no en todo el catálogo: desde que
-        /// un puesto pertenece a una sola área, un mismo cargo que existe en dos áreas son dos
-        /// puestos con el mismo nombre (CHOFER en Logística y CHOFER en Gerencia General).
+        /// El nombre del puesto es único DENTRO del área que puede pedirlo, no en todo el
+        /// catálogo: un mismo cargo que existe en dos áreas son dos puestos con el mismo
+        /// nombre (CHOFER en Logística y CHOFER en Gerencia General).
         ///
-        /// Los puestos sin área cuentan como un área más para esto: el índice
-        /// <c>ux_puesto_nombre_area_vivo</c> es <c>NULLS NOT DISTINCT</c>, así que tampoco deja
-        /// dos «ALMACENERO» sueltos. Sin el <c>== null</c> explícito acá, la comparación en SQL
-        /// sería <c>NULL = NULL</c> y la validación dejaría pasar justo ese caso, para que
-        /// después reventara el índice con un 23505 ilegible.
+        /// El área de DESTINO no entra en la regla: dos puestos distintos pueden mandar a la
+        /// misma área (INGENIERO y ASISTENTE DE PRODUCCIÓN van los dos a Producción), y lo que
+        /// desambigua un nombre repetido es quién lo pide, que es lo que ve el solicitante.
+        ///
+        /// Los puestos sin área solicitante cuentan como un área más para esto: el índice
+        /// <c>ux_puesto_nombre_area_solicitante_vivo</c> es <c>NULLS NOT DISTINCT</c>, así que
+        /// tampoco deja dos «ALMACENERO» sueltos. Sin el <c>== null</c> explícito acá, la
+        /// comparación en SQL sería <c>NULL = NULL</c> y la validación dejaría pasar justo ese
+        /// caso, para que después reventara el índice con un 23505 ilegible.
         /// </summary>
-        private static async Task ValidarNombreLibreAsync(AppDbContext ctx, string nombreNorm, int? areaScopeId, int? puestoIdActual)
+        private static async Task ValidarNombreLibreAsync(AppDbContext ctx, string nombreNorm, int? areaSolicitanteScopeId, int? puestoIdActual)
         {
             var repetido = await ctx.Puesto.AnyAsync(x => x.State
                                                        && x.Nombre == nombreNorm
-                                                       && (areaScopeId == null
-                                                               ? x.AreaScopeId == null
-                                                               : x.AreaScopeId == areaScopeId)
+                                                       && (areaSolicitanteScopeId == null
+                                                               ? x.AreaSolicitanteScopeId == null
+                                                               : x.AreaSolicitanteScopeId == areaSolicitanteScopeId)
                                                        && (puestoIdActual == null || x.PuestoId != puestoIdActual));
             if (repetido)
                 throw new AbrilException(
-                    areaScopeId == null
-                        ? "Ya existe un puesto con ese nombre sin área."
+                    areaSolicitanteScopeId == null
+                        ? "Ya existe un puesto con ese nombre sin área que lo pida."
                         : "Ya existe un puesto con ese nombre en esa área.",
                     400);
         }
 
         /// <summary>
-        /// Valida que el área del formulario exista viva en el árbol. Null es válido: los
-        /// puestos de obra no pertenecen a ninguna área.
+        /// Valida que un área del formulario exista viva en el árbol. Null es válido en las
+        /// dos: los puestos de obra no tienen ninguna, y sin destino el finalista se cae al
+        /// área del solicitante.
         /// </summary>
-        private static async Task<int?> ValidarAreaAsync(AppDbContext ctx, int? areaScopeId)
+        private static async Task<int?> ValidarAreaAsync(AppDbContext ctx, int? areaScopeId, string cual)
         {
             if (areaScopeId is not > 0) return null;
 
             var existe = await ctx.AreaScope.AnyAsync(s => s.AreaScopeId == areaScopeId && s.State);
             if (!existe)
-                throw new AbrilException("El área indicada no existe.", 400);
+                throw new AbrilException($"El área {cual} no existe.", 400);
 
             return areaScopeId;
         }

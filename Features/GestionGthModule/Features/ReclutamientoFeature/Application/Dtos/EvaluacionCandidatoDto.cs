@@ -205,30 +205,31 @@
         public List<FinalistaDto> Finalistas { get; set; } = new();
 
         /// <summary>
-        /// Área a la que entra el seleccionado: la del puesto del requerimiento
-        /// (<c>puesto.area_scope_id</c>). Es el desplegable «Área de destino» de la decisión
-        /// final y define el <c>area_scope_id</c> de su ficha de pre-ingreso.
+        /// Área a la que entra el seleccionado: la de DESTINO del puesto del requerimiento
+        /// (<c>puesto.area_destino_scope_id</c>). Define el <c>area_scope_id</c> de su ficha de
+        /// pre-ingreso, y con ella se resuelve su jefatura.
         ///
-        /// Desde el corte del 2026-08-25 un puesto pertenece a UNA sola área, así que en la
-        /// práctica esto trae 0 o 1 elemento. Sigue siendo lista porque es lo que consume el
-        /// desplegable, y porque el caso «sin área» se expresa como lista vacía:
+        /// Es informativa: el solicitante NO la elige, la decide el puesto que pidió. Se manda
+        /// para que la pantalla pueda decirle a dónde va el candidato que aprueba.
         ///
-        ///   • exactamente 1 → esa, sin preguntar (la pantalla solo la informa).
-        ///   • vacía → el puesto no tiene área (el padrón de GTH solo cubrió personal de
-        ///     oficina): se cae al área del solicitante, que es lo que se usaba antes.
+        /// Null cuando el puesto no tiene destino (el padrón de GTH solo cubrió personal de
+        /// oficina): se cae al área del solicitante, que es lo que se usaba antes.
         ///
         /// El nombre es el del nodo, no la rama completa: si el puesto es de un área estándar ese
         /// nodo YA es el primero estándar de su rama, y si es de un nodo de gerencia (el caso de
         /// los puestos de categoría gerente, que cuelgan de ahí) el nombre de la gerencia es el
         /// que corresponde. En ninguno de los dos casos hay ancestros que mostrar.
         /// </summary>
-        public List<OpcionDto> AreasDestino { get; set; } = new();
+        public OpcionDto? AreaDestino { get; set; }
     }
 
     /// <summary>
     /// Body del POST con la decisión final del área solicitante sobre un finalista: aprobarlo
     /// (cierra el proceso y pasa a onboarding) o rechazarlo (se le envía el correo de
     /// agradecimiento).
+    ///
+    /// El área a la que entra el seleccionado NO viaja acá: la decide el puesto del
+    /// requerimiento (<c>puesto.area_destino_scope_id</c>) y la resuelve el backend.
     /// </summary>
     public class FinalistaDecisionDto
     {
@@ -236,14 +237,6 @@
 
         /// <summary>true = aprobar y cerrar el proceso; false = rechazar al finalista.</summary>
         public bool Aprobado { get; set; }
-
-        /// <summary>
-        /// Área a la que entra el seleccionado, elegida entre las del puesto (ver
-        /// <see cref="RevisionFinalistasDto.AreasDestino"/>). Solo se exige al aprobar y solo cuando
-        /// el puesto pertenece a dos o más áreas; con una sola el backend la resuelve él mismo y
-        /// esto se ignora. Al rechazar no aplica.
-        /// </summary>
-        public int? AreaScopeId { get; set; }
     }
 
     /// <summary>Resultado de registrar la decisión final sobre un finalista.</summary>

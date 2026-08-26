@@ -225,9 +225,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// flujo normal (reusar la ficha viva si ya existe, abrirla si no) porque es la misma cosa —
         /// alguien que todavía no ingresó pero al que hay que poder programarle su EMO.
         ///
-        /// El área sale del puesto que se pidió (<c>puesto.area_scope_id</c>), que es lo que
-        /// permite resolver su jefatura subiendo por el árbol. Si el puesto no tiene área —los de
-        /// obra no la tienen— entra al área del solicitante, que es quien pidió a esta persona.
+        /// El área sale del DESTINO del puesto que se pidió (<c>puesto.area_destino_scope_id</c>),
+        /// que es lo que permite resolver su jefatura subiendo por el árbol. Si el puesto no tiene
+        /// destino —los de obra no lo tienen— entra al área del solicitante, que es quien pidió a
+        /// esta persona.
         /// </summary>
         private static async Task<Worker?> AbrirFichaPreIngresoAsync(
             AppDbContext ctx, int candidatoId, GthRequerimiento req, DateTimeOffset now)
@@ -243,9 +244,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(s => s.AreaScopeId)
                 .FirstOrDefaultAsync();
 
+            // El área a la que ENTRA el candidato la decide el puesto, no quien lo pidió: la
+            // Gerencia Inmobiliaria pide un INGENIERO RESIDENTE y el residente entra a Residencia.
+            // Sin destino (los puestos de obra) se cae al área del solicitante.
             var areaPuesto = await ctx.Puesto
                 .Where(p => p.PuestoId == req.PuestoId)
-                .Select(p => p.AreaScopeId)
+                .Select(p => p.AreaDestinoScopeId)
                 .FirstOrDefaultAsync();
 
             var areaDestino = areaPuesto ?? areaSolicitante;

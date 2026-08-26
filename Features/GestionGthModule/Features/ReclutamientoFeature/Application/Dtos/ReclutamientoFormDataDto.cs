@@ -19,6 +19,19 @@
     }
 
     /// <summary>
+    /// Ítem del desplegable «Puesto» de Solicitud de Personal. Lleva el área a la que entra quien
+    /// ocupe el puesto (<c>puesto.area_destino_scope_id</c>) para que el formulario pueda decirlo
+    /// al elegirlo: el solicitante ya no elige área, la decide el puesto.
+    ///
+    /// Null cuando el puesto no tiene destino (los de obra): el contratado entra al área del
+    /// propio solicitante.
+    /// </summary>
+    public class PuestoOpcionDto : OpcionDto
+    {
+        public string? AreaDestino { get; set; }
+    }
+
+    /// <summary>
     /// Datos que necesita el formulario "Nueva solicitud de personal" en una sola petición:
     /// el área del solicitante (derivada del usuario, no editable), los catálogos de los
     /// desplegables (puestos, tipos de requerimiento y proyectos/obras) y los destinatarios a
@@ -37,7 +50,12 @@
         /// <summary>Nodo de <c>area_scope</c> del solicitante; es el que define el subárbol de <see cref="TrabajadoresArea"/> y a qué gerente se le notifica.</summary>
         public int? AreaScopeId { get; set; }
         public int MaxVacantes { get; set; } = 10;
-        public List<OpcionDto> Puestos { get; set; } = new();
+
+        /// <summary>
+        /// Puestos que este solicitante puede pedir, cada uno con el área a la que entrará quien
+        /// lo ocupe. Ya no se pregunta el área: al elegir el puesto queda decidida.
+        /// </summary>
+        public List<PuestoOpcionDto> Puestos { get; set; } = new();
         public List<TipoRequerimientoOpcionDto> TiposRequerimiento { get; set; } = new();
         public List<OpcionDto> Proyectos { get; set; } = new();
 

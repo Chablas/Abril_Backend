@@ -943,12 +943,19 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.AreaScopeParentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // El área del puesto. Restrict: el área nunca se borra de verdad (soft delete),
-            // así que un cascade no tendría a quién aplicarse.
+            // Las dos áreas del puesto: la que puede pedirlo y a la que entra el postulante.
+            // Restrict en ambas: el área nunca se borra de verdad (soft delete), así que un
+            // cascade no tendría a quién aplicarse.
             modelBuilder.Entity<Puesto>()
-                .HasOne(x => x.AreaScope)
+                .HasOne(x => x.AreaSolicitanteScope)
                 .WithMany()
-                .HasForeignKey(x => x.AreaScopeId)
+                .HasForeignKey(x => x.AreaSolicitanteScopeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Puesto>()
+                .HasOne(x => x.AreaDestinoScope)
+                .WithMany()
+                .HasForeignKey(x => x.AreaDestinoScopeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ── master ─────────────────────────────────────────────────────

@@ -443,6 +443,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Vista de GTH: cierra el proceso y habilita el paso a onboarding. Solo se acepta con el
+        /// requerimiento en EMO_APTO o EMO_APTO_RESTRICCIONES — las fases a las que llega cuando el
+        /// EMO de ingreso del seleccionado sale Apto (con o sin restricciones).
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("requerimiento/{id:int}/cerrar-proceso")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> CerrarProcesoDesdeEmoApto(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var estado = await _service.CerrarProcesoDesdeEmoApto(id, userId);
+                return Ok(new
+                {
+                    message = "Proceso cerrado. El seleccionado ya aparece en Onboarding como candidato por ingresar.",
+                    estado.EstadoCodigo,
+                    estado.EstadoNombre,
+                });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.CerrarProcesoDesdeEmoApto");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
         /// invitación al correo que declaró en su formulario del postulante.
         /// </summary>
@@ -760,25 +792,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var codigos = result.Codigos.Count == 1
                     ? $"Requerimiento generado: {result.Codigos[0]}."
                     : $"Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
-                // El siguiente paso es de Gerencia General, así que el mensaje lo dice explícitamente
-                // (y avisa si el correo no pudo salir, porque entonces hay que reenviarlo). El FFT
-                // que registra el propio Gerente General no tiene ese paso: pasa derecho a GTH, y lo
-                // que sale es el aviso del candidato, así que el mensaje habla de eso.
+                // Qué sigue depende de lo que traiga la solicitud, así que el mensaje lo dice
+                // explícitamente (y avisa si algún correo no pudo salir, porque entonces hay que
+                // reenviarlo). Un ingreso directo no tiene paso de aprobación: pasa derecho a GTH,
+                // y lo que sale es el aviso del candidato. Una solicitud que mezcle los dos hace
+                // las dos cosas a la vez.
                 var msg = result.AprobacionGgOmitida
                     ? result.CorreoGerenciaEnviado
                         ? $"Ingreso directo FFT registrado y enviado a Gestión de Talento Humano. {codigos}"
                         : $"Ingreso directo FFT registrado. {codigos} No se pudo enviar el aviso a Gestión de " +
                           "Talento Humano, pero el requerimiento ya figura en su bandeja."
-                    : result.CorreoGerenciaEnviado
-                        ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
-                        : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
-                          "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
+                    : result.HayIngresoDirecto
+                        ? result.CorreoGerenciaEnviado
+                            ? $"Solicitud registrada. {codigos} El ingreso directo pasó a Gestión de Talento " +
+                              "Humano y el resto se envió para su aprobación."
+                            : $"Solicitud registrada. {codigos} No se pudo enviar alguno de los correos: usa " +
+                              "«Reenviar aprobación» en la tabla para reintentar el de aprobación."
+                        : result.CorreoGerenciaEnviado
+                            ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
+                            : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
+                              "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
                 return Ok(new
                 {
                     id = result.SolicitudId,
                     codigos = result.Codigos,
                     correoGerenciaEnviado = result.CorreoGerenciaEnviado,
                     aprobacionGgOmitida = result.AprobacionGgOmitida,
+                    hayIngresoDirecto = result.HayIngresoDirecto,
                     message = msg,
                 });
             }

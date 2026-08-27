@@ -21,7 +21,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IReclutamientoRepository _repo;
         private readonly IAprobacionGgRepository  _aprobacionGgRepo;
         private readonly IAprobacionGgService     _aprobacionGg;
-        private readonly IAprobacionScopeResolver _scopes;
         private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly ICorreoConfigRepository  _correoConfig;
         private readonly IGraphSharePointService  _sharePoint;
@@ -72,7 +71,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             IReclutamientoRepository repo,
             IAprobacionGgRepository aprobacionGgRepo,
             IAprobacionGgService aprobacionGg,
-            IAprobacionScopeResolver scopes,
             ICorreoDestinatariosResolver destinatarios,
             ICorreoConfigRepository correoConfig,
             IGraphSharePointService sharePoint,
@@ -84,7 +82,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _repo             = repo;
             _aprobacionGgRepo = aprobacionGgRepo;
             _aprobacionGg     = aprobacionGg;
-            _scopes           = scopes;
             _destinatarios    = destinatarios;
             _correoConfig     = correoConfig;
             _sharePoint       = sharePoint;
@@ -104,13 +101,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.Destinatarios = await _destinatarios.ResolverAsync(
                 CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
 
-            // ¿Quién está pidiendo? Si es Gerencia General, un pedido FFT suyo no pasa por su propia
-            // aprobación y va derecho a GTH, así que el formulario tiene que poder avisarlo y
-            // mostrar los destinatarios de ESE correo, que son otros. Se resuelve por la categoría
-            // de su ficha (la misma regla de «Aprobaciones»), nunca por el rol.
-            dto.EsGerenteGeneral = (await _scopes.ResolveAsync(userId)).Nivel == AprobacionNivel.GerenteGeneral;
-            if (dto.EsGerenteGeneral)
-                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+            // Una vacante de ingreso directo no la aprueba nadie: su aviso va derecho a GTH y con
+            // otros destinatarios. Se resuelve siempre —cualquiera puede marcar la casilla FFT— para
+            // que el formulario pueda decir a quién le llegará cada cosa en cuanto la marquen.
+            dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
 
             return dto;
         }
@@ -300,6 +294,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
             int requerimientoId, int? userId) =>
             _repo.VolverALongListDesdeEmoNoApto(requerimientoId, userId);
+
+        public Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(
+            int requerimientoId, int? userId) =>
+            _repo.CerrarProcesoDesdeEmoApto(requerimientoId, userId);
 
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
@@ -1545,30 +1543,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (sustento != null && sustento.Length > 0)
                 await SubirSustentoAsync(sustento, solicitud);
 
-            // ¿La solicitud se salta la aprobación de Gerencia General? Solo cuando la registra el
-            // propio Gerente General y TODAS sus vacantes son FFT: pedirle su propia firma sobre un
-            // candidato que él nombró no aprueba nada. Si mezcla un FFT con una vacante normal, la
-            // solicitud sí pasa por la pantalla de Aprobaciones —la vacante normal la necesita— y
-            // ahí la FFT saltará igual al EMO. El nivel sale de la categoría de su ficha, la
-            // misma regla de «Aprobaciones», nunca del rol ni de nada que mande el cliente.
-            // El orden importa: la categoría solo se consulta cuando puede cambiar algo (todas las
-            // vacantes FFT). En una solicitud normal esto no cuesta ningún roundtrip.
-            var omitirAprobacion = dto.Vacantes.All(v => v.EsFft)
-                && (await _scopes.ResolveAsync(userId)).Nivel == AprobacionNivel.GerenteGeneral;
+            // Qué hay que arrancar lo decide cada VACANTE, no la solicitud: un ingreso directo no
+            // lo aprueba nadie —quien pide ya nombró a la persona, no hay nada que decidir— y una
+            // solicitud puede mezclar los dos. Con las dos clases adentro salen los dos correos:
+            // el de aprobación con las vacantes normales y el aviso a GTH con los ingresos directos.
+            var hayFft        = dto.Vacantes.Any(v => v.EsFft);
+            var hayAprobables = dto.Vacantes.Any(v => !v.EsFft);
 
-            var result = await _repo.Create(solicitud, dto.Vacantes, omitirAprobacion, userId);
-            result.AprobacionGgOmitida = omitirAprobacion;
+            var result = await _repo.Create(solicitud, dto.Vacantes, userId);
+            result.AprobacionGgOmitida = !hayAprobables;
+            result.HayIngresoDirecto   = hayFft;
 
-            // Primer paso del flujo: la solicitud va a Gerencia General, NO a GTH. Un solo correo
-            // con todas las vacantes; GTH se enterará recién cuando el GG apruebe. No bloquea la
-            // creación: si el correo falla, la solicitud ya quedó registrada esperando el reenvío.
+            // Los correos que arrancan el flujo. Ninguno bloquea la creación: si falla, la solicitud
+            // ya quedó registrada y el solicitante la reenvía desde su panel (el de aprobación) o la
+            // ve igual en la bandeja de GTH (el del ingreso directo).
             //
-            // En el FFT del propio Gerente General no hay aprobación que pedir: el correo que
-            // arranca el flujo es el aviso a GTH de que ya tiene un candidato al que programarle su
-            // EMO de ingreso (mismo criterio, tampoco bloquea).
-            result.CorreoGerenciaEnviado = omitirAprobacion
-                ? await _aprobacionGg.EnviarFftPedidoPorGerenciaGeneral(result.SolicitudId, userId)
-                : await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);
+            // La solicitud va primero a quien tenga que aprobarla, NO a GTH: de las vacantes
+            // normales GTH se entera recién cuando estén aprobadas. Las FFT no esperan a nadie, así
+            // que su aviso a GTH sale ya.
+            var correoAprobacion = !hayAprobables
+                || await _aprobacionGg.EnviarSolicitudAGerencia(result.SolicitudId, userId);
+            var correoIngresoDirecto = !hayFft
+                || await _aprobacionGg.EnviarIngresoDirectoAGth(result.SolicitudId, userId);
+
+            result.CorreoGerenciaEnviado = correoAprobacion && correoIngresoDirecto;
 
             return result;
         }

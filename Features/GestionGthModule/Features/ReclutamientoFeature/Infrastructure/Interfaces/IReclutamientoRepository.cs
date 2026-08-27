@@ -31,15 +31,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Persiste la solicitud + un requerimiento por vacante, generando el código
         /// REQ-AAAA-NNNN correlativo por año. Devuelve el id de la solicitud y los códigos creados.
+        ///
+        /// Cada vacante nace donde le toca: las normales esperando su aprobación, y las de ingreso
+        /// directo (<c>es_fft</c>) ya en manos de GTH —con su candidato seleccionado y su ficha de
+        /// pre-ingreso abierta— porque no las aprueba nadie. Lo decide la vacante y no la solicitud:
+        /// una misma solicitud puede traer de las dos.
         /// </summary>
-        /// <param name="omitirAprobacionGg">
-        /// true cuando la solicitud no pasa por la aprobación de Gerencia General porque la registró
-        /// el propio Gerente General y todas sus vacantes son FFT. En ese caso los requerimientos
-        /// nacen ya en manos de GTH, con la ficha del candidato FFT abierta y esperando el envío del
-        /// formulario. Lo decide el servicio (es él quien resuelve la categoría del solicitante).
-        /// </param>
         Task<SolicitudPersonalCreateResultDto> Create(
-            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, bool omitirAprobacionGg, int? userId);
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
 
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
@@ -172,6 +171,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// no está en esa fase.
         /// </summary>
         Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Cierra el proceso de reclutamiento desde EMO_APTO / EMO_APTO_RESTRICCIONES: pasa el
+        /// requerimiento a CERRADO, que es lo que hace aparecer al seleccionado en Onboarding como
+        /// candidato por ingresar. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el requerimiento
+        /// no existe y 409 si no está en una de esas dos fases.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(int requerimientoId, int? userId);
 
         /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO: crea o

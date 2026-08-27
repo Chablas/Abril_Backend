@@ -72,9 +72,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 await ctx.SaveChangesAsync();
             }
 
-            // Detalle: una fila por vacante vigente de la solicitud (las que falten se agregan).
+            // Detalle: una fila por vacante vigente que ALGUIEN tenga que firmar (las que falten se
+            // agregan). Los ingresos directos quedan fuera: no los aprueba nadie, ya nacieron en
+            // manos de GTH, y darles fila los volvería a meter en la pantalla «Aprobaciones» de una
+            // solicitud mixta. Que un FFT tenga fila es justamente lo que distingue a los que
+            // quedaron del flujo viejo (ver RutaAprobacion.De).
             var requerimientoIds = await ctx.GthRequerimiento
-                .Where(r => r.GthSolicitudId == solicitudId && r.State)
+                .Where(r => r.GthSolicitudId == solicitudId && r.State && !r.EsFft)
                 .Select(r => r.GthRequerimientoId)
                 .ToListAsync();
 
@@ -206,6 +210,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     FftCandidatoDocumento  = r.FftCandidatoDocumento,
                     FftTipoDocumento       = td != null ? td.Nombre : null,
                     FftCandidatoCorreo     = r.FftCandidatoCorreo,
+                    // Tener fila de detalle es lo único que mete a un FFT en la aprobación, y solo
+                    // los de antes del salto la tienen (ver RutaAprobacion.De).
+                    FftEnAprobacionLegada  = d != null,
                     AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                     AprobadoGth            = d != null ? d.AprobadoGth : null,
@@ -214,9 +221,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Cabecera de la solicitud + sus vacantes SIN pasar por una aprobación: es lo que necesita
-        /// el correo del FFT que pide el propio Gerente General, que no crea ninguna (no se aprueba a
-        /// sí mismo). <c>AprobacionId</c> queda en 0 y las decisiones en null, que es exactamente lo
-        /// que corresponde: nadie decidió nada porque no había nada que decidir.
+        /// el correo del ingreso directo FFT, que no la crea (a un FFT no lo aprueba nadie).
+        /// <c>AprobacionId</c> queda en 0 y las decisiones en null, que es exactamente lo que
+        /// corresponde: nadie decidió nada porque no había nada que decidir. Quien llama se queda
+        /// con <c>VacantesFft</c>: en una solicitud mixta las demás sí están esperando una firma.
         /// </summary>
         public async Task<AprobacionGgEnvioContextoDto?> GetContextoSinAprobacion(int solicitudId)
         {
@@ -362,6 +370,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.Codigo,
                     r.EsFft,
                     TipoCodigo  = t.Codigo,
+                    // Ver RutaAprobacion.De: un FFT solo entra a la aprobación si tiene detalle.
+                    FftLegado   = d != null,
                     AprobadoGg  = d != null ? d.AprobadoGerenteGeneral : null,
                     AprobadoGa  = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGt  = d != null ? d.AprobadoGth : null,
@@ -377,7 +387,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // área y GTH no ven las vacantes nuevas. Cada uno decide una ruta y ve solo la suya.
                 var vs = porAprobacion[c.GthAprobacionGgId]
                     .Select(v => new { v.Codigo, v.AprobadoGg, v.AprobadoGa, v.AprobadoGt,
-                                       Ruta = RutaAprobacion.De(v.EsFft, v.TipoCodigo) })
+                                       Ruta = RutaAprobacion.De(v.EsFft, v.TipoCodigo, v.FftLegado) })
                     .Where(v => RutaAprobacion.DecideEsteNivel(v.Ruta, scope.Nivel))
                     .ToList();
 
@@ -692,11 +702,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (todas.Count == 0)
                 throw new AbrilException("La solicitud no tiene vacantes por aprobar.", 400);
 
-            // Solo las de SU ruta: un gerente de área no firma vacantes nuevas y el Gerente General
-            // no firma reemplazos. Una solicitud mixta se decide en dos actos, uno por cada lado.
+            // El detalle se lee ACÁ y no más abajo porque es lo que decide la ruta de una vacante
+            // FFT: solo las que quedaron enganchadas a la aprobación de antes del salto tienen fila
+            // y siguen esperando la firma de Gerencia General (ver RutaAprobacion.De).
+            var detalles = await ctx.GthAprobacionGgDetalle
+                .Where(d => d.GthAprobacionGgId == aprobacion.GthAprobacionGgId && d.State)
+                .ToListAsync();
+            var conDetalle = detalles.Select(d => d.GthRequerimientoId).ToHashSet();
+
+            // Solo las de SU ruta: un gerente de área no firma vacantes nuevas, el Gerente General
+            // no firma reemplazos y un ingreso directo no lo firma nadie. Una solicitud mixta se
+            // decide en dos actos, uno por cada lado.
             var mias = todas
                 .Where(x => RutaAprobacion.DecideEsteNivel(
-                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo), scope.Nivel))
+                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
+                                      conDetalle.Contains(x.Req.GthRequerimientoId)), scope.Nivel))
                 .ToList();
             if (mias.Count == 0)
                 throw new AbrilException(
@@ -755,10 +775,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ? await FftFlujo.RequerimientosConCandidatoAsync(
                     ctx, requerimientos.Where(r => r.EsFft).Select(r => r.GthRequerimientoId).ToList())
                 : new HashSet<int>();
-
-            var detalles = await ctx.GthAprobacionGgDetalle
-                .Where(d => d.GthAprobacionGgId == aprobacion.GthAprobacionGgId && d.State)
-                .ToListAsync();
 
             var now = DateTimeOffset.UtcNow;
             int aprobados = 0, rechazados = 0;
@@ -983,19 +999,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 orderby r.GthRequerimientoId
                 select new { Req = r, TipoCodigo = t.Codigo }).ToListAsync();
-            var requerimientos = reqConTipo.Select(x => x.Req).ToList();
-            // Solo las de la ruta de este nivel: aprobar "toda la fila" desde la lista significa
-            // aprobar todo lo que a ESTE usuario le toca de ella, no las vacantes de los demás.
-            var reqPorSolicitud = reqConTipo
-                .Where(x => RutaAprobacion.DecideEsteNivel(
-                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo), scope.Nivel))
-                .GroupBy(x => x.Req.GthSolicitudId)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.Req).ToList());
 
+            // El detalle se lee ANTES de repartir por ruta: es lo que decide la de una vacante FFT
+            // —solo las que quedaron enganchadas a la aprobación de antes del salto tienen fila y
+            // siguen esperando la firma de Gerencia General (ver RutaAprobacion.De).
             var idsVivos = cabeceras.Select(c => c.Aprobacion.GthAprobacionGgId).ToList();
             var detalles = await ctx.GthAprobacionGgDetalle
                 .Where(d => idsVivos.Contains(d.GthAprobacionGgId) && d.State)
                 .ToListAsync();
+            var conDetalle = detalles.Select(d => d.GthRequerimientoId).ToHashSet();
+
+            // Solo las de la ruta de este nivel: aprobar "toda la fila" desde la lista significa
+            // aprobar todo lo que a ESTE usuario le toca de ella, no las vacantes de los demás.
+            var reqPorSolicitud = reqConTipo
+                .Where(x => RutaAprobacion.DecideEsteNivel(
+                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
+                                      conDetalle.Contains(x.Req.GthRequerimientoId)), scope.Nivel))
+                .GroupBy(x => x.Req.GthSolicitudId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Req).ToList());
+
+            // Las que este nivel va a decidir de verdad, en una sola lista: es sobre estas que se
+            // resuelve el salto FFT, no sobre todas las de las solicitudes. Una vacante de ingreso
+            // directo nueva no se decide acá (ya está en manos de GTH), así que preguntar por su
+            // puesto sería un roundtrip para nada.
+            var requerimientos = reqPorSolicitud.Values.SelectMany(v => v).ToList();
+
             var detallePorAprobacion = detalles
                 .GroupBy(d => d.GthAprobacionGgId)
                 .ToDictionary(g => g.Key, g => g.ToList());
@@ -1335,6 +1363,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         FftCandidatoDocumento  = r.FftCandidatoDocumento,
                         FftTipoDocumento       = td != null ? td.Nombre : null,
                         FftCandidatoCorreo     = r.FftCandidatoCorreo,
+                        FftEnAprobacionLegada  = d != null,
                         AprobadoGerenteArea    = d != null ? d.AprobadoGerenteArea : null,
                         AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                     },
@@ -1409,9 +1438,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     a.GthDecididoDateTime,
                     r.EsFft,
                     TipoCodigo = t.Codigo,
+                    TieneDetalle = d != null,
                 }).FirstOrDefaultAsync();
 
             if (raw == null) return null;
+
+            // Un ingreso directo no pasa por ninguna firma: la tarjeta de aprobaciones del
+            // seguimiento no aplica y devolver la de la solicitud lo dejaría "pendiente" para
+            // siempre. Pasa en las solicitudes mixtas, donde la aprobación existe pero es de las
+            // OTRAS vacantes. Los FFT anteriores al salto sí tienen su fila de detalle y siguen
+            // mostrando la firma que les tocó (ver RutaAprobacion.De).
+            var ruta = RutaAprobacion.De(raw.EsFft, raw.TipoCodigo, raw.TieneDetalle);
+            if (ruta == RutaAprobacion.Ninguna) return null;
 
             // Conversión a hora Perú en memoria (ToOffset no se traduce a SQL).
             return new AprobacionGgResumenDto
@@ -1433,7 +1471,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 GerenteAreaDecididoEn   = raw.GerenteAreaDecididoDateTime?.ToOffset(PeruOffset).DateTime,
                 GthDecididoEn           = raw.GthDecididoDateTime?.ToOffset(PeruOffset).DateTime,
                 // Con esto el seguimiento pinta solo las firmas que esta vacante necesita.
-                Ruta                    = RutaAprobacion.De(raw.EsFft, raw.TipoCodigo),
+                Ruta                    = ruta,
             };
         }
 

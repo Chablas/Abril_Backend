@@ -35,9 +35,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // y GTH. Sale en el mismo momento que el de arriba (al registrar la solicitud),
                     // así que se configura en la misma pantalla.
                     CorreoTipoReclutamiento.AprobacionReemplazo,
-                    // FFT pedido por el propio Gerente General: sale al registrar la solicitud, en
-                    // lugar del correo de aprobación (no se aprueba a sí mismo), así que se
-                    // configura acá y no en Aprobaciones.
+                    // Ingreso directo FFT: sale al registrar la solicitud, en lugar del correo de
+                    // aprobación (a un FFT no lo aprueba nadie), así que se configura acá y no en
+                    // Aprobaciones.
                     CorreoTipoReclutamiento.FftSolicitudGg,
                     CorreoTipoReclutamiento.LongListDecision,
                     CorreoTipoReclutamiento.FinalistaDecision,

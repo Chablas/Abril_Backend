@@ -3,6 +3,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacio
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -72,6 +73,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId)
             => _repo.GetDestinatarios(workerId, clinicaId);
+
+        public Task<List<RazonSocialCupoDto>> GetRazonesSociales() => _repo.GetRazonesSociales();
 
         public Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha)
             => _repo.EnviarInasistencias(fecha);

@@ -85,19 +85,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<string> Codigos { get; set; } = new();
 
         /// <summary>
-        /// ¿Salió el correo que arranca el flujo? En una solicitud normal es el de aprobación a
-        /// Gerencia General; en la FFT que registra el propio Gerente General es el aviso a GTH
-        /// (ver <see cref="AprobacionGgOmitida"/>). false cuando no hay destinatarios configurados o
-        /// el envío falló: la solicitud queda registrada esperando un reenvío, así que hay que
+        /// ¿Salió TODO lo que tenía que salir? Las vacantes normales disparan el correo de
+        /// aprobación y las de ingreso directo el aviso a GTH; una solicitud mixta manda los dos y
+        /// esto es true solo si salieron ambos. false cuando no hay destinatarios configurados o el
+        /// envío falló: la solicitud queda registrada esperando un reenvío, así que hay que
         /// avisárselo al solicitante.
         /// </summary>
         public bool CorreoGerenciaEnviado { get; set; }
 
         /// <summary>
-        /// true = la solicitud no pasa por la aprobación de Gerencia General porque quien la
-        /// registró ES el Gerente General y todas sus vacantes son FFT. El requerimiento nace ya
-        /// en manos de GTH, con su candidato seleccionado y esperando el EMO de ingreso.
+        /// true = la solicitud no pasa por «Aprobaciones» porque TODAS sus vacantes son de ingreso
+        /// directo FFT, y a un ingreso directo no lo aprueba nadie. Los requerimientos nacen ya en
+        /// manos de GTH, con su candidato seleccionado y esperando el EMO de ingreso.
         /// </summary>
         public bool AprobacionGgOmitida { get; set; }
+
+        /// <summary>
+        /// true si la solicitud trae al menos una vacante de ingreso directo FFT. Junto con
+        /// <see cref="AprobacionGgOmitida"/> distingue los tres casos que el mensaje de respuesta
+        /// tiene que contar: solo vacantes normales, solo ingresos directos, o las dos cosas.
+        /// </summary>
+        public bool HayIngresoDirecto { get; set; }
     }
 }

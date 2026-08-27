@@ -113,6 +113,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>
+        /// Razones sociales del grupo con sus cupos disponibles. La pide el modal "Programar EMO
+        /// con clínica" SOLO cuando el trabajador todavía no tiene razón social —el ingreso directo
+        /// FFT, que va de la solicitud al EMO sin pasar por la asignación de Reclutamiento— para
+        /// ofrecerle el desplegable en lugar del campo de solo lectura. En el caso normal la
+        /// pantalla no la pide y no cuesta ningún roundtrip.
+        /// </summary>
+        [HttpGet("razones-sociales")]
+        public async Task<IActionResult> GetRazonesSociales()
+        {
+            try { return Ok(await _service.GetRazonesSociales()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetRazonesSociales"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
         /// Correo de inasistencias del día — botón de la Agenda de Clínica. Solo la clínica
         /// (el médico) lo dispara, mismo criterio que InterconsultaController.EnviarCorreos:
         /// el envío parte de su bandeja, no de SSOMA/Habilitación.

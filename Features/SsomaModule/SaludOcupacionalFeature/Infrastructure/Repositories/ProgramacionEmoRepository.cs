@@ -14,6 +14,8 @@ using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Helpers;
+using Abril_Backend.Shared.Services;
+using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -23,6 +25,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly IEmoDestinatariosResolver _destinatarios;
+        private readonly IReclutamientoEmoIngresoService _reclutamiento;
         private readonly ILogger<ProgramacionEmoRepository> _logger;
 
         public ProgramacionEmoRepository(
@@ -30,12 +33,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             IEmailService emailService,
             IConfiguration configuration,
             IEmoDestinatariosResolver destinatarios,
+            IReclutamientoEmoIngresoService reclutamiento,
             ILogger<ProgramacionEmoRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
             _destinatarios = destinatarios;
+            _reclutamiento = reclutamiento;
             _logger = logger;
         }
 
@@ -341,20 +346,57 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     + "que no se le puede programar el EMO de Ingreso del proceso de reclutamiento. "
                     + "Reporta el caso al administrador antes de continuar.", 409);
 
-            var empresaId = dto.EmpresaId;
-            if (empresaId == null)
+            // La vinculacion vigente se consulta en dos casos: cuando el modal no mando empresa
+            // (hay que resolverla), y cuando la ficha no tiene razon social propia — ahi hace falta
+            // para saber si lo que llego del modal es un dato que el trabajador ya tenia o la razon
+            // social que el usuario le acaba de ELEGIR (ver mas abajo).
+            int? empresaVinculacion = null;
+            if (dto.EmpresaId == null || worker.ContributorId == null)
             {
                 var hoy = DateOnly.FromDateTime(DateTime.Today);
-                empresaId = await ctx.WorkerVinculacion
+                empresaVinculacion = await ctx.WorkerVinculacion
                     .Where(v => v.WorkerId == dto.WorkerId && (v.FechaFin == null || v.FechaFin >= hoy))
                     .OrderByDescending(v => v.FechaInicio)
                     .Select(v => (int?)v.EmpresaId)
                     .FirstOrDefaultAsync();
             }
+
+            var empresaId = dto.EmpresaId ?? empresaVinculacion;
             // Un finalista no tiene vinculacion todavia, asi que la empresa sale del contributor
             // que le copio el requerimiento. Sin esto la programacion quedaria sin empresa y no
             // aparecia en la pantalla de Programaciones, que filtra por empresa Abril.
             empresaId ??= worker.ContributorId;
+
+            // Sin razon social no hay cita: la programacion quedaria fuera de la pantalla de
+            // Programaciones (filtra por empresa Abril) y del correo a la clinica. Le pasa al
+            // ingreso directo FFT, que va de la solicitud al EMO sin pasar por la asignacion de
+            // Reclutamiento, y por eso el modal le ofrece un desplegable en lugar del campo de
+            // solo lectura. Se corta en vez de crearla muda: es lo unico que falta y quien programa
+            // lo puede resolver ahi mismo.
+            if (empresaId == null)
+                throw new AbrilException(
+                    "Este trabajador no tiene razón social asignada: elígele una antes de "
+                    + "programarle el EMO.", 400);
+
+            // Ficha sin razon social y sin vinculacion de la que sacarla: lo que llego del modal no
+            // es un dato que ya tuviera, es la razon social que el usuario le acaba de elegir. Y
+            // elegirla es ASIGNARSELA, no usarla solo para esta cita: la ficha se queda con ella y
+            // el resto del proceso (contrato, onboarding, correos de EMO) la encuentra.
+            if (worker.ContributorId == null && empresaVinculacion == null && dto.EmpresaId != null)
+            {
+                // Se revalida contra la MISMA lista que se le ofrecio: lo que no esta ahi tampoco
+                // se acepta, venga de donde venga el id.
+                if (!await RazonSocialCuposHelper.EsValidaAsync(ctx, dto.EmpresaId.Value))
+                    throw new AbrilException("La razón social seleccionada no es válida.", 400);
+
+                worker.ContributorId = dto.EmpresaId;
+                worker.UpdatedAt     = DateTimeOffset.UtcNow;
+
+                // Y se le baja al requerimiento del que salio la ficha, si viene de uno: la pantalla
+                // de Reclutamiento lee la razon social de ahi, y dejarla vacia haria que asignar
+                // otra despues le pisara a la ficha la que se acaba de elegir aca.
+                await _reclutamiento.SincronizarRazonSocialAsync(ctx, worker, dto.EmpresaId.Value, userId);
+            }
 
             // El modal "Programar EMO con clinica" ya no pide elegir medico (lo pidio GTH), pero el
             // listado de Programaciones y la agenda siguen mostrando esa columna: sin medico
@@ -691,6 +733,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 EmoCorreoEventoCodigo.Aceptada, workerId, clinicaId);
 
             return new ProgramacionDestinatariosPreviewDto { Manual = manual, Aceptada = aceptada };
+        }
+
+        /// <summary>
+        /// Razones sociales del grupo con sus cupos, para el desplegable que el modal muestra
+        /// cuando el trabajador llegó sin ninguna. La cuenta es la misma que ofrece Reclutamiento:
+        /// vive en Shared para que las dos pantallas no puedan discrepar (ver
+        /// <see cref="RazonSocialCuposHelper"/>).
+        /// </summary>
+        public async Task<List<RazonSocialCupoDto>> GetRazonesSociales()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await RazonSocialCuposHelper.ListarAsync(ctx);
         }
 
         private async Task EnviarNotificacionCreacionAsync(

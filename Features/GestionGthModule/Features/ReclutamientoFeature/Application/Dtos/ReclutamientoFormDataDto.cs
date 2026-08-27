@@ -107,19 +107,10 @@
         public SolicitudDestinatariosDto Destinatarios { get; set; } = new();
 
         /// <summary>
-        /// true si la ficha del solicitante es de Gerencia General (categoría del puesto). El
-        /// formulario lo usa para avisar que una solicitud <b>FFT</b> suya no pasa por la aprobación
-        /// de Gerencia General: se estaría aprobando a sí mismo, así que el pedido va directo a GTH.
-        /// Sale de la misma regla con la que la pantalla «Aprobaciones» decide el nivel del usuario,
-        /// nunca del rol.
-        /// </summary>
-        public bool EsGerenteGeneral { get; set; }
-
-        /// <summary>
-        /// A quién le llegaría el aviso a GTH de un pedido FFT registrado por el propio Gerente
-        /// General (correo <c>FFT_SOLICITUD_GG</c>). Solo se resuelve cuando
-        /// <see cref="EsGerenteGeneral"/> es true — en el resto de los casos ese correo no sale y el
-        /// aviso del modal es el de <see cref="Destinatarios"/>.
+        /// A quién le llegaría el aviso a GTH de una vacante de ingreso directo <b>FFT</b> (correo
+        /// <c>FFT_SOLICITUD_GG</c>). Un ingreso directo no lo aprueba nadie —lo pida quien lo pida—
+        /// así que su aviso reemplaza al de <see cref="Destinatarios"/> en esas vacantes, y una
+        /// solicitud que mezcle las dos clases manda los dos correos.
         /// </summary>
         public SolicitudDestinatariosDto? DestinatariosFft { get; set; }
     }

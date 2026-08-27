@@ -272,12 +272,21 @@
         public string TipoRequerimientoCodigo { get; set; } = string.Empty;
 
         /// <summary>
-        /// Por dónde se aprueba esta vacante: <c>GG</c> (solo Gerencia General) o <c>AREA_GTH</c>
-        /// (gerente del área + GTH, los dos). Se deriva y no se guarda — ver
-        /// <see cref="RutaAprobacion"/>. La pantalla la usa para mostrar solo las casillas que
-        /// aplican y para saber qué vacantes puede marcar quien tiene el modal abierto.
+        /// Solo en las vacantes FFT: true cuando la vacante quedó enganchada a la aprobación
+        /// (tiene su fila en <c>gth_aprobacion_gg_detalle</c>) porque se registró antes de que el
+        /// ingreso directo dejara de aprobarse. Es lo que mantiene decidibles —y visibles en el
+        /// historial de Gerencia General— a los FFT viejos. Ver <see cref="RutaAprobacion.De"/>.
         /// </summary>
-        public string Ruta => RutaAprobacion.De(EsFft, TipoRequerimientoCodigo);
+        public bool FftEnAprobacionLegada { get; set; }
+
+        /// <summary>
+        /// Por dónde se aprueba esta vacante: <c>GG</c> (solo Gerencia General), <c>AREA_GTH</c>
+        /// (gerente del área + GTH, los dos) o <c>NINGUNA</c> (el ingreso directo FFT, que no
+        /// firma nadie). Se deriva y no se guarda — ver <see cref="RutaAprobacion"/>. La pantalla
+        /// la usa para mostrar solo las casillas que aplican y para saber qué vacantes puede marcar
+        /// quien tiene el modal abierto.
+        /// </summary>
+        public string Ruta => RutaAprobacion.De(EsFft, TipoRequerimientoCodigo, FftEnAprobacionLegada);
 
         /// <summary>Decisión del gerente del área: true / false / null = sin decidir.</summary>
         public bool? AprobadoGerenteArea { get; set; }
@@ -434,8 +443,9 @@
         public List<AprobacionGgVacanteDto> Vacantes { get; set; } = new();
 
         /// <summary>
-        /// Las vacantes que aprueba Gerencia General: las nuevas y las FFT. Es exactamente lo que
-        /// lista su correo — una solicitud que solo trae reemplazos no le manda nada.
+        /// Las vacantes que aprueba Gerencia General: las nuevas que no son un ingreso directo. Es
+        /// exactamente lo que lista su correo — una solicitud que solo trae reemplazos (o puros
+        /// FFT) no le manda nada.
         /// </summary>
         public List<AprobacionGgVacanteDto> VacantesGg =>
             Vacantes.Where(v => v.Ruta == RutaAprobacion.GerenciaGeneral).ToList();
@@ -443,6 +453,15 @@
         /// <summary>Las vacantes que aprueban el gerente del área y GTH: los reemplazos no-FFT.</summary>
         public List<AprobacionGgVacanteDto> VacantesReemplazo =>
             Vacantes.Where(v => v.Ruta == RutaAprobacion.AreaYGth).ToList();
+
+        /// <summary>
+        /// Los ingresos directos de la solicitud: no los firma nadie, así que no salen en ningún
+        /// correo de aprobación — son exactamente lo que lista el aviso a GTH. En una solicitud
+        /// mixta esto es lo que impide que ese correo arrastre las vacantes normales, que sí están
+        /// esperando una firma.
+        /// </summary>
+        public List<AprobacionGgVacanteDto> VacantesFft =>
+            Vacantes.Where(v => v.EsFft && v.Ruta == RutaAprobacion.Ninguna).ToList();
 
         /// <summary>
         /// ¿Queda algo por reenviar? Un correo se reenvía mientras su ruta siga esperando alguna

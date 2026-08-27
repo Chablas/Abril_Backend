@@ -30,18 +30,26 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
         /// </summary>
         private const string TipoEmoIngreso = "Ingreso";
 
+        /// <summary>Aptitud "Apto" a secas.</summary>
+        private const string AptitudApto = "Apto";
+
         /// <summary>
-        /// Aptitudes con las que la persona puede entrar a trabajar, así que el proceso de
-        /// selección terminó. "Apto con Restricciones" cuenta: el resto del sistema ya la trata
-        /// como apta (le da vigencia al EMO y aprueba el Certificado de Aptitud), y frenar el cierre
-        /// acá dejaría el requerimiento abierto para siempre esperando un "Apto" a secas que nadie
-        /// va a registrar.
+        /// Aptitud "Apto con Restricciones": la persona puede entrar igual. El resto del sistema ya
+        /// la trata como apta (le da vigencia al EMO y aprueba el Certificado de Aptitud), así que
+        /// habilita el cierre lo mismo que un "Apto" a secas — solo se distingue para que el badge
+        /// del requerimiento diga cuál de las dos fue.
         /// </summary>
-        private static readonly HashSet<string> AptitudesQueCierran =
-            new(StringComparer.OrdinalIgnoreCase) { "Apto", "Apto con Restricciones" };
+        private const string AptitudAptoRestricciones = "Apto con Restricciones";
 
         /// <summary>La única aptitud que devuelve el requerimiento a manos de GTH.</summary>
         private const string AptitudNoApto = "No Apto";
+
+        /// <summary>
+        /// Aptitud sin veredicto: la clínica derivó al candidato a interconsulta y su aptitud real
+        /// se define después. El proceso queda parado en <c>EMO_OBSERVADO</c> —ni se cierra ni se
+        /// puede continuar con otro— hasta que se cargue el EMO con la aptitud definitiva.
+        /// </summary>
+        private const string AptitudObservado = "Observado";
 
         /// <summary>
         /// Fases desde las que este servicio todavía puede mover el requerimiento. Fuera de ellas no
@@ -57,8 +65,12 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
         private static readonly HashSet<string> FasesQueSeMueven = new()
         {
             EstadoReclutamiento.EmoIngreso,
+            EstadoReclutamiento.EmoApto,
+            EstadoReclutamiento.EmoAptoRestricciones,
+            EstadoReclutamiento.EmoObservado,
             EstadoReclutamiento.EmoNoApto,
             EstadoReclutamiento.Cerrado,
+            EstadoReclutamiento.CerradoSinCubrir,
         };
 
         public async Task<bool> AplicarAptitudAsync(
@@ -71,25 +83,45 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
             if (!string.Equals(tipoEmoNombre?.Trim(), TipoEmoIngreso, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            var cierra  = aptitud != null && AptitudesQueCierran.Contains(aptitud.Trim());
-            var noApto  = string.Equals(aptitud?.Trim(), AptitudNoApto, StringComparison.OrdinalIgnoreCase);
-            // "Observado" y las aptitudes sin registrar caen acá: el proceso se queda esperando el
-            // veredicto de la interconsulta, que es justo lo que esa aptitud significa.
-            if (!cierra && !noApto) return false;
+            var aptitudNormalizada = aptitud?.Trim() ?? string.Empty;
+            bool Es(string esperada) =>
+                string.Equals(aptitudNormalizada, esperada, StringComparison.OrdinalIgnoreCase);
+
+            var noApto = Es(AptitudNoApto);
+            var apto   = Es(AptitudApto) || Es(AptitudAptoRestricciones);
+            // Una aptitud que no es ninguna de las cuatro (o el EMO todavía sin calificar) no mueve
+            // nada: no hay veredicto que aplicarle al requerimiento.
+            if (!apto && !noApto && !Es(AptitudObservado)) return false;
 
             var proceso = await BuscarProcesoAsync(ctx, worker.PersonId.Value);
             if (proceso == null) return false;
 
+            // Un proceso que GTH ya cerró no vuelve atrás por un apto: reguardar el mismo examen (o
+            // corregir "Apto" por "Apto con Restricciones") lo devolvería a la fase de resultado y
+            // GTH tendría que cerrarlo otra vez, además de sacar al candidato de Onboarding. Un No
+            // Apto o un Observado sí lo reabren: ahí la corrección cambia el veredicto y el proceso
+            // efectivamente no puede seguir cerrado.
+            if (proceso.FaseCodigo == EstadoReclutamiento.Cerrado && apto) return false;
+
             var now = DateTimeOffset.UtcNow;
 
-            var destinoCodigo = cierra
-                ? EstadoReclutamiento.Cerrado
-                : await FaseTrasNoAptoAsync(
-                    ctx, proceso.RequerimientoId, proceso.CandidatoId, proceso.Requerimiento.EsFft);
+            // El EMO ya NO cierra el proceso: lo deja en la fase que dice qué salió, y el cierre lo
+            // confirma GTH desde el detalle del requerimiento. Sin ese paso, un candidato aparecía
+            // en Onboarding en cuanto la clínica guardaba el examen, sin que GTH llegara a ver el
+            // resultado ni a decidir nada.
+            var destinoCodigo = noApto
+                ? await FaseTrasNoAptoAsync(
+                    ctx, proceso.RequerimientoId, proceso.CandidatoId, proceso.Requerimiento.EsFft)
+                : Es(AptitudApto)                ? EstadoReclutamiento.EmoApto
+                : Es(AptitudAptoRestricciones)   ? EstadoReclutamiento.EmoAptoRestricciones
+                                                 : EstadoReclutamiento.EmoObservado;
 
-            var resultadoCodigo = cierra
-                ? ResultadoCandidato.Seleccionado
-                : ResultadoCandidato.NoAptoEmo;
+            // El resultado del candidato solo cambia con el No Apto. Con apto u observado sigue
+            // SELECCIONADO: es el que eligió el área solicitante y nadie lo descartó — un observado
+            // todavía puede terminar entrando.
+            var resultadoCodigo = noApto
+                ? ResultadoCandidato.NoAptoEmo
+                : ResultadoCandidato.Seleccionado;
 
             // Idempotencia: reguardar un EMO que ya se aplicó no tiene que reescribir nada (y sobre
             // todo no tiene que volver a marcar como "actualizada" una evaluación que no cambió).
@@ -134,11 +166,51 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
             return true;
         }
 
+        public async Task<bool> SincronizarRazonSocialAsync(
+            AppDbContext ctx, Worker worker, int contributorId, int? userId)
+        {
+            // Solo aplica mientras la persona siga siendo de pre-ingreso: a quien ya firmó no se le
+            // toca el requerimiento del proceso por el que entró, que es historia.
+            if (worker.WorkersEstadoId != WorkersEstadoIds.FinalistaAprobado) return false;
+            if (worker.PersonId == null) return false;
+
+            // Solo el ingreso directo llega al EMO sin razón social (el flujo normal la exige antes
+            // de publicar la vacante), y su enlace con la persona es `fft_person_id`: ese pedido no
+            // llena formulario del postulante, así que no hay otro por dónde llegar.
+            var req = await ctx.GthRequerimiento
+                .Where(r => r.State && r.EsFft
+                         && r.FftPersonId == worker.PersonId.Value
+                         && r.ContributorId == null)
+                .OrderByDescending(r => r.GthRequerimientoId)
+                .FirstOrDefaultAsync();
+            if (req == null) return false;
+
+            req.ContributorId   = contributorId;
+            req.UpdatedDateTime = DateTimeOffset.UtcNow;
+            req.UpdatedUserId   = userId;
+
+            _logger.LogInformation(
+                "Razón social {ContributorId} asignada al requerimiento {RequerimientoId} desde la "
+                + "programación del EMO de ingreso.", contributorId, req.GthRequerimientoId);
+
+            return true;
+        }
+
         /// <summary>
         /// El requerimiento del que esta persona es el resultado del proceso, junto con su
-        /// evaluación y la fase en la que está. Se llega por <c>person_id</c>, que es el único
-        /// enlace entre el candidato y su ficha: lo escribe el formulario del postulante al
-        /// aprobarse, y por eso no hace falta una columna nueva en ninguna de las dos tablas.
+        /// evaluación y la fase en la que está. Se llega por <c>person_id</c>, y hay dos caminos
+        /// porque hay dos formas de que un candidato quede enganchado a una ficha:
+        ///
+        /// <list type="bullet">
+        ///   <item><description>el <b>formulario del postulante</b>, que escribe
+        ///   <c>person_id</c> al aprobarse — es el flujo normal;</description></item>
+        ///   <item><description><c>gth_requerimiento.fft_person_id</c> en el <b>ingreso
+        ///   directo</b>, que no pide formulario: sus datos los declaró quien pidió la vacante y la
+        ///   persona entra a <c>person</c> al registrarse el pedido.</description></item>
+        /// </list>
+        ///
+        /// Sin el segundo camino ningún FFT nuevo cerraría su requerimiento al salir Apto: el
+        /// proceso se quedaría en EMO de ingreso para siempre.
         ///
         /// Vale tanto el candidato SELECCIONADO como el que ya quedó marcado NO_APTO_EMO, para que
         /// una corrección de la aptitud pueda deshacer lo que hizo la anterior.
@@ -148,18 +220,20 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
             var fases = FasesQueSeMueven.ToList();
 
             return await (
-                from f in ctx.GthPostulanteFormulario
-                where f.State && f.PersonId == personId
-                join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
+                from c in ctx.GthCandidato
                 where c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                where r.State
+                      && (ctx.GthPostulanteFormulario.Any(f => f.State
+                                                            && f.GthCandidatoId == c.GthCandidatoId
+                                                            && f.PersonId == personId)
+                          || (r.EsFft && r.FftPersonId == personId))
                 join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
                 where ev.State
                 join res in ctx.GthCandidatoResultado
                     on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
                 where res.Codigo == ResultadoCandidato.Seleccionado
                       || res.Codigo == ResultadoCandidato.NoAptoEmo
-                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
-                where r.State
                 join e in ctx.GthEstadoRequerimiento
                     on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 where fases.Contains(e.Codigo)
@@ -182,10 +256,12 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
         /// —sin candidatos a los que volver, la pantalla de decisión no tendría nada que ofrecer y
         /// preparar otra long list es lo único que se puede hacer—.
         ///
-        /// Un ingreso directo FFT nunca sale a LONG_LIST: ese flujo no tiene long list (nace con su
-        /// candidato puesto por el solicitante), así que mandarlo ahí lo dejaría en una fase que su
-        /// propia línea de tiempo oculta. Se queda en EMO_NO_APTO, que es lo que corresponde: el
-        /// proceso no puede continuar y GTH tiene que verlo.
+        /// Un ingreso directo FFT sin rechazados termina en <c>CERRADO_SIN_CUBRIR</c>: ese flujo no
+        /// tiene long list (nace con su candidato puesto por el solicitante) ni candidatos previos,
+        /// así que no queda nada que GTH pueda hacer con él. Mandarlo a LONG_LIST lo dejaría en una
+        /// fase que su propia línea de tiempo oculta, y dejarlo en EMO_NO_APTO lo colgaría en una
+        /// pantalla de decisión sin ninguna opción. Para volver a pedir esa vacante hay que
+        /// registrar una solicitud nueva.
         ///
         /// Se pregunta en dos consultas simples en vez de un left join encadenado porque son las dos
         /// formas en que queda registrado un rechazo, y solo se pagan cuando un EMO sale No Apto.
@@ -220,7 +296,7 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
 
             if (enLongList) return EstadoReclutamiento.EmoNoApto;
 
-            return esFft ? EstadoReclutamiento.EmoNoApto : EstadoReclutamiento.LongList;
+            return esFft ? EstadoReclutamiento.CerradoSinCubrir : EstadoReclutamiento.LongList;
         }
 
         /// <summary>Lo que hace falta del proceso para moverlo, en una sola consulta.</summary>

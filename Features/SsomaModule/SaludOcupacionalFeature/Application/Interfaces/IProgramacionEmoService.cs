@@ -1,5 +1,6 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
 {
@@ -19,6 +20,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         /// en esa clínica. Misma lógica que el envío real; la usa el formulario para avisarlo.
         /// </summary>
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
+
+        /// <summary>
+        /// Razones sociales del grupo con sus cupos: el desplegable que reemplaza al campo de solo
+        /// lectura cuando el trabajador todavía no tiene ninguna. Ver
+        /// <see cref="Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces.IProgramacionEmoRepository.GetRazonesSociales"/>.
+        /// </summary>
+        Task<List<RazonSocialCupoDto>> GetRazonesSociales();
         Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
 
         /// <summary>Cierre automático (cron 13:00 hora Lima) de citas vencidas sin asistencia. Ver <see cref="Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces.IProgramacionEmoRepository.CerrarInasistenciasVencidasAsync"/>.</summary>

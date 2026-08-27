@@ -1,5 +1,6 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces
 {
@@ -15,6 +16,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task UndoCheckInAsync(int id);
         Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter);
         Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
+
+        /// <summary>
+        /// Razones sociales del grupo con sus cupos, para el desplegable que el modal de
+        /// programación muestra cuando el trabajador llegó SIN razón social (el caso del ingreso
+        /// directo FFT, que pasa de la solicitud al EMO sin tocar la asignación de Reclutamiento).
+        /// Es la misma lista y la misma cuenta que ofrece Reclutamiento (ver
+        /// <see cref="RazonSocialCuposHelper"/>).
+        /// </summary>
+        Task<List<RazonSocialCupoDto>> GetRazonesSociales();
         Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
 
         /// <summary>

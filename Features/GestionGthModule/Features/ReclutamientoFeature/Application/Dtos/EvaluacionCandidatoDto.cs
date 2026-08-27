@@ -225,8 +225,8 @@
 
     /// <summary>
     /// Body del POST con la decisión final del área solicitante sobre un finalista: aprobarlo
-    /// (cierra el proceso y pasa a onboarding) o rechazarlo (se le envía el correo de
-    /// agradecimiento).
+    /// (pasa al EMO de ingreso, el último paso antes de que GTH cierre el proceso) o
+    /// rechazarlo (se le envía el correo de agradecimiento).
     ///
     /// El área a la que entra el seleccionado NO viaja acá: la decide el puesto del
     /// requerimiento (<c>puesto.area_destino_scope_id</c>) y la resuelve el backend.

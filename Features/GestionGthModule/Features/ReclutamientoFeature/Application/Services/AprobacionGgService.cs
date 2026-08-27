@@ -15,13 +15,16 @@ using Textos = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFea
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
     /// <summary>
-    /// Aprobación de la solicitud de personal. Quién firma lo decide el TIPO de cada vacante, no la
-    /// solicitud completa (ver <see cref="RutaAprobacion"/>):
+    /// Aprobación de la solicitud de personal. Quién firma lo decide cada VACANTE, no la solicitud
+    /// completa (ver <see cref="RutaAprobacion"/>):
     ///
     /// <list type="bullet">
-    ///   <item><b>Vacante nueva o FFT</b> → la firma Gerencia General, y su firma sola la mueve.</item>
+    ///   <item><b>Vacante nueva</b> → la firma Gerencia General, y su firma sola la mueve.</item>
     ///   <item><b>Reemplazo</b> → la firman el gerente del área del solicitante Y GTH; la vacante
     ///   avanza recién con las dos, y se cae apenas una diga que no.</item>
+    ///   <item><b>Ingreso directo FFT</b> → no la firma nadie: nace en manos de GTH esperando el EMO
+    ///   de ingreso y lo único que sale es el aviso de
+    ///   <see cref="EnviarIngresoDirectoAGth"/>.</item>
     /// </list>
     ///
     /// Flujo: el solicitante registra la solicitud → sale un correo por ruta con vacantes (hasta
@@ -148,8 +151,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Las rutas que hay que avisar: la de Gerencia General si la solicitud trae vacantes nuevas
-        /// o FFT, y la del gerente del área + GTH si trae reemplazos. En un reenvío se descartan las
-        /// que ya tienen todas sus firmas.
+        /// y la del gerente del área + GTH si trae reemplazos. Los ingresos directos no salen en
+        /// ninguna: no los firma nadie. En un reenvío se descartan las que ya tienen todas sus
+        /// firmas.
         /// </summary>
         private static List<(string TipoCorreo, List<AprobacionGgVacanteDto> Vacantes)> RutasAEnviar(
             AprobacionGgEnvioContextoDto ctx, bool esReenvio)
@@ -165,8 +169,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return rutas;
         }
 
-        // ── FFT pedido por el propio Gerente General ──────────────────────────
-        public async Task<bool> EnviarFftPedidoPorGerenciaGeneral(int solicitudId, int? userId)
+        // ── Ingreso directo FFT: aviso a GTH ──────────────────────────────────
+        public async Task<bool> EnviarIngresoDirectoAGth(int solicitudId, int? userId)
         {
             try
             {
@@ -178,6 +182,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return false;
                 }
 
+                // SOLO las de ingreso directo: en una solicitud mixta el resto sigue esperando su
+                // firma, y meterlas acá le anunciaría a GTH un trabajo que todavía no tiene.
+                var vacantes = ctx.VacantesFft;
+                if (vacantes.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "La solicitud {SolicitudId} no tiene vacantes de ingreso directo; no se envía el aviso a GTH.",
+                        solicitudId);
+                    return false;
+                }
+
                 var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
                 if (dest.Para.Count == 0)
                 {
@@ -185,32 +200,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // ese caso es una decisión de la Configuración, no una falla. La solicitud ya
                     // quedó registrada y GTH la ve igual en su bandeja.
                     _logger.LogWarning(
-                        "No hay destinatarios para el correo del candidato FFT pedido por Gerencia General " +
+                        "No hay destinatarios para el correo del ingreso directo FFT " +
                         "(solicitud {SolicitudId}); no se envía.", solicitudId);
                     return false;
                 }
 
-                var asunto = ctx.Vacantes.Count == 1
-                    ? $"[Reclutamiento] Ingreso directo FFT — {ctx.Vacantes[0].Codigo}"
-                    : $"[Reclutamiento] {ctx.Vacantes.Count} ingresos directos FFT — {ctx.Area}";
+                var asunto = vacantes.Count == 1
+                    ? $"[Reclutamiento] Ingreso directo FFT — {vacantes[0].Codigo}"
+                    : $"[Reclutamiento] {vacantes.Count} ingresos directos FFT — {ctx.Area}";
 
                 await _email.SendAsync(
                     to:      dest.EmailsPara,
                     subject: asunto,
-                    body:    ConstruirCuerpoFft(ctx.Vacantes, ctx.Area, ctx.SolicitanteNombre,
+                    body:    ConstruirCuerpoFft(vacantes, ctx.Area, ctx.SolicitanteNombre,
                                                 ctx.Justificacion, ctx.SustentoUrl, ctx.SustentoNombre,
-                                                pedidoPorGg: true),
+                                                esPedido: true),
                     isHtml:  true,
                     cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
 
-                await CrearNotificacionFftAsync(ctx.Vacantes, ctx.Area, ctx.Justificacion, dest, userId);
+                await CrearNotificacionFftAsync(vacantes, ctx.Area, ctx.Justificacion, dest, userId);
                 return true;
             }
             catch (Exception ex)
             {
                 // La solicitud ya quedó registrada: un fallo del correo no la revierte.
                 _logger.LogWarning(ex,
-                    "No se pudo enviar a GTH el aviso del candidato FFT de la solicitud {SolicitudId}", solicitudId);
+                    "No se pudo enviar a GTH el aviso del ingreso directo FFT de la solicitud {SolicitudId}", solicitudId);
                 return false;
             }
         }
@@ -427,9 +442,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         };
 
         /// <summary>
-        /// Cuerpo de los dos correos FFT a GTH: el del pedido que registra el propio Gerente General
-        /// y el de la aprobación de Gerencia General sobre el pedido de alguien más. Son el mismo
-        /// correo con una línea distinta —lo que cambia es de dónde viene la decisión, no lo que GTH
+        /// Cuerpo de los dos correos FFT a GTH: el del ingreso directo recién registrado y el de la
+        /// aprobación de Gerencia General sobre un FFT de los que quedaron esperando su firma. Son
+        /// el mismo correo con una línea distinta —lo que cambia es de dónde viene, no lo que GTH
         /// tiene que hacer— así que comparten cuerpo en vez de duplicarse.
         ///
         /// Dice lo único que hace falta: quién pide, a quién, y que el siguiente paso es enviarle el
@@ -442,7 +457,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string? justificacion,
             string? sustentoUrl,
             string? sustentoNombre,
-            bool pedidoPorGg)
+            bool esPedido)
         {
             var l    = Layout.Desde(_configuration);
             var link = ConstruirLinkFft(vacantes);
@@ -465,8 +480,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // una con su propio candidato.
             var uno = vacantes.Count == 1;
             var conSalario = ConSalario(vacantes);
-            var bajada = pedidoPorGg
-                ? $"Gerencia General pide el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:"
+            var bajada = esPedido
+                ? $"Se registró el ingreso directo de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:"
                 : $"Gerencia General aprobó el ingreso de {(uno ? "un nuevo candidato" : $"{vacantes.Count} nuevos candidatos")}:";
 
             return l.Documento(
@@ -1043,7 +1058,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     subject: subject,
                     body:    ConstruirCuerpoFft(vacantes, ctx.Area, ctx.SolicitanteNombre,
                                                 ctx.Justificacion, ctx.SustentoUrl, ctx.SustentoNombre,
-                                                pedidoPorGg: false),
+                                                esPedido: false),
                     isHtml:  true,
                     cc:      dest.Copias.Count > 0 ? dest.EmailsCopias : null);
             }

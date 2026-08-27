@@ -12,13 +12,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// El salto del flujo <b>FFT</b> (ingreso directo), en un solo lugar porque lo disparan tres
     /// repositorios distintos y tiene que hacer exactamente lo mismo en los tres.
     ///
-    /// <see cref="AbrirIngresoDirecto"/> — en cuanto el requerimiento entra a manos de GTH (lo
-    /// registra el propio Gerente General, o Gerencia General lo aprueba) el proceso se salta TODO
-    /// el pipeline de selección: publicación, revisión de CV, long list, formulario del postulante,
-    /// entrevistas, finalistas y decisión del solicitante. No hay nada que decidir — quien pidió la
-    /// vacante ya nombró a la persona — así que la vacante nace con su candidato SELECCIONADO, su
-    /// ficha de pre-ingreso abierta y el requerimiento en EMO de ingreso, que es lo único que queda
-    /// por hacer.
+    /// <see cref="AbrirIngresoDirectoAsync"/> — el proceso se salta TODO el pipeline de selección:
+    /// aprobación, publicación, revisión de CV, long list, formulario del postulante, entrevistas,
+    /// finalistas y decisión del solicitante. No hay nada que decidir — quien pidió la vacante ya
+    /// nombró a la persona — así que la vacante nace con su candidato SELECCIONADO, su ficha de
+    /// pre-ingreso abierta y el requerimiento en EMO de ingreso, que es lo único que queda por
+    /// hacer. Pasa al registrarse el pedido, lo pida quien lo pida (ver
+    /// <see cref="Application.RutaAprobacion.Ninguna"/>); los FFT que quedaron esperando la firma
+    /// de Gerencia General desde antes de ese cambio entran acá al aprobárselos.
     ///
     /// El candidato no llena formulario: sus datos (nombre, tipo y número de documento y correo
     /// personal) los declaró el solicitante y ya entraron a <c>person</c> al registrarse el pedido
@@ -67,8 +68,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// pedir el formulario. Los FFT viejos que quedaron parados ahí son la excepción: quien
         /// recorta la línea no puede quitar la fase en la que el requerimiento está de verdad.
         ///
-        /// APROBACION_GG no está acá porque depende de quién pidió (solo se omite cuando el pedido
-        /// lo registra el propio Gerente General) y eso se resuelve al leer.
+        /// APROBACION_GG no está acá porque los FFT anteriores a que el ingreso directo dejara de
+        /// aprobarse sí la recorrieron, y eso se resuelve al leer (por su fila de detalle).
         /// </summary>
         public static readonly HashSet<string> FasesOmitidas = new()
         {
@@ -127,7 +128,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Abre el ingreso directo entero: le crea al candidato su ficha (ya APROBADA y ya
         /// SELECCIONADA), le abre su ficha de pre-ingreso en <c>workers</c> y deja el requerimiento
-        /// en <see cref="FaseDestino"/> — el EMO de ingreso, lo único que le queda al proceso.
+        /// en <see cref="FaseDestino"/> — el EMO de ingreso, lo único que le queda al proceso. Lo
+        /// llaman el registro de la solicitud (todo FFT nuevo pasa por ahí) y la decisión de
+        /// Gerencia General sobre los FFT que quedaron esperando su firma.
         ///
         /// No hay formulario del postulante de por medio: el ingreso directo no lo pide. Los datos
         /// del candidato los declaró el solicitante y ya están en <c>person</c> desde que se
@@ -157,8 +160,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </returns>
         /// <remarks>
         /// El requerimiento tiene que estar YA persistido: <c>gth_candidato</c> no tiene navegación
-        /// hacia él, así que la FK se copia a mano y un id en 0 dejaría al candidato colgado. Los
-        /// tres llamadores lo cumplen (la creación de la solicitud guarda antes de llamar acá).
+        /// hacia él, así que la FK se copia a mano y un id en 0 dejaría al candidato colgado. Todos
+        /// los llamadores lo cumplen (la creación de la solicitud guarda antes de llamar acá).
         /// La evaluación sí va por navegación, que es lo que permite que todo esto entre en un solo
         /// <c>SaveChanges</c> (ver <c>GthCandidatoEvaluacion.Candidato</c>).
         /// </remarks>

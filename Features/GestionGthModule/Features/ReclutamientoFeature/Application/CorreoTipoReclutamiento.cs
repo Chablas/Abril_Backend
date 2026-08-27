@@ -50,11 +50,11 @@
         public const string Ti = "TI_VACANTES";
 
         /// <summary>
-        /// Correo del candidato <b>FFT</b> que pide el propio Gerente General. Es el que arranca el
-        /// flujo cuando quien registra la solicitud es él: su aprobación se omite (se estaría
-        /// aprobando a sí mismo), así que este correo reemplaza al de <see cref="AprobacionGg"/> y
-        /// va directo a GTH, que lo único que tiene que hacer es programarle el EMO. Se configura
-        /// desde Solicitud de Personal, que es de donde sale.
+        /// Correo del candidato de un <b>ingreso directo FFT</b>. Es el que arranca (y casi termina)
+        /// el flujo de esas vacantes: a un ingreso directo no lo aprueba nadie, así que este correo
+        /// reemplaza al de <see cref="AprobacionGg"/> y va directo a GTH, que lo único que tiene que
+        /// hacer es programarle el EMO. Sale al registrarse la solicitud, lo pida quien lo pida. Se
+        /// configura desde Solicitud de Personal, que es de donde sale.
         /// </summary>
         public const string FftSolicitudGg = "FFT_SOLICITUD_GG";
 
@@ -63,6 +63,8 @@
         /// <see cref="Solicitud"/> para las vacantes FFT: mismo momento (la decisión del GG) y
         /// mismo destinatario (GTH), pero otro cuerpo — no hay vacante que publicar ni proceso que
         /// arrancar, hay un candidato al que programarle su EMO. Se configura desde Aprobaciones.
+        /// Desde que el ingreso directo no se aprueba, solo sale por los FFT que quedaron esperando
+        /// esa firma; los nuevos avisan con <see cref="FftSolicitudGg"/>.
         /// </summary>
         public const string FftAprobacionGg = "FFT_APROBACION_GG";
 

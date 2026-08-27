@@ -1,4 +1,6 @@
-﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿using Abril_Backend.Shared.Services;
+
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Detalle de un requerimiento para la vista de GTH (modal del ojo de la bandeja):
@@ -85,7 +87,7 @@
         public List<OpcionDto> Prioridades { get; set; } = new();
 
         /// <summary>Razones sociales activas (contributor.operativo = true) con sus cupos.</summary>
-        public List<RazonSocialOpcionDto> RazonesSociales { get; set; } = new();
+        public List<RazonSocialCupoDto> RazonesSociales { get; set; } = new();
 
         /// <summary>Canales de publicación con su estado de publicación para este requerimiento.</summary>
         public List<CanalPublicacionDto> Canales { get; set; } = new();
@@ -189,20 +191,6 @@
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int SlaDias { get; set; }
-    }
-
-    /// <summary>Opción del desplegable "Razón social activa", con sus cupos disponibles.</summary>
-    public class RazonSocialOpcionDto
-    {
-        public int Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Cupos disponibles = tope (20) − trabajadores vigentes de la razón social en la base
-        /// maestra que son de Staff, Oficina Central o Personal Externo (el personal de Obra y
-        /// los practicantes no consumen cupo). Nunca negativo (se muestra 0).
-        /// </summary>
-        public int CuposDisponibles { get; set; }
     }
 
     /// <summary>

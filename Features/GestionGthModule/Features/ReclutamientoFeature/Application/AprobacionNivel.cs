@@ -13,8 +13,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         /// <summary>
         /// Gerencia General (<c>categoria_id</c> = GERENTE GENERAL). Ve TODAS las solicitudes y
-        /// decide las vacantes de ruta <see cref="RutaAprobacion.GerenciaGeneral"/> — las nuevas y
-        /// las FFT. Su firma sola las mueve y dispara el correo a GTH.
+        /// decide las vacantes de ruta <see cref="RutaAprobacion.GerenciaGeneral"/> — las nuevas
+        /// que no son un ingreso directo. Su firma sola las mueve y dispara el correo a GTH.
+        ///
+        /// Los FFT ya no son suyos: un ingreso directo no lo firma nadie (ruta
+        /// <see cref="RutaAprobacion.Ninguna"/>). Los que quedaron esperando su firma desde antes
+        /// de ese cambio los sigue decidiendo él.
         /// </summary>
         public const string GerenteGeneral = "GERENTE_GENERAL";
 

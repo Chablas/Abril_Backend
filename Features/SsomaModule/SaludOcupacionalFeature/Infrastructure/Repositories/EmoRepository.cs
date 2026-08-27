@@ -690,9 +690,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 });
             }
 
+            // Un "No Apto" ya NO abre interconsulta por su cuenta. Es un veredicto cerrado —el
+            // trabajador queda bloqueado en habilitación y su proceso de selección se detiene—, así
+            // que la derivación automática solo dejaba una interconsulta "Por definir" en estado
+            // Pendiente que nadie iba a atender, y de paso empujaba la cita a "En Interconsulta"
+            // cuando en realidad ya estaba resuelta. La aptitud que sí la necesita es "Observado":
+            // esa significa literalmente que falta el resultado real. Si la clínica igual carga una
+            // derivación a mano, `InterconsultaInline` la sigue creando para cualquier aptitud.
             if (dto.InterconsultaInline != null ||
-                (dto.Aptitud == "Observado" && dto.RequiereInterconsulta) ||
-                dto.Aptitud == "No Apto")
+                (dto.Aptitud == "Observado" && dto.RequiereInterconsulta))
             {
                 var ic = dto.InterconsultaInline;
                 ctx.SsInterconsulta.Add(new SsInterconsulta

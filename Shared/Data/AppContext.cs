@@ -243,6 +243,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }
+        public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
         // ── Configuración de correos de salidas (destinatarios por correo) ──────
         public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
         public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }
@@ -974,6 +975,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(wp => wp.Worker)
                 .WithMany()
                 .HasForeignKey(wp => wp.WorkerId);
+
+            // ga_consolidado_s10: el "S10" del nombre de la clase no lo separa la convencion
+            // snake_case (los digitos no cuentan como corte), pero el mapeo se fija a mano igual
+            // para que quede explicito y no dependa de ese detalle de la convencion.
+            modelBuilder.Entity<GaConsolidadoS10>().ToTable("ga_consolidado_s10");
 
             modelBuilder.Entity<SsomaPasoCategoria>().ToTable("ssoma_paso_categoria");
             modelBuilder.Entity<SsomaPaso>().ToTable("ssoma_paso");

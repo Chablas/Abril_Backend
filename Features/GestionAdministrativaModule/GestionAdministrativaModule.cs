@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+﻿using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories;
@@ -102,6 +102,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<ICorreoConfigService, CorreoConfigService>();
             // Resolver consumido por SolicitudSalidaService para armar el CC de cada correo.
             services.AddScoped<ICorreoSalidaRecipientResolver, CorreoSalidaRecipientResolver>();
+
+            // Consolidado del S10 (PDF de respaldo de una salida ya rendida). Lo usan las dos
+            // pantallas de salidas, de ahí que viva en el Shared del módulo.
+            services.AddScoped<IConsolidadoS10Service, ConsolidadoS10Service>();
 
             return services;
         }

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Shared.Constants
+﻿namespace Abril_Backend.Shared.Constants
 {
     /// <summary>
     /// IDs de los roles de la tabla <c>role</c> (producción), expresados como string
@@ -58,5 +58,12 @@ namespace Abril_Backend.Shared.Constants
         public const string AdministradorSolicitudSalidas     = "76"; // ADMINISTRADOR DE SOLICITUD DE SALIDAS
         public const string UsuarioGth                        = "77"; // USUARIO DE GTH
         public const string UsuarioRevisorSalidas             = "78"; // USUARIO REVISOR DE SALIDAS
+
+        /// <summary>
+        /// TESORERO. No basta con tenerlo: las features que concede solo se otorgan si además el
+        /// puesto del trabajador es de categoría <c>CategoriaIds.Tesorero</c> — lo aplica
+        /// <c>AuthRepository.GetAllowedFeaturesAsync</c>.
+        /// </summary>
+        public const string Tesorero                          = "80"; // TESORERO
     }
 }

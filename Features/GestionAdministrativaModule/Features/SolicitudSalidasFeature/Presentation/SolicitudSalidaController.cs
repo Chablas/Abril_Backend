@@ -1,6 +1,7 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -292,7 +293,118 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
+        /// <summary>
+        /// Rinde de una vez TODAS las salidas propias del mes anterior que estén listas (aprobadas,
+        /// no rendidas y con las capturas de todos sus trayectos) y descarga la planilla. Las que no
+        /// cumplen se ignoran.
+        /// </summary>
+        [HttpPatch("rendir-mes-anterior")]
+        public async Task<IActionResult> RendirMesAnterior()
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                // Mismo camino que MarcarRendidas: el servicio del autoservicio resuelve qué entra
+                // (solo lo propio) y la planilla la genera Gestión de Salidas, con guard de propiedad.
+                var ids = await _service.GetIdsRendiblesMesAnterior(userId.Value);
+                var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(
+                    ids, userId.Value, ownerUserId: userId.Value);
+
+                Response.Headers.Append("X-Rendidas-Count", count.ToString());
+                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
+
+                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+                return File(pdfBytes, "application/pdf", filename);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMesAnterior");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida.
+        /// <c>ambito</c>: "Rendicion" (cubre toda la planilla, es el default de la pantalla) o
+        /// "Solicitud" (cubre solo esta salida).
+        /// </summary>
+        [HttpPost("{id:int}/consolidado-s10")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB
+        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file, [FromForm] string? ambito)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (!TryParseAmbito(ambito, out var ambitoEnum))
+                    return BadRequest(new { message = "Ámbito inválido: usa \"Rendicion\" o \"Solicitud\"." });
+
+                return Ok(await _service.UploadConsolidadoS10(id, ambitoEnum, file, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.UploadConsolidadoS10");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Traduce el ámbito recibido del formulario. Vacío/ausente = Rendicion (el default).</summary>
+        private static bool TryParseAmbito(string? ambito, out ConsolidadoS10Ambito parsed)
+        {
+            if (string.IsNullOrWhiteSpace(ambito))
+            {
+                parsed = ConsolidadoS10Ambito.Rendicion;
+                return true;
+            }
+            return Enum.TryParse(ambito.Trim(), ignoreCase: true, out parsed)
+                && Enum.IsDefined(parsed);
+        }
+
         // ── Endpoints públicos invocados desde los links del email ──────────
+
+        /// <summary>
+        /// Avisa al jefe/revisor que el Consolidado del S10 de esa salida ya está adjunto y su
+        /// reembolso espera revisión. Lo dispara el propio trabajador desde su pantalla.
+        /// </summary>
+        [HttpPatch("{id:int}/notificar-revisor")]
+        public async Task<IActionResult> NotificarRevisor(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                var message = await _service.NotificarRevisorS10(id, userId.Value);
+                return Ok(new { message });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.NotificarRevisor");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
 
         [HttpGet("aprobar")]
         [AllowAnonymous]

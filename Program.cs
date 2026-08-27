@@ -46,6 +46,8 @@ using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
+using Abril_Backend.Shared.Services.Firma.Services;
 using Abril_Backend.Shared.Services.Revisores.Services;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
@@ -269,6 +271,12 @@ builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
 // Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
 // más el catálogo de jefes candidatos que alimenta su desplegable.
 builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>();
+
+// Firma de una persona (person.signature_*). Registrada globalmente porque una persona tiene UNA
+// firma y la usan tres modulos: Contabilidad (visado de facturas), Gestion GTH (carta oferta) y
+// Gestion Administrativa (planilla de rendicion de salidas).
+builder.Services.AddScoped<IFirmaPersonalRepository, FirmaPersonalRepository>();
+builder.Services.AddScoped<IFirmaPersonalService, FirmaPersonalService>();
 
 // Equivalencia legacy (workers.area/subarea/jefatura) de un nodo del árbol area_scope. Lo usan el
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint

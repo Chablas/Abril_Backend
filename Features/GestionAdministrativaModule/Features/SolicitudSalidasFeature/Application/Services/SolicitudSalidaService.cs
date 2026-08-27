@@ -1,10 +1,12 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -26,6 +28,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private readonly IConfiguration                _configuration;
         private readonly ILogger<SolicitudSalidaService> _logger;
         private readonly IGraphSharePointService        _sharePointService;
+        private readonly IConsolidadoS10Service         _consolidadoService;
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
@@ -36,7 +39,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             IDbContextFactory<AppDbContext> factory,
             IConfiguration configuration,
             ILogger<SolicitudSalidaService> logger,
-            IGraphSharePointService sharePointService)
+            IGraphSharePointService sharePointService,
+            IConsolidadoS10Service consolidadoService)
         {
             _repo             = repo;
             _revisorResolver  = revisorResolver;
@@ -47,6 +51,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             _configuration    = configuration;
             _logger           = logger;
             _sharePointService = sharePointService;
+            _consolidadoService = consolidadoService;
         }
 
         public async Task<SolicitudSalidaFormDataDto> GetFormData(int? userId)
@@ -820,12 +825,149 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return await _repo.InsertCapturas(trayectoId, subidos, userId);
         }
 
+        public async Task<List<int>> GetIdsRendiblesMesAnterior(int userId)
+        {
+            var (desde, hasta) = MesAnteriorPeru.Rango();
+
+            // GetByUserId ya acota al worker del usuario y calcula PuedeRendirse (captura por
+            // trayecto, o catálogo para TI), así que la elegibilidad sale de ahí sin duplicar reglas.
+            var candidatas = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+            {
+                EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido,
+                FechaSalidaDesde = desde,
+                FechaSalidaHasta = hasta,
+            });
+
+            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
+            if (ids.Count == 0)
+                throw new AbrilException(
+                    $"No tienes salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
+                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+
+            return ids;
+        }
+
+        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
+            // ownerUserId = userId: en el autoservicio solo se adjunta a salidas propias.
+            => _consolidadoService.Upload(solicitudId, ambito, file, userId, ownerUserId: userId);
+
         private static string SanitizeFilename(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "captura";
             var invalid = Path.GetInvalidFileNameChars().Concat(new[] { ' ', '#', '%', '&', '+' }).ToHashSet();
             var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
             return clean.Length > 60 ? clean.Substring(0, 60) : clean;
+        }
+
+        // ── Aviso al revisor de que el S10 ya está adjunto ───────────────────
+
+        public async Task<string> NotificarRevisorS10(int solicitudId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var info = await (
+                from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
+                from r in rGroup.DefaultIfEmpty()
+                where s.Id == solicitudId
+                select new
+                {
+                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.AreaScopeId,
+                    s.FechaSalida, s.EstadoRendicionId, s.EstadoReembolsoId, s.RendicionId,
+                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
+                    EsPropia   = per != null && per.UserId == userId,
+                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
+                }
+            ).FirstOrDefaultAsync()
+              ?? throw new AbrilException("La solicitud de salida no existe.", 404);
+
+            if (!info.EsPropia)
+                throw new AbrilException("Solo puedes avisar al revisor de tus propias salidas.", 403);
+
+            if (info.EstadoRendicionId != EstadosSalida.Rendicion.Rendido)
+                throw new AbrilException("La salida todavía no está rendida.", 400);
+
+            if (info.EstadoReembolsoId != EstadosSalida.Reembolso.Pendiente
+                && info.EstadoReembolsoId != EstadosSalida.Reembolso.Rechazado)
+                throw new AbrilException(
+                    "El reembolso de esta salida ya fue revisado: no hace falta volver a avisar.", 400);
+
+            var consolidado = await _consolidadoService.GetForSolicitud(solicitudId);
+            if (consolidado == null)
+                throw new AbrilException(
+                    "Primero adjunta el Consolidado del S10: es lo que el revisor tiene que mirar.", 400);
+
+            var revisor = await _revisorResolver.ResolveAsync(info.WorkerInternalId);
+            if (string.IsNullOrWhiteSpace(revisor?.Email))
+                throw new AbrilException(
+                    "No se pudo determinar el correo de tu jefe/revisor. Avisa a Gestión del Talento Humano.", 409);
+
+            var envio = await _correoResolver.ResolveEnvioAsync(
+                CorreoEventoCodigos.S10Revisor,
+                new List<string> { revisor!.Email! });
+
+            if (!envio.Enviar)
+                throw new AbrilException(
+                    "El aviso al revisor está desactivado en la configuración de correos de Gestión Administrativa.",
+                    409);
+
+            // Monto rendido y cantidad de trayectos, para que el correo diga de cuánto se trata.
+            var trayectoIds = await ctx.GaSolicitudTrayecto
+                .Where(t => t.SolicitudId == solicitudId)
+                .Select(t => t.Id)
+                .ToListAsync();
+            var monto = trayectoIds.Count == 0
+                ? 0m
+                : await ctx.GaSolicitudCaptura
+                    .Where(c => trayectoIds.Contains(c.TrayectoId))
+                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
+
+            var datos = new ReembolsoCorreoDatos
+            {
+                SolicitudId    = info.Id,
+                NumeroUsuario  = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id),
+                Trabajador     = info.Trabajador,
+                Area           = await ResolveAreaNombreAsync(ctx, info.AreaScopeId),
+                FechaSalida    = info.FechaSalida,
+                NumeroPlanilla = info.NumeroPlanilla.HasValue ? $"TI: {info.NumeroPlanilla.Value:D6}" : null,
+                TrayectosCount = trayectoIds.Count,
+                MontoTotal     = monto,
+            };
+
+            var url  = SalidaEnlaces.Gestion(_configuration, solicitudId);
+            var body = ReembolsoEmailTemplates.RevisionPendiente(SalidaEmailLayout.Desde(_configuration), datos, url);
+
+            await _emailService.SendAsync(
+                to: envio.Para,
+                subject: $"Reembolso por revisar - {info.Trabajador} - {info.FechaSalida:dd/MM/yyyy}",
+                body: body,
+                isHtml: true,
+                cc: envio.Copia.Count > 0 ? envio.Copia : null);
+
+            var solicitud = await ctx.GaSolicitudSalida.FirstAsync(x => x.Id == solicitudId);
+            solicitud.RevisorNotificadoAt    = DateTimeOffset.UtcNow;
+            solicitud.RevisorNotificadoPorId = userId;
+            solicitud.UpdatedAt              = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+
+            var nombre = string.IsNullOrWhiteSpace(revisor.Nombre) ? "tu revisor" : revisor.Nombre;
+            return $"Se le avisó a {nombre}.";
+        }
+
+        /// <summary>Nombre del área a la que apunta el nodo (el más bajo del árbol). Null si no tiene.</summary>
+        private static async Task<string?> ResolveAreaNombreAsync(AppDbContext ctx, int? areaScopeId)
+        {
+            if (!areaScopeId.HasValue) return null;
+            return await (
+                from sc in ctx.AreaScope
+                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                where sc.AreaScopeId == areaScopeId.Value
+                select it.AreaItemName
+            ).FirstOrDefaultAsync();
         }
 
         // ── Notificación de aprobación al solicitante ─────────────────────────

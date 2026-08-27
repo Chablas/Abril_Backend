@@ -61,6 +61,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());
 
+            // Mitad de la condición de tesorero: el puesto. La otra mitad (el rol) sale del token.
+            var esCategoriaTesorero = workers.Any(w => w.CategoriaId == CategoriaIds.Tesorero);
+
             var workerIds = workers.Select(w => w.Id).ToList();
 
             // 2. Topología del árbol (tabla chica) para expandir descendientes y correr el algoritmo.
@@ -121,8 +124,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 // Si lo acumulado cubre TODOS los nodos del árbol, equivale a "ver todo"
                 // (así también se ven las solicitudes de trabajadores sin area_scope asignado).
                 if (nodos.Count > 0 && set.Count >= nodos.Count)
-                    return new SalidaVisibility(true, set);
-                return new SalidaVisibility(false, set);
+                    return new SalidaVisibility(true, set, esCategoriaTesorero);
+                return new SalidaVisibility(false, set, esCategoriaTesorero);
             }
 
             // 5. Algoritmo (fallback), partiendo del piso de revisor de área.
@@ -139,7 +142,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (cadena.Any(id => itemNameById.TryGetValue(id, out var name) &&
                                      string.Equals(name, AreaGth, StringComparison.OrdinalIgnoreCase)))
                 {
-                    return new SalidaVisibility(true, todosLosNodos.Value);
+                    return new SalidaVisibility(true, todosLosNodos.Value, esCategoriaTesorero);
                 }
 
                 // Gerente → su gerencia (raíz) + descendientes.
@@ -172,7 +175,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 }
             }
 
-            return new SalidaVisibility(false, visible);
+            return new SalidaVisibility(false, visible, esCategoriaTesorero);
         }
 
         /// <summary>Cadena (self, padre, abuelo, …, raíz) caminando hacia arriba. Corta ciclos.</summary>

@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
@@ -74,6 +74,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 if (rendId.HasValue)
                     query = query.Where(s => s.EstadoRendicionId == rendId.Value);
 
+                if (filters.FechaSalidaDesde.HasValue)
+                    query = query.Where(s => s.FechaSalida >= filters.FechaSalidaDesde.Value);
+
+                if (filters.FechaSalidaHasta.HasValue)
+                    query = query.Where(s => s.FechaSalida <= filters.FechaSalidaHasta.Value);
+
                 if (filters.LugarProyectoId.HasValue)
                 {
                     var lugId = filters.LugarProyectoId.Value;
@@ -138,6 +144,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Consolidado del S10 vigente por solicitud (propio o heredado de su planilla).
+            var consolidados = await ConsolidadoS10Loader.LoadAsync(
+                ctx, solicitudes.ToDictionary(x => x.Id, x => x.RendicionId));
+
             var result = new List<SolicitudSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
             {
@@ -170,7 +180,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
+
+                    EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
+                    ObservacionReembolso = s.ObservacionReembolso,
+                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                 });
+
+                if (consolidados.TryGetValue(s.Id, out var cons))
+                {
+                    var item = result[^1];
+                    item.ConsolidadoS10Url      = cons.PdfUrl;
+                    item.ConsolidadoS10Filename = cons.PdfFilename;
+                    item.ConsolidadoS10Ambito   = cons.Ambito;
+                }
+
+                // Avisar al revisor tiene sentido solo cuando ya hay algo que revisar: la salida
+                // rendida, el Consolidado del S10 adjunto y el reembolso todavía abierto. Después
+                // de aprobado (o firmado, o pagado) el botón no aporta nada.
+                result[^1].PuedeNotificarRevisor =
+                    s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
+                    && consolidados.ContainsKey(s.Id)
+                    && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
+                     || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado);
             }
             return result;
         }
@@ -353,7 +384,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 select new
                 {
                     s.Id, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
-                    s.CreatedAt, s.MotivoRechazo,
+                    s.CreatedAt, s.MotivoRechazo, s.RendicionId,
                     Rendicion = r == null ? null : new SolicitudSalidaRendicionDto
                     {
                         Id          = r.Id,
@@ -491,6 +522,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 CreatedAt        = solicitud.CreatedAt,
                 MotivoRechazo    = solicitud.MotivoRechazo,
                 Rendicion        = solicitud.Rendicion,
+                ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
+                                        ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
+                                    .GetValueOrDefault(solicitud.Id),
                 Trayectos        = trayectosListado,
             };
         }

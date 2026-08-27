@@ -595,6 +595,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public bool EsRechazo { get; set; }
 
+        /// <summary>
+        /// true cuando es la PRIMERA vez que se le envía el formulario a ese candidato (no existía
+        /// su fila de formulario). Solo ese envío lleva el correo de bienvenida al proceso —el que
+        /// le cuenta que avanza, qué se le pide y qué etapas vienen—: los reenvíos posteriores son
+        /// para alguien que ya recibió esa explicación, así que llevan el correo corto de siempre.
+        /// </summary>
+        public bool EsPrimerEnvio { get; set; }
+
         /// <summary>Observaciones del rechazo, para el correo de correcciones. null si no es un rechazo.</summary>
         public string? Motivo { get; set; }
 

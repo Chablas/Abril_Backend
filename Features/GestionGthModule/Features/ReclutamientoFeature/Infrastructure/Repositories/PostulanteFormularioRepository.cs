@@ -347,6 +347,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var destino = enviado;
             var esRechazo = false;
 
+            // Sin fila de formulario todavía = es la primera vez que este candidato recibe el
+            // enlace, y solo esa vez lleva el correo de bienvenida al proceso. Se calcula acá y no
+            // en el return porque la rama de abajo reasigna `f` con el formulario recién creado.
+            var esPrimerEnvio = f == null;
+
             if (f != null)
             {
                 var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);
@@ -418,6 +423,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatoNombre = Trim(f.NombresCompletos) ?? candidatoNombre,
                 Correo          = correo,
                 EsRechazo       = esRechazo,
+                EsPrimerEnvio   = esPrimerEnvio,
                 Motivo          = esRechazo ? f.MotivoRechazo : null,
                 Resumen = new CandidatoFormularioResumenDto
                 {

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
 {
     /// <summary>
     /// Solicitud de salida — cabecera. Los detalles del/los trayecto(s) viven en GaSolicitudTrayecto.
@@ -41,6 +41,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>Momento (UTC) en que el solicitante canceló la solicitud.</summary>
         public DateTimeOffset? CanceladaAt { get; set; }
         public int? RendicionId { get; set; }
+
+        // ── Reembolso ────────────────────────────────────────────────────────
+        // Eje aparte de la aprobación de la salida y de la rendición: arranca recién cuando la
+        // salida está Rendida y tiene adjunto el Consolidado del S10 (ga_consolidado_s10).
+
+        /// <summary>FK a <c>ga_estado_reembolso</c>. Ver <see cref="EstadosSalida.Reembolso"/>.</summary>
+        public int EstadoReembolsoId { get; set; } = EstadosSalida.Reembolso.Pendiente;
+
+        /// <summary>
+        /// Observación que escribe el jefe al RECHAZAR el reembolso: es lo que el trabajador tiene
+        /// que subsanar. Se conserva al volver a Pendiente para que se vea qué se observó.
+        /// </summary>
+        public string? ObservacionReembolso { get; set; }
+
+        /// <summary>FK a <c>app_user.user_id</c> del jefe que aprobó/rechazó el reembolso.</summary>
+        public int? ReembolsoDecididoPorId { get; set; }
+        public DateTimeOffset? ReembolsoDecididoAt { get; set; }
+
+        /// <summary>
+        /// Momento en que el trabajador avisó al jefe/revisor que ya adjuntó el Consolidado del
+        /// S10. Solo informativo: no bloquea la revisión (el jefe puede aprobar sin aviso).
+        /// </summary>
+        public DateTimeOffset? RevisorNotificadoAt { get; set; }
+        public int? RevisorNotificadoPorId { get; set; }
+
+        /// <summary>FK a <c>app_user.user_id</c> del jefe que firmó la planilla de esta salida.</summary>
+        public int? FirmadoPorId { get; set; }
+        public DateTimeOffset? FirmadoAt { get; set; }
+
+        /// <summary>FK a <c>app_user.user_id</c> del tesorero que marcó el reembolso como pagado.</summary>
+        public int? PagadoPorId { get; set; }
+        public DateTimeOffset? PagadoAt { get; set; }
         /// <summary>Hora real en la que la persona salió, registrada por recepción. Dato extra — no bloquea ningún flujo.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
         public int? HoraSalidaRealRegistradaPorId { get; set; }

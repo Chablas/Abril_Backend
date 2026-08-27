@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
 {
     public class SolicitudSalidaCapturaDto
     {
@@ -62,6 +62,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string? MotivoRechazo { get; set; }
         /// <summary>PDF de la planilla de rendición. Null si la solicitud aún no fue rendida.</summary>
         public SolicitudSalidaRendicionDto? Rendicion { get; set; }
+        /// <summary>PDF Consolidado del S10 vigente (propio de la salida o heredado de su planilla). Null si no hay.</summary>
+        public Abril_Backend.Features.GestionAdministrativa.Shared.Dtos.ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
         public List<TrayectoDetalleDto> Trayectos { get; set; } = new();
     }
 
@@ -109,6 +111,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string? EstadoAprobacion { get; set; }
         /// <summary>"Rendido" | "No rendido" | null para todos.</summary>
         public string? EstadoRendicion { get; set; }
+
+        /// <summary>Límite inferior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
+        public DateOnly? FechaSalidaDesde { get; set; }
+        /// <summary>Límite superior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
+        public DateOnly? FechaSalidaHasta { get; set; }
     }
 
     public class LugarProyectoOptionDto

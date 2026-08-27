@@ -1,21 +1,21 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Dtos;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Firma.Dtos;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
-namespace Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Repositories
+namespace Abril_Backend.Shared.Services.Firma.Services
 {
-    public class ManagerSignatureRepository : IManagerSignatureRepository
+    public class FirmaPersonalRepository : IFirmaPersonalRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
-        public ManagerSignatureRepository(IDbContextFactory<AppDbContext> factory)
+        public FirmaPersonalRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
         }
 
-        public async Task<ManagerSignatureDto?> GetByUserId(int userId)
+        public async Task<FirmaPersonalDto?> GetByUserId(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -26,7 +26,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
 
             if (p == null) return null;
 
-            return new ManagerSignatureDto
+            return new FirmaPersonalDto
             {
                 ImageDataUrl = $"data:{p.SignatureMime};base64,{Convert.ToBase64String(p.SignatureImageBytes!)}",
                 UpdatedDateTime = p.SignatureUpdatedDateTime.HasValue

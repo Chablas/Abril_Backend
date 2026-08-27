@@ -1,8 +1,15 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
+using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
+using Abril_Backend.Shared.Services.Pdf;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using ClosedXML.Excel;
 using Humanizer;
@@ -19,6 +26,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private readonly IGraphSharePointService _sharePointService;
         private readonly ISolicitudSalidaService _solicitudSalidaService;
         private readonly ISalidaVisibilityResolver _visibilityResolver;
+        private readonly IConsolidadoS10Service _consolidadoService;
+        private readonly IFirmaPersonalRepository _firmaRepository;
+        private readonly ICorreoSalidaRecipientResolver _correoResolver;
+        private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<GestionSalidaService> _logger;
 
         public GestionSalidaService(
@@ -26,12 +38,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             IGraphSharePointService sharePointService,
             ISolicitudSalidaService solicitudSalidaService,
             ISalidaVisibilityResolver visibilityResolver,
+            IConsolidadoS10Service consolidadoService,
+            IFirmaPersonalRepository firmaRepository,
+            ICorreoSalidaRecipientResolver correoResolver,
+            IEmailService emailService,
+            IConfiguration configuration,
             ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
             _sharePointService = sharePointService;
             _solicitudSalidaService = solicitudSalidaService;
             _visibilityResolver = visibilityResolver;
+            _consolidadoService = consolidadoService;
+            _firmaRepository = firmaRepository;
+            _correoResolver = correoResolver;
+            _emailService = emailService;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -47,7 +69,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await _repo.GetPaged(filters);
         }
 
-        public async Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride)
+        public async Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride, bool tieneRolTesorero = false)
         {
             // Resuelve el alcance del usuario y recorta trabajadores + árbol de áreas a ese alcance
             // (área del usuario hacia abajo). Recepción / GTH / sin usuario → ve todo, sin recorte.
@@ -57,15 +79,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario).
             bool seesAll = seesAllOverride || !currentUserId.HasValue;
             var visibleIds = new List<int>();
+            var esTesorero = false;
 
-            if (!seesAll)
+            // Con el rol de tesorero hay que resolver igual aunque ya vea todo: la categoría del
+            // puesto es lo que decide el modo, y de ahí sale el flag que arma la pantalla.
+            if (!seesAll || (tieneRolTesorero && currentUserId.HasValue))
             {
                 var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value);
-                seesAll = vis.SeesAll;
+                esTesorero = tieneRolTesorero && vis.EsCategoriaTesorero;
+                // El tesorero filtra sobre TODA la organización (su recorte es por estado, no por
+                // área), así que sus desplegables tienen que traer el árbol completo.
+                seesAll = seesAll || vis.SeesAll || esTesorero;
                 visibleIds = vis.AreaScopeIds.ToList();
             }
 
-            return await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
+            var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
+            data.EsTesorero = esTesorero;
+            return data;
         }
 
         /// <summary>
@@ -75,14 +105,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private async Task ApplyVisibilityAsync(GestionSalidaFiltersDto filters)
         {
             if (!filters.CurrentUserId.HasValue) return;
-            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver.
-            if (filters.SeesAllOverride)
+
+            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver. No
+            // aplica si además trae el rol de tesorero: ahí sí hay que resolver, porque la
+            // categoría del puesto es lo que decide si entra en modo tesorería.
+            if (filters.SeesAllOverride && !filters.TieneRolTesorero)
             {
                 filters.SeesAll = true;
                 return;
             }
+
             var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
-            filters.SeesAll = vis.SeesAll;
+
+            // Modo TESORERÍA: rol + categoría del puesto, las dos cosas. Ve todas las áreas pero
+            // solo lo firmado y lo pagado (el recorte de estados lo aplica el repositorio).
+            filters.EsTesorero = filters.TieneRolTesorero && vis.EsCategoriaTesorero;
+
+            filters.SeesAll = filters.SeesAllOverride || vis.SeesAll || filters.EsTesorero;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
         }
 
@@ -97,7 +136,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             string[] headers =
             [
                 "#", "Trabajador", "Área", "Revisor", "Fecha salida", "Hora salida", "Hora retorno",
-                "Motivo", "Origen", "Destino", "Aprobación", "Rendición", "Registrada",
+                "Motivo", "Origen", "Destino", "Aprobación", "Rendición", "Reembolso", "Registrada",
             ];
 
             for (int c = 0; c < headers.Length; c++)
@@ -128,7 +167,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 ws.Cell(row, 10).Value = s.LugarDestino ?? "—";
                 ws.Cell(row, 11).Value = s.EstadoAprobacion;
                 ws.Cell(row, 12).Value = s.EstadoRendicion;
-                ws.Cell(row, 13).Value = s.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+                // El reembolso solo tiene sentido cuando ya hay algo que revisar (salida rendida y
+                // Consolidado del S10 adjunto): antes de eso la celda va vacía en vez de decir
+                // "Pendiente", que se leería como si estuviera esperando a alguien.
+                ws.Cell(row, 13).Value = s.ReembolsoRevisable || s.EstadoReembolso != "Pendiente"
+                    ? s.EstadoReembolso
+                    : "";
+                ws.Cell(row, 14).Value = s.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm");
 
                 var rowRange = ws.Range(row, 1, row, headers.Length);
                 rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -152,6 +197,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 rendicionCell.Style.Font.FontColor = s.EstadoRendicion == "Rendido"
                     ? XLColor.FromHtml("#0086A5")
                     : XLColor.FromHtml("#9CA3AF");
+
+                var reembolsoCell = ws.Cell(row, 13);
+                reembolsoCell.Style.Font.Bold = true;
+                reembolsoCell.Style.Font.FontColor = s.EstadoReembolso switch
+                {
+                    "Aprobado"  => XLColor.FromHtml("#009C87"),
+                    "Rechazado" => XLColor.FromHtml("#D30000"),
+                    "Firmado"   => XLColor.FromHtml("#4338CA"),
+                    "Pagado"    => XLColor.FromHtml("#15803D"),
+                    _           => XLColor.FromHtml("#92400E"),
+                };
             }
 
             ws.Columns().AdjustToContents();
@@ -267,8 +323,249 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return (pdf, rendidasIds.Count);
         }
 
+        public async Task<(byte[] Pdf, int Count)> RendirMesAnterior(GestionSalidaFiltersDto filters, int userId)
+        {
+            // El estado y el rango los fija la acción; los filtros de trabajador/área/proyecto que
+            // trae la pantalla se respetan tal cual (se rinde lo que el usuario está viendo).
+            var (desde, hasta) = MesAnteriorPeru.Rango();
+            filters.SoloHoy          = false;
+            filters.FechaSalidaDesde = desde;
+            filters.FechaSalidaHasta = hasta;
+            filters.EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado;
+            filters.EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido;
+
+            // GetAll ya resuelve la visibilidad y calcula PuedeRendirse (capturas / catálogo TI),
+            // así que la elegibilidad sale de ahí sin duplicar reglas.
+            var candidatas = await GetAll(filters);
+            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
+            if (ids.Count == 0)
+                throw new AbrilException(
+                    $"No hay salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
+                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+
+            return await RendirYGenerarPlanilla(ids, userId);
+        }
+
+        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
+            // Sin guard de propiedad: en Gestión de Salidas se administran las salidas de otros.
+            => _consolidadoService.Upload(solicitudId, ambito, file, userId);
+
         public Task<GestionSalidaDetalleDto?> GetDetalle(int id)
             => _repo.GetDetalle(id);
+
+        // ══ Reembolso ═══════════════════════════════════════════════════════
+
+        public async Task<ReembolsoBulkResultDto> DecidirReembolso(
+            IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId)
+        {
+            var decididas = await _repo.DecidirReembolso(ids, aprobar, observacion, reviewerUserId);
+
+            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
+            // porque un correo falle (mismo criterio que la aprobación de la salida).
+            foreach (var id in decididas)
+                await NotificarDecisionReembolsoAsync(id, aprobar);
+
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas = decididas.Count,
+                Message = aprobar
+                    ? $"{decididas.Count} reembolso(s) aprobado(s)."
+                    : $"{decididas.Count} reembolso(s) rechazado(s).",
+            };
+        }
+
+        public async Task<ReembolsoBulkResultDto> FirmarPlanillas(IEnumerable<int> ids, int userId)
+        {
+            var firma = await _firmaRepository.GetActiveBytesByUserId(userId)
+                // 409 y no 400: la pantalla lo distingue para abrir el modal donde el usuario dibuja
+                // su firma en el momento en vez de mandarlo a Configuración.
+                ?? throw new AbrilException(
+                    "Todavía no registraste tu firma. Dibújala una vez y vuelve a firmar.", 409);
+
+            var planillas = await _repo.GetRendicionesPorFirmar(ids);
+            if (planillas.Count == 0)
+                throw new AbrilException(
+                    "Ninguna de las salidas seleccionadas se puede firmar: primero hay que aprobar su reembolso.",
+                    400);
+
+            var folderUrl = await _repo.GetRendicionFolderUrl();
+            if (string.IsNullOrWhiteSpace(folderUrl))
+                throw new AbrilException(
+                    "No se ha configurado la carpeta de SharePoint donde guardar las planillas de rendición. " +
+                    "Pide al administrador registrarla en la tabla ga_rendicion_folder.", 409);
+
+            var carpeta = await _sharePointService.ResolveSharePointFolderUrlAsync(folderUrl);
+            if (carpeta == null || !carpeta.IsFolder)
+                throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
+
+            var totalSalidas = 0;
+            var totalPlanillas = 0;
+
+            foreach (var planilla in planillas)
+            {
+                string? pdfUrl = null, pdfItemId = null, pdfFilename = null;
+
+                // Si la planilla ya está firmada no se vuelve a estampar: el documento es uno solo
+                // y ya lleva la firma. Solo se mueven de estado las salidas que faltaban.
+                if (string.IsNullOrWhiteSpace(planilla.PdfFirmadoUrl))
+                {
+                    byte[] original;
+                    try
+                    {
+                        original = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(planilla.PdfUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "No se pudo descargar la planilla {RendicionId} para firmarla.", planilla.RendicionId);
+                        throw new AbrilException(
+                            "No se pudo descargar la planilla de rendición desde SharePoint para firmarla.", 502);
+                    }
+
+                    byte[] firmado;
+                    try
+                    {
+                        // Todas las páginas: una planilla agrupa a varios trabajadores y cada grupo
+                        // termina con su propia línea de firma de jefatura, así que firmar solo la
+                        // última hoja dejaría sin firma a todos los grupos menos el último.
+                        firmado = SignaturePdfStamper.Stamp(original, firma.Bytes, SignatureStampScope.AllPages);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "No se pudo estampar la firma en la planilla {RendicionId}.", planilla.RendicionId);
+                        throw new AbrilException("No se pudo generar la planilla firmada.", 500);
+                    }
+
+                    pdfFilename = Path.GetFileNameWithoutExtension(planilla.PdfFilename) + "-FIRMADO.pdf";
+                    try
+                    {
+                        using var stream = new MemoryStream(firmado);
+                        var subido = await _sharePointService.UploadToOneDriveFolderAsync(
+                            carpeta.DriveId, carpeta.ItemId, pdfFilename, stream,
+                            "application/pdf", autoRenameOnLock: true);
+
+                        if (subido?.WebUrl is null)
+                            throw new AbrilException("No se pudo subir la planilla firmada a SharePoint (respuesta vacía).", 502);
+
+                        pdfUrl    = subido.WebUrl;
+                        pdfItemId = subido.ItemId;
+                    }
+                    catch (AbrilException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Falló la subida de la planilla firmada {RendicionId}.", planilla.RendicionId);
+                        throw new AbrilException("No se pudo guardar la planilla firmada en SharePoint.", 502);
+                    }
+
+                    totalPlanillas++;
+                }
+
+                await _repo.MarcarFirmadas(
+                    planilla.RendicionId, planilla.SolicitudIds, userId, pdfUrl, pdfItemId, pdfFilename);
+                totalSalidas += planilla.SolicitudIds.Count;
+            }
+
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas        = totalSalidas,
+                PlanillasFirmadas = totalPlanillas,
+                Message           = $"{totalSalidas} salida(s) firmada(s).",
+            };
+        }
+
+        public async Task<ReembolsoBulkResultDto> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId)
+        {
+            // Las dos condiciones de tesorero: el rol lo verificó el controller contra el token;
+            // acá se verifica la otra mitad, que el puesto sea de categoría Tesorero. Se paga poco
+            // y de a lotes, así que la consulta extra no pesa.
+            var vis = await _visibilityResolver.ResolveAsync(tesoreroUserId);
+            if (!vis.EsCategoriaTesorero)
+                throw new AbrilException(
+                    "Marcar como pagado es de Tesorería: tu puesto no es de categoría Tesorero.", 403);
+
+            var pagadas = await _repo.MarcarPagadas(ids, tesoreroUserId);
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas = pagadas.Count,
+                Message    = $"{pagadas.Count} reembolso(s) marcado(s) como pagado(s).",
+            };
+        }
+
+        /// <summary>
+        /// Avisa al solicitante que su reembolso quedó aprobado o rechazado. Respeta la
+        /// configuración de correos (Gestión Administrativa → Configuración → Correos): si el
+        /// correo está apagado o no queda ningún destinatario, no se envía nada.
+        /// </summary>
+        private async Task NotificarDecisionReembolsoAsync(int solicitudId, bool aprobado)
+        {
+            try
+            {
+                var info = await _repo.GetReembolsoCorreoInfo(solicitudId);
+                if (info == null) return;
+
+                if (string.IsNullOrWhiteSpace(info.SolicitanteEmail))
+                {
+                    _logger.LogWarning(
+                        "Reembolso {SolicitudId}: el solicitante no tiene correo registrado, no se avisó la decisión.",
+                        solicitudId);
+                    return;
+                }
+
+                var codigo = aprobado
+                    ? CorreoEventoCodigos.ReembolsoAprobado
+                    : CorreoEventoCodigos.ReembolsoRechazado;
+
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    codigo, new List<string> { info.SolicitanteEmail });
+
+                if (!envio.Enviar)
+                {
+                    _logger.LogInformation(
+                        "Correo {Codigo} no enviado para la salida {SolicitudId}: está apagado o sin destinatarios.",
+                        codigo, solicitudId);
+                    return;
+                }
+
+                var layout = SalidaEmailLayout.Desde(_configuration);
+                var datos  = ToCorreoDatos(info);
+                var url    = SalidaEnlaces.Autoservicio(_configuration, solicitudId);
+
+                var body = aprobado
+                    ? ReembolsoEmailTemplates.Aprobado(layout, datos, url)
+                    : ReembolsoEmailTemplates.Rechazado(layout, datos, url);
+
+                var subject = aprobado
+                    ? $"Reembolso APROBADO - salida del {info.FechaSalida:dd/MM/yyyy}"
+                    : $"Reembolso RECHAZADO - salida del {info.FechaSalida:dd/MM/yyyy}";
+
+                await _emailService.SendAsync(
+                    to: envio.Para,
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error avisando la decisión del reembolso de la salida {SolicitudId}", solicitudId);
+            }
+        }
+
+        /// <summary>Pasa los datos del repositorio al shape que consumen las plantillas.</summary>
+        private static ReembolsoCorreoDatos ToCorreoDatos(ReembolsoCorreoInfoDto info) =>
+            new()
+            {
+                SolicitudId     = info.SolicitudId,
+                NumeroUsuario   = info.NumeroUsuario,
+                Trabajador      = info.Trabajador,
+                TrabajadorEmail = info.SolicitanteEmail,
+                Area            = info.Area,
+                FechaSalida     = info.FechaSalida,
+                NumeroPlanilla  = info.NumeroPlanilla,
+                TrayectosCount  = info.TrayectosCount,
+                MontoTotal      = info.MontoTotal,
+                DecididoPor     = info.DecididoPor,
+                Observacion     = info.ObservacionReembolso,
+            };
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 

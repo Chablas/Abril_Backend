@@ -1,10 +1,10 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Helpers;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Interfaces;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
@@ -26,7 +26,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         private readonly IInvoiceRepository _repository;
         private readonly ISunatService _sunatService;
         private readonly IGraphSharePointService _sharePointService;
-        private readonly IManagerSignatureRepository _signatureRepository;
+        private readonly IFirmaPersonalRepository _signatureRepository;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<InvoiceService> _logger;
 
@@ -34,7 +34,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             IInvoiceRepository repository,
             ISunatService sunatService,
             IGraphSharePointService sharePointService,
-            IManagerSignatureRepository signatureRepository,
+            IFirmaPersonalRepository signatureRepository,
             IHttpClientFactory httpClientFactory,
             ILogger<InvoiceService> logger)
         {
@@ -248,7 +248,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 throw new AbrilException("La factura no tiene un documento para firmar.");
 
             var signature = await _signatureRepository.GetActiveBytesByUserId(userId)
-                ?? throw new AbrilException("No tienes una firma configurada. Configúrala en Contabilidad → Configuración → Firma.");
+                ?? throw new AbrilException("No tienes una firma configurada. Regístrala en Contabilidad → Configuración → Firma.");
 
             var destination = await _repository.GetActiveFolderDestination()
                 ?? throw new AbrilException("No hay una carpeta de facturas configurada.");

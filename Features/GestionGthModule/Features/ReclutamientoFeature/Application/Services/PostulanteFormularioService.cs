@@ -455,14 +455,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "El formulario quedó registrado, pero el correo no se envió: no hay a quién "
                     + "enviárselo. Revísalo en Configuración de correos.", 409);
 
+            // Tres correos distintos, en este orden de precedencia: correcciones (formulario
+            // observado), bienvenida al proceso (la PRIMERA vez que se le escribe) y el recordatorio
+            // corto de siempre (cualquier reenvío posterior, donde volver a contarle el proceso
+            // completo sería ruido: ya lo recibió).
             return _email.SendAsync(
                 to:      principales,
                 subject: ctx.EsRechazo
                     ? $"Correcciones en tu formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario"
-                    : $"Formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                    : ctx.EsPrimerEnvio
+                        ? $"Avanzas en el proceso: {ctx.Puesto} · Abril Grupo Inmobiliario"
+                        : $"Formulario de postulante — {ctx.Puesto} · Abril Grupo Inmobiliario",
                 body:    ctx.EsRechazo
                     ? ConstruirCuerpoRechazo(ctx.CandidatoNombre, ctx.Puesto, ctx.Motivo, link)
-                    : ConstruirCuerpoEnvio(ctx.CandidatoNombre, ctx.Puesto, link),
+                    : ctx.EsPrimerEnvio
+                        ? ConstruirCuerpoPrimerEnvio(ctx.CandidatoNombre, ctx.Puesto, link)
+                        : ConstruirCuerpoEnvio(ctx.CandidatoNombre, ctx.Puesto, link),
                 isHtml:  true,
                 cc:      copias.Count > 0 ? copias : null,
                 sender:  EmailSenders.Gth);
@@ -657,7 +665,59 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 l.EnlaceDirecto(link));
         }
 
-        /// <summary>Correo de invitación: el primer envío del formulario (o el reenvío de uno no rechazado).</summary>
+        /// <summary>
+        /// Correo del PRIMER envío del formulario: es la primera vez que el postulante escucha de
+        /// nosotros, así que lleva el texto que GTH le escribía a mano —que avanza en el proceso, qué
+        /// se le pide hoy y qué etapas vienen— dentro del chrome del módulo.
+        ///
+        /// Es la excepción deliberada al criterio de "datos y un acceso, no explicaciones" del
+        /// layout, y la única: a un candidato de fuera no le sirve una tabla de datos, y las etapas
+        /// que vienen no las puede ver en ninguna pantalla nuestra. Los reenvíos NO usan este cuerpo
+        /// (ver <see cref="ConstruirCuerpoEnvio"/>): a esa altura ya recibió esta explicación.
+        ///
+        /// El botón va ANTES de las etapas a propósito: lo único que tiene que hacer hoy es abrir el
+        /// formulario, así que le queda a un clic sin tener que leer el correo completo.
+        /// </summary>
+        private string ConstruirCuerpoPrimerEnvio(string? candidatoNombre, string puesto, string link)
+        {
+            var l = Layout.Desde(_configuration);
+            var nombre = string.IsNullOrWhiteSpace(candidatoNombre) ? "postulante" : candidatoNombre;
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-finalista", "Avanzas en el Proceso",
+                    $"¡Hola {Layout.Esc(nombre)}! Queremos compartirte una buena noticia: seleccionamos "
+                    + "tu perfil para avanzar a la siguiente etapa del proceso de selección de "
+                    + $"<b>{Layout.Esc(puesto)}</b> en Abril Grupo Inmobiliario."),
+                l.Franja("req-aviso", Layout.Tono.Info,
+                    "<b>Para continuar, completa el día de hoy tu ficha de postulante</b> y adjunta, "
+                    + "en el mismo formulario, tu CV actualizado y documentado."),
+                l.Boton("Completar formulario", link),
+                l.EnlaceDirecto(link),
+                l.Seccion("req-plazo", "¿Qué viene después?"),
+                l.Tarjeta(new List<Layout.Fila>
+                {
+                    new("req-solicitud", "Evaluación Multitest",
+                        "Una evaluación que nos permite conocer mejor tu perfil: incluye competencias "
+                        + "blandas y competencias duras."),
+                    new("req-entrevista", "Entrevistas",
+                        "Conversaremos contigo, de forma presencial o virtual (de acuerdo a "
+                        + "coordinación), para explorar tu experiencia, tus expectativas y lo que "
+                        + "puedes sumar al equipo."),
+                    new("req-decision", "Resultados",
+                        "Una vez cerradas las etapas, te escribimos con los resultados y los próximos "
+                        + "pasos, sea cual sea la decisión."),
+                }),
+                l.Parrafo(
+                    "Si tienes alguna pregunta sobre el proceso, escríbenos y con gusto te ayudamos. "
+                    + "¡Te deseamos el mayor de los éxitos!"),
+                l.Parrafo("Atentamente,<br /><b>Equipo de Gestión del Talento Humano</b>"));
+        }
+
+        /// <summary>
+        /// Correo corto del reenvío del formulario (uno que no está rechazado): el postulante ya
+        /// recibió el correo de bienvenida al proceso, así que este solo le devuelve el acceso.
+        /// </summary>
         private string ConstruirCuerpoEnvio(string? candidatoNombre, string puesto, string link)
         {
             var l = Layout.Desde(_configuration);

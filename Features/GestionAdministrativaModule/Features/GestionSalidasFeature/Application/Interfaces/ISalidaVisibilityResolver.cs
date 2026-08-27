@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces
+﻿namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces
 {
     /// <summary>
     /// Resuelve el alcance de visibilidad de un usuario en la gestión de salidas:
@@ -17,8 +17,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     /// Resultado de la resolución de visibilidad.
     ///   • <see cref="SeesAll"/> = true  → ve TODAS las solicitudes (sin restricción por área).
     ///   • <see cref="AreaScopeIds"/>     → conjunto de nodos cuyos trabajadores puede ver.
-    /// En ambos casos, además, el usuario siempre ve las solicitudes en las que él es el
-    /// aprobador resuelto (eso se aplica aparte, en el repositorio).
+    ///   • <see cref="EsCategoriaTesorero"/> → alguno de sus workers tiene un puesto de categoría
+    ///     Tesorero. Es la MITAD de la condición para entrar como tesorero: la otra mitad es el rol,
+    ///     que sale del token y lo aporta el controller. Se devuelve desde acá porque este resolver
+    ///     ya trae la categoría de los workers del usuario y sería un roundtrip extra pedirla aparte.
     /// </summary>
-    public record SalidaVisibility(bool SeesAll, HashSet<int> AreaScopeIds);
+    public record SalidaVisibility(bool SeesAll, HashSet<int> AreaScopeIds, bool EsCategoriaTesorero = false);
 }

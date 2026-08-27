@@ -801,6 +801,29 @@ public class InspeccionRepository : IInspeccionRepository
             .Select(w => w.EmailCorporativo)
             .FirstOrDefaultAsync();
 
+        dto.JefeSsomaEmail = await ctx.Worker.AsNoTracking()
+            .Where(w => w.PuestoCatalogo != null && w.PuestoCatalogo.Nombre.ToUpper() == "JEFE DE SEGURIDAD Y SALUD EN EL TRABAJO"
+                     && w.Estado == "ACTIVO")
+            .Select(w => w.EmailCorporativo)
+            .FirstOrDefaultAsync();
+
+        // Quienes hicieron la inspección: participantes con WorkerId resuelto a correo
+        // corporativo (el inspector original también queda como participante, así que ya
+        // queda cubierto sin tratarlo aparte).
+        var participantesConWorker = await ctx.SsomaInspeccionParticipante
+            .Where(p => p.InspeccionId == insp.Id && p.WorkerId.HasValue)
+            .Select(p => new { p.Nombre, WorkerId = p.WorkerId!.Value })
+            .ToListAsync();
+        var workerIdsParticipantes = participantesConWorker.Select(p => p.WorkerId).Distinct().ToList();
+        var emailsPorWorker = await ctx.Worker.AsNoTracking()
+            .Where(w => workerIdsParticipantes.Contains(w.Id))
+            .Select(w => new { w.Id, w.EmailCorporativo })
+            .ToDictionaryAsync(w => w.Id, w => w.EmailCorporativo);
+        dto.Participantes = participantesConWorker
+            .Where(p => emailsPorWorker.TryGetValue(p.WorkerId, out var email) && !string.IsNullOrWhiteSpace(email))
+            .Select(p => new InspeccionDestinatarioDto { Nombre = p.Nombre, Email = emailsPorWorker[p.WorkerId]! })
+            .ToList();
+
         // Prevencionistas (rol 72, ver Roles.Prevencionista): uno por contratista con
         // vinculación activa al proyecto de la inspección. Mismo criterio de resolución que
         // EvPrevencionistaRepository.GetInicioAsync (evaluaciones de desempeño), que ya matchea
@@ -844,15 +867,18 @@ public class InspeccionRepository : IInspeccionRepository
 
             var to = new List<string?> { destinatarios.ResidenteEmail, destinatarios.CoordSsomaEmail, destinatarios.GerenteInmobiliarioEmail }
                 .Concat(destinatarios.Prevencionistas.Select(p => (string?)p.Email))
+                .Concat(destinatarios.Participantes.Select(p => (string?)p.Email))
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .Select(e => e!)
                 .Distinct()
                 .ToList();
             if (to.Count == 0) return;
 
-            List<string>? cc = !string.IsNullOrWhiteSpace(destinatarios.TuEmail)
-                ? new List<string> { destinatarios.TuEmail! }
-                : null;
+            var cc = new List<string?> { destinatarios.TuEmail, destinatarios.JefeSsomaEmail }
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!)
+                .Distinct()
+                .ToList();
 
             var proyecto = await ctx.Project.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.ProjectId == insp.ProyectoId);

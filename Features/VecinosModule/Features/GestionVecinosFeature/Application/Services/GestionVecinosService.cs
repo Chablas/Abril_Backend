@@ -211,6 +211,16 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                 throw new AbrilException("No se pudo actualizar el estado de la solicitud.", 404);
         }
 
+        public async Task UpdateSolicitudDescripcion(int solicitudId, string descripcion, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(descripcion))
+                throw new AbrilException("La descripción de la solicitud es obligatoria.", 400);
+
+            var ok = await _repository.UpdateSolicitudDescripcion(solicitudId, descripcion, userId);
+            if (!ok)
+                throw new AbrilException("No se pudo actualizar la descripción de la solicitud.", 404);
+        }
+
         // ── Compromisos ─────────────────────────────────────────────────────
         public async Task<List<VecinoCompromisoItemDto>> GetCompromisos(int solicitudId)
         {

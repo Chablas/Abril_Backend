@@ -206,6 +206,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int VecinoSolicitudEstadoId { get; set; }
     }
 
+    /// <summary>Edición del texto de una solicitud ya registrada.</summary>
+    public class VecinoSolicitudDescripcionUpdateDto
+    {
+        public string Descripcion { get; set; } = null!;
+    }
+
     // ── Compromisos ─────────────────────────────────────────────────────────
     public class VecinoEntregableItemDto
     {

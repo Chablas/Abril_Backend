@@ -34,7 +34,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             public string Entidad { get; set; } = "";
             public string Item { get; set; } = "";
-            public DateTime? Vigencia { get; set; }
+            public DateOnly? Vigencia { get; set; }
+            public string? ContrataCasa { get; set; }
         }
 
         private class InterconsultaRaw
@@ -149,7 +150,7 @@ JOIN contributor ec ON ec.contributor_id = he.empresa_id
 WHERE he.proyecto_id = @ProyectoId AND he.estado = 'Falta'
 ORDER BY ec.contributor_name;
 
-SELECT COALESCE(per.full_name, '') AS entidad, i.nombre AS item, ht.vigencia AS vigencia
+SELECT COALESCE(per.full_name, '') AS entidad, i.nombre AS item, ht.vigencia AS vigencia, w.contrata_casa AS contrata_casa
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id AND w.state
@@ -159,7 +160,7 @@ WHERE ht.estado = 'Enviado' AND ht.vigencia < NOW()
   AND i.id <> 25 AND NOT (w.contrata_casa = 'Casa' AND i.id = 4)
 ORDER BY ht.vigencia ASC;
 
-SELECT COALESCE(per.full_name, '') AS entidad, i.nombre AS item, ht.vigencia AS vigencia
+SELECT COALESCE(per.full_name, '') AS entidad, i.nombre AS item, ht.vigencia AS vigencia, w.contrata_casa AS contrata_casa
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id AND w.state
@@ -182,9 +183,16 @@ SELECT project_description FROM project WHERE project_id = @ProyectoId;";
             var trabajadorFaltaRaw = (await multi.ReadAsync<EntregableRaw>()).ToList();
             var proyectoNombre = await multi.ReadFirstOrDefaultAsync<string>() ?? "";
 
+            // Entregables de trabajador se reportan por separado para contratista y
+            // personal casa (antes venían mezclados en un solo conteo).
+            var contratistaVencidosRaw = trabajadorVencidosRaw.Where(r => r.ContrataCasa != "Casa").ToList();
+            var casaVencidosRaw = trabajadorVencidosRaw.Where(r => r.ContrataCasa == "Casa").ToList();
+            var contratistaFaltaRaw = trabajadorFaltaRaw.Where(r => r.ContrataCasa != "Casa").ToList();
+            var casaFaltaRaw = trabajadorFaltaRaw.Where(r => r.ContrataCasa == "Casa").ToList();
+
             static List<EntregableNombradoDto> ToDto(List<EntregableRaw> raw) => raw
                 .Take(TopN)
-                .Select(r => new EntregableNombradoDto { Entidad = r.Entidad, Item = r.Item, Vigencia = r.Vigencia })
+                .Select(r => new EntregableNombradoDto { Entidad = r.Entidad, Item = r.Item, Vigencia = r.Vigencia?.ToDateTime(TimeOnly.MinValue) })
                 .ToList();
 
             return new DashboardAdminDto
@@ -202,8 +210,10 @@ SELECT project_description FROM project WHERE project_id = @ProyectoId;";
                     WorkersAutorizadoTemporal = workers.Count(w => w.EstadoHabilitacion == "Autorizado Temporalmente"),
                     EntregablesEmpresaVencidos = empresaVencidosRaw.Count,
                     EntregablesEmpresaFalta = empresaFaltaRaw.Count,
-                    EntregablesTrabajadorVencidos = trabajadorVencidosRaw.Count,
-                    EntregablesTrabajadorFalta = trabajadorFaltaRaw.Count,
+                    EntregablesTrabajadorVencidos = contratistaVencidosRaw.Count,
+                    EntregablesTrabajadorFalta = contratistaFaltaRaw.Count,
+                    EntregablesCasaVencidos = casaVencidosRaw.Count,
+                    EntregablesCasaFalta = casaFaltaRaw.Count,
                     EmosVencidos = emoVencidosTotal,
                     InterconsultasPendientes = interconsultasRaw.Count,
                     PersonalCasaTotal = casa.Count,
@@ -214,8 +224,10 @@ SELECT project_description FROM project WHERE project_id = @ProyectoId;";
                 TrabajadoresNoAutorizados = noAutorizados,
                 EntregablesEmpresaVencidos = ToDto(empresaVencidosRaw),
                 EntregablesEmpresaFalta = ToDto(empresaFaltaRaw),
-                EntregablesTrabajadorVencidos = ToDto(trabajadorVencidosRaw),
-                EntregablesTrabajadorFalta = ToDto(trabajadorFaltaRaw),
+                EntregablesTrabajadorVencidos = ToDto(contratistaVencidosRaw),
+                EntregablesTrabajadorFalta = ToDto(contratistaFaltaRaw),
+                EntregablesCasaVencidos = ToDto(casaVencidosRaw),
+                EntregablesCasaFalta = ToDto(casaFaltaRaw),
                 EmosVencidos = emosVencidos,
                 Interconsultas = interconsultasRaw.Take(TopN).Select(r => new InterconsultaNombradaDto
                 {

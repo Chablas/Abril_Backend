@@ -1,6 +1,8 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -13,12 +15,18 @@ public class InspeccionRepository : IInspeccionRepository
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly IEmailService _emailService;
+    private readonly InspeccionPdfService _pdfService;
     private readonly ILogger<InspeccionRepository> _logger;
 
-    public InspeccionRepository(IDbContextFactory<AppDbContext> factory, IEmailService emailService, ILogger<InspeccionRepository> logger)
+    public InspeccionRepository(
+        IDbContextFactory<AppDbContext> factory,
+        IEmailService emailService,
+        InspeccionPdfService pdfService,
+        ILogger<InspeccionRepository> logger)
     {
         _factory = factory;
         _emailService = emailService;
+        _pdfService = pdfService;
         _logger = logger;
     }
 
@@ -910,12 +918,36 @@ public class InspeccionRepository : IInspeccionRepository
 </table>
 <p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
 
+            List<EmailAttachment>? attachments = null;
+            try
+            {
+                var detalle = await GetDetalleAsync(insp.Id);
+                if (detalle != null)
+                {
+                    var pdfBytes = await _pdfService.GenerarPdfAsync(detalle);
+                    attachments = [new EmailAttachment
+                    {
+                        FileName = $"Inspeccion_{insp.Id}_{fechaStr.Replace("/", "-")}.pdf",
+                        ContentType = "application/pdf",
+                        Content = pdfBytes,
+                    }];
+                }
+            }
+            catch (Exception exPdf)
+            {
+                // El correo de cierre igual debe salir aunque el PDF falle (ej. una foto
+                // no descargable desde SharePoint) — no lo dejamos sin adjunto en silencio,
+                // queda en el log para investigar.
+                _logger.LogWarning(exPdf, "No se pudo generar el PDF adjunto para el cierre de inspección {InspeccionId}.", insp.Id);
+            }
+
             await _emailService.SendAsync(
                 to: to,
                 subject: $"[Inspección Colaborativa Cerrada] {proyecto.ProjectDescription} — {fechaStr}",
                 body: html,
                 isHtml: true,
-                cc: cc);
+                cc: cc,
+                attachments: attachments);
         }
         catch (Exception ex)
         {

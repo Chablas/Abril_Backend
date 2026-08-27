@@ -525,7 +525,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         // ─── Raw helpers ───────────────────────────────────────────────────────
         private record CandidatoRaw(int UserId, string NombreCompleto, string EmailCorporativo, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
-        private record EvaluadorInfo(int WorkerId, string? Subarea, string? Area, int? CategoriaId, int? ObraOficinaStaffId);
+        private record EvaluadorInfo(int WorkerId, string? Subarea, string? Area, int? ObraOficinaStaffId, int? CategoriaId);
         public async Task<List<EmpresaResultadoEnvioDto>> GetResultadosParaEnvioAsync(int periodoId)
         {
             using var ctx = _factory.CreateDbContext();

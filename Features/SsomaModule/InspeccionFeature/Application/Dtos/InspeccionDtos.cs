@@ -60,6 +60,20 @@ public class InspeccionHallazgoRequest
     public List<string> FotosBase64 { get; set; } = [];
 }
 
+/// <summary>Edición de un hallazgo ya creado — mismos campos editables que al crearlo, sin
+/// fotos (las fotos originales del hallazgo no se tocan acá). Solo permitido mientras el
+/// hallazgo siga "Abierto" y la inspección siga "Abierta" — ver InspeccionRepository.EditarHallazgoAsync.</summary>
+public class EditarHallazgoRequest
+{
+    public string Descripcion { get; set; } = string.Empty;
+    public string Tipo { get; set; } = "Menor";
+    public string? Area { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public string? ResponsableCargo { get; set; }
+    public DateTime? FechaLimite { get; set; }
+    public string? AccionCorrectiva { get; set; }
+}
+
 public class CrearInspeccionRequest
 {
     public int ProyectoId { get; set; }

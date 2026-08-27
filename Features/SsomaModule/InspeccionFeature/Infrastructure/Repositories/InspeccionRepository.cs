@@ -221,6 +221,50 @@ public class InspeccionRepository : IInspeccionRepository
         await ctx.SaveChangesAsync();
     }
 
+    /// <summary>Solo editable mientras el hallazgo sigue "Abierto" y su inspección sigue
+    /// "Abierta" — un hallazgo ya cerrado, o cuya inspección ya se cerró, es un registro final
+    /// y no debe modificarse.</summary>
+    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
+            .FirstOrDefaultAsync(h => h.Id == hallazgoId)
+            ?? throw new AbrilException("Hallazgo no encontrado.", 404);
+
+        if (hallazgo.Estado != "Abierto")
+            throw new AbrilException("Solo se pueden editar hallazgos abiertos.", 400);
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+            throw new AbrilException("La inspección ya está cerrada, no se puede editar el hallazgo.", 400);
+
+        hallazgo.Descripcion = request.Descripcion;
+        hallazgo.Tipo = request.Tipo;
+        hallazgo.Area = request.Area;
+        hallazgo.ResponsableNombre = request.ResponsableNombre;
+        hallazgo.ResponsableCargo = request.ResponsableCargo;
+        hallazgo.FechaLimite = request.FechaLimite.HasValue ? DateTime.SpecifyKind(request.FechaLimite.Value, DateTimeKind.Utc) : null;
+        hallazgo.AccionCorrectiva = request.AccionCorrectiva;
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Soft delete — marca Estado = "Eliminado" en vez de borrar la fila, para
+    /// conservar el registro ante una auditoría. Mismas condiciones que EditarHallazgoAsync.
+    /// Todas las lecturas de hallazgos (detalle, PDF, dashboard, lista) ya excluyen este estado.</summary>
+    public async Task EliminarHallazgoAsync(int hallazgoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
+            .FirstOrDefaultAsync(h => h.Id == hallazgoId)
+            ?? throw new AbrilException("Hallazgo no encontrado.", 404);
+
+        if (hallazgo.Estado != "Abierto")
+            throw new AbrilException("Solo se pueden eliminar hallazgos abiertos.", 400);
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+            throw new AbrilException("La inspección ya está cerrada, no se puede eliminar el hallazgo.", 400);
+
+        hallazgo.Estado = "Eliminado";
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls)
     {
@@ -336,6 +380,7 @@ public class InspeccionRepository : IInspeccionRepository
                     Observacion = r.Observacion
                 }).ToList(),
             Hallazgos = insp.Hallazgos
+                .Where(h => h.Estado != "Eliminado")
                 .OrderByDescending(h => h.Tipo)
                 .Select(h => new InspeccionHallazgoDto
                 {
@@ -405,8 +450,8 @@ public class InspeccionRepository : IInspeccionRepository
                 Fecha = i.Fecha,
                 Area = i.Area,
                 InspectorNombre = i.InspectorNombre,
-                TotalHallazgos = i.Hallazgos.Count,
-                HallazgosCriticos = i.Hallazgos.Count(h => h.Tipo == "Critico"),
+                TotalHallazgos = i.Hallazgos.Count(h => h.Estado != "Eliminado"),
+                HallazgosCriticos = i.Hallazgos.Count(h => h.Tipo == "Critico" && h.Estado != "Eliminado"),
                 HallazgosAbiertos = i.Hallazgos.Count(h => h.Estado == "Abierto"),
                 TasaCumplimiento = i.TasaCumplimiento,
                 Estado = i.Estado,
@@ -442,7 +487,7 @@ public class InspeccionRepository : IInspeccionRepository
         var all = await q.ToListAsync();
         var delAnio = all.Where(i => i.Fecha.Year == anioFiltro).ToList();
         var delMes = delAnio.Where(i => i.Fecha.Month == mesActual).ToList();
-        var todosHallazgos = all.SelectMany(i => i.Hallazgos).ToList();
+        var todosHallazgos = all.SelectMany(i => i.Hallazgos).Where(h => h.Estado != "Eliminado").ToList();
 
         var tendencia = Enumerable.Range(1, 12).Select(m =>
         {
@@ -535,6 +580,7 @@ public class InspeccionRepository : IInspeccionRepository
             .Include(h => h.Inspeccion!).ThenInclude(i => i.Proyecto)
             .Include(h => h.Fotos)
             .AsNoTracking()
+            .Where(h => h.Estado != "Eliminado")
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(estado))
@@ -683,7 +729,7 @@ public class InspeccionRepository : IInspeccionRepository
                 ProyectoNombre = i.Proyecto != null ? i.Proyecto.ProjectDescription : "",
                 TipoNombre = i.Tipo != null ? i.Tipo.Nombre : "",
                 Fecha = i.Fecha,
-                TotalHallazgos = i.Hallazgos.Count,
+                TotalHallazgos = i.Hallazgos.Count(h => h.Estado != "Eliminado"),
                 TotalParticipantes = i.Participantes.Count,
                 CreatedAt = i.CreatedAt
             })
@@ -707,7 +753,7 @@ public class InspeccionRepository : IInspeccionRepository
         if (!insp.EsColaborativa) throw new AbrilException("Esta inspección no es colaborativa.", 400);
         if (insp.Estado != "Abierta") throw new AbrilException("La inspección ya está cerrada.", 400);
 
-        insp.Estado = insp.Hallazgos.Any() ? "En Proceso" : "Cerrada";
+        insp.Estado = insp.Hallazgos.Any(h => h.Estado != "Eliminado") ? "En Proceso" : "Cerrada";
         await ctx.SaveChangesAsync();
 
         await EnviarNotificacionCierreColaborativaAsync(ctx, insp, userId);
@@ -817,7 +863,8 @@ public class InspeccionRepository : IInspeccionRepository
                 .Select(t => t.Nombre)
                 .FirstOrDefaultAsync();
 
-            var hallazgosAbiertos = insp.Hallazgos.Count(h => h.Estado != "Cerrado");
+            var hallazgosVigentes = insp.Hallazgos.Where(h => h.Estado != "Eliminado").ToList();
+            var hallazgosAbiertos = hallazgosVigentes.Count(h => h.Estado != "Cerrado");
             var fechaStr = insp.Fecha.ToString("dd/MM/yyyy");
 
             var html = $@"<h2>Inspección {(insp.Estado == "Cerrada" ? "cerrada" : "cerrada — con hallazgos pendientes")}</h2>
@@ -828,7 +875,7 @@ public class InspeccionRepository : IInspeccionRepository
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Área</td><td style='padding:6px 12px'>{insp.Area ?? "—"}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Estado</td><td style='padding:6px 12px'>{insp.Estado}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos totales</td><td style='padding:6px 12px'>{insp.Hallazgos.Count}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos totales</td><td style='padding:6px 12px'>{hallazgosVigentes.Count}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos pendientes de cierre</td><td style='padding:6px 12px'>{hallazgosAbiertos}</td></tr>
 </table>
 <p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";

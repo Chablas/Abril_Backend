@@ -21,6 +21,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         // ── Agenda de reunión ──────────────────────────────────────────────
         Task<ReunionAgendaDto> GetAgenda(int reunionId, int userId);
         Task GuardarMisTemas(int reunionId, int userId, GuardarMisTemasRequest request);
+        Task<ReunionAgendaItemDto> AgregarTemaPuntual(int reunionId, int userId, string descripcion);
+        Task EliminarTemaPuntual(int reunionId, int reunionAgendaItemId, int userId);
         Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId);
         Task<PagedResultDto<AcuerdoBusquedaItemDto>> GetAcuerdos(AcuerdoBusquedaFiltroRequest filtro, int userId);
         Task<List<AcuerdoPendienteAnteriorDto>> GetAcuerdosPendientesAnteriores(int reunionId);

@@ -1168,17 +1168,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (areaScopeId.HasValue)
                 descendientes = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
 
-            // Staff asignado a este proyecto vía ss_contratista_usuario (scope POR_PROYECTO):
-            // ids de worker que tienen acceso vigente al proyecto indicado. Los de scope TODOS
-            // (roles de oficina con acceso a todo) no se incluyen aquí: esto es específicamente
-            // "el staff de esta obra", no cualquiera con acceso al sistema.
+            // Staff vinculado actualmente a este proyecto: worker_vinculaciones con vinculación
+            // vigente (FechaFin == null), igual criterio que usa Habilitación para "proyecto actual"
+            // de un trabajador. OJO: antes esto se resolvía vía ss_contratista_usuario (scope
+            // POR_PROYECTO), pero esa tabla es acceso al sistema (a quién se le dio login/permisos
+            // puntuales en Habilitación/SSOMA para el proyecto) — no asignación laboral. Hay
+            // trabajadores vinculados de verdad a la obra que nunca necesitaron ese acceso, así que
+            // quedaban fuera de "el staff de esta obra" sin ninguna razón real.
             HashSet<int>? workerIdsDeProyecto = null;
             if (projectId.HasValue)
             {
-                workerIdsDeProyecto = (await ctx.SsContratistaUsuarios
-                    .Where(u => u.Activo && u.WorkerId != null && u.Scope == "POR_PROYECTO"
-                        && u.Proyectos.Any(pr => pr.ProyectoId == projectId.Value))
-                    .Select(u => u.WorkerId!.Value)
+                workerIdsDeProyecto = (await ctx.WorkerVinculacion
+                    .Where(v => v.ProyectoId == projectId.Value && v.FechaFin == null)
+                    .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync())
                     .ToHashSet();
@@ -1305,6 +1307,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     .Where(p => p.ReunionTemaReglaId == regla.ReunionTemaReglaId && p.State)
                     .Select(p => p.PuestoId)
                     .ToListAsync();
+                var workerIdsExcluidos = await ctx.ReunionTemaReglaWorkerExcluido
+                    .Where(e => e.ReunionTemaReglaId == regla.ReunionTemaReglaId && e.State)
+                    .Select(e => e.WorkerId)
+                    .ToListAsync();
 
                 string? areaScopeDescripcion = regla.AreaScopeId.HasValue
                     ? await ctx.AreaScope
@@ -1326,6 +1332,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ProjectId = regla.ProjectId,
                     ProjectDescription = projectDescription,
                     PuestoIds = puestoIds,
+                    WorkerIdsExcluidos = workerIdsExcluidos,
                 });
             }
 
@@ -1366,6 +1373,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .ToListAsync();
             foreach (var p in puestosActuales)
                 p.State = false;
+            var excluidosActuales = await ctx.ReunionTemaReglaWorkerExcluido
+                .Where(e => idsReglasActuales.Contains(e.ReunionTemaReglaId) && e.State)
+                .ToListAsync();
+            foreach (var e in excluidosActuales)
+                e.State = false;
             foreach (var r in reglasActuales)
                 r.State = false;
             await ctx.SaveChangesAsync();
@@ -1401,6 +1413,24 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         Active = true,
                         State = true,
                     });
+                }
+
+                // Solo tiene sentido para reglas "Staff de un proyecto": a quién excluir de la
+                // convocatoria dinámica aunque siga vinculado al proyecto.
+                if (reglaInput.ProjectId != null)
+                {
+                    foreach (var workerId in reglaInput.WorkerIdsExcluidos.Distinct())
+                    {
+                        ctx.ReunionTemaReglaWorkerExcluido.Add(new ReunionTemaReglaWorkerExcluido
+                        {
+                            ReunionTemaReglaId = regla.ReunionTemaReglaId,
+                            WorkerId = workerId,
+                            CreatedDateTime = now,
+                            CreatedUserId = userId,
+                            Active = true,
+                            State = true,
+                        });
+                    }
                 }
             }
 
@@ -1492,21 +1522,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .ToListAsync();
         }
 
-        public async Task<List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)>> GetReglasTemaParaGeneracion(int reunionTemaId)
+        public async Task<List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds, List<int> WorkerIdsExcluidos)>> GetReglasTemaParaGeneracion(int reunionTemaId)
         {
             using var ctx = _factory.CreateDbContext();
             var reglas = await ctx.ReunionTemaRegla
                 .Where(r => r.ReunionTemaId == reunionTemaId && r.State)
                 .ToListAsync();
 
-            var resultado = new List<(int?, int?, List<int>)>();
+            var resultado = new List<(int?, int?, List<int>, List<int>)>();
             foreach (var regla in reglas)
             {
                 var puestoIds = await ctx.ReunionTemaPuesto
                     .Where(p => p.ReunionTemaReglaId == regla.ReunionTemaReglaId && p.State)
                     .Select(p => p.PuestoId)
                     .ToListAsync();
-                resultado.Add((regla.AreaScopeId, regla.ProjectId, puestoIds));
+                var workerIdsExcluidos = await ctx.ReunionTemaReglaWorkerExcluido
+                    .Where(e => e.ReunionTemaReglaId == regla.ReunionTemaReglaId && e.State)
+                    .Select(e => e.WorkerId)
+                    .ToListAsync();
+                resultado.Add((regla.AreaScopeId, regla.ProjectId, puestoIds, workerIdsExcluidos));
             }
             return resultado;
         }
@@ -1566,10 +1600,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 WorkerIdActual = await ResolveWorkerId(ctx, userId),
             };
 
+            // Agenda fija: los puntos únicos ya quedaron en AgendaTexto, pero igual puede haber
+            // "temas puntuales" agregados a mano para esta ocurrencia (ver AgregarTemaPuntual) —
+            // se muestran junto al texto fijo, sin el concepto de "pendientes" que solo aplica
+            // cuando TODOS los convocados deben cargar sus temas (agenda dinámica).
+            dto.Items = await CargarAgendaItems(ctx, reunionId);
             if (dto.AgendaFija)
                 return dto;
 
-            dto.Items = await (
+            var participantesConWorker = await ctx.ReunionParticipante
+                .Where(p => p.ReunionId == reunionId && p.State && p.WorkerId != null)
+                .Select(p => new { p.WorkerId, p.Nombre })
+                .ToListAsync();
+            var workerIdsConTemas = dto.Items.Select(i => i.WorkerId).ToHashSet();
+            dto.ParticipantesPendientes = participantesConWorker
+                .Where(p => !workerIdsConTemas.Contains(p.WorkerId!.Value))
+                .Select(p => p.Nombre)
+                .Distinct()
+                .ToList();
+
+            return dto;
+        }
+
+        private static Task<List<ReunionAgendaItemDto>> CargarAgendaItems(AppDbContext ctx, int reunionId)
+        {
+            return (
                 from a in ctx.ReunionAgendaItem
                 where a.ReunionId == reunionId && a.State
                 join w in ctx.Worker on a.WorkerId equals w.Id
@@ -1588,19 +1643,87 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     Orden = a.Orden,
                 }
             ).ToListAsync();
+        }
 
-            var participantesConWorker = await ctx.ReunionParticipante
-                .Where(p => p.ReunionId == reunionId && p.State && p.WorkerId != null)
-                .Select(p => new { p.WorkerId, p.Nombre })
-                .ToListAsync();
-            var workerIdsConTemas = dto.Items.Select(i => i.WorkerId).ToHashSet();
-            dto.ParticipantesPendientes = participantesConWorker
-                .Where(p => !workerIdsConTemas.Contains(p.WorkerId!.Value))
-                .Select(p => p.Nombre)
-                .Distinct()
-                .ToList();
+        /// <summary>
+        /// Agrega UN tema puntual a la agenda de esta ocurrencia (no reemplaza los existentes, a
+        /// diferencia de GuardarMisTemas). Pensado para reuniones de agenda fija que necesitan sumar
+        /// un punto excepcional para esta sesión, sin activar el flujo completo de agenda dinámica
+        /// (que exige a TODOS los convocados cargar sus temas antes de la reunión).
+        /// </summary>
+        public async Task<ReunionAgendaItemDto> AgregarTemaPuntual(int reunionId, int userId, string descripcion)
+        {
+            using var ctx = _factory.CreateDbContext();
 
-            return dto;
+            var reunionExiste = await ctx.Reunion.AnyAsync(r => r.ReunionId == reunionId && r.State);
+            if (!reunionExiste)
+                throw new AbrilException("El acta de reunión no existe.", 404);
+
+            var workerId = await ResolveParticipanteWorkerId(ctx, reunionId, userId);
+
+            var now = DateTime.UtcNow;
+            var siguienteOrden = 1 + (await ctx.ReunionAgendaItem
+                .Where(a => a.ReunionId == reunionId && a.State)
+                .Select(a => (int?)a.Orden)
+                .MaxAsync() ?? -1);
+
+            var item = new ReunionAgendaItem
+            {
+                ReunionId = reunionId,
+                WorkerId = workerId,
+                Descripcion = descripcion.Trim(),
+                Orden = siguienteOrden,
+                CreatedDateTime = now,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.ReunionAgendaItem.Add(item);
+            await ctx.SaveChangesAsync();
+
+            var autor = await (
+                from w in ctx.Worker
+                where w.Id == workerId
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                select new
+                {
+                    p.FullName,
+                    SubareaDescripcion = w.AreaScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == w.AreaScopeId.Value)
+                        .Select(s => s.AreaItem!.AreaItemName)
+                        .FirstOrDefault(),
+                }
+            ).FirstOrDefaultAsync();
+
+            return new ReunionAgendaItemDto
+            {
+                ReunionAgendaItemId = item.ReunionAgendaItemId,
+                WorkerId = workerId,
+                WorkerNombre = autor?.FullName ?? "",
+                SubareaDescripcion = autor?.SubareaDescripcion,
+                Descripcion = item.Descripcion,
+                Orden = item.Orden,
+            };
+        }
+
+        /// <summary>Elimina un tema puntual — solo quien lo agregó puede quitarlo.</summary>
+        public async Task EliminarTemaPuntual(int reunionId, int reunionAgendaItemId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var workerId = await ResolveParticipanteWorkerId(ctx, reunionId, userId);
+
+            var item = await ctx.ReunionAgendaItem
+                .FirstOrDefaultAsync(a => a.ReunionAgendaItemId == reunionAgendaItemId && a.ReunionId == reunionId && a.State);
+            if (item is null)
+                throw new AbrilException("El tema no existe.", 404);
+            if (item.WorkerId != workerId)
+                throw new AbrilException("Solo puedes eliminar los temas que agregaste tú.", 403);
+
+            item.State = false;
+            item.UpdatedDateTime = DateTime.UtcNow;
+            item.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
         }
 
         public async Task GuardarMisTemas(int reunionId, int userId, List<string> temas)
@@ -1611,6 +1734,43 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (!reunionExiste)
                 throw new AbrilException("El acta de reunión no existe.", 404);
 
+            var workerId = await ResolveParticipanteWorkerId(ctx, reunionId, userId);
+
+            var now = DateTime.UtcNow;
+            var actuales = await ctx.ReunionAgendaItem
+                .Where(a => a.ReunionId == reunionId && a.WorkerId == workerId && a.State)
+                .ToListAsync();
+            foreach (var actual in actuales)
+            {
+                actual.State = false;
+                actual.UpdatedDateTime = now;
+                actual.UpdatedUserId = userId;
+            }
+
+            var orden = 0;
+            foreach (var descripcion in temas)
+            {
+                ctx.ReunionAgendaItem.Add(new ReunionAgendaItem
+                {
+                    ReunionId = reunionId,
+                    WorkerId = workerId,
+                    Descripcion = descripcion,
+                    Orden = orden++,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Resuelve el workerId del usuario autenticado y valida que sea participante de la
+        /// reunión (comparando por persona, con auto-reparación de participantes cargados sin
+        /// workerId vinculado). Lanza AbrilException si no corresponde.</summary>
+        private async Task<int> ResolveParticipanteWorkerId(AppDbContext ctx, int reunionId, int userId)
+        {
             var workerId = await ResolveWorkerId(ctx, userId);
             if (workerId is null)
                 throw new AbrilException("No se encontró un trabajador asociado a este usuario.", 400);
@@ -1657,34 +1817,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             if (!esParticipante)
                 throw new AbrilException("No estás convocado a esta reunión.", 403);
 
-            var now = DateTime.UtcNow;
-            var actuales = await ctx.ReunionAgendaItem
-                .Where(a => a.ReunionId == reunionId && a.WorkerId == workerId.Value && a.State)
-                .ToListAsync();
-            foreach (var actual in actuales)
-            {
-                actual.State = false;
-                actual.UpdatedDateTime = now;
-                actual.UpdatedUserId = userId;
-            }
-
-            var orden = 0;
-            foreach (var descripcion in temas)
-            {
-                ctx.ReunionAgendaItem.Add(new ReunionAgendaItem
-                {
-                    ReunionId = reunionId,
-                    WorkerId = workerId.Value,
-                    Descripcion = descripcion,
-                    Orden = orden++,
-                    CreatedDateTime = now,
-                    CreatedUserId = userId,
-                    Active = true,
-                    State = true,
-                });
-            }
-
-            await ctx.SaveChangesAsync();
+            return workerId.Value;
         }
 
         // ── Dashboard "Mis acuerdos" ──────────────────────────────────────────────

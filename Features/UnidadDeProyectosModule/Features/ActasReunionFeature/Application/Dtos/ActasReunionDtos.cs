@@ -414,6 +414,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int? ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
         public List<int> PuestoIds { get; set; } = new();
+        /// <summary>Workers del staff del proyecto excluidos a mano de esta regla (solo aplica
+        /// cuando ProjectId tiene valor).</summary>
+        public List<int> WorkerIdsExcluidos { get; set; } = new();
     }
 
     public class TemaConvocatoriaReglaInput
@@ -421,6 +424,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public int? AreaScopeId { get; set; }
         public int? ProjectId { get; set; }
         public List<int> PuestoIds { get; set; } = new();
+        public List<int> WorkerIdsExcluidos { get; set; } = new();
     }
 
     /// <summary>Convocatoria recurrente asociada a un tema (ej. "Reunión de Jefaturas de Proyectos").</summary>
@@ -499,7 +503,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public bool AgendaFija { get; set; }
         /// <summary>Texto único cuando AgendaFija es true.</summary>
         public string? AgendaTexto { get; set; }
-        /// <summary>Temas cargados por cada participante cuando AgendaFija es false.</summary>
+        /// <summary>Temas cargados por cada participante cuando AgendaFija es false, o los "temas
+        /// puntuales" agregados a mano para esta ocurrencia cuando AgendaFija es true.</summary>
         public List<ReunionAgendaItemDto> Items { get; set; } = new();
         /// <summary>Participantes convocados (con workerId) que aún no cargaron ningún tema.</summary>
         public List<string> ParticipantesPendientes { get; set; } = new();

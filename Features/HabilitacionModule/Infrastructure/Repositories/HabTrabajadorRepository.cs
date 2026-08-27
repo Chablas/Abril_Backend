@@ -1560,6 +1560,108 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
+            // Auto-crear convalidación pendiente si el certificado de aptitud quedó en revisión
+            // (cambio de razón social en el reingreso) y el trabajador tiene un EMO activo: mismo
+            // mecanismo que ya existía en CambiarObraAsync, portado acá porque un reingreso con
+            // cambio de empresa dejaba el ítem CertAptitud en "Falta" mientras el EMO en Clínica
+            // seguía "Vigente" sin que nadie lo revisara (caso Bautista Mendoza / De la Cruz
+            // Aguilar: ambos reingresaron con cambio de empresa y quedaron así, huérfanos).
+            if (esCambioEmpresa)
+            {
+                var ultimoEmo = await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync();
+
+                if (ultimoEmo != null)
+                {
+                    var empresaDestinoResuelta = dto.NuevaEmpresaId ?? currentEmpresaId;
+
+                    // Igual que en CambiarObraAsync: si el destino ya tenía una convalidación
+                    // Aprobada / Aprobada con Observaciones para el mismo EMO, no hay nada nuevo
+                    // que decidir — se registra como "Descartada" (auditable) en vez de abrir otra
+                    // fila "Pendiente" contra un caso ya cerrado.
+                    var yaConvalidadoHaciaDestino = await ctx.WorkerEmoConvalidacion
+                        .AnyAsync(cv => cv.EmoId == ultimoEmo.Id
+                            && (cv.Resultado == "Aprobada" || cv.Resultado == "Aprobada con Observaciones")
+                            && cv.EmpresaDestinoId == empresaDestinoResuelta
+                            && cv.ObraOficinaStaffDestinoId == worker.ObraOficinaStaffId);
+
+                    var habCert = await ctx.SsHabTrabajador
+                        .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+
+                    if (yaConvalidadoHaciaDestino)
+                    {
+                        ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                        {
+                            EmoId = ultimoEmo.Id,
+                            EmpresaDestinoId = empresaDestinoResuelta,
+                            FechaConvalidacion = fechaReingreso,
+                            Resultado = "Descartada",
+                            Observaciones = "Descartada automáticamente: el destino ya tenía una convalidación Aprobada previa.",
+                            PuestoOrigen = worker.PuestoCatalogo?.Nombre,
+                            PuestoDestino = worker.PuestoCatalogo?.Nombre,
+                            ObraOficinaStaffOrigenId = worker.ObraOficinaStaffId,
+                            ObraOficinaStaffDestinoId = worker.ObraOficinaStaffId,
+                            CambioRiesgo = false,
+                            CreatedAt = DateTimeOffset.UtcNow,
+                            UpdatedAt = DateTimeOffset.UtcNow
+                        });
+
+                        if (habCert != null)
+                        {
+                            habCert.Estado = "Aprobado";
+                            habCert.UpdatedAt = DateTime.UtcNow;
+                        }
+                        ultimoEmo.Estado = "Convalidado";
+                        ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                    else
+                    {
+                        ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                        {
+                            EmoId = ultimoEmo.Id,
+                            EmpresaDestinoId = empresaDestinoResuelta,
+                            FechaConvalidacion = fechaReingreso,
+                            Resultado = "Pendiente",
+                            PuestoOrigen = worker.PuestoCatalogo?.Nombre,
+                            PuestoDestino = worker.PuestoCatalogo?.Nombre,
+                            ObraOficinaStaffOrigenId = worker.ObraOficinaStaffId,
+                            ObraOficinaStaffDestinoId = worker.ObraOficinaStaffId,
+                            CambioRiesgo = false,
+                            CreatedAt = DateTimeOffset.UtcNow,
+                            UpdatedAt = DateTimeOffset.UtcNow
+                        });
+
+                        // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado
+                        // arriba): hay un EMO reciente sobre el que el médico puede decidir, no
+                        // hace falta bloquear de inmediato exigiendo un EMO nuevo desde cero.
+                        if (habCert != null)
+                        {
+                            habCert.Estado = "Pendiente";
+                            habCert.UpdatedAt = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                            {
+                                WorkerId = workerId,
+                                ItemId = HabItemIds.CertAptitud,
+                                Estado = "Pendiente",
+                                CreatedAt = DateTime.UtcNow,
+                                UpdatedAt = DateTime.UtcNow
+                            });
+                        }
+
+                        // Mantiene sincronizado el estado del EMO con el ítem de habilitación —
+                        // ver el mismo comentario en CambiarObraAsync (caso Díaz Díaz).
+                        ultimoEmo.Estado = "Pendiente";
+                        ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
 
             // Safety check: garantiza que el worker tiene al menos una vinculación activa.

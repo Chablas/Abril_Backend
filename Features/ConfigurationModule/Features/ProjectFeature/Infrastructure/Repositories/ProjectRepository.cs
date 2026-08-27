@@ -212,6 +212,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 ContributorDepartment                  = department,
                 Active                                 = true,
                 State                                  = true,
+                // Este método solo lo llama ProjectController.CompanyLookup: la razón social
+                // que resulta es siempre la SPE dueña del proyecto (nunca una contratista), así
+                // que corresponde marcarla de una vez como empresa del grupo.
+                EsAbril                                = true,
                 CreatedDateTime                        = DateTimeOffset.UtcNow,
                 CreatedUserId                          = userId
             };

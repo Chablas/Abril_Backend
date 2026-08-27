@@ -46,10 +46,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (proyectoId.HasValue)
             {
-                var ids = await ctx.WorkerVinculacion
+                // Une vinculación laboral (worker_vinculaciones, 1 activa a la vez) con
+                // asignaciones de apoyo a proyectos adicionales (ss_hab_worker_proyecto) —
+                // mismo criterio que GetNoAutorizadosAsync, para no perder a alguien que
+                // apoya un proyecto sin que sea su vinculación principal.
+                var idsVinc = await ctx.WorkerVinculacion
                     .Where(v => v.ProyectoId == proyectoId.Value && v.FechaFin == null)
                     .Select(v => v.WorkerId)
                     .ToListAsync();
+                var idsProyecto = await ctx.WorkerProyecto
+                    .Where(wp => wp.ProyectoId == proyectoId.Value && wp.FechaFin == null)
+                    .Select(wp => wp.WorkerId)
+                    .ToListAsync();
+                var ids = idsVinc.Union(idsProyecto).Distinct().ToList();
                 query = query.Where(w => ids.Contains(w.Id));
             }
 
@@ -116,10 +125,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (proyectoId.HasValue)
             {
-                var ids = await ctx.WorkerVinculacion
+                // Une vinculación laboral (worker_vinculaciones, 1 activa a la vez) con
+                // asignaciones de apoyo a proyectos adicionales (ss_hab_worker_proyecto) —
+                // mismo criterio que GetNoAutorizadosAsync, para no perder a alguien que
+                // apoya un proyecto sin que sea su vinculación principal.
+                var idsVinc = await ctx.WorkerVinculacion
                     .Where(v => v.ProyectoId == proyectoId.Value && v.FechaFin == null)
                     .Select(v => v.WorkerId)
                     .ToListAsync();
+                var idsProyecto = await ctx.WorkerProyecto
+                    .Where(wp => wp.ProyectoId == proyectoId.Value && wp.FechaFin == null)
+                    .Select(wp => wp.WorkerId)
+                    .ToListAsync();
+                var ids = idsVinc.Union(idsProyecto).Distinct().ToList();
                 query = query.Where(w => ids.Contains(w.Id));
             }
 
@@ -226,11 +244,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var empresaIds = await ctx.WorkerVinculacion
+            var empresaIdsVinc = await ctx.WorkerVinculacion
                 .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null && v.EmpresaId.HasValue)
                 .Select(v => v.EmpresaId!.Value)
-                .Distinct()
                 .ToListAsync();
+
+            var empresaIdsProyecto = await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId && wp.FechaFin == null && wp.EmpresaId.HasValue)
+                .Select(wp => wp.EmpresaId!.Value)
+                .ToListAsync();
+
+            var empresaIds = empresaIdsVinc.Union(empresaIdsProyecto).Distinct().ToList();
 
             return await ctx.Contributor
                 .Where(c => empresaIds.Contains(c.ContributorId) && !c.EsAbril)

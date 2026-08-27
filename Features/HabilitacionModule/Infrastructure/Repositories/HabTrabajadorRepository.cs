@@ -1842,6 +1842,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var categoriaAnteriorId = w.PuestoCatalogo?.CategoriaId;
             var puestoAnteriorId = w.PuestoId;
             var obraOficinaAnterior = w.ObraOficinaStaffId;
+            var subareaAnterior = w.Subarea;
+            var areaAnterior = w.Area;
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
@@ -1960,6 +1962,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             await ctx.SaveChangesAsync();
+
+            // Si dejó de calificar como candidato de Planeamiento (Unidad de Proyectos /
+            // Planeamiento BIM — mismo criterio que EvAsignacionSupervisorRepository), sus
+            // asignaciones de evaluación quedan huérfanas: ya no aparece en la pantalla
+            // "Evaluaciones > Asignaciones" para poder desmarcarlas a mano, así que se
+            // desactivan solas al cambiar de puesto/subárea.
+            bool EsCandidatoPlaneamiento(string? subarea, string? area, int? obraOficinaId) =>
+                (subarea == "Unidad de Proyectos" && obraOficinaId == ObraOficinaStaffIds.OficinaCentral && area == "Proyectos")
+                || subarea == "Planeamiento BIM";
+
+            var eraCandidatoPlaneamiento = EsCandidatoPlaneamiento(subareaAnterior, areaAnterior, obraOficinaAnterior);
+            var esCandidatoPlaneamientoAhora = EsCandidatoPlaneamiento(w.Subarea, w.Area, w.ObraOficinaStaffId);
+
+            if (eraCandidatoPlaneamiento && !esCandidatoPlaneamientoAhora)
+            {
+                await ctx.Database.ExecuteSqlInterpolatedAsync($@"
+                    UPDATE ev_asignacion_supervisor
+                    SET activo = false, updated_at = NOW()
+                    WHERE supervisor_worker_id = {workerId} AND activo = true");
+            }
 
             if (vidaLeyCreada)
             {

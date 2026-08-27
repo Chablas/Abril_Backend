@@ -27,7 +27,7 @@ public class InspeccionDestinatariosCierreDto
     public string? GerenteInmobiliarioEmail { get; set; }
     /// <summary>Prevencionistas (rol PREVENCIONISTA) con vinculación activa al proyecto de la inspección — puede haber varios, uno por contratista.</summary>
     public List<InspeccionDestinatarioDto> Prevencionistas { get; set; } = new();
-    /// <summary>Quienes participaron de la inspección (SsomaInspeccionParticipante con WorkerId resuelto a correo) — incluye al inspector, que también queda como participante.</summary>
+    /// <summary>Quienes participaron de la inspección (SsomaInspeccionParticipante con WorkerId resuelto a correo, más el inspector original) — van en copia, no en el "para".</summary>
     public List<InspeccionDestinatarioDto> Participantes { get; set; } = new();
     /// <summary>Puesto único "JEFE DE SEGURIDAD Y SALUD EN EL TRABAJO" — mismo criterio que GerenteInmobiliarioEmail. Va en copia, no en el "para".</summary>
     public string? JefeSsomaEmail { get; set; }

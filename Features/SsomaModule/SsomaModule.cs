@@ -55,6 +55,10 @@ using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
@@ -251,6 +255,11 @@ namespace Abril_Backend.Features.Ssoma
             // Programación de Inducciones (rotación por proyecto + aviso automático)
             services.AddScoped<IInduccionProgramacionRepository, InduccionProgramacionRepository>();
             services.AddScoped<IInduccionProgramacionService, InduccionProgramacionService>();
+
+            // PETS — catálogo de pasos, piloto para que OPT (y a futuro Estándares/IPERC)
+            // jalen automáticamente la estructura en vez de tipearla a mano.
+            services.AddScoped<IPetsRepository, PetsRepository>();
+            services.AddScoped<IPetsService, PetsService>();
 
             return services;
         }

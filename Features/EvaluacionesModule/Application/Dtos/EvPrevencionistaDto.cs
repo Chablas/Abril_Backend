@@ -34,6 +34,16 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public bool YaEvalue { get; set; }
     }
 
+    // ─── CANDIDATO (pool para el recordatorio consolidado) ─────────────────────
+    public class EvPrevencionistaCandidatoDto
+    {
+        public int UserId { get; set; }
+        public int ContributorId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public List<int> ProyectoIds { get; set; } = [];
+    }
+
     // ─── MI PERFIL (el propio prevencionista/coordinador — SIN identidad del evaluador) ─
     public class EvPrevencionistaMiPerfilDto
     {

@@ -20,11 +20,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetResumen()
+        public async Task<IActionResult> GetResumen([FromQuery] int proyectoId)
         {
             try
             {
-                var result = await _repo.GetResumenAsync();
+                var result = await _repo.GetResumenAsync(proyectoId);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

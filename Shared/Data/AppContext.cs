@@ -297,6 +297,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvPrevencionistaPlantilla> EvPrevencionistaPlantillas => Set<EvPrevencionistaPlantilla>();
         public DbSet<EvEvaluacionPrevencionista> EvEvaluacionesPrevencionista => Set<EvEvaluacionPrevencionista>();
         public DbSet<EvEvaluacionPrevencionistaDetalle> EvEvaluacionesPrevencionistaDetalle => Set<EvEvaluacionPrevencionistaDetalle>();
+        public DbSet<EvGestionSsomaPlantilla> EvGestionSsomaPlantillas => Set<EvGestionSsomaPlantilla>();
+        public DbSet<EvEvaluacionGestionSsoma> EvEvaluacionesGestionSsoma => Set<EvEvaluacionGestionSsoma>();
+        public DbSet<EvEvaluacionGestionSsomaDetalle> EvEvaluacionesGestionSsomaDetalle => Set<EvEvaluacionGestionSsomaDetalle>();
+        public DbSet<EvEvaluacionGestionSsomaCumplimiento> EvEvaluacionesGestionSsomaCumplimiento => Set<EvEvaluacionGestionSsomaCumplimiento>();
         public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
         public DbSet<SsomaPaso> SsomaPasos { get; set; }
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
@@ -313,6 +317,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOpt> SsomaOpt { get; set; }
         public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
         public DbSet<SsomaPet> SsomaPet { get; set; }
+        public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
         public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
         public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
@@ -1013,6 +1018,9 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
             modelBuilder.Entity<SsomaOptTrabajador>().ToTable("ssoma_opt_trabajador");
             modelBuilder.Entity<SsomaPet>().ToTable("ssoma_pet");
+            modelBuilder.Entity<SsomaPetPaso>().ToTable("ssoma_pet_paso");
+            modelBuilder.Entity<SsomaPetPaso>()
+                .HasOne(x => x.Pet).WithMany(p => p.Pasos).HasForeignKey(x => x.PetId);
             modelBuilder.Entity<SsomaOptCriterioVerificacion>().ToTable("ssoma_opt_criterio_verificacion");
             modelBuilder.Entity<SsomaOptVerificacion>().ToTable("ssoma_opt_verificacion");
             modelBuilder.Entity<SsomaOptPaso>().ToTable("ssoma_opt_paso");

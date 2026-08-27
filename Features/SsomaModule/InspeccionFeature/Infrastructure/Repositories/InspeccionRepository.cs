@@ -808,12 +808,16 @@ public class InspeccionRepository : IInspeccionRepository
             .FirstOrDefaultAsync();
 
         // Quienes hicieron la inspección: participantes con WorkerId resuelto a correo
-        // corporativo (el inspector original también queda como participante, así que ya
-        // queda cubierto sin tratarlo aparte).
+        // corporativo, MÁS el inspector original (insp.InspectorWorkerId) — el creador de la
+        // inspección queda registrado como participante SIN WorkerId (se resuelve solo por
+        // nombre en InspeccionRepository.UnirseAsync/CrearInspeccionAsync), así que si no se
+        // trata aparte el inspector nunca aparece acá aunque sea quien más participó.
         var participantesConWorker = await ctx.SsomaInspeccionParticipante
             .Where(p => p.InspeccionId == insp.Id && p.WorkerId.HasValue)
             .Select(p => new { p.Nombre, WorkerId = p.WorkerId!.Value })
             .ToListAsync();
+        if (insp.InspectorWorkerId.HasValue && !participantesConWorker.Any(p => p.WorkerId == insp.InspectorWorkerId.Value))
+            participantesConWorker.Add(new { Nombre = insp.InspectorNombre ?? "", WorkerId = insp.InspectorWorkerId.Value });
         var workerIdsParticipantes = participantesConWorker.Select(p => p.WorkerId).Distinct().ToList();
         var emailsPorWorker = await ctx.Worker.AsNoTracking()
             .Where(w => workerIdsParticipantes.Contains(w.Id))
@@ -867,7 +871,6 @@ public class InspeccionRepository : IInspeccionRepository
 
             var to = new List<string?> { destinatarios.ResidenteEmail, destinatarios.CoordSsomaEmail, destinatarios.GerenteInmobiliarioEmail }
                 .Concat(destinatarios.Prevencionistas.Select(p => (string?)p.Email))
-                .Concat(destinatarios.Participantes.Select(p => (string?)p.Email))
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .Select(e => e!)
                 .Distinct()
@@ -875,6 +878,7 @@ public class InspeccionRepository : IInspeccionRepository
             if (to.Count == 0) return;
 
             var cc = new List<string?> { destinatarios.TuEmail, destinatarios.JefeSsomaEmail }
+                .Concat(destinatarios.Participantes.Select(p => (string?)p.Email))
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .Select(e => e!)
                 .Distinct()

@@ -64,6 +64,28 @@ public class SsomaPet
     public string? SharepointUrl { get; set; }
     public bool Activo { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+
+    public ICollection<SsomaPetPaso> Pasos { get; set; } = [];
+}
+
+// Catálogo de pasos del PETS: piloto para que OPT (y a futuro otras herramientas)
+// jalen automáticamente la estructura del PETS en vez de tipearla a mano cada vez.
+// "Orden" es solo la clave de ordenamiento interna — el número que se muestra al
+// usuario ("Paso 4") se calcula por posición, nunca se guarda como texto fijo, para
+// que insertar un paso en medio no requiera renumerar nada a mano.
+public class SsomaPetPaso
+{
+    public int Id { get; set; }
+    public int PetId { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public string? ImagenUrl { get; set; }
+    public int Orden { get; set; }
+    public bool Activo { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+
+    public SsomaPet? Pet { get; set; }
 }
 
 public class SsomaOptCriterioVerificacion

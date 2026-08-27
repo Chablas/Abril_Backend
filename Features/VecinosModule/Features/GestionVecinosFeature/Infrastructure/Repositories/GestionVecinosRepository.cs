@@ -551,6 +551,21 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             return true;
         }
 
+        public async Task<bool> UpdateSolicitudDescripcion(int solicitudId, string descripcion, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var solicitud = await ctx.VecinoSolicitud
+                .FirstOrDefaultAsync(s => s.VecinoSolicitudId == solicitudId && s.Active && s.State);
+            if (solicitud is null) return false;
+
+            solicitud.Descripcion = descripcion.Trim();
+            solicitud.UpdatedDateTime = DateTime.UtcNow;
+            solicitud.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
         // ── Compromisos ─────────────────────────────────────────────────────
         public async Task<bool> SolicitudExists(int solicitudId)
         {

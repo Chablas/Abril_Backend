@@ -293,6 +293,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        /// <summary>Edita el texto de una solicitud ya registrada.</summary>
+        [HttpPatch("solicitudes/{solicitudId:int}/descripcion")]
+        public async Task<IActionResult> UpdateSolicitudDescripcion(int solicitudId, [FromBody] VecinoSolicitudDescripcionUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.UpdateSolicitudDescripcion(solicitudId, dto.Descripcion, userId);
+                return Ok(new { message = "Solicitud actualizada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS SOLICITUD DESCRIPCION: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         // ── Compromisos ─────────────────────────────────────────────────────
         [HttpGet("solicitudes/{solicitudId:int}/compromisos")]
         public async Task<IActionResult> GetCompromisos(int solicitudId)

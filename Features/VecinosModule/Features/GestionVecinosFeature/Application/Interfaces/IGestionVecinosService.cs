@@ -18,6 +18,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         Task<VecinoSolicitudesResponseDto> GetSolicitudes(int vecinoId);
         Task<int> CreateSolicitud(int vecinoId, VecinoSolicitudCreateDto dto, int userId);
         Task UpdateSolicitudEstado(int solicitudId, int estadoId, int userId);
+        Task UpdateSolicitudDescripcion(int solicitudId, string descripcion, int userId);
 
         Task<List<VecinoCompromisoItemDto>> GetCompromisos(int solicitudId);
         Task<int> CreateCompromiso(int solicitudId, VecinoCompromisoCreateDto dto, int userId);

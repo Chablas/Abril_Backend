@@ -118,5 +118,5 @@ Evitar el problema N+1.
 Para evitar los roundtrips a la base de datos puedes usar Dapper.
 
 ## Consideraciones para pruebas
-Cuando termines de hacer/escribir código compila el proyecto para buscar posibles errores y corrígelos. No hagas previews, ni insertes datos/registros de prueba, ni trates de testear, yo testearé para verificar si está bien o no.
+Cuando termines de hacer/escribir código compila el proyecto para buscar posibles errores y corrígelos. No hagas previews, ni insertes datos/registros de prueba, ni trates de testear, yo testearé para verificar si está bien o no. Al momento de compilar asume que Abril-Backend.exe está bloqueado porque yo normalmente tengo el backend corriendo.
 ```

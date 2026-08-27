@@ -4,6 +4,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 {
     public interface IDashboardHabRepository
     {
-        Task<DashboardAdminDto> GetResumenAsync();
+        Task<DashboardAdminDto> GetResumenAsync(int proyectoId);
     }
 }

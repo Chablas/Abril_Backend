@@ -100,13 +100,24 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // Subarea del evaluador (para saber qué área evalúa)
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.subarea AS Subarea, w.area AS Area, pu.categoria_id AS CategoriaId
+                @"SELECT w.id AS WorkerId, w.subarea AS Subarea, w.area AS Area,
+                         w.obra_oficina_staff_id AS ObraOficinaStaffId, pu.categoria_id AS CategoriaId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
                   WHERE w.state AND p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });
+
+            // Mismo criterio que REGLA 2 de EvEvaluacionResidenteRepository: Unidad de
+            // Proyectos/Planeamiento BIM no evalúa por su propia vinculación (normalmente
+            // "Oficina Central", sin contratistas) sino por los proyectos que le asignaron
+            // a mano en ev_asignacion_supervisor (pantalla Evaluaciones > Asignaciones).
+            bool esCandidatoPlaneamiento = evaluador != null &&
+                ((evaluador.Subarea == "Unidad de Proyectos"
+                    && evaluador.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
+                    && evaluador.Area == "Proyectos")
+                 || evaluador.Subarea == "Planeamiento BIM");
 
             // Jefes de área ven contratistas de TODOS los proyectos (no solo el suyo propio).
             bool puedeVerTodos = evaluador?.CategoriaId == CategoriaIds.Jefe;
@@ -140,20 +151,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   ORDER BY orden",
                 new { Puesto = $"%{puestoMatch}%" });
 
-            // Proyectos del evaluador: el/los proyecto(s) donde está actualmente destacado
-            // según su vinculación vigente (worker_vinculaciones.fecha_fin IS NULL), no
-            // el contributor_id de onboarding (queda desactualizado si cambia de obra) ni user_project.
+            // Proyectos del evaluador: para UDP/Planeamiento BIM, los asignados a mano en
+            // ev_asignacion_supervisor (ver esCandidatoPlaneamiento arriba); para el resto,
+            // el/los proyecto(s) donde está actualmente destacado según su vinculación vigente
+            // (worker_vinculaciones.fecha_fin IS NULL) — no el contributor_id de onboarding
+            // (queda desactualizado si cambia de obra) ni user_project.
             // Los Jefes de área (puedeVerTodos) no se filtran por su propio proyecto: ven todos.
             List<int> proyectoIds = [];
             if (!puedeVerTodos)
             {
-                var proyectosEvaluador = await conn.QueryAsync<int>(
-                    @"SELECT DISTINCT wv.proyecto_id
-                      FROM workers w
-                      JOIN person p ON p.person_id = w.person_id
-                      JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE w.state AND p.user_id = @UserId",
-                    new { UserId = userId });
+                var proyectosEvaluador = esCandidatoPlaneamiento
+                    ? await conn.QueryAsync<int>(
+                        @"SELECT project_id FROM ev_asignacion_supervisor
+                          WHERE supervisor_worker_id = @WorkerId AND activo = true",
+                        new { evaluador!.WorkerId })
+                    : await conn.QueryAsync<int>(
+                        @"SELECT DISTINCT wv.proyecto_id
+                          FROM workers w
+                          JOIN person p ON p.person_id = w.person_id
+                          JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                          WHERE w.state AND p.user_id = @UserId",
+                        new { UserId = userId });
 
                 proyectoIds = proyectosEvaluador.ToList();
                 if (!proyectoIds.Any())
@@ -507,7 +525,62 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         // ─── Raw helpers ───────────────────────────────────────────────────────
         private record CandidatoRaw(int UserId, string NombreCompleto, string EmailCorporativo, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
-        private record EvaluadorInfo(string? Subarea, string? Area, int? CategoriaId);
+        private record EvaluadorInfo(int WorkerId, string? Subarea, string? Area, int? ObraOficinaStaffId, int? CategoriaId);
+        public async Task<List<EmpresaResultadoEnvioDto>> GetResultadosParaEnvioAsync(int periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var evaluaciones = await ObtenerResumenesAsync(conn, periodoId, null);
+
+            var supervisoresRaw = (await conn.QueryAsync<SupervisorRaw>(
+                @"SELECT esc.contributor_id       AS ContributorId,
+                         esc.supervisor_nombre     AS SupervisorNombre,
+                         pr.project_description    AS ProyectoNombre,
+                         esc.nota                  AS Nota
+                  FROM ev_evaluacion_supervisor_contratista esc
+                  JOIN project pr ON pr.project_id = esc.proyecto_id
+                  WHERE esc.periodo_id = @PeriodoId AND esc.nota IS NOT NULL
+                  ORDER BY esc.supervisor_nombre",
+                new { PeriodoId = periodoId })).ToList();
+
+            var contributorIds = evaluaciones.Select(e => e.ContributorId)
+                .Union(supervisoresRaw.Select(s => s.ContributorId))
+                .Distinct()
+                .ToList();
+
+            if (contributorIds.Count == 0) return [];
+
+            var empresas = await ctx.Contributor
+                .Where(c => contributorIds.Contains(c.ContributorId))
+                .Select(c => new { c.ContributorId, c.ContributorName, c.EmailAdministrador })
+                .ToDictionaryAsync(x => x.ContributorId);
+
+            return contributorIds.Select(id =>
+            {
+                empresas.TryGetValue(id, out var info);
+                return new EmpresaResultadoEnvioDto
+                {
+                    ContributorId = id,
+                    ContributorNombre = info?.ContributorName ?? "",
+                    EmailAdministrador = info?.EmailAdministrador,
+                    Evaluaciones = evaluaciones.Where(e => e.ContributorId == id).ToList(),
+                    Supervisores = supervisoresRaw
+                        .Where(s => s.ContributorId == id)
+                        .Select(s => new SupervisorResultadoDto
+                        {
+                            SupervisorNombre = s.SupervisorNombre,
+                            ProyectoNombre = s.ProyectoNombre,
+                            Nota = s.Nota
+                        })
+                        .ToList()
+                };
+            }).ToList();
+        }
+
+        private record SupervisorRaw(int ContributorId, string SupervisorNombre, string ProyectoNombre, decimal? Nota);
+
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);
         private record YaEvaluadaRaw(int ContributorId, int ProyectoId, decimal? Nota, bool NoAplica, string? NoAplicaMotivo);
         private record NotaAreaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, string AreaNombre, decimal? Nota);

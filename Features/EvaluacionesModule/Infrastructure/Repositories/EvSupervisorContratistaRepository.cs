@@ -286,6 +286,30 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             return rows.ToList();
         }
 
+        public async Task<List<EvaluadorDto>> GetEvaluadoresCandidatosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var rows = await conn.QueryAsync<EvaluadorDto>(
+                @"SELECT DISTINCT
+                    au.user_id          AS UserId,
+                    w.id                AS WorkerId,
+                    p.full_name         AS NombreCompleto,
+                    w.email_corporativo AS EmailCorporativo,
+                    w.subarea           AS Subarea
+                  FROM workers w
+                  JOIN person p    ON p.person_id = w.person_id
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
+                  WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)");
+
+            return rows.ToList();
+        }
+
         private static EvPeriodoDto MapPeriodo(EvPeriodoRaw r) => new()
         {
             Id = r.Id,

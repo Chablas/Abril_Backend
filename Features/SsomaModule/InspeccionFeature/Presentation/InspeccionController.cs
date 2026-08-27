@@ -144,6 +144,44 @@ public class InspeccionController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error cerrar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpPut("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> EditarHallazgo(int id, [FromBody] EditarHallazgoRequest request)
+    {
+        try
+        {
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
+            }
+            await _service.EditarHallazgoAsync(id, request);
+            return Ok(new { message = "Hallazgo actualizado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error editar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpDelete("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> EliminarHallazgo(int id)
+    {
+        try
+        {
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
+            }
+            await _service.EliminarHallazgoAsync(id);
+            return Ok(new { message = "Hallazgo eliminado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error eliminar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpGet("abiertas")]
     [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetAbiertas([FromQuery] int? proyectoId)

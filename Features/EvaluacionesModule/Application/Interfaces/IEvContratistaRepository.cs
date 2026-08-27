@@ -21,5 +21,11 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         /// al menos un proyecto asignado. Usado por el recordatorio automático mensual.
         /// </summary>
         Task<List<EvaluadorDto>> GetEvaluadoresCandidatosAsync();
+
+        /// <summary>
+        /// Agrupa por empresa (contributor) sus evaluaciones (por proyecto/área) y las de sus
+        /// supervisores en el período dado — para el envío de resultados a los gerentes.
+        /// </summary>
+        Task<List<EmpresaResultadoEnvioDto>> GetResultadosParaEnvioAsync(int periodoId);
     }
 }

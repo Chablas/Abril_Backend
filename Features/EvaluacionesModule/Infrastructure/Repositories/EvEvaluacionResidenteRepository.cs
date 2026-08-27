@@ -142,6 +142,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 )
                 WHERE w.state
                   AND pu.categoria_id = {CategoriaIds.Residente}
+                  AND w.contrata_casa = 'Casa'
                   AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                   AND u.active    = true";
 

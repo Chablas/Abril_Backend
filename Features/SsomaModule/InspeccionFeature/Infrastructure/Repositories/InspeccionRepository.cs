@@ -1,6 +1,8 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -13,12 +15,18 @@ public class InspeccionRepository : IInspeccionRepository
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly IEmailService _emailService;
+    private readonly InspeccionPdfService _pdfService;
     private readonly ILogger<InspeccionRepository> _logger;
 
-    public InspeccionRepository(IDbContextFactory<AppDbContext> factory, IEmailService emailService, ILogger<InspeccionRepository> logger)
+    public InspeccionRepository(
+        IDbContextFactory<AppDbContext> factory,
+        IEmailService emailService,
+        InspeccionPdfService pdfService,
+        ILogger<InspeccionRepository> logger)
     {
         _factory = factory;
         _emailService = emailService;
+        _pdfService = pdfService;
         _logger = logger;
     }
 
@@ -221,6 +229,50 @@ public class InspeccionRepository : IInspeccionRepository
         await ctx.SaveChangesAsync();
     }
 
+    /// <summary>Solo editable mientras el hallazgo sigue "Abierto" y su inspección sigue
+    /// "Abierta" — un hallazgo ya cerrado, o cuya inspección ya se cerró, es un registro final
+    /// y no debe modificarse.</summary>
+    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
+            .FirstOrDefaultAsync(h => h.Id == hallazgoId)
+            ?? throw new AbrilException("Hallazgo no encontrado.", 404);
+
+        if (hallazgo.Estado != "Abierto")
+            throw new AbrilException("Solo se pueden editar hallazgos abiertos.", 400);
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+            throw new AbrilException("La inspección ya está cerrada, no se puede editar el hallazgo.", 400);
+
+        hallazgo.Descripcion = request.Descripcion;
+        hallazgo.Tipo = request.Tipo;
+        hallazgo.Area = request.Area;
+        hallazgo.ResponsableNombre = request.ResponsableNombre;
+        hallazgo.ResponsableCargo = request.ResponsableCargo;
+        hallazgo.FechaLimite = request.FechaLimite.HasValue ? DateTime.SpecifyKind(request.FechaLimite.Value, DateTimeKind.Utc) : null;
+        hallazgo.AccionCorrectiva = request.AccionCorrectiva;
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Soft delete — marca Estado = "Eliminado" en vez de borrar la fila, para
+    /// conservar el registro ante una auditoría. Mismas condiciones que EditarHallazgoAsync.
+    /// Todas las lecturas de hallazgos (detalle, PDF, dashboard, lista) ya excluyen este estado.</summary>
+    public async Task EliminarHallazgoAsync(int hallazgoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
+            .FirstOrDefaultAsync(h => h.Id == hallazgoId)
+            ?? throw new AbrilException("Hallazgo no encontrado.", 404);
+
+        if (hallazgo.Estado != "Abierto")
+            throw new AbrilException("Solo se pueden eliminar hallazgos abiertos.", 400);
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+            throw new AbrilException("La inspección ya está cerrada, no se puede eliminar el hallazgo.", 400);
+
+        hallazgo.Estado = "Eliminado";
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls)
     {
@@ -336,6 +388,7 @@ public class InspeccionRepository : IInspeccionRepository
                     Observacion = r.Observacion
                 }).ToList(),
             Hallazgos = insp.Hallazgos
+                .Where(h => h.Estado != "Eliminado")
                 .OrderByDescending(h => h.Tipo)
                 .Select(h => new InspeccionHallazgoDto
                 {
@@ -405,8 +458,8 @@ public class InspeccionRepository : IInspeccionRepository
                 Fecha = i.Fecha,
                 Area = i.Area,
                 InspectorNombre = i.InspectorNombre,
-                TotalHallazgos = i.Hallazgos.Count,
-                HallazgosCriticos = i.Hallazgos.Count(h => h.Tipo == "Critico"),
+                TotalHallazgos = i.Hallazgos.Count(h => h.Estado != "Eliminado"),
+                HallazgosCriticos = i.Hallazgos.Count(h => h.Tipo == "Critico" && h.Estado != "Eliminado"),
                 HallazgosAbiertos = i.Hallazgos.Count(h => h.Estado == "Abierto"),
                 TasaCumplimiento = i.TasaCumplimiento,
                 Estado = i.Estado,
@@ -442,7 +495,7 @@ public class InspeccionRepository : IInspeccionRepository
         var all = await q.ToListAsync();
         var delAnio = all.Where(i => i.Fecha.Year == anioFiltro).ToList();
         var delMes = delAnio.Where(i => i.Fecha.Month == mesActual).ToList();
-        var todosHallazgos = all.SelectMany(i => i.Hallazgos).ToList();
+        var todosHallazgos = all.SelectMany(i => i.Hallazgos).Where(h => h.Estado != "Eliminado").ToList();
 
         var tendencia = Enumerable.Range(1, 12).Select(m =>
         {
@@ -535,6 +588,7 @@ public class InspeccionRepository : IInspeccionRepository
             .Include(h => h.Inspeccion!).ThenInclude(i => i.Proyecto)
             .Include(h => h.Fotos)
             .AsNoTracking()
+            .Where(h => h.Estado != "Eliminado")
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(estado))
@@ -683,7 +737,7 @@ public class InspeccionRepository : IInspeccionRepository
                 ProyectoNombre = i.Proyecto != null ? i.Proyecto.ProjectDescription : "",
                 TipoNombre = i.Tipo != null ? i.Tipo.Nombre : "",
                 Fecha = i.Fecha,
-                TotalHallazgos = i.Hallazgos.Count,
+                TotalHallazgos = i.Hallazgos.Count(h => h.Estado != "Eliminado"),
                 TotalParticipantes = i.Participantes.Count,
                 CreatedAt = i.CreatedAt
             })
@@ -707,7 +761,7 @@ public class InspeccionRepository : IInspeccionRepository
         if (!insp.EsColaborativa) throw new AbrilException("Esta inspección no es colaborativa.", 400);
         if (insp.Estado != "Abierta") throw new AbrilException("La inspección ya está cerrada.", 400);
 
-        insp.Estado = insp.Hallazgos.Any() ? "En Proceso" : "Cerrada";
+        insp.Estado = insp.Hallazgos.Any(h => h.Estado != "Eliminado") ? "En Proceso" : "Cerrada";
         await ctx.SaveChangesAsync();
 
         await EnviarNotificacionCierreColaborativaAsync(ctx, insp, userId);
@@ -754,6 +808,33 @@ public class InspeccionRepository : IInspeccionRepository
                      && w.Estado == "ACTIVO")
             .Select(w => w.EmailCorporativo)
             .FirstOrDefaultAsync();
+
+        dto.JefeSsomaEmail = await ctx.Worker.AsNoTracking()
+            .Where(w => w.PuestoCatalogo != null && w.PuestoCatalogo.Nombre.ToUpper() == "JEFE DE SEGURIDAD Y SALUD EN EL TRABAJO"
+                     && w.Estado == "ACTIVO")
+            .Select(w => w.EmailCorporativo)
+            .FirstOrDefaultAsync();
+
+        // Quienes hicieron la inspección: participantes con WorkerId resuelto a correo
+        // corporativo, MÁS el inspector original (insp.InspectorWorkerId) — el creador de la
+        // inspección queda registrado como participante SIN WorkerId (se resuelve solo por
+        // nombre en InspeccionRepository.UnirseAsync/CrearInspeccionAsync), así que si no se
+        // trata aparte el inspector nunca aparece acá aunque sea quien más participó.
+        var participantesConWorker = await ctx.SsomaInspeccionParticipante
+            .Where(p => p.InspeccionId == insp.Id && p.WorkerId.HasValue)
+            .Select(p => new { p.Nombre, WorkerId = p.WorkerId!.Value })
+            .ToListAsync();
+        if (insp.InspectorWorkerId.HasValue && !participantesConWorker.Any(p => p.WorkerId == insp.InspectorWorkerId.Value))
+            participantesConWorker.Add(new { Nombre = insp.InspectorNombre ?? "", WorkerId = insp.InspectorWorkerId.Value });
+        var workerIdsParticipantes = participantesConWorker.Select(p => p.WorkerId).Distinct().ToList();
+        var emailsPorWorker = await ctx.Worker.AsNoTracking()
+            .Where(w => workerIdsParticipantes.Contains(w.Id))
+            .Select(w => new { w.Id, w.EmailCorporativo })
+            .ToDictionaryAsync(w => w.Id, w => w.EmailCorporativo);
+        dto.Participantes = participantesConWorker
+            .Where(p => emailsPorWorker.TryGetValue(p.WorkerId, out var email) && !string.IsNullOrWhiteSpace(email))
+            .Select(p => new InspeccionDestinatarioDto { Nombre = p.Nombre, Email = emailsPorWorker[p.WorkerId]! })
+            .ToList();
 
         // Prevencionistas (rol 72, ver Roles.Prevencionista): uno por contratista con
         // vinculación activa al proyecto de la inspección. Mismo criterio de resolución que
@@ -804,9 +885,12 @@ public class InspeccionRepository : IInspeccionRepository
                 .ToList();
             if (to.Count == 0) return;
 
-            List<string>? cc = !string.IsNullOrWhiteSpace(destinatarios.TuEmail)
-                ? new List<string> { destinatarios.TuEmail! }
-                : null;
+            var cc = new List<string?> { destinatarios.TuEmail, destinatarios.JefeSsomaEmail }
+                .Concat(destinatarios.Participantes.Select(p => (string?)p.Email))
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!)
+                .Distinct()
+                .ToList();
 
             var proyecto = await ctx.Project.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.ProjectId == insp.ProyectoId);
@@ -817,7 +901,8 @@ public class InspeccionRepository : IInspeccionRepository
                 .Select(t => t.Nombre)
                 .FirstOrDefaultAsync();
 
-            var hallazgosAbiertos = insp.Hallazgos.Count(h => h.Estado != "Cerrado");
+            var hallazgosVigentes = insp.Hallazgos.Where(h => h.Estado != "Eliminado").ToList();
+            var hallazgosAbiertos = hallazgosVigentes.Count(h => h.Estado != "Cerrado");
             var fechaStr = insp.Fecha.ToString("dd/MM/yyyy");
 
             var html = $@"<h2>Inspección {(insp.Estado == "Cerrada" ? "cerrada" : "cerrada — con hallazgos pendientes")}</h2>
@@ -828,17 +913,41 @@ public class InspeccionRepository : IInspeccionRepository
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Área</td><td style='padding:6px 12px'>{insp.Area ?? "—"}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Estado</td><td style='padding:6px 12px'>{insp.Estado}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos totales</td><td style='padding:6px 12px'>{insp.Hallazgos.Count}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos totales</td><td style='padding:6px 12px'>{hallazgosVigentes.Count}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hallazgos pendientes de cierre</td><td style='padding:6px 12px'>{hallazgosAbiertos}</td></tr>
 </table>
 <p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
+
+            List<EmailAttachment>? attachments = null;
+            try
+            {
+                var detalle = await GetDetalleAsync(insp.Id);
+                if (detalle != null)
+                {
+                    var pdfBytes = await _pdfService.GenerarPdfAsync(detalle);
+                    attachments = [new EmailAttachment
+                    {
+                        FileName = $"Inspeccion_{insp.Id}_{fechaStr.Replace("/", "-")}.pdf",
+                        ContentType = "application/pdf",
+                        Content = pdfBytes,
+                    }];
+                }
+            }
+            catch (Exception exPdf)
+            {
+                // El correo de cierre igual debe salir aunque el PDF falle (ej. una foto
+                // no descargable desde SharePoint) — no lo dejamos sin adjunto en silencio,
+                // queda en el log para investigar.
+                _logger.LogWarning(exPdf, "No se pudo generar el PDF adjunto para el cierre de inspección {InspeccionId}.", insp.Id);
+            }
 
             await _emailService.SendAsync(
                 to: to,
                 subject: $"[Inspección Colaborativa Cerrada] {proyecto.ProjectDescription} — {fechaStr}",
                 body: html,
                 isHtml: true,
-                cc: cc);
+                cc: cc,
+                attachments: attachments);
         }
         catch (Exception ex)
         {

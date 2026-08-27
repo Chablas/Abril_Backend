@@ -192,4 +192,14 @@ public class InspeccionService : IInspeccionService
         }
         await _repo.CerrarHallazgoAsync(hallazgoId, request, evidenciaUrl);
     }
+
+    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Descripcion))
+            throw new AbrilException("La descripción del hallazgo es requerida.", 400);
+        await _repo.EditarHallazgoAsync(hallazgoId, request);
+    }
+
+    public async Task EliminarHallazgoAsync(int hallazgoId)
+        => await _repo.EliminarHallazgoAsync(hallazgoId);
 }

@@ -190,6 +190,45 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<EvPrevencionistaCandidatoDto>> GetEvaluadoresCandidatosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            // Reconstruye el mismo alcance que ContratistaAuthService.GenerarTokenDto arma
+            // en el JWT (empresaId = contractor_id, proyectoIds = ss_contratista_usuario_proyecto)
+            // porque el cron no tiene ese token — solo puede leerlo de la base.
+            var rows = await conn.QueryAsync<CandidatoRawFlat>(
+                @"SELECT
+                    scu.user_id       AS UserId,
+                    scu.contractor_id AS ContributorId,
+                    au.email          AS Email,
+                    COALESCE(p.full_name, au.email) AS Nombre,
+                    scup.proyecto_id  AS ProyectoId
+                  FROM ss_contratista_usuario scu
+                  JOIN app_user au ON au.user_id = scu.user_id
+                  JOIN ss_contratista_usuario_proyecto scup ON scup.contratista_usuario_id = scu.id
+                  LEFT JOIN workers w ON w.id = (
+                      SELECT w2.id FROM workers w2
+                      JOIN person p2 ON p2.person_id = w2.person_id
+                      WHERE w2.state AND p2.user_id = scu.user_id LIMIT 1)
+                  LEFT JOIN person p ON p.person_id = w.person_id
+                  WHERE scu.activo = TRUE");
+
+            return rows
+                .GroupBy(r => (r.UserId, r.ContributorId))
+                .Select(g => new EvPrevencionistaCandidatoDto
+                {
+                    UserId = g.Key.UserId,
+                    ContributorId = g.Key.ContributorId,
+                    Email = g.First().Email,
+                    Nombre = g.First().Nombre,
+                    ProyectoIds = g.Select(x => x.ProyectoId).Distinct().ToList()
+                })
+                .ToList();
+        }
+
         /// <summary>
         /// Resuelve el registro ss_contratista_usuario de la persona logueada (empresa +
         /// usuario), que es lo que identifica de forma estable al evaluador aunque cambie
@@ -214,6 +253,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
         private record CandidatoRaw(int EvaluadoUserId, string EvaluadoNombre, string EvaluadoPuesto, int ProyectoId, string ProyectoNombre);
+        private record CandidatoRawFlat(int UserId, int ContributorId, string Email, string Nombre, int ProyectoId);
         private record YaEvaluadoRaw(int EvaluadoUserId, int ProyectoId);
         private record NotaComentarioRaw(decimal? Nota, string? Comentario);
     }

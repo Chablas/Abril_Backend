@@ -103,7 +103,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                                      ON eas.project_id           = wv_r.proyecto_id
                                     AND eas.supervisor_worker_id = w.id
                                     AND eas.activo              = true
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
@@ -135,7 +135,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
@@ -147,7 +147,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente}
+                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
                         AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
                         AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id

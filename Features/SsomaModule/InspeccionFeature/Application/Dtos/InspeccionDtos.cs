@@ -27,6 +27,10 @@ public class InspeccionDestinatariosCierreDto
     public string? GerenteInmobiliarioEmail { get; set; }
     /// <summary>Prevencionistas (rol PREVENCIONISTA) con vinculación activa al proyecto de la inspección — puede haber varios, uno por contratista.</summary>
     public List<InspeccionDestinatarioDto> Prevencionistas { get; set; } = new();
+    /// <summary>Quienes participaron de la inspección (SsomaInspeccionParticipante con WorkerId resuelto a correo, más el inspector original) — van en copia, no en el "para".</summary>
+    public List<InspeccionDestinatarioDto> Participantes { get; set; } = new();
+    /// <summary>Puesto único "JEFE DE SEGURIDAD Y SALUD EN EL TRABAJO" — mismo criterio que GerenteInmobiliarioEmail. Va en copia, no en el "para".</summary>
+    public string? JefeSsomaEmail { get; set; }
     public string? TuEmail { get; set; }
 }
 
@@ -58,6 +62,20 @@ public class InspeccionHallazgoRequest
     public decimal? Latitud { get; set; }
     public decimal? Longitud { get; set; }
     public List<string> FotosBase64 { get; set; } = [];
+}
+
+/// <summary>Edición de un hallazgo ya creado — mismos campos editables que al crearlo, sin
+/// fotos (las fotos originales del hallazgo no se tocan acá). Solo permitido mientras el
+/// hallazgo siga "Abierto" y la inspección siga "Abierta" — ver InspeccionRepository.EditarHallazgoAsync.</summary>
+public class EditarHallazgoRequest
+{
+    public string Descripcion { get; set; } = string.Empty;
+    public string Tipo { get; set; } = "Menor";
+    public string? Area { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public string? ResponsableCargo { get; set; }
+    public DateTime? FechaLimite { get; set; }
+    public string? AccionCorrectiva { get; set; }
 }
 
 public class CrearInspeccionRequest

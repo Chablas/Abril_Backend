@@ -116,11 +116,12 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
                     ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
-                w.ApellidoNombre
+                w.ApellidoNombre,
+                w.ContrataCasa
             })
             .ToListAsync())
             .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))
-            .Select(s => new { s.WorkerId, s.PersonId, s.CategoriaId, s.Categoria, s.Puesto, s.ApellidoNombre, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
+            .Select(s => new { s.WorkerId, s.PersonId, s.CategoriaId, s.Categoria, s.Puesto, s.ApellidoNombre, s.ContrataCasa, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
             .ToList();
 
         if (proyectoId.HasValue)
@@ -191,8 +192,13 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .ToList();
 
         // Antes se filtraba por ocupacion = 'Residencia'; ahora es la categoría RESIDENTE.
+        // La categoría RESIDENTE se reutiliza también para el residente/responsable de una
+        // empresa contratista (contrata_casa != 'Casa') — sin este filtro, ese supervisor se
+        // marcaba EsResidente=true y perdía el check de Evaluación de Residente en el
+        // dashboard aunque no fuera residente de Abril.
         var residenteWorkerIds = staffBase
-            .Where(s => s.CategoriaId == CategoriaIds.Residente)
+            .Where(s => s.CategoriaId == CategoriaIds.Residente
+                     && string.Equals(s.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase))
             .Select(s => s.WorkerId)
             .ToHashSet();
 

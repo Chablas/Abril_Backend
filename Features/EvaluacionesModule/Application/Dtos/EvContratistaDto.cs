@@ -126,4 +126,27 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public int? PeriodoId { get; set; }
         public int? ProyectoId { get; set; }
     }
+
+    // ─── ENVÍO DE RESULTADOS A GERENTES DE CONTRATISTA ─────────────────────────
+    public class EmpresaResultadoEnvioDto
+    {
+        public int ContributorId { get; set; }
+        public string ContributorNombre { get; set; } = string.Empty;
+        public string? EmailAdministrador { get; set; }
+        public List<EvContratistaResumenDto> Evaluaciones { get; set; } = [];
+        public List<SupervisorResultadoDto> Supervisores { get; set; } = [];
+    }
+
+    public class SupervisorResultadoDto
+    {
+        public string SupervisorNombre { get; set; } = string.Empty;
+        public string ProyectoNombre { get; set; } = string.Empty;
+        public decimal? Nota { get; set; }
+    }
+
+    public class EvContratistaEnvioResultadoDto
+    {
+        public int Enviados { get; set; }
+        public List<string> OmitidosSinEmail { get; set; } = [];
+    }
 }

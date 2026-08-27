@@ -12,6 +12,8 @@ public interface IInspeccionService
     Task<InspeccionDetalleDto> GetDetalleAsync(int id);
     Task<int> CrearInspeccionAsync(CrearInspeccionRequest request, int? userId = null);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request);
+    Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request);
+    Task EliminarHallazgoAsync(int hallazgoId);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);

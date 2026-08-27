@@ -13,8 +13,16 @@
         /// <summary>Tarjetas "Long list enviada por GTH" pendientes de revisión del solicitante.</summary>
         public List<GestionCandidatoCardDto> GestionCandidatos { get; set; } = new();
 
-        /// <summary>Filas de la tabla "Mis solicitudes de vacante".</summary>
+        /// <summary>Filas de la tabla de solicitudes de vacante del área.</summary>
         public List<SolicitudVacanteListItemDto> MisSolicitudes { get; set; } = new();
+
+        /// <summary>
+        /// ¿El usuario puede mover estos requerimientos (registrar una solicitud nueva, decidir la
+        /// long list, decidir al finalista, reenviar la aprobación)? Solo la jefatura del área:
+        /// JEFE, GERENTE y GERENTE GENERAL. El resto entra a hacer seguimiento y nada más, así que
+        /// el frontend le esconde los botones — el backend igual los rechaza.
+        /// </summary>
+        public bool PuedeGestionar { get; set; }
     }
 
     /// <summary>

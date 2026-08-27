@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
@@ -53,11 +54,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task UpdatePrioridad(int requerimientoId, int prioridadId, int? userId);
 
         /// <summary>
-        /// Detalle de seguimiento de un requerimiento del usuario (cabecera + fases del pipeline con su
-        /// estado ya calculado), en 1 roundtrip. Devuelve null si el requerimiento no existe o no le
-        /// pertenece al usuario.
+        /// Detalle de seguimiento de un requerimiento (cabecera + fases del pipeline con su estado ya
+        /// calculado), en 1 roundtrip. Devuelve null si el requerimiento no existe o queda fuera del
+        /// alcance del usuario.
         /// </summary>
-        Task<SeguimientoDto?> GetSeguimiento(int requerimientoId, int userId);
+        Task<SeguimientoDto?> GetSeguimiento(int requerimientoId, SolicitudPersonalScope scope);
 
         /// <summary>
         /// Detalle de un requerimiento para la vista de GTH (modal del ojo): cabecera + asignación
@@ -107,29 +108,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Panel de la vista del solicitante en 1 roundtrip: tarjetas de "Gestión de candidatos"
-        /// (requerimientos del usuario con long list enviada, pendientes de revisar) + la tabla
-        /// "Mis solicitudes de vacante".
+        /// (requerimientos con long list enviada, pendientes de revisar) + la tabla de solicitudes
+        /// de vacante. Alcance por área, no por usuario:
+        /// ver <see cref="SolicitudPersonalScope"/>.
         /// </summary>
-        Task<SolicitantePanelDto> GetSolicitantePanel(int userId);
+        Task<SolicitantePanelDto> GetSolicitantePanel(SolicitudPersonalScope scope);
 
         /// <summary>
-        /// Revisión de la long list de un requerimiento del usuario (cabecera + candidatos con su CV),
-        /// en 1 roundtrip. Devuelve null si el requerimiento no existe, no le pertenece al usuario o su
-        /// long list aún no fue enviada.
+        /// Revisión de la long list de un requerimiento (cabecera + candidatos con su CV), en 1
+        /// roundtrip. Devuelve null si el requerimiento no existe, queda fuera del alcance del
+        /// usuario o su long list aún no fue enviada.
         /// </summary>
-        Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, int userId);
+        Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, SolicitudPersonalScope scope);
 
         /// <summary>
         /// Registra la decisión del solicitante sobre la long list (aprobar/rechazar por candidato) y
         /// avanza el requerimiento: a LONG_LIST_APROBADA si aprobó al menos uno, o de vuelta a LONG_LIST
         /// si rechazó a todos (para que GTH envíe una nueva long list; los rechazados quedan grabados).
-        /// Scope: solo el solicitante dueño y solo si el requerimiento está en LONG_LIST_ENVIADA. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe/no le
-        /// pertenece, 409 si ya no está pendiente de revisión y 400 si faltan decisiones. Devuelve el
-        /// contexto para el correo (cabecera + candidatos con su decisión) además del estado resultante.
+        /// Scope: el área del usuario y solo si el requerimiento está en LONG_LIST_ENVIADA. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe o está
+        /// fuera de su alcance, 409 si ya no está pendiente de revisión y 400 si faltan decisiones.
+        /// Devuelve el contexto para el correo (cabecera + candidatos con su decisión) además del
+        /// estado resultante.
         /// </summary>
         Task<LongListDecisionContextoDto> RegistrarDecisionLongList(
-            int requerimientoId, List<CandidatoDecisionDto> decisiones, int userId);
+            int requerimientoId, List<CandidatoDecisionDto> decisiones, SolicitudPersonalScope scope);
 
         /// <summary>
         /// Marca/desmarca el check informativo del Multitest de un candidato (con su trazabilidad).
@@ -245,19 +248,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<AgradecimientoEnvioContextoDto> RegistrarRechazoPostulante(int candidatoId, int? userId);
 
         /// <summary>
-        /// Informe de finalistas de un requerimiento del usuario (cabecera + candidatos evaluados
-        /// que siguen en carrera, con sus comentarios y CV), en 1 roundtrip por bloque.
-        /// Devuelve null si el requerimiento no existe o no le pertenece al usuario.
+        /// Informe de finalistas de un requerimiento (cabecera + candidatos evaluados que siguen en
+        /// carrera, con sus comentarios y CV), en 1 roundtrip por bloque.
+        /// Devuelve null si el requerimiento no existe o queda fuera del alcance del usuario.
         /// </summary>
-        Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, int userId);
+        Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, SolicitudPersonalScope scope);
 
         /// <summary>
         /// Registra la decisión final del área solicitante sobre un finalista y mueve el
         /// requerimiento: aprobar lo deja en CERRADO (el seleccionado pasa a onboarding); rechazar
         /// lo deja en SELECCION_JEFATURA mientras queden finalistas por decidir y lo devuelve a
         /// LONG_LIST cuando ya no queda ninguno (GTH deberá enviar una nueva long list). Al rechazar
-        /// también registra el envío del correo de agradecimiento. Scope: solo el solicitante dueño
-        /// y solo con el requerimiento en SELECCION_JEFATURA. Lanza
+        /// también registra el envío del correo de agradecimiento. Scope: el área del usuario y
+        /// solo con el requerimiento en SELECCION_JEFATURA. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe o el
         /// candidato no es finalista, y 409 si el proceso ya salió de esa fase o el finalista ya
         /// estaba decidido. Devuelve el contexto para armar los correos.
@@ -268,7 +271,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// solicitante como respaldo cuando el puesto no tiene destino.
         /// </remarks>
         Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
-            int requerimientoId, int candidatoId, bool aprobado, int userId);
+            int requerimientoId, int candidatoId, bool aprobado, SolicitudPersonalScope scope);
 
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);

@@ -21,10 +21,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<AprobacionGgEnvioContextoDto> PrepararEnvio(int solicitudId, string nuevoToken, int? userId);
 
         /// <summary>
-        /// Contexto del correo de una aprobación existente, con scope al solicitante dueño de la
-        /// solicitud (para el reenvío desde su panel). Null si no existe o no es suya.
+        /// Contexto del correo de una aprobación existente, con el alcance de «Solicitud de
+        /// Personal» (el área del usuario, no solo lo suyo) para el reenvío desde su panel. Null si
+        /// no existe o queda fuera de su alcance.
         /// </summary>
-        Task<AprobacionGgEnvioContextoDto?> GetEnvioContextoByRequerimiento(int requerimientoId, int userId);
+        Task<AprobacionGgEnvioContextoDto?> GetEnvioContextoByRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope);
 
         /// <summary>
         /// Contexto del correo sin pasar por la aprobación: el ingreso directo FFT se salta ese

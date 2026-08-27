@@ -28,9 +28,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// aprobación: un ingreso directo no lo aprueba nadie —quien pide ya nombró a la persona—
         /// así que este es el correo que arranca (y casi termina) su flujo: GTH ya tiene un
         /// candidato al que programarle su EMO de ingreso. Lleva SOLO las vacantes FFT, para que en
-        /// una solicitud mixta no arrastre las que sí están esperando una firma.
-        /// Devuelve true si salió; false si no había destinatarios o falló el proveedor. No lanza,
-        /// por el mismo motivo que <see cref="EnviarSolicitudAGerencia"/>.
+        /// una solicitud mixta no arrastre las que sí están esperando una firma, y sale <b>un correo
+        /// por vacante</b>: así el botón lleva al detalle de ese requerimiento y le abre a GTH el
+        /// modal donde le programa el EMO.
+        /// Devuelve true si salieron todos; false si no había destinatarios o falló alguno. No
+        /// lanza, por el mismo motivo que <see cref="EnviarSolicitudAGerencia"/>.
         /// </summary>
         Task<bool> EnviarIngresoDirectoAGth(int solicitudId, int? userId);
 

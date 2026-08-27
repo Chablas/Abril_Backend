@@ -26,6 +26,10 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IReclutamientoRepository, ReclutamientoRepository>();
             services.AddScoped<IReclutamientoService, ReclutamientoService>();
 
+            // Alcance de «Solicitud de Personal»: qué requerimientos ve cada usuario (los de su
+            // área y las que cuelgan de ella) y si puede moverlos (solo la jefatura).
+            services.AddScoped<ISolicitudPersonalScopeResolver, SolicitudPersonalScopeResolver>();
+
             // Bitácora de fases del requerimiento. Es un interceptor de EF y no un servicio de la
             // feature porque el estado se mueve desde una docena de sitios: acá se registra y en
             // Program.cs se engancha al DbContext (ver RequerimientoEstadoHistorialInterceptor).

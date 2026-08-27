@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class ReclutamientoService : IReclutamientoService
     {
         private readonly IReclutamientoRepository _repo;
+        private readonly ISolicitudPersonalScopeResolver _scopes;
         private readonly IAprobacionGgRepository  _aprobacionGgRepo;
         private readonly IAprobacionGgService     _aprobacionGg;
         private readonly ICorreoDestinatariosResolver _destinatarios;
@@ -69,6 +70,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public ReclutamientoService(
             IReclutamientoRepository repo,
+            ISolicitudPersonalScopeResolver scopes,
             IAprobacionGgRepository aprobacionGgRepo,
             IAprobacionGgService aprobacionGg,
             ICorreoDestinatariosResolver destinatarios,
@@ -80,6 +82,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             ILogger<ReclutamientoService> logger)
         {
             _repo             = repo;
+            _scopes           = scopes;
             _aprobacionGgRepo = aprobacionGgRepo;
             _aprobacionGg     = aprobacionGg;
             _destinatarios    = destinatarios;
@@ -109,17 +112,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return dto;
         }
 
-        public Task<SolicitantePanelDto> GetSolicitantePanel(int? userId) =>
+        public async Task<SolicitantePanelDto> GetSolicitantePanel(int? userId) =>
             userId.HasValue
-                ? _repo.GetSolicitantePanel(userId.Value)
-                : Task.FromResult(new SolicitantePanelDto());
+                ? await _repo.GetSolicitantePanel(await _scopes.ResolveAsync(userId.Value))
+                : new SolicitantePanelDto();
 
-        public async Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId)
+        /// <summary>
+        /// Alcance del usuario en la pantalla del solicitante. <paramref name="paraGestionar"/> =
+        /// true en las acciones que mueven el requerimiento (registrar, decidir, reenviar): esas
+        /// son de la jefatura del area, asi que se cortan aca con un 403 y un mensaje que dice por
+        /// que. Las lecturas pasan con cualquier categoria: el requerimiento es del area y su gente
+        /// tiene que poder seguirlo.
+        /// </summary>
+        private async Task<SolicitudPersonalScope> ResolverScope(int? userId, bool paraGestionar)
         {
             if (!userId.HasValue)
                 throw new AbrilException("No se pudo identificar al usuario.", 401);
 
-            var revision = await _repo.GetRevisionLongList(requerimientoId, userId.Value);
+            var scope = await _scopes.ResolveAsync(userId.Value);
+            if (paraGestionar && !scope.PuedeGestionar)
+                throw new AbrilException(
+                    "Solo las jefaturas y gerencias del area pueden avanzar los requerimientos. "
+                    + "Puedes revisarlos y hacerles seguimiento.", 403);
+
+            return scope;
+        }
+
+        public async Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId)
+        {
+            var scope = await ResolverScope(userId, paraGestionar: false);
+
+            var revision = await _repo.GetRevisionLongList(requerimientoId, scope);
             if (revision == null)
                 throw new AbrilException("No se encontró la long list del requerimiento.", 404);
 
@@ -129,13 +152,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<LongListDecisionResultDto> RegistrarDecisionLongList(
             int requerimientoId, LongListDecisionDto dto, int? userId)
         {
-            if (!userId.HasValue)
-                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            var scope = await ResolverScope(userId, paraGestionar: true);
             if (dto?.Decisiones == null || dto.Decisiones.Count == 0)
                 throw new AbrilException("Debes aprobar o rechazar a los candidatos antes de enviar la decisión.", 400);
 
             // 1) Persistir la decisión y avanzar el requerimiento (LONG_LIST_APROBADA o vuelta a LONG_LIST).
-            var ctx = await _repo.RegistrarDecisionLongList(requerimientoId, dto.Decisiones, userId.Value);
+            var ctx = await _repo.RegistrarDecisionLongList(requerimientoId, dto.Decisiones, scope);
 
             // 2) Notificar a GTH por correo (tipo LONG_LIST_DECISION). Best-effort: la decisión ya quedó
             //    registrada; si el correo falla solo se registra el warning (no se revierte el estado).
@@ -907,10 +929,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<RevisionFinalistasDto> GetRevisionFinalistas(int requerimientoId, int? userId)
         {
-            if (!userId.HasValue)
-                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            var scope = await ResolverScope(userId, paraGestionar: false);
 
-            var revision = await _repo.GetRevisionFinalistas(requerimientoId, userId.Value);
+            var revision = await _repo.GetRevisionFinalistas(requerimientoId, scope);
             if (revision == null)
                 throw new AbrilException("No se encontró el informe de finalistas del requerimiento.", 404);
 
@@ -921,15 +942,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<FinalistaDecisionResultDto> RegistrarDecisionFinalista(
             int requerimientoId, FinalistaDecisionDto dto, int? userId)
         {
-            if (!userId.HasValue)
-                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            var scope = await ResolverScope(userId, paraGestionar: true);
             if (dto == null || dto.CandidatoId <= 0)
                 throw new AbrilException("Selecciona al finalista sobre el que quieres decidir.", 400);
 
             // El área a la que entra el seleccionado no se pregunta: la resuelve el repositorio
             // desde el puesto del requerimiento, que es quien lo conoce.
             var ctx = await _repo.RegistrarDecisionFinalista(
-                requerimientoId, dto.CandidatoId, dto.Aprobado, userId.Value);
+                requerimientoId, dto.CandidatoId, dto.Aprobado, scope);
             var res = ctx.Resultado;
 
             // 1) Al rechazar, el finalista recibe el mismo correo de fin de proceso que le envía GTH
@@ -1371,10 +1391,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId)
         {
-            if (!userId.HasValue)
-                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            var scope = await ResolverScope(userId, paraGestionar: false);
 
-            var seguimiento = await _repo.GetSeguimiento(requerimientoId, userId.Value);
+            var seguimiento = await _repo.GetSeguimiento(requerimientoId, scope);
             if (seguimiento == null)
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
@@ -1422,6 +1441,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento)
         {
+            // Pedir personal es de la jefatura del área: misma regla que para avanzar el proceso.
+            await ResolverScope(userId, paraGestionar: true);
+
             if (dto?.Vacantes == null || dto.Vacantes.Count == 0)
                 throw new AbrilException("Debe registrar al menos una vacante.", 400);
             if (dto.Vacantes.Count > 10)

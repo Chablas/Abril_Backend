@@ -114,18 +114,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return await BuildEnvioContexto(ctx, aprobacion, solicitud);
         }
 
-        public async Task<AprobacionGgEnvioContextoDto?> GetEnvioContextoByRequerimiento(int requerimientoId, int userId)
+        public async Task<AprobacionGgEnvioContextoDto?> GetEnvioContextoByRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Scope: solo el solicitante dueño de la solicitud puede reenviar su propio correo. Se
+            // Scope: el mismo de «Solicitud de Personal» —el área del solicitante, más lo que el
+            // usuario registró él mismo—, porque el requerimiento es del área y su jefatura tiene
+            // que poder recordarle la firma a quien la debe aunque quien lo pidió ya no esté. Se
             // traen las dos entidades (aprobación y solicitud) en un roundtrip; EF las rastrea
             // aunque vengan dentro de un anónimo.
+            var areaIds = scope.AreaScopeIds.ToList();
             var par = await (
                 from r in ctx.GthRequerimiento
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
+                      && (scope.VeTodo
+                          || r.Solicitud.SolicitanteUserId == scope.UserId
+                          || (r.Solicitud.AreaScopeId != null
+                              && areaIds.Contains(r.Solicitud.AreaScopeId.Value)))
                 join a in ctx.GthAprobacionGg on r.GthSolicitudId equals a.GthSolicitudId
                 where a.State
                 select new { Aprobacion = a, Solicitud = r.Solicitud! }).FirstOrDefaultAsync();

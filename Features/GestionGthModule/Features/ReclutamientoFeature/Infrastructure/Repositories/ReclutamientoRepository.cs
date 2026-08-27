@@ -1,5 +1,6 @@
 ﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
@@ -763,20 +764,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<SolicitantePanelDto> GetSolicitantePanel(int userId)
+        public async Task<SolicitantePanelDto> GetSolicitantePanel(SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Tabla "Mis solicitudes de vacante" del usuario (mismo proyectado de siempre).
-            var misSolicitudes = await ProjectRequerimientos(
-                ctx,
-                ctx.GthRequerimiento.Where(r => r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId));
+            // El alcance es del ÁREA, no del usuario: ver EnScope. Los ids se materializan una vez
+            // para que EF los traduzca a un `= ANY(...)` en cada consulta.
+            var areaIds = scope.AreaScopeIds.ToList();
+            var delArea = EnScope(
+                ctx.GthRequerimiento.Where(x => x.State && x.Solicitud!.State), scope, areaIds);
 
-            // Tarjetas "Gestión de candidatos": requerimientos del usuario cuya long list ya fue
+            // Tabla "Solicitudes de vacante" del área (mismo proyectado de siempre).
+            var misSolicitudes = await ProjectRequerimientos(ctx, delArea);
+
+            // Tarjetas "Gestión de candidatos": requerimientos del área cuya long list ya fue
             // enviada por GTH (estado LONG_LIST_ENVIADA), con el conteo de candidatos vigentes.
             var cards = await (
-                from r in ctx.GthRequerimiento
-                where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
+                from r in delArea
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -795,7 +799,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Tipo            = TipoGestionCandidato.LongList,
                 }).ToListAsync();
 
-            // Tarjetas "Finalistas enviados por GTH": requerimientos del usuario en la fase de
+            // Tarjetas "Finalistas enviados por GTH": requerimientos del área en la fase de
             // selección de jefatura (ahí los deja GTH al enviar a los finalistas) que todavía tienen
             // al menos un candidato evaluado en carrera. El filtro por SELECCION_JEFATURA es el que
             // hace desaparecer la tarjeta cuando el proceso se cierra (aprobó a un finalista) o
@@ -813,9 +817,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .ToListAsync(); // vacío = catálogo sin sembrar: no descarta a nadie
 
             var finalistas = await (
-                from r in ctx.GthRequerimiento
-                where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
-                      && CandidatosVigentes(ctx).Any(c => c.GthRequerimientoId == r.GthRequerimientoId
+                from r in delArea
+                where CandidatosVigentes(ctx).Any(c => c.GthRequerimientoId == r.GthRequerimientoId
                             && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
                                   && ev.State && !fueraDeCarreraIds.Contains(ev.GthCandidatoResultadoId)))
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
@@ -878,20 +881,51 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Resumen           = resumen,
                 GestionCandidatos = cards,
                 MisSolicitudes    = misSolicitudes,
+                PuedeGestionar    = scope.PuedeGestionar,
             };
         }
 
-        public async Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, int userId)
+        /// <summary>
+        /// Recorta una consulta de requerimientos al alcance del usuario en «Solicitud de Personal»:
+        /// los de su área y los de las áreas que cuelgan de ella, más —siempre— los que él mismo
+        /// registró. El requerimiento es del ÁREA y no de quien lo pidió: si el solicitante se va de
+        /// la empresa, su jefatura y sus compañeros tienen que poder continuar el proceso.
+        ///
+        /// Una solicitud sin <c>area_scope_id</c> (no se pudo resolver al registrarla) solo la ve
+        /// quien la registró y quien ve todo: no hay a qué área atribuirla.
+        /// </summary>
+        /// <param name="areaIds">
+        /// <c>scope.AreaScopeIds</c> ya materializado. Va por parámetro y no se saca del scope acá
+        /// adentro para no rearmar la lista en cada consulta del mismo panel.
+        /// </param>
+        private static IQueryable<GthRequerimiento> EnScope(
+            IQueryable<GthRequerimiento> reqs, SolicitudPersonalScope scope, List<int> areaIds) =>
+            scope.VeTodo
+                ? reqs
+                : reqs.Where(r => r.Solicitud!.SolicitanteUserId == scope.UserId
+                                  || (r.Solicitud.AreaScopeId != null
+                                      && areaIds.Contains(r.Solicitud.AreaScopeId.Value)));
+
+        /// <summary>
+        /// <see cref="EnScope(IQueryable{GthRequerimiento}, SolicitudPersonalScope, List{int})"/>
+        /// para las consultas de UN requerimiento, que no repiten el filtro y no ganan nada
+        /// materializando los ids aparte.
+        /// </summary>
+        private static IQueryable<GthRequerimiento> EnScope(
+            IQueryable<GthRequerimiento> reqs, SolicitudPersonalScope scope) =>
+            EnScope(reqs, scope, scope.AreaScopeIds.ToList());
+
+        public async Task<RevisionLongListDto?> GetRevisionLongList(
+            int requerimientoId, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera del requerimiento (scope: solo del usuario dueño de la solicitud) que ya
-            // tenga la long list enviada (LONG_LIST_ENVIADA o posterior).
+            // Cabecera del requerimiento (scope: el área del usuario, ver EnScope) que ya tenga la
+            // long list enviada (LONG_LIST_ENVIADA o posterior).
             var head = await (
-                from r in ctx.GthRequerimiento
+                from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -954,17 +988,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<LongListDecisionContextoDto> RegistrarDecisionLongList(
-            int requerimientoId, List<CandidatoDecisionDto> decisiones, int userId)
+            int requerimientoId, List<CandidatoDecisionDto> decisiones, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera + estado actual, con scope al solicitante dueño de la solicitud. Se trae la
-            // entidad del requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
+            // Quien decide ya no es forzosamente quien registró la solicitud: puede ser cualquier
+            // jefatura del área (ver EnScope). Lo que se graba en la trazabilidad y lo que firma el
+            // correo a GTH es quien tomó ESTA decisión.
+            var userId = scope.UserId;
+
+            // Cabecera + estado actual, con scope al área del usuario. Se trae la entidad del
+            // requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
             var head = await (
-                from r in ctx.GthRequerimiento
+                from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -2158,16 +2196,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, int userId)
+        public async Task<RevisionFinalistasDto?> GetRevisionFinalistas(
+            int requerimientoId, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera del requerimiento (scope: solo del usuario dueño de la solicitud).
+            // Cabecera del requerimiento (scope: el área del usuario, ver EnScope).
             var head = await (
-                from r in ctx.GthRequerimiento
+                from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -2365,17 +2403,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
-            int requerimientoId, int candidatoId, bool aprobado, int userId)
+            int requerimientoId, int candidatoId, bool aprobado, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera + estado actual, con scope al solicitante dueño de la solicitud. Se trae la
-            // entidad del requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
+            // Quien decide es cualquier jefatura del área, no forzosamente quien registró la
+            // solicitud (ver EnScope); en la trazabilidad queda quien tomó ESTA decisión.
+            var userId = scope.UserId;
+
+            // Cabecera + estado actual, con scope al área del usuario. Se trae la entidad del
+            // requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
             var head = await (
-                from r in ctx.GthRequerimiento
+                from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
@@ -3284,16 +3325,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task<SeguimientoDto?> GetSeguimiento(int requerimientoId, int userId)
+        public async Task<SeguimientoDto?> GetSeguimiento(
+            int requerimientoId, SolicitudPersonalScope scope)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera del requerimiento (scope: solo del usuario dueño de la solicitud).
+            // Cabecera del requerimiento (scope: el área del usuario, ver EnScope).
             var head = await (
-                from r in ctx.GthRequerimiento
+                from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
                       && r.State && r.Solicitud!.State
-                      && r.Solicitud.SolicitanteUserId == userId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
@@ -3455,6 +3496,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // Quién lo pidió. Desde que la tabla muestra los requerimientos del área y no solo
+                // los propios, la fila tiene que decirlo: si no, no hay forma de distinguir el
+                // pedido de uno del pedido del vecino. LEFT porque el usuario puede no tener ficha.
+                join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into solicitanteJoin
+                from ps in solicitanteJoin.DefaultIfEmpty()
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
                 select new
                 {
@@ -3467,6 +3513,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.CreatedDateTime,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
+                    Solicitante = ps != null ? ps.FullName : null,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
@@ -3481,6 +3528,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Enviado         = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo    = x.EstadoCodigo,
                 EstadoNombre    = x.EstadoNombre,
+                Solicitante     = x.Solicitante,
             }).ToList();
         }
 

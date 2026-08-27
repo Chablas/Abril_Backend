@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Fila de la tabla "Mis solicitudes de vacante": un requerimiento (vacante) del usuario
@@ -22,5 +22,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string EstadoCodigo { get; set; } = string.Empty;
         /// <summary>Nombre legible del estado (para mostrar en el badge).</summary>
         public string EstadoNombre { get; set; } = string.Empty;
+        /// <summary>
+        /// Quién registró la solicitud. La tabla ya no muestra solo lo propio sino lo del área
+        /// completa, así que la fila tiene que decir de quién es el pedido. Null si el usuario que
+        /// la registró no tiene ficha de trabajador.
+        /// </summary>
+        public string? Solicitante { get; set; }
     }
 }

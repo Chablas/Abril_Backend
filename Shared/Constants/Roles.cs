@@ -61,9 +61,9 @@
 
         /// <summary>
         /// TESORERO. No basta con tenerlo: las features que concede solo se otorgan si además el
-        /// puesto del trabajador es de categoría <c>CategoriaIds.Tesorero</c> — lo aplica
+        /// puesto del trabajador es de categoría <c>CategoriaIds.Tesorero</c> (46) — lo aplica
         /// <c>AuthRepository.GetAllowedFeaturesAsync</c>.
         /// </summary>
-        public const string Tesorero                          = "80"; // TESORERO
+        public const string Tesorero                          = "83"; // TESORERO
     }
 }

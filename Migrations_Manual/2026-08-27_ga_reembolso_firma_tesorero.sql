@@ -166,64 +166,63 @@ UPDATE ga_correo_evento e
      OR e.orden IS DISTINCT FROM n.orden
      OR e.destinatario_principal_nombre IS DISTINCT FROM n.principal);
 
--- ── 5. Categoria TESORERO ───────────────────────────────────────────────────
--- La categoria sale del puesto (workers.puesto_id -> puesto.categoria_id). Hoy
--- los puestos TESORERO/TESORERA cuelgan de ASISTENTE y EMPLEADO, que no permiten
--- distinguirlos: se les crea su propia categoria y se repuntan.
+-- ── 5. Categoria TESORERO (46) ──────────────────────────────────────────────
+-- La categoria sale del puesto (workers.puesto_id -> puesto.categoria_id), asi
+-- que "ser tesorero" se lee ahi y no en un texto suelto de la ficha.
 --
--- Id EXPLICITO para que dev y prod queden iguales (mismo criterio que EMPLEADO
--- = 42), porque el id se usa como constante en Shared/Constants/CategoriaIds.cs.
+-- La categoria NO la crea este script: ya existe en produccion con el id 46, y
+-- dev se alineo a ese id con _dev_alinear_categorias_roles_con_prod.sql. El id se
+-- usa como constante en Shared/Constants/CategoriaIds.cs, asi que tiene que ser
+-- el mismo en los dos entornos: aca solo se verifica y se repuntan los puestos.
+--
+-- (La primera version de este script creaba la categoria con el id 43. Reventó
+-- en prod porque ese id ya era ABOGADO: prod venia creando catalogos en paralelo.
+-- Por eso ahora se verifica en vez de insertar.)
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM categoria WHERE categoria_id = 43 AND upper(nombre) <> 'TESORERO') THEN
-        RAISE EXCEPTION 'categoria_id 43 ya esta ocupado por otra categoria: no insertar TESORERO a ciegas, avisar para elegir otro id en AMBOS entornos.';
+    IF NOT EXISTS (SELECT 1 FROM categoria WHERE categoria_id = 46 AND upper(nombre) = 'TESORERO' AND state) THEN
+        RAISE EXCEPTION 'Falta la categoria TESORERO con id 46 (es la constante CategoriaIds.Tesorero). Crearla antes de correr esto.';
     END IF;
 END $$;
 
-INSERT INTO categoria (categoria_id, nombre, orden, visible_solicitud_personal)
-SELECT 43, 'TESORERO', 0, true
-WHERE NOT EXISTS (SELECT 1 FROM categoria WHERE categoria_id = 43)
-  AND NOT EXISTS (SELECT 1 FROM categoria WHERE upper(nombre) = 'TESORERO' AND state);
-
-SELECT setval('categoria_categoria_id_seq', GREATEST((SELECT max(categoria_id) FROM categoria), 43), true);
-
--- Los puestos de tesoreria pasan a la categoria nueva. Se hace por nombre porque
+-- Los puestos de tesoreria cuelgan de esa categoria. Se hace por nombre porque
 -- los ids de puesto no son iguales entre entornos.
 UPDATE puesto
-   SET categoria_id = 43, updated_date_time = now()
+   SET categoria_id = 46, updated_date_time = now()
  WHERE state
    AND upper(nombre) IN ('TESORERO', 'TESORERA')
-   AND categoria_id <> 43;
+   AND categoria_id <> 46;
 
--- ── 6. Rol TESORERO ─────────────────────────────────────────────────────────
--- Id EXPLICITO por lo mismo: el frontend y el backend lo usan como constante
--- (core/constants/roles.ts y Shared/Constants/Roles.cs).
+-- ── 6. Rol TESORERO (83) ────────────────────────────────────────────────────
+-- Id EXPLICITO para que dev y prod queden iguales: el frontend y el backend lo
+-- usan como constante (core/constants/roles.ts y Shared/Constants/Roles.cs).
+-- El 83 es el primero libre en los dos entornos (prod llegaba hasta el 82).
 --
 -- OJO: tener el rol NO alcanza. GetAllowedFeaturesAsync solo concede las features
--- de este rol si ademas el puesto del trabajador es de categoria TESORERO (43).
+-- de este rol si ademas el puesto del trabajador es de categoria TESORERO (46).
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM role WHERE role_id = 80 AND upper(role_description) <> 'TESORERO') THEN
-        RAISE EXCEPTION 'role_id 80 ya esta ocupado por otro rol: no insertar TESORERO a ciegas, avisar para elegir otro id en AMBOS entornos.';
+    IF EXISTS (SELECT 1 FROM role WHERE role_id = 83 AND upper(role_description) <> 'TESORERO') THEN
+        RAISE EXCEPTION 'role_id 83 ya esta ocupado por otro rol: no insertar TESORERO a ciegas, avisar para elegir otro id en AMBOS entornos.';
     END IF;
 END $$;
 
 INSERT INTO role (role_id, role_description, created_user_id, active, state)
-SELECT 80, 'TESORERO', (SELECT min(user_id) FROM app_user), true, true
-WHERE NOT EXISTS (SELECT 1 FROM role WHERE role_id = 80);
+SELECT 83, 'TESORERO', (SELECT min(user_id) FROM app_user), true, true
+WHERE NOT EXISTS (SELECT 1 FROM role WHERE role_id = 83);
 
-SELECT setval('role_role_id_seq', GREATEST((SELECT max(role_id) FROM role), 80), true);
+SELECT setval('role_role_id_seq', GREATEST((SELECT max(role_id) FROM role), 83), true);
 
 -- Acceso a Gestion de Salidas (la pantalla donde el tesorero marca lo pagado).
 INSERT INTO role_feature (role_id, feature_id)
-SELECT 80, f.feature_id
+SELECT 83, f.feature_id
 FROM feature f
 WHERE f.feature_key = 'gestion-administrativa.gestion-salidas'
   AND NOT EXISTS (
       SELECT 1 FROM role_feature rf
-      WHERE rf.role_id = 80 AND rf.feature_id = f.feature_id);
+      WHERE rf.role_id = 83 AND rf.feature_id = f.feature_id);
 
 COMMIT;
 

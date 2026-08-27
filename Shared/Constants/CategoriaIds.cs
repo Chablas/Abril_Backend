@@ -86,11 +86,14 @@
         /// <summary>
         /// Tesorería. Gestión de Salidas la exige JUNTO con el rol
         /// <c>Roles.Tesorero</c>: tener el rol sin este puesto no abre la pantalla, y esta
-        /// categoría sin el rol tampoco. Creada con id explícito en
-        /// <c>Migrations_Manual/2026-08-27_ga_reembolso_firma_tesorero.sql</c> para mantener la
-        /// paridad dev/prod.
+        /// categoría sin el rol tampoco.
+        ///
+        /// El id lo fijó producción (ahí se creó primero); dev se alineó con
+        /// <c>Migrations_Manual/_dev_alinear_categorias_roles_con_prod.sql</c>, que de paso trajo
+        /// las otras categorías que prod había creado en el medio (43 ABOGADO, 44 ALMACENERO,
+        /// 45 TESORERÍA). No renumerar: es la constante de la que cuelga toda la regla.
         /// </summary>
-        public const int Tesorero = 43;
+        public const int Tesorero = 46;
 
         // ── Categorías de las que depende una regla guardada en DATA ────────────
         // No aparecen en ninguna comparación de C#: las nombra

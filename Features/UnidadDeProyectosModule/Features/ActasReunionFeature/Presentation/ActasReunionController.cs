@@ -334,6 +334,46 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             }
         }
 
+        /// <summary>Agrega un tema puntual a la agenda de esta ocurrencia — para reuniones de agenda
+        /// fija que necesitan sumar un punto excepcional sin activar el flujo de agenda dinámica.</summary>
+        [HttpPost("{reunionId:int}/agenda/temas-puntuales")]
+        public async Task<IActionResult> AgregarTemaPuntual(int reunionId, [FromBody] ReunionAgendaItemInput request)
+        {
+            try
+            {
+                return Ok(await _service.AgregarTemaPuntual(reunionId, GetUserId(), request.Descripcion));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION AGREGAR TEMA PUNTUAL: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Elimina un tema puntual — solo quien lo agregó puede quitarlo.</summary>
+        [HttpDelete("{reunionId:int}/agenda/temas-puntuales/{reunionAgendaItemId:int}")]
+        public async Task<IActionResult> EliminarTemaPuntual(int reunionId, int reunionAgendaItemId)
+        {
+            try
+            {
+                await _service.EliminarTemaPuntual(reunionId, reunionAgendaItemId, GetUserId());
+                return Ok(new { message = "Tema eliminado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR ACTAS REUNION ELIMINAR TEMA PUNTUAL: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Dashboard personal: todos los acuerdos (de cualquier reunión) de los que el
         /// usuario autenticado es responsable, para el tab "Dashboard" de Actas de Reunión.</summary>
         [HttpGet("mis-acuerdos")]

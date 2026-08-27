@@ -166,6 +166,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
             return _repository.GuardarMisTemas(reunionId, userId, temas);
         }
 
+        public Task<ReunionAgendaItemDto> AgregarTemaPuntual(int reunionId, int userId, string descripcion)
+        {
+            if (string.IsNullOrWhiteSpace(descripcion))
+                throw new AbrilException("El tema es obligatorio.", 400);
+            return _repository.AgregarTemaPuntual(reunionId, userId, descripcion.Trim());
+        }
+
+        public Task EliminarTemaPuntual(int reunionId, int reunionAgendaItemId, int userId)
+            => _repository.EliminarTemaPuntual(reunionId, reunionAgendaItemId, userId);
+
         public Task<List<MisAcuerdoDto>> GetMisAcuerdos(int userId)
             => _repository.GetMisAcuerdos(userId);
 
@@ -258,18 +268,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         /// <summary>Igual criterio que la convocatoria masiva manual: une (sin duplicar) los
         /// trabajadores que califican en cada regla independiente del tema.</summary>
         private async Task<List<ReunionParticipanteInput>> ResolverParticipantesDeReglas(
-            List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds)> reglas)
+            List<(int? AreaScopeId, int? ProjectId, List<int> PuestoIds, List<int> WorkerIdsExcluidos)> reglas)
         {
             var vistos = new HashSet<int>();
             var participantes = new List<ReunionParticipanteInput>();
 
-            foreach (var (areaScopeId, projectId, puestoIds) in reglas)
+            foreach (var (areaScopeId, projectId, puestoIds, workerIdsExcluidos) in reglas)
             {
                 var trabajadores = await _repository.BuscarTrabajadoresPorFiltro(
                     areaScopeId, puestoIds.Count > 0 ? puestoIds : null, projectId);
+                var excluidos = workerIdsExcluidos.Count > 0 ? workerIdsExcluidos.ToHashSet() : null;
 
                 foreach (var t in trabajadores)
                 {
+                    if (excluidos != null && excluidos.Contains(t.WorkerId)) continue;
                     if (!vistos.Add(t.WorkerId)) continue;
                     participantes.Add(new ReunionParticipanteInput
                     {

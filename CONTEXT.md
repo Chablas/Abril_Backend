@@ -5916,3 +5916,25 @@ Merge de `victor-backend` a `master` (deploy a intranet/producción). Trae las d
 - Decisión de Planeamiento sobre Bloqueos→Restricciones y la observación de Sector/Nivel.
 - Confirmar si el frontend de Fase 2a/2b/3 (Dashboard/Portafolio BIM) llegó a desplegarse.
 - Confirmar con Planeamiento que el flujo de carga diaria con % parcial funciona bien end-to-end en el frontend.
+
+## Sesión 2026-08-28 — Presupuesto Materiales SSOMA (ciclo de vida de proyecto) + módulo PETS
+
+### 1) Diagnóstico de "Presupuesto real" para Sauce Zen (project_id=9)
+Mapeado el pipeline completo del módulo `PresupuestoMaterialesFeature`: Catálogo → Cargas S10 → Estandarización → Drivers → Ratios (materiales `ss_ratio_proyecto` + dotación HH/Trabajadores `ss_ratio_proyecto_driver`) → Generar presupuesto. Sauce Zen no tiene drivers cargados (único bloqueante). Detectada dispersión grande en el ratio HH/m² (0.017–33) correlacionada con días de Tareo acumulados — proyectos con pocos días no son confiables aún incluidos. Anomalía sin resolver: Gardenia (id=2) y Amancae (id=33) muestran 0 días de Tareo con HH acumulado grande (inconsistente, pendiente investigar en `ss_tareo`). `Project.TiempoConstruccion` descartado como referencia (datos no confiables, ej. "18 días" para un edificio de 29k m²).
+
+### 2) Nuevo campo `Project.Activo` (ciclo de vida) expuesto en Editar Proyecto
+La columna ya existía (`Activo`: Finalizado|Activo|Inactivo) y ya la leía `RatioDriverRepository` como `CicloVida`, pero ningún endpoint la escribía — todos los proyectos históricos salían "Activo" por default. Se agregó `CicloVida` a `ProjectDto`/`ProjectEditDto` y su persistencia en `ProjectRepository.ApplyDtoToEntity(Project, ProjectEditDto)`. Sin migración (columna ya existía). Frontend: nuevo select en `proyecto-edit.html`.
+
+### 3) Fix de build en módulo PETS (trabajo en curso de otra sesión, no relacionado)
+`PetsImportService.cs` no compilaba: `ImportParrafoDto` e `ImportPasoPreviewDto` eran clases duplicadas idénticas, `TodosLosParrafos` usaba el tipo equivocado (CS0029 x2). Se unificó a `ImportPasoPreviewDto` y se eliminó el duplicado muerto.
+
+### Verificado
+- `dotnet build` → 0 errores (247 warnings preexistentes, sin cambios) tras el fix.
+- `npm run build` (frontend) → 0 errores.
+
+### Pendiente
+- Marcar "Finalizado" en Configuración → Proyectos a los proyectos ya culminados (Los Laureles, Aquilaria, Gardenia, Amancae, Amaranta, Camelia, Lilas, Sauco).
+- Investigar la anomalía de Tareo de Gardenia/Amancae antes de confiar en su ratio.
+- Cargar drivers de Sauce Zen (Área Techada mínimo) y generar su presupuesto.
+- Carga semanal histórica de HH vía Excel (análoga al S10 de materiales) — **no implementada todavía**, bloqueada esperando que el usuario pase un archivo de ejemplo real de su reporte de asistencia/Tareo (no hay formato estándar como el S10 para esto).
+- Módulo PETS: el usuario mencionó que quedan "modelos" pendientes de otra sesión más allá de este fix puntual de build.

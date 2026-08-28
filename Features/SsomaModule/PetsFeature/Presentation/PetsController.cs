@@ -1,0 +1,161 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Abril_Backend.Features.SsomaModule.PetsFeature.Presentation;
+
+[ApiController]
+[Route("api/v1/pets")]
+[Authorize]
+public class PetsController : ControllerBase
+{
+    private readonly IPetsService _service;
+    private readonly IPetsImportService _importService;
+    private readonly ILogger<PetsController> _logger;
+
+    public PetsController(IPetsService service, IPetsImportService importService, ILogger<PetsController> logger)
+    {
+        _service = service;
+        _importService = importService;
+        _logger = logger;
+    }
+
+    [HttpGet]
+    [RequireFeature("ssoma.gestion.pets", "ssoma.gestion.opt")]
+    public async Task<IActionResult> GetList()
+    {
+        try { return Ok(await _service.GetListAsync()); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetList"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> GetDetalle(int id)
+    {
+        try { return Ok(await _service.GetDetalleAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetDetalle"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // Consumida por OPT (y a futuro otras herramientas) para jalar automáticamente
+    // los pasos vigentes del PETS seleccionado — sin este endpoint no hay forma de
+    // "seleccionar PETS y que traiga los pasos".
+    [HttpGet("{id:int}/pasos")]
+    [RequireFeature("ssoma.gestion.pets", "ssoma.gestion.opt")]
+    public async Task<IActionResult> GetPasos(int id)
+    {
+        try { return Ok(await _service.GetPasosAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Crear([FromBody] CrearPetRequest request)
+    {
+        try { return StatusCode(201, new { id = await _service.CrearAsync(request) }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Crear"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Actualizar(int id, [FromBody] ActualizarPetRequest request)
+    {
+        try { await _service.ActualizarAsync(id, request); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Actualizar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/pasos")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> AgregarPaso(int id, [FromBody] CrearPetPasoRequest request)
+    {
+        try { return StatusCode(201, new { id = await _service.AgregarPasoAsync(id, request) }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.AgregarPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/pasos/{pasoId:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ActualizarPaso(int id, int pasoId, [FromBody] ActualizarPetPasoRequest request)
+    {
+        try { await _service.ActualizarPasoAsync(id, pasoId, request); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ActualizarPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpDelete("{id:int}/pasos/{pasoId:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> EliminarPaso(int id, int pasoId)
+    {
+        try { await _service.EliminarPasoAsync(id, pasoId); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.EliminarPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/pasos/reordenar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ReordenarPasos(int id, [FromBody] ReordenarPasosRequest request)
+    {
+        try { await _service.ReordenarPasosAsync(id, request); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ReordenarPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // Sube un .docx de un PETS ya existente y devuelve una vista previa de los pasos
+    // detectados en su "PROCEDIMIENTO DE TRABAJO" (con imagen si el párrafo tenía una).
+    // No guarda nada — el usuario revisa/edita en pantalla y recién confirma.
+    [HttpPost("importar-docx/preview")]
+    [RequireFeature("ssoma.gestion.pets")]
+    [RequestSizeLimit(30_000_000)]
+    [Consumes("multipart/form-data")]
+    public IActionResult PreviewImportarDocx([FromForm] IFormFile file)
+    {
+        try
+        {
+            using var stream = file.OpenReadStream();
+            var preview = _importService.PreviewDesdeDocx(stream);
+            return Ok(preview);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en PetsController.PreviewImportarDocx");
+            return StatusCode(500, new { message = "No se pudo leer el documento. Verifica que sea un .docx válido." });
+        }
+    }
+
+    [HttpPost("{id:int}/importar-docx/confirmar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ConfirmarImportarDocx(int id, [FromBody] ConfirmarImportacionRequest request)
+    {
+        try
+        {
+            await _importService.ConfirmarImportacionAsync(id, request);
+            return NoContent();
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ConfirmarImportarDocx"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/pasos/{pasoId:int}/imagen")]
+    [RequireFeature("ssoma.gestion.pets")]
+    [RequestSizeLimit(20_000_000)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> SubirImagenPaso(int id, int pasoId, [FromForm] IFormFile file)
+    {
+        try
+        {
+            using var stream = file.OpenReadStream();
+            var url = await _service.SubirImagenPasoAsync(id, pasoId, stream, file.FileName);
+            return Ok(new { imagenUrl = url });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.SubirImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+}

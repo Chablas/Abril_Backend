@@ -145,6 +145,28 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>Proyectos asignados al usuario logueado (tabla `user_project`), para
+        /// preseleccionar el proyecto en dashboards que hoy arrancan sin nada elegido.</summary>
+        [Authorize]
+        [HttpGet("mine")]
+        public async Task<IActionResult> GetMine()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var projectIds = await _service.GetMyProjectIds(userId);
+                return Ok(projectIds);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [Authorize]
         [HttpGet("responsables")]
         public async Task<IActionResult> GetResponsables([FromQuery] string tipo)

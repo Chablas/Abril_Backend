@@ -76,6 +76,58 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Corrige una evaluación ya enviada: solo el mismo evaluador, solo dentro de las 24h
+        /// siguientes a haberla creado, solo mientras el período siga activo. Reemplaza la nota
+        /// (no queda historial) y no deja ninguna marca de que fue editada.
+        /// </summary>
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] EvEvaluacionCreateDto dto)
+        {
+            try
+            {
+                var periodo = await _periodoRepo.GetActivoAsync()
+                    ?? throw new AbrilException("No hay período activo.", 400);
+
+                if (DateTime.Today < periodo.FechaApertura.ToDateTime(TimeOnly.MinValue) ||
+                    DateTime.Today > periodo.FechaCierre.ToDateTime(TimeOnly.MinValue))
+                    throw new AbrilException("El período de evaluación no está activo.", 400);
+
+                if (!dto.NoAplica && dto.Detalles.Any(d => !d.EsNa && (d.Puntaje is null or < 1 or > 5)))
+                    throw new AbrilException("El puntaje debe estar entre 1 y 5.", 400);
+
+                var existente = await _repo.GetByIdAsync(id)
+                    ?? throw new AbrilException("Evaluación no encontrada.", 404);
+
+                var userId = GetUserId();
+                if (existente.EvaluadorUserId != userId)
+                    throw new AbrilException("Solo puedes corregir evaluaciones que registraste tú.", 403);
+
+                if (DateTime.UtcNow - existente.CreatedAt > TimeSpan.FromHours(24))
+                    throw new AbrilException("Ya pasaron más de 24 horas desde que la registraste — no se puede corregir.", 400);
+
+                var puntajesValidos = dto.Detalles
+                    .Where(d => !d.EsNa && d.Puntaje.HasValue)
+                    .Select(d => d.Puntaje!.Value)
+                    .ToList();
+                var nota = puntajesValidos.Count != 0 ? Math.Round((decimal)puntajesValidos.Average() * 4, 2) : 0;
+
+                var detalles = dto.Detalles.Select(d => new EvEvaluacionResidenteDetalle
+                {
+                    PlantillaId = d.PlantillaId,
+                    Criterio = d.Criterio,
+                    Puntaje = d.Puntaje,
+                    EsNa = d.EsNa
+                }).ToList();
+
+                await _repo.UpdateAsync(id, nota, dto.Comentario, dto.NoAplica, dto.NoAplicaMotivo, detalles);
+                var result = await _repo.GetDetalleAsync(id);
+                return Ok(new { result!.Id, result.Nota, message = "Evaluación corregida correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("periodo/{periodoId:int}")]
         public async Task<IActionResult> GetByPeriodo(int periodoId)
         {

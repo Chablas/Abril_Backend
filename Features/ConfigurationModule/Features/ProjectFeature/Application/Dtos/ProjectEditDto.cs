@@ -8,6 +8,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? Abbreviation { get; set; }
         public string? LevelDescription { get; set; }
         public string? Estado { get; set; }
+        /// <summary>Ciclo de vida real para el cálculo de ratios SSOMA: Finalizado | Activo | Inactivo.</summary>
+        public string? CicloVida { get; set; }
 
         // Contribuyente
         public int? ContributorId { get; set; }

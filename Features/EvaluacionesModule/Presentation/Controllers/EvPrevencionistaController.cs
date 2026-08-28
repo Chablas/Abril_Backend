@@ -41,21 +41,16 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private int GetEmpresaId() =>
             int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : 0;
 
-        private List<int> GetProyectoIds()
-        {
-            var raw = User.FindFirst("proyectoIds")?.Value;
-            if (string.IsNullOrEmpty(raw)) return [];
-            return raw.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(p => int.TryParse(p, out var id) ? id : 0)
-                .Where(id => id > 0)
-                .ToList();
-        }
 
         [HttpGet("inicio")]
         [Authorize(Roles = Roles.Contratista)]
         public async Task<IActionResult> GetInicio()
         {
-            try { return Ok(await _repo.GetInicioAsync(GetUserId(), GetEmpresaId(), GetProyectoIds())); }
+            try
+            {
+                var proyectoIds = await _repo.ResolverProyectoIdsActualesAsync(GetUserId(), GetEmpresaId());
+                return Ok(await _repo.GetInicioAsync(GetUserId(), GetEmpresaId(), proyectoIds));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvPrevencionistaController.GetInicio"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
@@ -75,7 +70,7 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 if (dto.Detalles.Any(d => d.Puntaje is < 1 or > 5))
                     throw new AbrilException("El puntaje debe estar entre 1 y 5.", 400);
 
-                var proyectoIds = GetProyectoIds();
+                var proyectoIds = await _repo.ResolverProyectoIdsActualesAsync(GetUserId(), GetEmpresaId());
                 if (!proyectoIds.Contains(dto.ProyectoId))
                     throw new AbrilException("No tiene acceso a este proyecto.", 403);
 

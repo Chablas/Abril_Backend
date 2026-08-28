@@ -305,22 +305,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // Reclutamiento como finalista aprobado, su ficha existe y la va a heredar el
             // onboarding al firmar. Dar de alta otra por acá dejaría dos fichas vivas para
             // el mismo DNI, y el EMO de Ingreso ya programado colgaría de la equivocada.
-            // Lo mismo aplica a RETIRADO: es un reingreso, no un alta nueva -- de lo
-            // contrario queda la ficha vieja y una nueva, las dos "vivas" (state=true),
-            // sin fusionar entre sí (ver Migrations_Manual/2026-08-25_workers_fusion_fichas_duplicadas.sql).
             var estadoFichaExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
                          && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
                          && (w.WorkersEstadoId == WorkersEstadoIds.Activo
-                          || w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
-                          || w.WorkersEstadoId == WorkersEstadoIds.Retirado))
+                          || w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado))
                 .Select(w => (int?)w.WorkersEstadoId)
                 .FirstOrDefaultAsync();
             if (estadoFichaExistente == WorkersEstadoIds.Activo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
-            if (estadoFichaExistente == WorkersEstadoIds.Retirado)
-                throw new AbrilException(
-                    "Ya existe una ficha retirada con ese DNI. Use la opción de Reingreso en vez de dar de alta un trabajador nuevo.", 409);
             if (estadoFichaExistente == WorkersEstadoIds.FinalistaAprobado)
                 throw new AbrilException(
                     "Ese DNI ya tiene una ficha de finalista aprobado en Reclutamiento. "

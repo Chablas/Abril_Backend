@@ -180,6 +180,10 @@ namespace Abril_Backend.Application.Services
                 await NotifySupervisorsAboutPendingLessonsAsync(today);
                 await SendJefesReviewWindowReminderAsync(today);
                 Console.WriteLine("📧 Reporte y aviso de revisión enviados correctamente");
+
+                // Recordatorio de cronograma de hitos: antes solo corría en ordinal 1-3,
+                // ahora corre también en este 4.º día hábil final.
+                await SendMilestoneScheduleHistoryMonthlyRemindersAsync(today);
             }
             else if (ordinal == 5)
             {
@@ -805,11 +809,10 @@ namespace Abril_Backend.Application.Services
         {
             var pendingUserProjects = await _milestoneScheduleHistoryRepository.GetUsersWithoutScheduleHistoryThisMonth();
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
-            //var periodLabel = "Enero 2026";
             var platformUrl = $"{_frontendUrl}/auth/login";
+
             foreach (var item in pendingUserProjects)
             {
-                Console.WriteLine(item.Email);
                 var projectsHtml = string.Join("",
                     item.Projects.Select(p => $"<li>{p.ProjectDescription}</li>")
                 );
@@ -845,12 +848,15 @@ namespace Abril_Backend.Application.Services
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
+                var isRecipientCalvarez = string.Equals(item.Email, "calvarez@abril.pe", StringComparison.OrdinalIgnoreCase);
+
                 await SendEmailExpandingGroupsAsync(
-                    to: new List<string> { item.Email },
+                    to: new List<string> { item.Email, "jefesgerenciadeproyectos@abril.pe", "coriundo@abril.pe" },
                     subject: "🔔 Abril App Recordatorio: envío mensual de cronograma de hitos pendiente",
                     body: body,
                     isHtml: true,
-                    bcc: new List<string> {"calvarez@abril.pe"}
+                    cc: new List<string> { "hmamani@abril.pe", "vcolonio@abril.pe" },
+                    bcc: isRecipientCalvarez ? null : new List<string> { "calvarez@abril.pe" }
                 );
             }
         }

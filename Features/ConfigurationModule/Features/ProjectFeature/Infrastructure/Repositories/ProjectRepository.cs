@@ -62,6 +62,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     Abbreviation       = p.Abbreviation,
                     LevelDescription   = p.LevelDescription,
                     Estado             = p.Estado,
+                    CicloVida          = p.Activo,
 
                     ContributorId                        = p.ContributorId,
                     ContributorRuc                       = p.Contributor != null ? p.Contributor.ContributorRuc           : null,
@@ -418,6 +419,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
             project.LevelDescription   = dto.LevelDescription?.Trim();
             project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
+            project.Activo             = string.IsNullOrWhiteSpace(dto.CicloVida) ? null : dto.CicloVida.Trim();
 
             project.ContributorId      = dto.ContributorId;
 

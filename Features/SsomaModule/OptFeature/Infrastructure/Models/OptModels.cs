@@ -78,6 +78,16 @@ public class SsomaPetPaso
 {
     public int Id { get; set; }
     public int PetId { get; set; }
+
+    // Árbol: null = nivel superior de "Procedimiento". "Orden" es la posición entre
+    // los HERMANOS del mismo ParentId (no global) — así insertar/reordenar dentro de
+    // un subtítulo no toca el orden de otro subtítulo.
+    public int? ParentId { get; set; }
+
+    // subtitulo | paso | letra | guion — controla cómo se numera/viñetea al mostrarlo,
+    // nunca se guarda el número/letra como texto fijo.
+    public string Tipo { get; set; } = "paso";
+
     public string Descripcion { get; set; } = string.Empty;
     public string? ImagenUrl { get; set; }
     public int Orden { get; set; }
@@ -86,6 +96,8 @@ public class SsomaPetPaso
     public DateTime? UpdatedAt { get; set; }
 
     public SsomaPet? Pet { get; set; }
+    public SsomaPetPaso? Parent { get; set; }
+    public ICollection<SsomaPetPaso> Hijos { get; set; } = [];
 }
 
 public class SsomaOptCriterioVerificacion

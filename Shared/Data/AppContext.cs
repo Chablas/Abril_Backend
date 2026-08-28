@@ -1028,6 +1028,9 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaPetPaso>().ToTable("ssoma_pet_paso");
             modelBuilder.Entity<SsomaPetPaso>()
                 .HasOne(x => x.Pet).WithMany(p => p.Pasos).HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetPaso>()
+                .HasOne(x => x.Parent).WithMany(x => x.Hijos).HasForeignKey(x => x.ParentId)
+                .OnDelete(DeleteBehavior.Restrict);
             modelBuilder.Entity<SsomaOptCriterioVerificacion>().ToTable("ssoma_opt_criterio_verificacion");
             modelBuilder.Entity<SsomaOptVerificacion>().ToTable("ssoma_opt_verificacion");
             modelBuilder.Entity<SsomaOptPaso>().ToTable("ssoma_opt_paso");

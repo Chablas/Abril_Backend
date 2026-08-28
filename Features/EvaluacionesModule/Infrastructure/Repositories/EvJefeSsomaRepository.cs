@@ -43,6 +43,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<int?> ObtenerCategoriaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT pu.categoria_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  LIMIT 1",
+                new { UserId = userId });
+        }
+
+        public async Task<bool> EsJefeSsomaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
+        }
+
         public async Task<bool> YaEvaluoAsync(int periodoId, int evaluadorUserId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -95,17 +126,22 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
 
             // Mismo criterio que EvContratistaRepository.GetEvaluadoresCandidatosAsync:
-            // trabajadores activos con vinculación vigente, aquí filtrados a los roles
-            // que integran el equipo SSOMA (Coordinador SSOMA=70, Prevencionista=72).
+            // trabajadores activos con vinculación vigente, aquí filtrados a los PUESTOS
+            // que integran el equipo SSOMA (categoria_id: Coordinador SSOMA=41, Prevencionista=35
+            // — workers.puesto_id -> puesto.categoria_id, ver CategoriaIds). Antes esto exigía
+            // un user_role (70/72) aparte que nadie asignaba en la práctica; el puesto real
+            // que ya mantiene Habilitación es la fuente confiable de quién integra el equipo.
             var pool = await conn.QueryAsync<PoolRaw>(
                 @"SELECT DISTINCT au.user_id AS UserId, p.full_name AS NombreCompleto, w.email_corporativo AS EmailCorporativo
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND w.contrata_casa = 'Casa'
                     AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
-                    AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)");
+                    AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
+                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });
 
             var completaron = (await conn.QueryAsync<int>(
                 "SELECT evaluador_user_id FROM ev_evaluacion_jefe_ssoma_cumplimiento WHERE periodo_id = @PeriodoId",

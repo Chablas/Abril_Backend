@@ -158,6 +158,8 @@ public class DossierRepository : IDossierRepository
         using var ctx = _factory.CreateDbContext();
         var doc = await ctx.SsDossierDocumento
             .Include(d => d.Archivos)
+            .Include(d => d.Dossier)
+            .ThenInclude(s => s!.Documentos)
             .FirstOrDefaultAsync(d => d.Id == docId)
             ?? throw new AbrilException("Documento no encontrado.", 404);
 
@@ -165,11 +167,36 @@ public class DossierRepository : IDossierRepository
             throw new AbrilException(
                 "No se puede marcar como No Aplica un documento que ya tiene un archivo subido.", 400);
 
+        var ahora = DateTime.UtcNow;
         doc.Estado = doc.Estado == "NA" ? "Pendiente" : "NA";
         doc.NombreArchivo = null;
         doc.ArchivoPath = null;
-        doc.UpdatedAt = DateTime.UtcNow;
+        doc.UpdatedAt = ahora;
+
+        // Marcar NA puede ser el último cambio que le faltaba a la semana para poder
+        // aprobarse (o para no depender más de un documento que quedó observado). El
+        // único recálculo vivía en RevisarDocumentoAsync, así que si el documento NA-eado
+        // era el último pendiente de revisión, la semana se quedaba congelada en "Enviado"
+        // porque ya no quedaba ningún documento "Subido" que disparara el recálculo.
+        var semana = doc.Dossier!;
+        if (semana.Estado is "Enviado" or "Observado" or "Aprobado")
+        {
+            RecalcularEstadoSemana(semana);
+            semana.UpdatedAt = ahora;
+        }
+
         await ctx.SaveChangesAsync();
+    }
+
+    private static void RecalcularEstadoSemana(SsDossierSemana semana)
+    {
+        var aplicables = semana.Documentos.Where(d => d.Estado != "NA").ToList();
+        if (aplicables.Count > 0 && aplicables.All(d => d.Estado == "Aprobado"))
+            semana.Estado = "Aprobado";
+        else if (aplicables.Any(d => d.Estado == "Observado"))
+            semana.Estado = "Observado";
+        else
+            semana.Estado = "Enviado";
     }
 
     public async Task EnviarAsync(int dossierId)
@@ -218,13 +245,7 @@ public class DossierRepository : IDossierRepository
         doc.ObsRevisor = req.ObsRevisor;
         doc.UpdatedAt = ahora;
 
-        var aplicables = semana.Documentos.Where(d => d.Estado != "NA").ToList();
-        if (aplicables.Count > 0 && aplicables.All(d => d.Estado == "Aprobado"))
-            semana.Estado = "Aprobado";
-        else if (aplicables.Any(d => d.Estado == "Observado"))
-            semana.Estado = "Observado";
-        else
-            semana.Estado = "Enviado";
+        RecalcularEstadoSemana(semana);
         semana.UpdatedAt = ahora;
 
         await ctx.SaveChangesAsync();

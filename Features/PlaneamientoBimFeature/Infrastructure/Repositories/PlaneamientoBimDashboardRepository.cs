@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos;
+using Abril_Backend.Features.PlaneamientoBimFeature.Application.Services;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -104,11 +105,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyecto = await ctx.Project
-                .Where(p => p.ProjectId == projectId)
-                .Select(p => new { p.MetaPpc })
-                .FirstOrDefaultAsync();
-            if (proyecto == null)
+            var existeProyecto = await ctx.Project.AnyAsync(p => p.ProjectId == projectId);
+            if (!existeProyecto)
                 return null;
 
             var dias = await ctx.BimRegistroDiario
@@ -127,7 +125,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
             return new PpcHistoricoDto
             {
-                MetaPpc = proyecto.MetaPpc,
+                MetaPpc = PlaneamientoBimConfiguracionService.MetaPpcEstandar,
                 Dias = dias.Select(d => new PpcDiaDto
                 {
                     Fecha = d.Fecha,

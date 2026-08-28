@@ -22,6 +22,18 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
             EvEvaluacionPrevencionista eval, List<EvEvaluacionPrevencionistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int evaluadoUserId, int proyectoId, int evaluadorSsContratistaUsuarioId);
         Task<EvPrevencionistaMiPerfilDto> GetMiPerfilAsync(int evaluadoUserId, int? periodoId);
+
+        /// <summary>
+        /// Categoría del puesto actual del usuario (workers.puesto_id -> puesto.categoria_id).
+        /// Reemplaza el antiguo gate por user_role (70/72) en "Mi perfil".
+        /// </summary>
+        Task<int?> ObtenerCategoriaPuestoAsync(int userId);
+
+        /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma) — para
+        /// la pantalla "solo Jefe SSOMA" (Dashboard consolidado).
+        /// </summary>
+        Task<bool> EsJefeSsomaAsync(int userId);
         Task<EvPrevencionistaDashboardDto> GetDashboardAsync(int? periodoId, int? proyectoId);
 
         /// <summary>

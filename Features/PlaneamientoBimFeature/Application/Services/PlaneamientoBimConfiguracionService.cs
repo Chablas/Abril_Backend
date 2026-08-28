@@ -7,6 +7,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 {
     public class PlaneamientoBimConfiguracionService : IPlaneamientoBimConfiguracionService
     {
+        // PUNTO 5 (obs. Planeamiento BIM): meta de PPC estandar fija, ya no
+        // editable por proyecto. Publica porque tambien la usa
+        // PlaneamientoBimDashboardRepository.GetPpcHistorico (y por ende el
+        // PDF, que consume ese mismo DTO) para no depender de Project.MetaPpc.
+        public const decimal MetaPpcEstandar = 85m;
+
         private readonly IPlaneamientoBimConfiguracionRepository _repository;
 
         public PlaneamientoBimConfiguracionService(IPlaneamientoBimConfiguracionRepository repository)
@@ -20,6 +26,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             if (config == null)
                 throw new AbrilException("El proyecto no existe.", 404);
 
+            config.MetaPpc = MetaPpcEstandar;
             return config;
         }
 
@@ -30,8 +37,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 
         public async Task GuardarConfiguracion(int projectId, ConfiguracionInicialUpdateDto dto)
         {
-            if (dto.MetaPpc.HasValue && (dto.MetaPpc < 0 || dto.MetaPpc > 100))
-                throw new AbrilException("La meta de PPC debe estar entre 0 y 100.", 400);
+            dto.MetaPpc = MetaPpcEstandar; // se ignora cualquier valor recibido del frontend
 
             if (dto.Fases.Any(f => f.FechaInicio.HasValue && f.FechaFinMeta.HasValue && f.FechaFinMeta <= f.FechaInicio))
                 throw new AbrilException("La fecha fin de cada fase debe ser posterior a su fecha de inicio.", 400);

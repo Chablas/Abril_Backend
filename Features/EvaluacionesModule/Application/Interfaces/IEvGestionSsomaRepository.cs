@@ -7,6 +7,19 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<EvGestionSsomaInicioDto> GetInicioAsync(int evaluadorUserId);
 
         /// <summary>
+        /// Categoría del puesto actual del usuario (workers.puesto_id -> puesto.categoria_id),
+        /// o null si no aplica. Coordinador SSOMA=41, Prevencionista=35 (CategoriaIds). Se usa
+        /// en el controller para reemplazar el antiguo gate por user_role (70/72).
+        /// </summary>
+        Task<int?> ObtenerCategoriaPuestoAsync(int userId);
+
+        /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma) — no
+        /// depende de ningún user_role.
+        /// </summary>
+        Task<bool> EsJefeSsomaAsync(int userId);
+
+        /// <summary>
         /// Determina, a partir del rol de quien llama, si la evaluación es D1/D2/D3
         /// (identificada, requiere evaluadoUserIdSolicitado) o D4 (anónima, el
         /// evaluado se resuelve solo — evaluadoUserIdSolicitado se ignora).

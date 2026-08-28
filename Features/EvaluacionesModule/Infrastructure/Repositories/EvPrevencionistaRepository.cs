@@ -2,6 +2,7 @@
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -34,21 +35,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             var evaluadorSsUsuarioId = await ResolverEvaluadorSsUsuarioIdAsync(conn, evaluadorUserId, evaluadorContributorId);
 
+            // Puesto real del trabajador (workers.puesto_id -> puesto.categoria_id), no un
+            // user_role aparte — ver el mismo criterio en EvGestionSsomaRepository/EvJefeSsomaRepository.
             var candidatos = await conn.QueryAsync<CandidatoRaw>(
                 @"SELECT DISTINCT
                     au.user_id AS EvaluadoUserId,
                     p.full_name AS EvaluadoNombre,
-                    CASE WHEN ur.role_id = 70 THEN 'Coordinador SSOMA' ELSE 'Prevencionista' END AS EvaluadoPuesto,
+                    CASE WHEN pu.categoria_id = @CategoriaCoordinadorSsoma THEN 'Coordinador SSOMA' ELSE 'Prevencionista' END AS EvaluadoPuesto,
                     wv.proyecto_id AS ProyectoId,
                     pr.project_description AS ProyectoNombre
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
-                  WHERE w.state AND wv.proyecto_id = ANY(@ProyectoIds)",
-                new { ProyectoIds = proyectoIds.ToArray() });
+                  WHERE w.state AND w.contrata_casa = 'Casa' AND wv.proyecto_id = ANY(@ProyectoIds)",
+                new {
+                    ProyectoIds = proyectoIds.ToArray(),
+                    CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma,
+                    CategoriaPrevencionista = CategoriaIds.Prevencionista,
+                });
 
             List<EvPrevencionistaAEvaluarDto> aEvaluar;
             if (evaluadorSsUsuarioId == null)
@@ -121,6 +128,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN ss_contratista_usuario_proyecto scup ON scup.contratista_usuario_id = scu.id
                   WHERE scu.user_id = @UserId AND scu.contractor_id = @ContractorId AND scu.activo = TRUE",
                 new { UserId = userId, ContractorId = contractorId })).ToList();
+        }
+
+        public async Task<int?> ObtenerCategoriaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT pu.categoria_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  LIMIT 1",
+                new { UserId = userId });
+        }
+
+        public async Task<bool> EsJefeSsomaAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
         }
 
         public async Task<int?> ResolverEvaluadorSsUsuarioIdAsync(int userId, int contributorId)

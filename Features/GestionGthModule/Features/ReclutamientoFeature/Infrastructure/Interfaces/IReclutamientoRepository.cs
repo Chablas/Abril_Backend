@@ -163,7 +163,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// requerimiento y 400 si no está rechazado o su rechazo fue el del propio EMO (a ese no se
         /// lo puede retomar: el examen médico no se revierte volviendo a elegirlo).
         /// </summary>
-        Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+        /// <remarks>
+        /// Devuelve además los datos del requerimiento y de su solicitante: el servicio le avisa a
+        /// quien pidió la vacante con quién sigue el proceso, y ese contexto sale de la misma
+        /// consulta en vez de un roundtrip aparte.
+        /// </remarks>
+        Task<RetomarCandidatoContextoDto> RetomarCandidatoRechazado(
             int requerimientoId, int candidatoId, int? userId);
 
         /// <summary>

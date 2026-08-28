@@ -25,8 +25,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Gerente de área (<c>categoria_id</c> = GERENTE). Ve las solicitudes de su
         /// <c>area_scope</c> hacia abajo y decide las vacantes de ruta
-        /// <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos. Ya no da un visto bueno sobre
-        /// los requerimientos nuevos: esos salieron de su circuito.
+        /// <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos. Firma <b>primero</b>: su visto
+        /// bueno es lo que le abre el turno a GTH, y su rechazo cierra la vacante sin que GTH
+        /// llegue a verla.
+        ///
+        /// De los requerimientos nuevos solo se entera: los decide Gerencia General y a él le
+        /// llega un correo informativo (<see cref="CorreoTipoReclutamiento.AvisoGerenteArea"/>)
+        /// que no lo mete en «Aprobaciones».
         /// </summary>
         public const string GerenteArea = "GERENTE_AREA";
 
@@ -36,9 +41,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Es el único nivel que NO sale de la categoría del puesto sino del área: GTH no aprueba
         /// como jefatura sino como el área dueña del proceso, y quien esté ahí adentro sirve.
         ///
-        /// Decide las vacantes de ruta <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos — a la
-        /// par del gerente del área: una vacante de reemplazo avanza recién con las DOS firmas.
-        /// Ve los reemplazos de toda la empresa, no solo los de su área.
+        /// Decide las vacantes de ruta <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos —
+        /// <b>después</b> del gerente del área: una vacante de reemplazo avanza recién con las DOS
+        /// firmas y GTH pone la segunda. Hasta que el área no aprueba, la vacante no aparece en su
+        /// bandeja ni le llega correo (ver <see cref="RutaAprobacion.LeTocaAhora"/>). Ve los
+        /// reemplazos de toda la empresa, no solo los de su área.
         /// </summary>
         public const string Gth = "GTH";
 

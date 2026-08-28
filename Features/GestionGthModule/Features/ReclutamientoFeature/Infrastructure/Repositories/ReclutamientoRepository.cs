@@ -1773,6 +1773,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 from l in ctx.GthLugarEntrevista
                     .Where(x => x.GthLugarEntrevistaId == lugarId).DefaultIfEmpty()
+                // Solicitante: es el destinatario del aviso de "entrevista confirmada" — el que
+                // tiene que ir a la cita. Left join por lo mismo que en el resto del módulo: un
+                // requerimiento viejo puede haber quedado sin usuario solicitante.
+                join u in ctx.User on r.Solicitud!.SolicitanteUserId equals (int?)u.UserId into uJoin
+                from u in uJoin.DefaultIfEmpty()
+                join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into psJoin
+                from ps in psJoin.DefaultIfEmpty()
                 select new
                 {
                     c.Nombre,
@@ -1781,6 +1788,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.GthRequerimientoId,
                     Area = r.Solicitud!.AreaNombre,
                     LugarNombre = l != null ? l.Nombre : null,
+                    LugarMapsUrl = l != null ? l.MapsUrl : null,
+                    SolicitanteEmail  = u != null ? u.Email : null,
+                    SolicitanteNombre = ps != null ? ps.FullName : null,
                 }).FirstOrDefaultAsync();
             if (contexto == null)
                 throw new AbrilException("No se encontró el proceso al que corresponde esta entrevista.", 404);
@@ -1805,6 +1815,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Area            = contexto.Area,
                 CorreoCandidato = entrevista.CorreoEnvio,
                 RequerimientoId = contexto.GthRequerimientoId,
+                SolicitanteEmail  = contexto.SolicitanteEmail,
+                SolicitanteNombre = contexto.SolicitanteNombre,
+                LugarMapsUrl      = contexto.LugarMapsUrl,
                 YaHabiaRespondidoLoMismo = repetida,
                 Resumen = new EntrevistaResumenDto
                 {
@@ -2661,7 +2674,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _                          => etapaCodigo,
         };
 
-        public async Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+        public async Task<RetomarCandidatoContextoDto> RetomarCandidatoRechazado(
             int requerimientoId, int candidatoId, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -2799,14 +2812,49 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await ctx.SaveChangesAsync();
 
-            return new RetomarCandidatoResultDto
+            // Contexto del aviso al solicitante, en un solo roundtrip. Los left join son por lo
+            // mismo que en el resto del módulo: el proyecto es opcional y el solicitante puede
+            // haberse quedado sin usuario.
+            var cabecera = await (
+                from r in ctx.GthRequerimiento.AsNoTracking()
+                where r.GthRequerimientoId == requerimientoId
+                join p in ctx.Puesto.AsNoTracking() on r.PuestoId equals p.PuestoId
+                join pr in ctx.Project.AsNoTracking() on r.ProjectId equals pr.ProjectId into prJoin
+                from pr in prJoin.DefaultIfEmpty()
+                join u in ctx.User.AsNoTracking()
+                    on r.Solicitud!.SolicitanteUserId equals (int?)u.UserId into uJoin
+                from u in uJoin.DefaultIfEmpty()
+                join ps in ctx.Person.AsNoTracking()
+                    on r.Solicitud!.SolicitanteUserId equals ps.UserId into psJoin
+                from ps in psJoin.DefaultIfEmpty()
+                select new
+                {
+                    r.Codigo,
+                    Puesto            = p.Nombre,
+                    Area              = r.Solicitud!.AreaNombre,
+                    ProyectoObra      = pr != null ? pr.ProjectDescription : null,
+                    SolicitanteEmail  = u != null ? u.Email : null,
+                    SolicitanteNombre = ps != null ? ps.FullName : null,
+                }).FirstOrDefaultAsync();
+
+            return new RetomarCandidatoContextoDto
             {
-                EstadoCodigo    = destino.Codigo,
-                EstadoNombre    = destino.Nombre,
-                CandidatoNombre = cand.Nombre,
-                EtapaCodigo     = etapa,
-                EtapaNombre     = NombreEtapaRechazo(etapa),
-                SiguientePaso   = siguientePaso,
+                Resultado = new RetomarCandidatoResultDto
+                {
+                    EstadoCodigo    = destino.Codigo,
+                    EstadoNombre    = destino.Nombre,
+                    CandidatoNombre = cand.Nombre,
+                    EtapaCodigo     = etapa,
+                    EtapaNombre     = NombreEtapaRechazo(etapa),
+                    SiguientePaso   = siguientePaso,
+                },
+                RequerimientoId   = requerimientoId,
+                Codigo            = cabecera?.Codigo ?? req.Codigo,
+                Puesto            = cabecera?.Puesto ?? string.Empty,
+                Area              = cabecera?.Area,
+                ProyectoObra      = cabecera?.ProyectoObra,
+                SolicitanteEmail  = cabecera?.SolicitanteEmail,
+                SolicitanteNombre = cabecera?.SolicitanteNombre,
             };
         }
 

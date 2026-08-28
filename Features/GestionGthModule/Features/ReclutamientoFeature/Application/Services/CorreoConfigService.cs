@@ -31,9 +31,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ["solicitud-personal"] = new[]
                 {
                     CorreoTipoReclutamiento.AprobacionGg,
+                    // Aviso al gerente del área de las vacantes NUEVAS: sale junto con el de arriba
+                    // y con las mismas vacantes, pero solo para que se entere — no las aprueba él.
+                    CorreoTipoReclutamiento.AvisoGerenteArea,
                     // Los reemplazos no suben a Gerencia General: los aprueban el gerente del área
-                    // y GTH. Sale en el mismo momento que el de arriba (al registrar la solicitud),
-                    // así que se configura en la misma pantalla.
+                    // y GTH, en ese orden. Este es el primero de los dos y sale en el mismo momento
+                    // que el de arriba (al registrar la solicitud), así que se configura acá; el de
+                    // GTH lo dispara la firma del área y se configura en Aprobaciones.
                     CorreoTipoReclutamiento.AprobacionReemplazo,
                     // Ingreso directo FFT: sale al registrar la solicitud, en lugar del correo de
                     // aprobación (a un FFT no lo aprueba nadie), así que se configura acá y no en
@@ -45,11 +49,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // Los correos que dispara una decisión de la pantalla «Aprobaciones», no el
                 // solicitante: se configuran acá, que es donde esas decisiones se toman.
                 // SOLICITUD, TI_VACANTES y FFT_APROBACION_GG salen de la del Gerente General;
-                // REEMPLAZO_APROBADO, de la segunda firma de un reemplazo (la del gerente del área
-                // o la de GTH, la que llegue última).
+                // APROBACION_REEMPLAZO_GTH, de la firma del gerente del área (le abre el turno a
+                // GTH) y REEMPLAZO_APROBADO, de la de GTH, que es la que completa el reemplazo.
                 ["aprobaciones"] = new[]
                 {
                     CorreoTipoReclutamiento.Solicitud,
+                    CorreoTipoReclutamiento.AprobacionReemplazoGth,
                     CorreoTipoReclutamiento.ReemplazoAprobado,
                     CorreoTipoReclutamiento.Ti,
                     CorreoTipoReclutamiento.FftAprobacionGg,
@@ -70,7 +75,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoReclutamiento.FftEmo,
                     CorreoTipoReclutamiento.Entrevista,
                     CorreoTipoReclutamiento.EntrevistaRespuesta,
+                    // Misma respuesta del candidato, otro destinatario: al solicitante le avisa
+                    // cuándo y dónde es la entrevista a la que tiene que ir. Sale desde el
+                    // endpoint público de la respuesta, igual que el de arriba.
+                    CorreoTipoReclutamiento.EntrevistaConfirmadaSolicitante,
                     CorreoTipoReclutamiento.FinalistaEnvio,
+                    // Retomar a un rechazado se hace desde esta pantalla, así que su aviso al
+                    // solicitante se configura acá.
+                    CorreoTipoReclutamiento.CandidatoRetomado,
                     CorreoTipoReclutamiento.Agradecimiento,
                 },
             };

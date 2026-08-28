@@ -28,6 +28,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string? Salario);
 
         /// <summary>Datos que se muestran en el correo.</summary>
+        /// <param name="Link">
+        /// Acceso a «Aprobaciones». Null en el correo informativo al gerente del área: esas
+        /// vacantes no las decide él, así que sale sin botón y sin enlace — un acceso a una
+        /// pantalla donde no le aparecen sería peor que ninguno.
+        /// </param>
         /// <param name="EsRecordatorio">true en el reenvío: agrega la franja ámbar de recordatorio.</param>
         public sealed record Datos(
             string Area,
@@ -36,7 +41,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string? Justificacion,
             string? SustentoUrl,
             string? SustentoNombre,
-            string Link,
+            string? Link,
             bool EsRecordatorio);
 
         /// <param name="assetsUrl">
@@ -70,10 +75,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // reemplazos no lo declara y la columna quedaría llena de guiones.
             var conSalario = datos.Vacantes.Any(v => !string.IsNullOrWhiteSpace(v.Salario));
 
+            // Sin enlace, el correo es un aviso: no se le pide una firma a nadie, así que ni la
+            // bajada ni la franja del recordatorio pueden hablar de una aprobación pendiente.
+            var conAccion = !string.IsNullOrWhiteSpace(datos.Link);
+
             return l.Documento(
                 new ReclutamientoEmailLayout.Cabecera(
-                    "req-solicitud", "Solicitud de Personal", "Pendiente de aprobación:"),
-                datos.EsRecordatorio
+                    "req-solicitud", "Solicitud de Personal",
+                    conAccion ? "Pendiente de aprobación:" : "Registrada para tu conocimiento:"),
+                datos.EsRecordatorio && conAccion
                     ? l.Franja("req-recordatorio", ReclutamientoEmailLayout.Tono.Ambar,
                         "<b>Recordatorio:</b> sigue pendiente de aprobación.")
                     : "",
@@ -85,8 +95,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         : ReclutamientoEmailTextos.ColumnasVacantes,
                     FilasVacantes(datos.Vacantes, conSalario)),
                 l.Tarjeta(datosSustento),
-                l.Boton("Revisar y aprobar", datos.Link),
-                l.EnlaceDirecto(datos.Link));
+                conAccion ? l.Boton("Revisar y aprobar", datos.Link!) : "",
+                conAccion ? l.EnlaceDirecto(datos.Link!) : "");
         }
 
         /// <summary>

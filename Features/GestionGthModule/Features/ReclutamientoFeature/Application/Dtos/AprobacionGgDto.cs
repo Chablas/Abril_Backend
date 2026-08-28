@@ -455,6 +455,15 @@
             Vacantes.Where(v => v.Ruta == RutaAprobacion.AreaYGth).ToList();
 
         /// <summary>
+        /// Los reemplazos que ya tienen el visto bueno del gerente del área y esperan el de GTH:
+        /// es lo que lista el correo de <see cref="CorreoTipoReclutamiento.AprobacionReemplazoGth"/>
+        /// cuando hay que reenviarlo. Los que el área rechazó no están —esos ya no continúan— y
+        /// los que todavía no decidió tampoco: GTH no los ve hasta que el área firma.
+        /// </summary>
+        public List<AprobacionGgVacanteDto> VacantesReemplazoParaGth =>
+            VacantesReemplazo.Where(v => v.AprobadoGerenteArea == true).ToList();
+
+        /// <summary>
         /// Los ingresos directos de la solicitud: no los firma nadie, así que no salen en ningún
         /// correo de aprobación — son exactamente lo que lista el aviso a GTH. En una solicitud
         /// mixta esto es lo que impide que ese correo arrastre las vacantes normales, que sí están
@@ -471,6 +480,20 @@
 
         public bool PendienteReemplazo =>
             VacantesReemplazo.Count > 0 && (!DecididaGerenteArea || !DecididaGth);
+
+        /// <summary>
+        /// De quién es el turno abierto en la ruta del reemplazo: <c>GERENTE_AREA</c> mientras el
+        /// área no decida, <c>GTH</c> una vez que decidió y quedó algo aprobado, y null cuando ya
+        /// no hay a quién recordarle nada (las dos firmas puestas, el área rechazó todo, o la
+        /// solicitud no trae reemplazos). Es lo que elige cuál de los dos correos de la ruta sale
+        /// en cada momento: nunca los dos a la vez.
+        /// </summary>
+        public string? TurnoReemplazo =>
+            VacantesReemplazo.Count == 0        ? null
+            : !DecididaGerenteArea              ? AprobacionNivel.GerenteArea
+            : DecididaGth                       ? null
+            : VacantesReemplazoParaGth.Count > 0 ? AprobacionNivel.Gth
+            : null;
     }
 
     /// <summary>
@@ -483,6 +506,14 @@
         public AprobacionGgDecisionResultDto Resultado { get; set; } = new();
 
         public int SolicitudId { get; set; }
+
+        /// <summary>
+        /// Id de la aprobación: es lo que viaja en el enlace de «Aprobaciones». Lo necesita el
+        /// correo que le pide su firma a GTH, que es el único de esta decisión que manda a alguien
+        /// de vuelta a esa pantalla — los demás llevan a Reclutamiento.
+        /// </summary>
+        public int AprobacionId { get; set; }
+
         public string? Area { get; set; }
         public string? SolicitanteNombre { get; set; }
         public string? Justificacion { get; set; }
@@ -498,11 +529,21 @@
         public string? GerenteAreaResumen { get; set; }
 
         /// <summary>
-        /// Vacantes que ESTA decisión dejó completamente aprobadas: son las únicas que se le mandan
-        /// a GTH. En la ruta de Gerencia General son las que el GG aprobó; en la del reemplazo, solo
-        /// las que con esta firma juntaron las dos — la primera de las dos no manda nada.
+        /// Vacantes que ESTA decisión dejó completamente aprobadas: son las únicas que pasan a
+        /// manos de GTH para reclutarse. En la ruta de Gerencia General son las que el GG aprobó;
+        /// en la del reemplazo, solo las que con esta firma juntaron las dos —o sea, las que firmó
+        /// GTH, que va segundo.
         /// </summary>
         public List<AprobacionGgVacanteDto> Aprobadas { get; set; } = new();
+
+        /// <summary>
+        /// Vacantes que ESTA decisión aprobó pero que todavía esperan la firma que sigue. Hoy son
+        /// siempre los reemplazos que acaba de aprobar el gerente del área: con su visto bueno se
+        /// le abre el turno a GTH, así que son exactamente las que lleva el correo
+        /// <see cref="CorreoTipoReclutamiento.AprobacionReemplazoGth"/>. Vacía en la decisión de
+        /// Gerencia General (su firma va sola) y en la de GTH (es la última).
+        /// </summary>
+        public List<AprobacionGgVacanteDto> EsperandoSiguienteFirma { get; set; } = new();
     }
 
     /// <summary>

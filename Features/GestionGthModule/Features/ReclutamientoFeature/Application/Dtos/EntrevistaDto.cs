@@ -101,6 +101,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Id del requerimiento, para que el aviso a GTH enlace a su bandeja.</summary>
         public int RequerimientoId { get; set; }
 
+        /// <summary>
+        /// Correo corporativo del solicitante que registró la vacante: es el destinatario del aviso
+        /// de "entrevista confirmada", que le dice cuándo y dónde tiene que presentarse. Null en los
+        /// requerimientos cuyo solicitante ya no tiene usuario del sistema; ahí ese correo no sale.
+        /// </summary>
+        public string? SolicitanteEmail { get; set; }
+
+        /// <summary>Nombre del solicitante, para saludarlo en ese aviso.</summary>
+        public string? SolicitanteNombre { get; set; }
+
+        /// <summary>
+        /// Enlace al mapa del lugar de la cita (<c>gth_lugar_entrevista.maps_url</c>), para que el
+        /// solicitante sepa dónde es. Null en los lugares que no lo tienen cargado.
+        /// </summary>
+        public string? LugarMapsUrl { get; set; }
+
         /// <summary>La cita, ya con la respuesta aplicada.</summary>
         public EntrevistaResumenDto Resumen { get; set; } = new();
 

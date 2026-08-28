@@ -51,8 +51,10 @@ jobs:
       # ---------------------------------------------------------------
       # 3) En el VPS: solo bajar la imagen y reiniciar el contenedor (rápido).
       #    Solo UNO de los dos pasos siguientes corre, según la rama.
-      #    Los dos montan /opt/abril/appsettings.Production.json, que en cada
-      #    servidor es un archivo DISTINTO (cada uno con su propia BD).
+      #    Cada uno monta SU archivo: prod usa appsettings.Production.json con
+      #    ASPNETCORE_ENVIRONMENT=Production, y demo usa appsettings.Demo.json con
+      #    ASPNETCORE_ENVIRONMENT=Demo. .NET carga appsettings.{Environment}.json, asi
+      #    que el nombre del archivo y el valor de la variable tienen que coincidir.
       # ---------------------------------------------------------------
 
       - name: Desplegar en PRODUCCION (intranet.abril.pe)
@@ -100,10 +102,10 @@ jobs:
             docker run -d --name abril-backend --restart unless-stopped \
               --network host \
               --log-opt max-size=10m --log-opt max-file=5 \
-              -e ASPNETCORE_ENVIRONMENT=Production \
+              -e ASPNETCORE_ENVIRONMENT=Demo \
               -e ASPNETCORE_URLS=http://127.0.0.1:8080 \
               -e ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
-              -v /opt/abril/appsettings.Production.json:/app/appsettings.Production.json:ro \
+              -v /opt/abril/appsettings.Demo.json:/app/appsettings.Demo.json:ro \
               "$IMAGE:$TAG"
             docker image prune -f
             docker logout ghcr.io

@@ -125,9 +125,11 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     // Errores de EF Core más explícitos (mensaje y constraint name visibles en excepciones).
     options.EnableDetailedErrors();
 
-    // En no-producción, además mostrar los valores reales de los parámetros SQL.
-    // ⚠ NUNCA habilitar en Production: puede loggear contraseñas/PII.
-    if (!builder.Environment.IsProduction())
+    // Solo en la máquina del desarrollador: muestra los valores reales de los parámetros SQL.
+    // ⚠ Va contra IsDevelopment y no contra !IsProduction a propósito: un entorno que no es
+    // ni Development ni Production (Demo) corre en un servidor, con data real clonada de prod
+    // y con los logs yéndose a Loki — ahí loggear parámetros es filtrar PII igual que en prod.
+    if (builder.Environment.IsDevelopment())
         options.EnableSensitiveDataLogging();
 
     options.AddInterceptors(sp.GetRequiredService<AuditoriaInterceptor>());

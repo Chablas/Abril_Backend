@@ -388,14 +388,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             bandeja.Aprobaciones = cabeceras.Select(c =>
             {
-                // Solo las vacantes de MI ruta. Es un corte de VISIBILIDAD y no de presentación:
-                // en una solicitud mixta el Gerente General no ve los reemplazos —ni sus códigos,
-                // ni sus conteos, ni las casillas del gerente del área y de GTH— y el gerente del
-                // área y GTH no ven las vacantes nuevas. Cada uno decide una ruta y ve solo la suya.
+                // Solo las vacantes de MI ruta y de MI turno. Es un corte de VISIBILIDAD y no de
+                // presentación: en una solicitud mixta el Gerente General no ve los reemplazos —ni
+                // sus códigos, ni sus conteos, ni las casillas del gerente del área y de GTH— y el
+                // gerente del área y GTH no ven las vacantes nuevas. Además, en un reemplazo las
+                // dos firmas van en orden: GTH no ve las que el gerente del área todavía no
+                // aprobó (ver RutaAprobacion.LeTocaAhora).
                 var vs = porAprobacion[c.GthAprobacionGgId]
                     .Select(v => new { v.Codigo, v.AprobadoGg, v.AprobadoGa, v.AprobadoGt,
                                        Ruta = RutaAprobacion.De(v.EsFft, v.TipoCodigo, v.FftLegado) })
-                    .Where(v => RutaAprobacion.DecideEsteNivel(v.Ruta, scope.Nivel))
+                    .Where(v => RutaAprobacion.LeTocaAhora(v.Ruta, scope.Nivel, v.AprobadoGa, v.AprobadoGt))
                     .ToList();
 
                 // Cada casilla cuenta solo sus vacantes. Con el corte de arriba una de las dos
@@ -583,12 +585,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // propósito: es un caso real y el mensaje tiene que explicarlo.
             EnsureAlcance(scope, head.AreaScopeId);
 
-            // Mismo corte de visibilidad que la bandeja: solo las vacantes de MI ruta. Acá importa
-            // el doble, porque el modal es lo que trae los datos de cada vacante: así el Gerente
-            // General no recibe siquiera el puesto, el salario ni a quién reemplaza de un reemplazo
-            // ajeno, y el gerente del área y GTH no reciben los de las vacantes nuevas.
+            // Mismo corte de visibilidad que la bandeja: solo las vacantes de MI ruta y de MI
+            // turno. Acá importa el doble, porque el modal es lo que trae los datos de cada
+            // vacante: así el Gerente General no recibe siquiera el puesto, el salario ni a quién
+            // reemplaza de un reemplazo ajeno, el gerente del área y GTH no reciben los de las
+            // vacantes nuevas, y GTH no recibe los de un reemplazo que el área todavía no aprobó.
             var vacantes = (await QueryVacantes(ctx, head.GthAprobacionGgId, head.GthSolicitudId))
-                .Where(v => RutaAprobacion.DecideEsteNivel(v.Ruta, scope.Nivel))
+                .Where(v => RutaAprobacion.LeTocaAhora(
+                    v.Ruta, scope.Nivel, v.AprobadoGerenteArea, v.AprobadoGth))
                 .ToList();
 
             // Sin ninguna vacante mía esta aprobación no me toca. Pasa al abrir el enlace del
@@ -717,13 +721,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .ToListAsync();
             var conDetalle = detalles.Select(d => d.GthRequerimientoId).ToHashSet();
 
-            // Solo las de SU ruta: un gerente de área no firma vacantes nuevas, el Gerente General
-            // no firma reemplazos y un ingreso directo no lo firma nadie. Una solicitud mixta se
+            // Solo las de SU ruta y SU turno: un gerente de área no firma vacantes nuevas, el
+            // Gerente General no firma reemplazos, un ingreso directo no lo firma nadie y GTH no
+            // firma un reemplazo que el gerente del área todavía no aprobó. Una solicitud mixta se
             // decide en dos actos, uno por cada lado.
+            var porRequerimiento = detalles.ToDictionary(d => d.GthRequerimientoId);
             var mias = todas
-                .Where(x => RutaAprobacion.DecideEsteNivel(
-                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
-                                      conDetalle.Contains(x.Req.GthRequerimientoId)), scope.Nivel))
+                .Where(x =>
+                {
+                    porRequerimiento.TryGetValue(x.Req.GthRequerimientoId, out var d);
+                    return RutaAprobacion.LeTocaAhora(
+                        RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
+                                          conDetalle.Contains(x.Req.GthRequerimientoId)),
+                        scope.Nivel, d?.AprobadoGerenteArea, d?.AprobadoGth);
+                })
                 .ToList();
             if (mias.Count == 0)
                 throw new AbrilException(
@@ -791,6 +802,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // reemplazo, solo las que con esta firma juntaron las dos.
             var completadas = new HashSet<int>();
 
+            // Las que esta decisión aprobó pero todavía esperan la firma que sigue. Hoy solo pasa
+            // en un caso —el gerente del área aprobando un reemplazo— y son exactamente las que
+            // hay que ponerle a GTH en la bandeja, así que son las que lleva su correo.
+            var esperandoSiguienteFirma = new HashSet<int>();
+
             foreach (var r in requerimientos)
             {
                 var aprobado = decisionPorId[r.GthRequerimientoId];
@@ -841,7 +857,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var completa = !aprobado || (esGg
                     ? true
                     : detalle.AprobadoGerenteArea == true && detalle.AprobadoGth == true);
-                if (!completa) continue;   // el reemplazo espera la otra firma; nada que mover
+                if (!completa)
+                {
+                    // El reemplazo espera la otra firma: nada que mover, pero sí a quién avisarle.
+                    esperandoSiguienteFirma.Add(r.GthRequerimientoId);
+                    continue;
+                }
 
                 if (aprobado) completadas.Add(r.GthRequerimientoId);
 
@@ -932,6 +953,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Rechazados   = rechazados,
                 },
                 SolicitudId        = aprobacion.GthSolicitudId,
+                AprobacionId       = aprobacion.GthAprobacionGgId,
                 Area               = solicitud.AreaNombre,
                 SolicitanteNombre  = solicitanteNombre,
                 Justificacion      = solicitud.Justificacion,
@@ -940,6 +962,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Comentario         = comentario,
                 GerenteAreaResumen = gerenteAreaResumen,
                 Aprobadas          = vacantes.Where(v => completadas.Contains(v.RequerimientoId)).ToList(),
+                EsperandoSiguienteFirma = vacantes
+                    .Where(v => esperandoSiguienteFirma.Contains(v.RequerimientoId)).ToList(),
             };
         }
 
@@ -1016,12 +1040,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .ToListAsync();
             var conDetalle = detalles.Select(d => d.GthRequerimientoId).ToHashSet();
 
-            // Solo las de la ruta de este nivel: aprobar "toda la fila" desde la lista significa
-            // aprobar todo lo que a ESTE usuario le toca de ella, no las vacantes de los demás.
+            // Solo las de la ruta y el turno de este nivel: aprobar "toda la fila" desde la lista
+            // significa aprobar todo lo que a ESTE usuario le toca de ella AHORA, no las vacantes
+            // de los demás ni las que todavía esperan la firma anterior (ver LeTocaAhora). La
+            // llave del detalle es el par (aprobación, requerimiento) como en GetBandeja: un
+            // requerimiento puede tener detalle de otra aprobación de la misma solicitud.
+            var detallePorPar = detalles
+                .ToDictionary(d => (d.GthAprobacionGgId, d.GthRequerimientoId));
+            var aprobacionPorSolicitud = cabeceras
+                .ToDictionary(c => c.Solicitud.GthSolicitudId, c => c.Aprobacion.GthAprobacionGgId);
+
             var reqPorSolicitud = reqConTipo
-                .Where(x => RutaAprobacion.DecideEsteNivel(
-                    RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
-                                      conDetalle.Contains(x.Req.GthRequerimientoId)), scope.Nivel))
+                .Where(x =>
+                {
+                    var aprId = aprobacionPorSolicitud.GetValueOrDefault(x.Req.GthSolicitudId);
+                    detallePorPar.TryGetValue((aprId, x.Req.GthRequerimientoId), out var d);
+                    return RutaAprobacion.LeTocaAhora(
+                        RutaAprobacion.De(x.Req.EsFft, x.TipoCodigo,
+                                          conDetalle.Contains(x.Req.GthRequerimientoId)),
+                        scope.Nivel, d?.AprobadoGerenteArea, d?.AprobadoGth);
+                })
                 .GroupBy(x => x.Req.GthSolicitudId)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Req).ToList());
 
@@ -1084,6 +1122,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // nada todavía.
             var completadasPorAprobacion = new Dictionary<int, HashSet<int>>();
 
+            // Y cuáles quedaron aprobadas esperando la firma que sigue: son las que le abren el
+            // turno a GTH y las que lleva su correo (ver RegistrarDecision).
+            var esperandoPorAprobacion = new Dictionary<int, HashSet<int>>();
+
             foreach (var c in cabeceras)
             {
                 var aprobacion = c.Aprobacion;
@@ -1130,6 +1172,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 var completadas = new HashSet<int>();
                 completadasPorAprobacion[aprobacion.GthAprobacionGgId] = completadas;
+
+                var esperando = new HashSet<int>();
+                esperandoPorAprobacion[aprobacion.GthAprobacionGgId] = esperando;
 
                 detallePorAprobacion.TryGetValue(aprobacion.GthAprobacionGgId, out var detallesDeEsta);
 
@@ -1179,7 +1224,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // no falta ninguna firma de su ruta (ver RegistrarDecision).
                     var completa = !aprobado || esGg
                         || (detalle.AprobadoGerenteArea == true && detalle.AprobadoGth == true);
-                    if (!completa) continue;
+                    if (!completa)
+                    {
+                        esperando.Add(r.GthRequerimientoId);
+                        continue;
+                    }
 
                     if (aprobado) completadas.Add(r.GthRequerimientoId);
 
@@ -1239,17 +1288,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    cabeceras con sus conteos y listo.
             var aprobacionIdsDecididas = decididas.Select(d => d.Aprobacion.GthAprobacionGgId).ToList();
 
-            // Los datos legibles hacen falta siempre que haya algo que mandarle a GTH, y eso ya no
-            // es exclusivo del Gerente General: la firma de GTH (o la del área, si GTH ya había
-            // firmado) también puede completar un reemplazo.
+            // Los datos legibles hacen falta siempre que haya algo que mandar, y eso ya no es
+            // exclusivo del Gerente General: la firma de GTH completa un reemplazo (correo a GTH
+            // con lo aprobado) y la del gerente del área le abre el turno (correo a GTH pidiendo
+            // la suya), así que las dos necesitan las vacantes con sus datos.
             var hayCompletadas = completadasPorAprobacion.Values.Any(v => v.Count > 0);
-            var vacantesPorAprobacion = hayCompletadas
+            var hayEsperando   = esperandoPorAprobacion.Values.Any(v => v.Count > 0);
+            var vacantesPorAprobacion = hayCompletadas || hayEsperando
                 ? await QueryVacantesDeVarias(ctx, aprobacionIdsDecididas)
                 : new Dictionary<int, List<AprobacionGgVacanteDto>>();
 
             var nombresPorUser = new Dictionary<int, string?>();
             var resumenAreaPorAprobacion = new Dictionary<int, string?>();
-            if (hayCompletadas)
+            if (hayCompletadas || hayEsperando)
             {
                 // Nombres del solicitante de cada solicitud y del gerente de área que ya dio su
                 // visto bueno, en una sola consulta a person para todos los usuarios del lote.
@@ -1295,6 +1346,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                ?? new List<AprobacionGgVacanteDto>();
                 var completas = completadasPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId)
                                 ?? new HashSet<int>();
+                var esperan = esperandoPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId)
+                              ?? new HashSet<int>();
 
                 resultado.Registradas.Add(new AprobacionGgDecisionContextoDto
                 {
@@ -1307,6 +1360,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         Rechazados   = aprobado ? 0 : d.Vacantes,
                     },
                     SolicitudId        = d.Solicitud.GthSolicitudId,
+                    AprobacionId       = d.Aprobacion.GthAprobacionGgId,
                     Area               = d.Solicitud.AreaNombre,
                     SolicitanteNombre  = d.Solicitud.SolicitanteUserId.HasValue
                         ? nombresPorUser.GetValueOrDefault(d.Solicitud.SolicitanteUserId.Value)
@@ -1317,6 +1371,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Comentario         = comentarioLimpio,
                     GerenteAreaResumen = resumenAreaPorAprobacion.GetValueOrDefault(d.Aprobacion.GthAprobacionGgId),
                     Aprobadas          = vacantes.Where(v => completas.Contains(v.RequerimientoId)).ToList(),
+                    EsperandoSiguienteFirma = vacantes
+                        .Where(v => esperan.Contains(v.RequerimientoId)).ToList(),
                 });
             }
 

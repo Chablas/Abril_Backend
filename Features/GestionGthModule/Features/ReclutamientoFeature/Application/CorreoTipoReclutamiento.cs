@@ -16,13 +16,37 @@
         public const string AprobacionGg = "APROBACION_GG";
 
         /// <summary>
-        /// Correo de "vacantes de REEMPLAZO por aprobar" (va al gerente del área del solicitante y
-        /// a GTH). Es el equivalente de <see cref="AprobacionGg"/> para la ruta
+        /// Correo de "vacantes de REEMPLAZO por aprobar" que va al <b>gerente del área</b> del
+        /// solicitante. Es el equivalente de <see cref="AprobacionGg"/> para la ruta
         /// <see cref="RutaAprobacion.AreaYGth"/>: mismo momento —al registrarse la solicitud— pero
         /// otros destinatarios y otras vacantes. Una solicitud que mezcla tipos dispara los dos, y
         /// cada uno lista solo las suyas.
+        ///
+        /// Ya no lleva a GTH: el reemplazo se firma en dos tiempos y GTH recibe lo suyo recién
+        /// cuando el gerente del área aprueba (ver <see cref="AprobacionReemplazoGth"/>).
         /// </summary>
         public const string AprobacionReemplazo = "APROBACION_REEMPLAZO";
+
+        /// <summary>
+        /// Correo de "reemplazos aprobados por el área, pendientes de la firma de GTH" (va a GTH).
+        /// Es el <b>segundo</b> tiempo de la ruta <see cref="RutaAprobacion.AreaYGth"/>: sale
+        /// cuando el gerente del área aprueba alguna vacante de reemplazo, y lleva solo las que él
+        /// aprobó. Hasta ese momento GTH no recibe nada ni ve la solicitud en «Aprobaciones» —
+        /// la firma del área es la que le abre el turno.
+        ///
+        /// No confundir con <see cref="ReemplazoAprobado"/>, que sale después: ese avisa que la
+        /// vacante ya juntó las DOS firmas y hay que reclutarla; este pide la segunda.
+        /// </summary>
+        public const string AprobacionReemplazoGth = "APROBACION_REEMPLAZO_GTH";
+
+        /// <summary>
+        /// Correo informativo de "se registró una solicitud de vacantes nuevas" que va al gerente
+        /// del área del solicitante. Sale en el mismo momento que <see cref="AprobacionGg"/> y con
+        /// las mismas vacantes, pero <b>no pide nada</b>: las vacantes nuevas las aprueba Gerencia
+        /// General y el gerente del área solo tiene que enterarse, así que este correo va sin el
+        /// botón de aprobar y sin enlace a «Aprobaciones».
+        /// </summary>
+        public const string AvisoGerenteArea = "AVISO_GERENTE_AREA";
 
         /// <summary>
         /// Correo de "aprobación de Gerencia a GTH". Sale recién cuando Gerencia General aprueba, y
@@ -35,9 +59,10 @@
         /// Correo de "reemplazos aprobados a GTH". Es el equivalente de <see cref="Solicitud"/> para
         /// la ruta <see cref="RutaAprobacion.AreaYGth"/>: mismo destinatario y mismo trabajo del otro
         /// lado —publicar la vacante y reclutar—, pero lo dispara otra decisión. Sale recién cuando
-        /// una vacante de reemplazo junta las DOS firmas (la del gerente del área y la de GTH), y
-        /// solo con las que quedaron completas en esa decisión: la primera de las dos firmas todavía
-        /// no manda nada. Se configura desde Aprobaciones, que es donde esas firmas se registran.
+        /// una vacante de reemplazo junta las DOS firmas, o sea con la de GTH, que es siempre la
+        /// segunda: la del gerente del área abre el turno de GTH con
+        /// <see cref="AprobacionReemplazoGth"/> y todavía no manda nada acá. Se configura desde
+        /// Aprobaciones, que es donde esas firmas se registran.
         /// </summary>
         public const string ReemplazoAprobado = "REEMPLAZO_APROBADO";
 
@@ -137,6 +162,31 @@
         public const string EntrevistaRespuesta = "ENTREVISTA_RESPUESTA";
 
         /// <summary>
+        /// Correo de "el candidato confirmó su entrevista" que va al <b>solicitante</b>. Lo dispara
+        /// el mismo acto que <see cref="EntrevistaRespuesta"/> —el candidato pulsando Confirmar—
+        /// pero solo cuando confirma, y le habla a otra persona y con otro propósito: el
+        /// solicitante tiene que ir a esa entrevista, así que lo que necesita es el día, la hora y
+        /// el lugar. Un rechazo no lo dispara: ahí no hay cita a la que ir y quien tiene que
+        /// reprogramarla es GTH.
+        ///
+        /// El destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
+        /// configuración solo aporta principales adicionales y copias.
+        /// </summary>
+        public const string EntrevistaConfirmadaSolicitante = "ENTREVISTA_CONFIRMADA_SOLICITANTE";
+
+        /// <summary>
+        /// Correo de "se retomó a un candidato del historial" que va al <b>solicitante</b>. Sale
+        /// cuando GTH elige a un rechazado para continuar el proceso tras un EMO de ingreso No
+        /// Apto: el proceso vuelve a la etapa en la que se lo había descartado y quien pidió la
+        /// vacante tiene que saber con quién sigue y qué le toca hacer (en la decisión final, la
+        /// pelota vuelve a su lado).
+        ///
+        /// El destinatario principal es SIEMPRE el solicitante; la configuración solo aporta
+        /// principales adicionales y copias.
+        /// </summary>
+        public const string CandidatoRetomado = "CANDIDATO_RETOMADO";
+
+        /// <summary>
         /// Correo de "fin de proceso" (va al candidato que no continúa). Sale desde cuatro lados
         /// con el mismo cuerpo: cuando GTH rechaza al postulante tras rechazarle el formulario,
         /// cuando lo marca como "no continúa" tras la entrevista, cuando el solicitante rechaza a
@@ -147,18 +197,23 @@
         public const string Agradecimiento = "AGRADECIMIENTO";
 
         /// <summary>
-        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>solicitud</c> /
+        /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>aprobacion-reemplazo</c> /
+        /// <c>aprobacion-reemplazo-gth</c> / <c>aviso-gerente-area</c> / <c>solicitud</c> /
         /// <c>reemplazo-aprobado</c> / <c>ti-vacantes</c> /
         /// <c>fft-solicitud-gg</c> / <c>fft-aprobacion-gg</c> / <c>fft-emo</c> / <c>long-list</c> /
         /// <c>decision-long-list</c> / <c>finalista-envio</c> / <c>decision-finalista</c> /
         /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
-        /// <c>entrevista</c> / <c>entrevista-respuesta</c> / <c>agradecimiento</c>) al código
-        /// estable. Devuelve null si el slug no corresponde a un tipo conocido.
+        /// <c>entrevista</c> / <c>entrevista-respuesta</c> /
+        /// <c>entrevista-confirmada-solicitante</c> / <c>candidato-retomado</c> /
+        /// <c>agradecimiento</c>) al código estable. Devuelve null si el slug no corresponde a un
+        /// tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
-            "aprobacion-gg"          => AprobacionGg,
-            "aprobacion-reemplazo"   => AprobacionReemplazo,
+            "aprobacion-gg"            => AprobacionGg,
+            "aprobacion-reemplazo"     => AprobacionReemplazo,
+            "aprobacion-reemplazo-gth" => AprobacionReemplazoGth,
+            "aviso-gerente-area"       => AvisoGerenteArea,
             "solicitud"              => Solicitud,
             "reemplazo-aprobado"     => ReemplazoAprobado,
             "ti-vacantes"            => Ti,
@@ -174,6 +229,8 @@
             "formulario-correccion"  => FormularioCorreccion,
             "entrevista"             => Entrevista,
             "entrevista-respuesta"   => EntrevistaRespuesta,
+            "entrevista-confirmada-solicitante" => EntrevistaConfirmadaSolicitante,
+            "candidato-retomado"     => CandidatoRetomado,
             "agradecimiento"         => Agradecimiento,
             _ => null,
         };

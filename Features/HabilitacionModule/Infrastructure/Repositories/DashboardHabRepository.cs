@@ -85,6 +85,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
 
             var casa = workers.Where(w => w.ContrataCasa == "Casa").ToList();
+            var contratista = workers.Where(w => w.ContrataCasa != "Casa").ToList();
             var casaNoHabilitados = casa
                 .Where(w => w.EstadoHabilitacion != "Habilitado")
                 .OrderBy(w => w.ApellidoNombre)
@@ -204,10 +205,10 @@ SELECT project_description FROM project WHERE project_id = @ProyectoId;";
                     EmpresasActivas = porEmpresa.Count,
                     EmpresasHabilitadas = porEmpresa.Count(e => e.Habilitada),
                     EmpresasNoHabilitadas = porEmpresa.Count(e => !e.Habilitada),
-                    WorkersTotal = workers.Count,
-                    WorkersHabilitados = workers.Count(w => w.EstadoHabilitacion == "Habilitado"),
-                    WorkersNoAutorizados = workers.Count(w => w.EstadoHabilitacion == "No Autorizado"),
-                    WorkersAutorizadoTemporal = workers.Count(w => w.EstadoHabilitacion == "Autorizado Temporalmente"),
+                    WorkersTotal = contratista.Count,
+                    WorkersHabilitados = contratista.Count(w => w.EstadoHabilitacion == "Habilitado"),
+                    WorkersNoAutorizados = contratista.Count(w => w.EstadoHabilitacion == "No Autorizado"),
+                    WorkersAutorizadoTemporal = contratista.Count(w => w.EstadoHabilitacion == "Autorizado Temporalmente"),
                     EntregablesEmpresaVencidos = empresaVencidosRaw.Count,
                     EntregablesEmpresaFalta = empresaFaltaRaw.Count,
                     EntregablesTrabajadorVencidos = contratistaVencidosRaw.Count,

@@ -313,6 +313,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Proyecto(s) asignados al usuario logueado en `user_project` (misma tabla que usa
+        /// Evaluaciones para "evaluadores potenciales" — es la fuente única de "proyecto actual
+        /// del usuario" para todo tipo de usuario: admin, SSOMA, UDP, etc.). Se usa para
+        /// preseleccionar el proyecto en dashboards que hoy arrancan vacíos.
+        /// </summary>
+        public async Task<List<int>> GetMyProjectIds(int userId)
+        {
+            return await _context.UserProject
+                .Where(up => up.UserId == userId && up.State && up.Active)
+                .Select(up => up.ProjectId)
+                .Distinct()
+                .ToListAsync();
+        }
+
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)
         {
             var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);

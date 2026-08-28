@@ -507,5 +507,65 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync();
         }
 
+        /// <summary>
+        /// Empresas activas en un proyecto con su estado de habilitación (mismo criterio SSOMA
+        /// que <see cref="EmpresaHabilitacionHelper"/> usa en Trabajadores/Dashboard) y sus
+        /// entregables subidos/faltantes agrupados por responsable (SSOMA vs Administración).
+        /// Fuente para el filtro "por proyecto" de la pantalla Empresa.
+        /// </summary>
+        public async Task<List<EmpresaPorProyectoDto>> GetEmpresasPorProyectoAsync(int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var empresasActivas = await ctx.SsEmpresaProyecto
+                .Include(ep => ep.Empresa)
+                .Where(ep => ep.ProyectoId == proyectoId && ep.Activo)
+                .ToListAsync();
+
+            if (empresasActivas.Count == 0) return [];
+
+            var itemsActivos = await ctx.SsItemEmpresa
+                .Where(i => i.Activo && !EmpresaHabilitacionHelper.ItemsSctrVidaLey.Contains(i.Id))
+                .ToListAsync();
+            var itemsPorId = itemsActivos.ToDictionary(i => i.Id, i => i.Responsable);
+            var itemsSsomaIds = itemsActivos
+                .Where(i => string.Equals(i.Responsable, "SSOMA", StringComparison.OrdinalIgnoreCase))
+                .Select(i => i.Id)
+                .ToHashSet();
+
+            var registros = await ctx.SsHabEmpresa
+                .Where(h => h.ProyectoId == proyectoId && itemsPorId.Keys.Contains(h.ItemId))
+                .ToListAsync();
+
+            var habilitadasMap = EmpresaHabilitacionHelper.CalcularHabilitadas(registros, itemsSsomaIds);
+
+            // "Vigente" por ítem = el registro más reciente (mismo criterio que el helper) —
+            // así un ítem mensual con historial no se cuenta varias veces.
+            var vigentesPorEmpresa = registros
+                .GroupBy(r => (r.EmpresaId, r.ItemId))
+                .Select(g => g.OrderByDescending(r => r.Anio).ThenByDescending(r => r.Mes).First())
+                .GroupBy(r => r.EmpresaId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            return empresasActivas.Select(ep =>
+            {
+                var vigentes = vigentesPorEmpresa.TryGetValue(ep.EmpresaId, out var v) ? v : new List<SsHabEmpresa>();
+                bool EsSsoma(int itemId) => itemsSsomaIds.Contains(itemId);
+
+                return new EmpresaPorProyectoDto
+                {
+                    EmpresaId = ep.EmpresaId,
+                    Nombre = ep.Empresa?.ContributorName ?? "",
+                    Habilitada = habilitadasMap.TryGetValue((ep.EmpresaId, proyectoId), out var hab) && hab,
+                    EntregablesSsomaSubidos = vigentes.Count(r => EsSsoma(r.ItemId) && r.Estado != "Falta"),
+                    EntregablesSsomaFaltantes = vigentes.Count(r => EsSsoma(r.ItemId) && r.Estado == "Falta"),
+                    EntregablesAdminSubidos = vigentes.Count(r => !EsSsoma(r.ItemId) && r.Estado != "Falta"),
+                    EntregablesAdminFaltantes = vigentes.Count(r => !EsSsoma(r.ItemId) && r.Estado == "Falta"),
+                };
+            })
+            .OrderBy(e => e.Nombre)
+            .ToList();
+        }
+
     }
 }

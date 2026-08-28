@@ -124,5 +124,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         {
             return await _repository.GetResponsables(tipo);
         }
+
+        public async Task<List<int>> GetMyProjectIds(int userId)
+        {
+            return await _repository.GetMyProjectIds(userId);
+        }
     }
 }

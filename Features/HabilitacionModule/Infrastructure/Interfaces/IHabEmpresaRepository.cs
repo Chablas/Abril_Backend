@@ -29,5 +29,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task EliminarArchivoVersionAsync(int versionArchivoId, int empresaId);
 
         Task<string?> GetResponsableItemEmpresaAsync(int entregableId);
+
+        Task<List<EmpresaPorProyectoDto>> GetEmpresasPorProyectoAsync(int proyectoId);
     }
 }

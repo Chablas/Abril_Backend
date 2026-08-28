@@ -14,5 +14,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         Task<ProjectEmailsDto?> GetEmails(int projectId);
         Task<bool?> ToggleArquitecturaComercial(int projectId);
         Task<List<ResponsableLookupDto>> GetResponsables(string tipo);
+        Task<List<int>> GetMyProjectIds(int userId);
     }
 }

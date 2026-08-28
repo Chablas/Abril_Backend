@@ -12,6 +12,7 @@
 # Config con SECRETOS: se montan en runtime con -v, NUNCA se hornean en la imagen
 appsettings.Production.json
 appsettings.Local.json
+appsettings.Demo.json
 appsettings.Development.json
 
 # Docker y docs (no se necesitan dentro de la imagen)

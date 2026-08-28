@@ -274,6 +274,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaProgramada == default)
                 throw new AbrilException("La fecha es obligatoria.", 400);
 
+            // Programar es reservar una cita a futuro con la clínica: una fecha pasada no es una
+            // cita sino un dato mal tipeado, y además dispararía el correo de programación con un
+            // día que ya no existe. El calendario del modal ya las deshabilita; esto cubre el
+            // resto de vías (el portal de la clínica, un POST directo). "Hoy" en hora de Lima,
+            // que es la del usuario que agenda — en UTC, después de las 19:00 sería mañana.
+            var hoyLima = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+            if (dto.FechaProgramada < hoyLima)
+                throw new AbrilException(
+                    "La fecha programada no puede ser anterior a hoy.", 400);
+
             // Evita duplicados: si ya hay una programación activa para este trabajador
             // y este tipo de EMO, no crear otra (antes solo el auto-programador validaba esto).
             // Una programación dada de baja (State = false) no bloquea: justamente se da de

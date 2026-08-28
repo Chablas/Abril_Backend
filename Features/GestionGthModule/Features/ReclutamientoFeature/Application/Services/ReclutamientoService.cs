@@ -309,9 +309,114 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId) =>
             _repo.ContinuarAEntrevistas(requerimientoId, userId);
 
-        public Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
-            int requerimientoId, int candidatoId, int? userId) =>
-            _repo.RetomarCandidatoRechazado(requerimientoId, candidatoId, userId);
+        public async Task<RetomarCandidatoResultDto> RetomarCandidatoRechazado(
+            int requerimientoId, int candidatoId, int? userId)
+        {
+            var ctx = await _repo.RetomarCandidatoRechazado(requerimientoId, candidatoId, userId);
+
+            // Aviso al solicitante de con quién sigue el proceso. Best-effort: el candidato ya
+            // quedó retomado y el requerimiento ya cambió de fase, así que un fallo del correo no
+            // puede tumbar la operación ni mostrarle un error a GTH — lo ve igual en su pantalla.
+            try
+            {
+                await NotificarCandidatoRetomadoAlSolicitanteAsync(ctx);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "No se pudo avisarle al solicitante que se retomó a un candidato del requerimiento {Codigo}",
+                    ctx.Codigo);
+            }
+
+            return ctx.Resultado;
+        }
+
+        /// <summary>
+        /// Le avisa al área solicitante que GTH retomó el proceso con un candidato del historial
+        /// (tipo CANDIDATO_RETOMADO). El destinatario principal es SIEMPRE el solicitante que
+        /// registró la vacante; la configuración solo aporta principales adicionales y copias.
+        ///
+        /// Le importa por dos motivos: el candidato que había quedado seleccionado ya no va (su EMO
+        /// de ingreso salió No Apto) y, según en qué etapa se lo hubiera descartado, la pelota
+        /// puede volver a su lado — un rechazado en la decisión final vuelve a esperar SU decisión.
+        /// Por eso el botón lleva al seguimiento del requerimiento y no a una pantalla de GTH.
+        /// </summary>
+        private async Task NotificarCandidatoRetomadoAlSolicitanteAsync(RetomarCandidatoContextoDto ctx)
+        {
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.CandidatoRetomado);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
+
+            if (principales.Count == 0)
+            {
+                // También entra acá cuando el correo está apagado con su interruptor maestro: en
+                // ese caso es una decisión de la Configuración, no una falla.
+                _logger.LogWarning(
+                    "Candidato retomado del requerimiento {Codigo}: el solicitante no tiene correo cargado y el "
+                    + "correo CANDIDATO_RETOMADO no tiene destinatarios principales activos, así que el aviso no sale.",
+                    ctx.Codigo);
+                return;
+            }
+
+            await _email.SendAsync(
+                to:      principales,
+                subject: $"[Reclutamiento] El proceso continúa con otro candidato — {ctx.Codigo} · {ctx.Puesto}",
+                body:    ConstruirCuerpoCandidatoRetomado(ctx),
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                // Sale del buzón de GTH, como el resto de los correos que GTH le manda al área
+                // solicitante (long list, finalista): es el área la que le está contando algo.
+                sender:  EmailSenders.Gth);
+        }
+
+        /// <summary>
+        /// Cuerpo del aviso de candidato retomado: quién entra en carrera, desde qué etapa y qué
+        /// sigue, con el botón al seguimiento del requerimiento. La franja da el desenlace en una
+        /// línea, igual que el resto de correos internos del módulo.
+        /// </summary>
+        private string ConstruirCuerpoCandidatoRetomado(RetomarCandidatoContextoDto ctx)
+        {
+            var l    = Layout.Desde(_configuration);
+            var link = ConstruirLinkSeguimiento(ctx.RequerimientoId);
+            var res  = ctx.Resultado;
+
+            var nombre = string.IsNullOrWhiteSpace(res.CandidatoNombre)
+                ? "Un candidato"
+                : Layout.Esc(res.CandidatoNombre);
+
+            var datos = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Textos.OGuion(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-proyecto", "Proyecto / Obra", Textos.OGuion(ctx.ProyectoObra)),
+                new("req-candidato", "Candidato", Textos.OGuion(res.CandidatoNombre)),
+                new("req-estado", "El proceso vuelve a", Textos.OGuion(res.EstadoNombre)),
+            };
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-candidatos", "El Proceso Continúa",
+                    $"<b>{nombre}</b> vuelve al proceso de <b>{Layout.Esc(ctx.Puesto)}</b>."),
+                l.Franja("req-aviso", Layout.Tono.Info,
+                    $"El candidato seleccionado no pasó su examen médico de ingreso. El proceso se retoma "
+                    + $"desde la etapa <b>{Layout.Esc(res.EtapaNombre)}</b>."),
+                l.Tarjeta(datos),
+                l.Boton("Ver el requerimiento", link),
+                l.EnlaceDirecto(link));
+        }
+
+        /// <summary>
+        /// Enlace al seguimiento del requerimiento dentro de la pantalla del solicitante, con el
+        /// modal ya abierto. Es el acceso de los correos que le hablan al área solicitante sin
+        /// pedirle una decisión concreta: no lo manda a decidir una long list ni un finalista, lo
+        /// manda a ver en qué anda su vacante. Sin sesión, el <c>authGuard</c> del frontend lo
+        /// devuelve acá después del login.
+        /// </summary>
+        private string ConstruirLinkSeguimiento(int requerimientoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/solicitud-personal/seguimiento/{requerimientoId}";
+        }
 
         public Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
             int requerimientoId, int? userId) =>
@@ -460,6 +565,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         "No se pudo avisar a GTH la respuesta del candidato a la entrevista del requerimiento {Codigo}",
                         ctx.Codigo);
                 }
+
+                // Y al solicitante, pero SOLO si confirmó: es una cita a la que él tiene que ir, y
+                // lo que necesita es el día, la hora y el lugar. Un rechazo no le genera nada —
+                // reprogramar es trabajo de GTH, que ya se enteró con el correo de arriba.
+                if (ctx.Resumen.RespuestaCodigo == EntrevistaRespuestaCodigo.Confirmada)
+                {
+                    try
+                    {
+                        await NotificarEntrevistaConfirmadaAlSolicitanteAsync(ctx);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "No se pudo avisarle al solicitante la entrevista confirmada del requerimiento {Codigo}",
+                            ctx.Codigo);
+                    }
+                }
             }
 
             return new EntrevistaRespuestaPublicaDto
@@ -556,6 +678,89 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 l.Tarjeta(filas),
                 string.IsNullOrEmpty(link) ? "" : l.Boton("Ver el requerimiento", link),
                 string.IsNullOrEmpty(link) ? "" : l.EnlaceDirecto(link));
+        }
+
+        /// <summary>
+        /// Le avisa al área solicitante que el candidato confirmó su entrevista (tipo
+        /// ENTREVISTA_CONFIRMADA_SOLICITANTE): día, hora y lugar, que es lo que necesita para
+        /// acudir. El destinatario principal es SIEMPRE el solicitante que registró la vacante; la
+        /// configuración solo aporta principales adicionales y copias.
+        ///
+        /// Es otro correo que el de <see cref="NotificarRespuestaEntrevistaAGthAsync"/> aunque lo
+        /// dispare el mismo clic: aquel le cuenta a GTH cómo respondió el candidato (confirmó o no)
+        /// y este cita a alguien de casa a una reunión. Solo sale con la confirmación.
+        /// </summary>
+        private async Task NotificarEntrevistaConfirmadaAlSolicitanteAsync(EntrevistaRespuestaContextoDto ctx)
+        {
+            var dest = await _destinatarios.ResolverAsync(
+                CorreoTipoReclutamiento.EntrevistaConfirmadaSolicitante);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
+
+            if (principales.Count == 0)
+            {
+                // También entra acá cuando el correo está apagado con su interruptor maestro.
+                _logger.LogWarning(
+                    "Entrevista confirmada del requerimiento {Codigo}: el solicitante no tiene correo cargado y el "
+                    + "correo ENTREVISTA_CONFIRMADA_SOLICITANTE no tiene destinatarios principales activos, así que "
+                    + "el aviso no sale.", ctx.Codigo);
+                return;
+            }
+
+            await _email.SendAsync(
+                to:      principales,
+                subject: $"[Reclutamiento] Entrevista confirmada — {ctx.Codigo} · {ctx.Puesto}",
+                body:    ConstruirCuerpoEntrevistaConfirmadaSolicitante(ctx),
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                // Buzón de GTH: es el área que lleva el proceso la que lo está citando, igual que
+                // en la long list y en el finalista.
+                sender:  EmailSenders.Gth);
+        }
+
+        /// <summary>
+        /// Cuerpo del aviso de entrevista confirmada al solicitante. Lo importante es la cita, así
+        /// que la fecha, la hora y el lugar van en la franja (se leen de un vistazo) y repetidos en
+        /// la tarjeta con el resto del contexto. El botón lleva al seguimiento del requerimiento.
+        /// </summary>
+        private string ConstruirCuerpoEntrevistaConfirmadaSolicitante(EntrevistaRespuestaContextoDto ctx)
+        {
+            var l    = Layout.Desde(_configuration);
+            var link = ConstruirLinkSeguimiento(ctx.RequerimientoId);
+            var cita = ctx.Resumen;
+
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre)
+                ? "El candidato"
+                : Layout.Esc(ctx.CandidatoNombre);
+
+            var filas = new List<Layout.Fila>
+            {
+                new("req-codigo", "Requerimiento", Textos.OGuion(ctx.Codigo)),
+                new("req-puesto", "Puesto", Textos.OGuion(ctx.Puesto)),
+                new("req-area", "Área solicitante", Textos.OGuion(ctx.Area)),
+                new("req-candidato", "Candidato", Textos.OGuion(ctx.CandidatoNombre)),
+                new("req-fecha", "Fecha", cita.Fecha.ToString("dd/MM/yyyy")),
+                new("req-hora", "Hora", Textos.OGuion(cita.Hora)),
+                // El lugar con su enlace al mapa cuando lo tiene cargado: quien va a la entrevista
+                // puede no conocer la dirección.
+                new("req-lugar", "Lugar", string.IsNullOrWhiteSpace(ctx.LugarMapsUrl)
+                    ? Textos.OGuion(cita.LugarNombre)
+                    : Textos.Enlace(ctx.LugarMapsUrl!, string.IsNullOrWhiteSpace(cita.LugarNombre)
+                        ? "Ver ubicación"
+                        : cita.LugarNombre)),
+            };
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "req-entrevista", "Entrevista Confirmada",
+                    $"<b>{nombre}</b> confirmó su entrevista para <b>{Layout.Esc(ctx.Puesto)}</b>."),
+                l.Franja("req-check", Layout.Tono.Verde,
+                    $"<b>{cita.Fecha:dd/MM/yyyy}</b> a las <b>{Layout.Esc(cita.Hora)}</b>"
+                    + (string.IsNullOrWhiteSpace(cita.LugarNombre)
+                        ? ""
+                        : $" · {Layout.Esc(cita.LugarNombre)}")),
+                l.Tarjeta(filas),
+                l.Boton("Ver el requerimiento", link),
+                l.EnlaceDirecto(link));
         }
 
         // ── Evaluación de la entrevista y no continuidad ──────────────────────

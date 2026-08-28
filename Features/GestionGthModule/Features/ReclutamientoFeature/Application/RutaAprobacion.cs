@@ -18,9 +18,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string GerenciaGeneral = "GG";
 
         /// <summary>
-        /// Las firmas del gerente del área del solicitante Y de GTH, las dos. Es la ruta de los
-        /// REEMPLAZOS que no son FFT: cubrir a alguien que se va no crea plaza, así que no sube a
-        /// Gerencia General — lo valida quien conoce el área y quien lleva el proceso.
+        /// Las firmas del gerente del área del solicitante Y de GTH, las dos y <b>en ese orden</b>.
+        /// Es la ruta de los REEMPLAZOS que no son FFT: cubrir a alguien que se va no crea plaza,
+        /// así que no sube a Gerencia General — lo valida quien conoce el área y quien lleva el
+        /// proceso.
+        ///
+        /// Las dos firmas son secuenciales y no simultáneas: primero decide el gerente del área y
+        /// recién con su visto bueno la vacante le aparece a GTH (ver <see cref="LeTocaAhora"/>).
+        /// Antes de eso GTH no la ve ni recibe correo.
         /// </summary>
         public const string AreaYGth = "AREA_GTH";
 
@@ -77,5 +82,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Ninguna incluida: un ingreso directo no lo firma nadie.
             _               => false,
         };
+
+        /// <summary>
+        /// ¿Le toca decidir <b>ahora</b> a este nivel? Es <see cref="DecideEsteNivel"/> más el
+        /// TURNO: en la ruta <see cref="AreaYGth"/> las dos firmas van una después de la otra —
+        /// primero el gerente del área y, con su visto bueno, GTH—, así que una vacante de
+        /// reemplazo no entra a la bandeja de GTH hasta que el área la aprobó. Si el área la
+        /// rechaza, la vacante se cae ahí mismo y GTH no llega a verla nunca: no hay nada que
+        /// firmar sobre algo que ya no continúa.
+        ///
+        /// Es lo que decide qué vacantes ve cada uno en «Aprobaciones», cuáles puede marcar y qué
+        /// lleva cada correo, así que vive en un solo sitio para que no puedan discrepar.
+        /// </summary>
+        /// <param name="aprobadoGerenteArea">
+        /// <c>gth_aprobacion_gg_detalle.aprobado_gerente_area</c> de la vacante: true / false /
+        /// null = el área todavía no decidió.
+        /// </param>
+        /// <param name="aprobadoGth">
+        /// <c>gth_aprobacion_gg_detalle.aprobado_gth</c>. Solo se mira para no borrarle el
+        /// historial a GTH: los reemplazos que decidió cuando las dos firmas eran simultáneas
+        /// pueden no tener la del área, y sacarlos de su bandeja escondería decisiones suyas.
+        /// </param>
+        public static bool LeTocaAhora(
+            string ruta, string nivel, bool? aprobadoGerenteArea, bool? aprobadoGth)
+        {
+            if (!DecideEsteNivel(ruta, nivel)) return false;
+            if (nivel != AprobacionNivel.Gth) return true;
+            return aprobadoGerenteArea == true || aprobadoGth != null;
+        }
     }
 }

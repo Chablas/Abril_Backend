@@ -20,11 +20,6 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private readonly IEvPeriodoRepository _periodoRepo;
         private readonly ILogger<EvSupervisorContratistaController> _logger;
 
-        // El Jefe SSOMA (rol 9) también puede evaluar de forma opcional, además de ver
-        // el consolidado — a diferencia de Prevencionista/Coordinador (70/72), para quien
-        // esta evaluación es su función habitual.
-        private const string RolesEvaluador = $"{Roles.CoordinadorSsoma},{Roles.Prevencionista},{Roles.AdministradorSsoma}";
-
         public EvSupervisorContratistaController(
             IEvSupervisorContratistaRepository repo,
             IEvPeriodoRepository periodoRepo,
@@ -38,21 +33,43 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private int GetUserId() =>
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
+        // El Jefe SSOMA (rol 9, sigue siendo un rol de sistema) también puede evaluar de forma
+        // opcional, además de ver el consolidado. Coordinador SSOMA/Prevencionista se resuelven
+        // por el PUESTO real (workers.puesto_id -> puesto.categoria_id) — para ellos esta
+        // evaluación es su función habitual.
+        private async Task<bool> PuedeEvaluarSupervisoresAsync(int userId)
+        {
+            if (User.IsInRole(Roles.AdministradorSsoma)) return true;
+            var categoria = await _repo.ObtenerCategoriaPuestoAsync(userId);
+            return categoria == CategoriaIds.CoordinadorSsoma || categoria == CategoriaIds.Prevencionista;
+        }
+
         [HttpGet("inicio")]
-        [Authorize(Roles = RolesEvaluador)]
+        [Authorize]
         public async Task<IActionResult> GetInicio()
         {
-            try { return Ok(await _repo.GetInicioAsync(GetUserId())); }
+            try
+            {
+                var userId = GetUserId();
+                if (!await PuedeEvaluarSupervisoresAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta evaluación." });
+
+                return Ok(await _repo.GetInicioAsync(userId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.GetInicio"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPost]
-        [Authorize(Roles = RolesEvaluador)]
+        [Authorize]
         public async Task<IActionResult> Create([FromBody] EvSupervisorContratistaEvaluacionCreateDto dto)
         {
             try
             {
+                var userId = GetUserId();
+                if (!await PuedeEvaluarSupervisoresAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta evaluación." });
+
                 var periodo = await _periodoRepo.GetActivoAsync()
                     ?? throw new AbrilException("No hay período de evaluación activo.", 400);
 
@@ -62,7 +79,6 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 if (dto.Detalles.Any(d => !d.EsNa && (d.Puntaje is null or < 0 or > 4)))
                     throw new AbrilException("El puntaje debe estar entre 0 y 4.", 400);
 
-                var userId = GetUserId();
                 var existe = await _repo.ExisteAsync(periodo.Id, dto.SupervisorSsContratistaUsuarioId, userId);
                 if (existe)
                     throw new AbrilException("Ya registró una evaluación para este supervisor en este período.", 409);
@@ -92,18 +108,21 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpPost("no-aplica")]
-        [Authorize(Roles = RolesEvaluador)]
+        [Authorize]
         public async Task<IActionResult> MarcarNoAplica([FromBody] EvSupervisorContratistaNoAplicaCreateDto dto)
         {
             try
             {
+                var userId = GetUserId();
+                if (!await PuedeEvaluarSupervisoresAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta evaluación." });
+
                 if (string.IsNullOrWhiteSpace(dto.Motivo))
                     throw new AbrilException("Debe indicar el motivo.", 400);
 
                 var periodo = await _periodoRepo.GetActivoAsync()
                     ?? throw new AbrilException("No hay período de evaluación activo.", 400);
 
-                var userId = GetUserId();
                 bool esEspecifico = dto.ProyectoId.HasValue && dto.SupervisorSsContratistaUsuarioId.HasValue;
 
                 if (esEspecifico)

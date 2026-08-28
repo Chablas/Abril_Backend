@@ -315,16 +315,32 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         }
 
         /// <summary>
-        /// Proyecto(s) asignados al usuario logueado en `user_project` (misma tabla que usa
-        /// Evaluaciones para "evaluadores potenciales" — es la fuente única de "proyecto actual
-        /// del usuario" para todo tipo de usuario: admin, SSOMA, UDP, etc.). Se usa para
-        /// preseleccionar el proyecto en dashboards que hoy arrancan vacíos.
+        /// Proyecto(s) "actuales" del usuario logueado, para preseleccionar el proyecto en
+        /// dashboards que hoy arrancan vacíos. Dos fuentes, en orden:
+        /// 1) `user_project` (misma tabla que usa Evaluaciones para "evaluadores
+        ///    potenciales") — asignación explícita, hoy solo la puebla Lecciones Aprendidas.
+        /// 2) Si el usuario es personal Casa (tiene Worker propio vía Person.UserId), su
+        ///    vinculación activa (worker_vinculaciones.fecha_fin IS NULL) — el "obra actual"
+        ///    que ya se ve en la ficha del trabajador. Es la fuente real para SSOMA/Habilitación
+        ///    (caso Albines Caballero: sin fila en user_project, pero vinculación activa a
+        ///    Gran Manzano).
         /// </summary>
         public async Task<List<int>> GetMyProjectIds(int userId)
         {
-            return await _context.UserProject
+            var asignados = await _context.UserProject
                 .Where(up => up.UserId == userId && up.State && up.Active)
                 .Select(up => up.ProjectId)
+                .Distinct()
+                .ToListAsync();
+
+            if (asignados.Count > 0) return asignados;
+
+            return await _context.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .SelectMany(w => _context.WorkerVinculacion
+                    .Where(v => v.WorkerId == w.Id && v.FechaFin == null && v.ProyectoId != null)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .Select(v => v.ProyectoId!.Value))
                 .Distinct()
                 .ToListAsync();
         }

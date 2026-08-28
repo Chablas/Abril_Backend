@@ -29,6 +29,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             _factory = factory;
         }
 
+        public async Task<int?> ObtenerCategoriaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT pu.categoria_id
+                  FROM workers w
+                  JOIN person p ON p.person_id = w.person_id
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                  WHERE w.state AND p.user_id = @UserId
+                  LIMIT 1",
+                new { UserId = userId });
+        }
+
         public async Task<EvSupervisorContratistaInicioDto> GetInicioAsync(int evaluadorUserId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -301,11 +316,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.subarea           AS Subarea
                   FROM workers w
                   JOIN person p    ON p.person_id = w.person_id
+                  JOIN puesto pu   ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id IN (70, 72) AND ur.active = TRUE AND ur.state = TRUE
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
-                    AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)");
+                    AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
+                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });
 
             return rows.ToList();
         }

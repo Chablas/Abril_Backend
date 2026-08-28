@@ -6,6 +6,12 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
     public interface IEvSupervisorContratistaRepository
     {
         Task<EvSupervisorContratistaInicioDto> GetInicioAsync(int evaluadorUserId);
+
+        /// <summary>
+        /// Categoría del puesto actual del usuario (workers.puesto_id -> puesto.categoria_id).
+        /// Reemplaza el antiguo gate por user_role (70/72) en el controller.
+        /// </summary>
+        Task<int?> ObtenerCategoriaPuestoAsync(int userId);
         Task<EvEvaluacionSupervisorContratista> CreateAsync(
             EvEvaluacionSupervisorContratista eval, List<EvEvaluacionSupervisorContratistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int supervisorWorkerId, int evaluadorUserId);

@@ -12,13 +12,32 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
+        // Jefe SSOMA sigue siendo un rol de sistema (user_role) — es una designación de
+        // liderazgo, no un puesto del catálogo, así que no tiene categoria_id.
         private const int RolJefeSsoma = 9;
-        private const int RolCoordinadorSsoma = 70;
-        private const int RolPrevencionista = 72;
+
+        // Coordinador SSOMA y Prevencionista, en cambio, SÍ son puestos reales de Habilitación
+        // (workers.puesto_id -> puesto.categoria_id, ver CategoriaIds). Antes esto se resolvía
+        // con un user_role separado (70/72) que había que asignar a mano y que en la práctica
+        // nadie asignaba — José Albines Caballero (puesto "COORDINADOR SSOMA" en su ficha) y su
+        // Prevencionista de Gran Manzano no evaluaban ni eran evaluados por tener ese user_role
+        // vacío, pese a que su puesto real ya decía quiénes eran. Usar la categoría del puesto
+        // evita ese doble mantenimiento: si Habilitación ya sabe que alguien es Coordinador
+        // SSOMA/Prevencionista, esta evaluación también lo sabe.
+        private const int CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma;
+        private const int CategoriaPrevencionista = CategoriaIds.Prevencionista;
 
         public EvGestionSsomaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
+        }
+
+        public async Task<int?> ObtenerCategoriaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await ObtenerCategoriaDeAsync(conn, userId);
         }
 
         public async Task<EvGestionSsomaInicioDto> GetInicioAsync(int evaluadorUserId)
@@ -38,35 +57,36 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             if (periodo == null) return dto;
             dto.Periodo = MapPeriodo(periodo);
 
-            var roles = (await conn.QueryAsync<int>(
-                "SELECT role_id FROM user_role WHERE user_id = @UserId AND active = TRUE AND state = TRUE",
-                new { UserId = evaluadorUserId })).ToHashSet();
+            var esJefeSsoma = (await conn.QueryFirstOrDefaultAsync<int?>(
+                "SELECT role_id FROM user_role WHERE user_id = @UserId AND role_id = @RolJefeSsoma AND active = TRUE AND state = TRUE",
+                new { UserId = evaluadorUserId, RolJefeSsoma })) != null;
+            var categoriaEvaluador = await ObtenerCategoriaDeAsync(conn, evaluadorUserId);
 
             var evaluadas = (await conn.QueryAsync<int>(
                 "SELECT evaluado_user_id FROM ev_evaluacion_gestion_ssoma WHERE periodo_id = @PeriodoId AND evaluador_user_id = @UserId",
                 new { PeriodoId = periodo.Id, UserId = evaluadorUserId })).ToHashSet();
 
-            if (roles.Contains(RolJefeSsoma))
+            if (esJefeSsoma)
             {
-                dto.Prevencionistas = (await ObtenerPoolRolAsync(conn, RolPrevencionista, proyectoIds: null))
+                dto.Prevencionistas = (await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, proyectoIds: null))
                     .Select(p => ToAEvaluarDto(p, evaluadas)).ToList();
-                dto.Coordinadores = (await ObtenerPoolRolAsync(conn, RolCoordinadorSsoma, proyectoIds: null))
+                dto.Coordinadores = (await ObtenerPoolCategoriaAsync(conn, CategoriaCoordinadorSsoma, proyectoIds: null))
                     .Select(p => ToAEvaluarDto(p, evaluadas)).ToList();
             }
-            else if (roles.Contains(RolCoordinadorSsoma))
+            else if (categoriaEvaluador == CategoriaCoordinadorSsoma)
             {
                 var misProyectos = await ObtenerProyectosDeAsync(conn, evaluadorUserId);
                 if (misProyectos.Count > 0)
-                    dto.Prevencionistas = (await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos))
+                    dto.Prevencionistas = (await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, misProyectos))
                         .Select(p => ToAEvaluarDto(p, evaluadas)).ToList();
             }
 
-            if (roles.Contains(RolPrevencionista))
+            if (categoriaEvaluador == CategoriaPrevencionista)
             {
                 var misProyectos = await ObtenerProyectosDeAsync(conn, evaluadorUserId);
                 if (misProyectos.Count > 0)
                 {
-                    var coordinadores = await ObtenerPoolRolAsync(conn, RolCoordinadorSsoma, misProyectos);
+                    var coordinadores = await ObtenerPoolCategoriaAsync(conn, CategoriaCoordinadorSsoma, misProyectos);
                     var miCoordinador = coordinadores.OrderBy(c => c.NombreCompleto).FirstOrDefault();
                     if (miCoordinador != null)
                     {
@@ -82,7 +102,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
                     // D5: Prevencionista -> otros Prevencionistas de su mismo proyecto (identificada,
                     // igual que D3 — no anónima como D4, porque acá evalúan a un par, no a su jefe).
-                    dto.Prevencionistas = (await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos))
+                    dto.Prevencionistas = (await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, misProyectos))
                         .Where(p => p.UserId != evaluadorUserId)
                         .Select(p => ToAEvaluarDto(p, evaluadas)).ToList();
                 }
@@ -97,28 +117,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            var roles = (await conn.QueryAsync<int>(
-                "SELECT role_id FROM user_role WHERE user_id = @UserId AND active = TRUE AND state = TRUE",
-                new { UserId = evaluadorUserId })).ToHashSet();
+            var esJefeSsoma = (await conn.QueryFirstOrDefaultAsync<int?>(
+                "SELECT role_id FROM user_role WHERE user_id = @UserId AND role_id = @RolJefeSsoma AND active = TRUE AND state = TRUE",
+                new { UserId = evaluadorUserId, RolJefeSsoma })) != null;
+            var categoriaEvaluador = await ObtenerCategoriaDeAsync(conn, evaluadorUserId);
 
             // Prioridad Jefe > Coordinador > Prevencionista para el caso (raro) de
-            // que alguien tenga más de un rol de sistema del equipo SSOMA a la vez.
-            if (roles.Contains(RolJefeSsoma))
+            // que alguien tenga más de un puesto/rol del equipo SSOMA a la vez.
+            if (esJefeSsoma)
             {
                 if (evaluadoUserIdSolicitado is not int evaluadoId)
                     return new EvGestionSsomaContextoDto { Valido = false, Error = "Debe indicar a quién evalúa." };
 
-                var evaluadoRoles = (await conn.QueryAsync<int>(
-                    "SELECT role_id FROM user_role WHERE user_id = @UserId AND active = TRUE AND state = TRUE",
-                    new { UserId = evaluadoId })).ToHashSet();
+                var categoriaEvaluado = await ObtenerCategoriaDeAsync(conn, evaluadoId);
 
-                if (evaluadoRoles.Contains(RolPrevencionista))
+                if (categoriaEvaluado == CategoriaPrevencionista)
                     return new EvGestionSsomaContextoDto
                     {
                         Valido = true, EvaluadorRol = Roles.AdministradorSsoma,
                         EvaluadoUserId = evaluadoId, EvaluadoRol = Roles.Prevencionista
                     };
-                if (evaluadoRoles.Contains(RolCoordinadorSsoma))
+                if (categoriaEvaluado == CategoriaCoordinadorSsoma)
                     return new EvGestionSsomaContextoDto
                     {
                         Valido = true, EvaluadorRol = Roles.AdministradorSsoma,
@@ -127,13 +146,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 return new EvGestionSsomaContextoDto { Valido = false, Error = "La persona indicada no es Prevencionista ni Coordinador SSOMA." };
             }
 
-            if (roles.Contains(RolCoordinadorSsoma))
+            if (categoriaEvaluador == CategoriaCoordinadorSsoma)
             {
                 if (evaluadoUserIdSolicitado is not int evaluadoId)
                     return new EvGestionSsomaContextoDto { Valido = false, Error = "Debe indicar a quién evalúa." };
 
                 var misProyectos = await ObtenerProyectosDeAsync(conn, evaluadorUserId);
-                var prevencionistas = await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos);
+                var prevencionistas = await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, misProyectos);
                 var objetivo = prevencionistas.FirstOrDefault(p => p.UserId == evaluadoId);
                 if (objetivo == null)
                     return new EvGestionSsomaContextoDto { Valido = false, Error = "Ese Prevencionista no pertenece a su(s) proyecto(s)." };
@@ -146,7 +165,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 };
             }
 
-            if (roles.Contains(RolPrevencionista))
+            if (categoriaEvaluador == CategoriaPrevencionista)
             {
                 var misProyectos = await ObtenerProyectosDeAsync(conn, evaluadorUserId);
                 if (misProyectos.Count == 0)
@@ -156,7 +175,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 // Prevencionista de su mismo proyecto — distinto de D4 (anónima, sin elegir).
                 if (evaluadoUserIdSolicitado is int evaluadoPeerId)
                 {
-                    var prevencionistas = await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos);
+                    var prevencionistas = await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, misProyectos);
                     var objetivo = prevencionistas.FirstOrDefault(p => p.UserId == evaluadoPeerId && p.UserId != evaluadorUserId);
                     if (objetivo == null)
                         return new EvGestionSsomaContextoDto { Valido = false, Error = "Ese Prevencionista no pertenece a su(s) proyecto(s)." };
@@ -169,7 +188,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     };
                 }
 
-                var coordinadores = await ObtenerPoolRolAsync(conn, RolCoordinadorSsoma, misProyectos);
+                var coordinadores = await ObtenerPoolCategoriaAsync(conn, CategoriaCoordinadorSsoma, misProyectos);
                 var miCoordinador = coordinadores.OrderBy(c => c.NombreCompleto).FirstOrDefault();
                 if (miCoordinador == null)
                     return new EvGestionSsomaContextoDto { Valido = false, Error = "Su proyecto no tiene un Coordinador SSOMA asignado — no corresponde esta evaluación." };
@@ -277,8 +296,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            var prevencionistas = await ObtenerPoolRolAsync(conn, RolPrevencionista, proyectoIds: null);
-            var coordinadores = await ObtenerPoolRolAsync(conn, RolCoordinadorSsoma, proyectoIds: null);
+            var prevencionistas = await ObtenerPoolCategoriaAsync(conn, CategoriaPrevencionista, proyectoIds: null);
+            var coordinadores = await ObtenerPoolCategoriaAsync(conn, CategoriaCoordinadorSsoma, proyectoIds: null);
 
             var evaluadasIdentificadas = (await conn.QueryAsync<(int EvaluadorUserId, int EvaluadoUserId)>(
                 "SELECT evaluador_user_id AS EvaluadorUserId, evaluado_user_id AS EvaluadoUserId FROM ev_evaluacion_gestion_ssoma WHERE periodo_id = @PeriodoId AND evaluador_user_id IS NOT NULL",
@@ -496,6 +515,47 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             return rows.ToList();
         }
+
+        // Trabajadores activos con vinculación vigente cuyo PUESTO pertenece a la categoría
+        // indicada (workers.puesto_id -> puesto.categoria_id — Coordinador SSOMA=41,
+        // Prevencionista=35). Es el equivalente a ObtenerPoolRolAsync pero por categoría de
+        // puesto en vez de user_role: Habilitación ya mantiene esto al día, así que no
+        // depende de que alguien recuerde asignar un rol de sistema aparte.
+        private static async Task<List<PoolRaw>> ObtenerPoolCategoriaAsync(
+            System.Data.IDbConnection conn, int categoriaId, List<int>? proyectoIds)
+        {
+            var filtroProyecto = proyectoIds != null ? "AND wv.proyecto_id = ANY(@ProyectoIds)" : "";
+
+            var rows = await conn.QueryAsync<PoolRaw>(
+                @"SELECT DISTINCT au.user_id AS UserId, p.full_name AS NombreCompleto,
+                    w.email_corporativo AS EmailCorporativo,
+                    wv.proyecto_id AS ProyectoId, pr.project_description AS ProyectoNombre
+                  FROM workers w
+                  JOIN person p ON p.person_id = w.person_id
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id = @CategoriaId
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                  LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
+                  WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    " + filtroProyecto,
+                new { CategoriaId = categoriaId, ProyectoIds = proyectoIds?.ToArray() ?? [] });
+
+            return rows.ToList();
+        }
+
+        // Categoría del puesto actual del usuario logueado (null si no tiene worker propio
+        // o su puesto no tiene categoría reconocida) — resuelve "es Coordinador SSOMA /
+        // Prevencionista" sin pasar por user_role.
+        private static Task<int?> ObtenerCategoriaDeAsync(System.Data.IDbConnection conn, int userId)
+            => conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT pu.categoria_id
+                  FROM workers w
+                  JOIN person p ON p.person_id = w.person_id
+                  JOIN puesto pu ON pu.puesto_id = w.puesto_id
+                  WHERE w.state AND p.user_id = @UserId
+                  LIMIT 1",
+                new { UserId = userId });
 
         private static async Task<List<int>> ObtenerProyectosDeAsync(System.Data.IDbConnection conn, int userId)
         {

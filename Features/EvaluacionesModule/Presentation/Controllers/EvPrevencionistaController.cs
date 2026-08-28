@@ -23,8 +23,6 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private readonly IEvPeriodoRepository _periodoRepo;
         private readonly ILogger<EvPrevencionistaController> _logger;
 
-        private const string RolesEvaluado = $"{Roles.CoordinadorSsoma},{Roles.Prevencionista}";
-
         public EvPrevencionistaController(
             IEvPrevencionistaRepository repo,
             IEvPeriodoRepository periodoRepo,
@@ -107,10 +105,18 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("mi-perfil")]
-        [Authorize(Roles = RolesEvaluado)]
+        [Authorize]
         public async Task<IActionResult> GetMiPerfil([FromQuery] int? periodoId)
         {
-            try { return Ok(await _repo.GetMiPerfilAsync(GetUserId(), periodoId)); }
+            try
+            {
+                var userId = GetUserId();
+                var categoria = await _repo.ObtenerCategoriaPuestoAsync(userId);
+                if (categoria != CategoriaIds.CoordinadorSsoma && categoria != CategoriaIds.Prevencionista)
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetMiPerfilAsync(userId, periodoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvPrevencionistaController.GetMiPerfil"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

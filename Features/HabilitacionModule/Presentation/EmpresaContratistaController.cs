@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Shared.Constants;
+using System.Security.Claims;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -32,6 +33,21 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         public class AddProyectoRequest
         {
             public int ProyectoId { get; set; }
+        }
+
+        [HttpGet("mi-proyecto-actual")]
+        public async Task<IActionResult> GetMiProyectoActual()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                int? proyectoId = int.TryParse(userIdClaim, out var userId)
+                    ? await _repo.GetProyectoActualDeUsuarioAsync(userId)
+                    : null;
+                return Ok(new { proyectoId });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.GetMiProyectoActual"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet]

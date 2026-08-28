@@ -334,6 +334,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        /// <summary>Proyecto de la vinculación laboral activa del usuario logueado (personal
+        /// interno) — usado para preseleccionar el filtro de Proyecto en pantallas de admin,
+        /// arrancando cada quien viendo su propio proyecto en vez de "todos".</summary>
+        public async Task<int?> GetProyectoActualDeUsuarioAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null
+                         && v.Worker != null && v.Worker.State
+                         && v.Worker.Person != null && v.Worker.Person.UserId == userId)
+                .OrderByDescending(v => v.CreatedAt)
+                .Select(v => v.ProyectoId)
+                .FirstOrDefaultAsync();
+        }
+
         private static EmpresaContratistaDetalleDto MapToDetalle(
             Contributor c, Contractor? ct, List<string> emails) => new()
         {

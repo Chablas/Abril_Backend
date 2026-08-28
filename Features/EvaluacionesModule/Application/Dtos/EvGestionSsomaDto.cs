@@ -3,10 +3,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
     // ─── CREATE ────────────────────────────────────────────────────────────────
     public class EvGestionSsomaEvaluacionCreateDto
     {
-        // Se omite (null) cuando quien evalúa es Prevencionista: el evaluado
-        // (su Coordinador SSOMA) lo resuelve el servidor por proyecto, nunca
-        // lo elige el cliente — así el flujo D4 queda anónimo también del
-        // lado del request.
+        // Cuando el evaluador es Prevencionista: null = evaluación anónima a su
+        // Coordinador SSOMA (D4, el servidor resuelve el destinatario, nunca el
+        // cliente); con valor = evaluación identificada a otro Prevencionista de
+        // su mismo proyecto (D5).
         public int? EvaluadoUserId { get; set; }
         public string? Fortalezas { get; set; }
         public string? OportunidadesMejora { get; set; }

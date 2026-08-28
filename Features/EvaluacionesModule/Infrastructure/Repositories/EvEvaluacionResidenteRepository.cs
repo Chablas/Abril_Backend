@@ -31,6 +31,42 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             return eval;
         }
 
+        public async Task<EvEvaluacionResidente?> GetByIdAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvEvaluacionesResidente
+                .Include(e => e.Detalles)
+                .FirstOrDefaultAsync(e => e.Id == id);
+        }
+
+        /// <summary>
+        /// Corrige una evaluación ya enviada: reemplaza nota/comentario/detalles sin dejar
+        /// rastro de que fue editada (regla de negocio: solo dentro de la ventana de 24h que
+        /// valida el service, y la nota vieja no se conserva).
+        /// </summary>
+        public async Task<EvEvaluacionResidente> UpdateAsync(
+            int id, decimal nota, string? comentario, bool noAplica, string? noAplicaMotivo,
+            List<EvEvaluacionResidenteDetalle> detalles)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var eval = await ctx.EvEvaluacionesResidente
+                .Include(e => e.Detalles)
+                .FirstAsync(e => e.Id == id);
+
+            eval.Nota = nota;
+            eval.Comentario = comentario;
+            eval.NoAplica = noAplica;
+            eval.NoAplicaMotivo = noAplicaMotivo;
+            eval.UpdatedAt = DateTime.UtcNow;
+
+            ctx.EvEvaluacionesResidenteDetalle.RemoveRange(eval.Detalles);
+            foreach (var d in detalles) d.EvaluacionId = id;
+            ctx.EvEvaluacionesResidenteDetalle.AddRange(detalles);
+
+            await ctx.SaveChangesAsync();
+            return eval;
+        }
+
         public async Task<bool> ExisteAsync(int periodoId, int evaluadorUserId, int evaluadoUserId, string areaNombre)
         {
             using var ctx = _factory.CreateDbContext();

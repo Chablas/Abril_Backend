@@ -92,6 +92,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<int>> ResolverProyectoIdsActualesAsync(int userId, int contractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var workerId = await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT worker_id FROM ss_contratista_usuario
+                  WHERE user_id = @UserId AND contractor_id = @ContractorId AND activo = TRUE
+                  LIMIT 1",
+                new { UserId = userId, ContractorId = contractorId });
+
+            if (workerId != null)
+            {
+                var proyectosActuales = (await conn.QueryAsync<int>(
+                    @"SELECT DISTINCT proyecto_id FROM worker_vinculaciones
+                      WHERE worker_id = @WorkerId AND fecha_fin IS NULL",
+                    new { WorkerId = workerId })).ToList();
+                if (proyectosActuales.Count > 0) return proyectosActuales;
+            }
+
+            // Fallback: cuentas sin worker_id detrás (admin de contratista sin persona física
+            // asociada) siguen usando la asignación estática de ss_contratista_usuario_proyecto.
+            return (await conn.QueryAsync<int>(
+                @"SELECT scup.proyecto_id
+                  FROM ss_contratista_usuario scu
+                  JOIN ss_contratista_usuario_proyecto scup ON scup.contratista_usuario_id = scu.id
+                  WHERE scu.user_id = @UserId AND scu.contractor_id = @ContractorId AND scu.activo = TRUE",
+                new { UserId = userId, ContractorId = contractorId })).ToList();
+        }
+
         public async Task<int?> ResolverEvaluadorSsUsuarioIdAsync(int userId, int contributorId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -196,25 +227,28 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            // Reconstruye el mismo alcance que ContratistaAuthService.GenerarTokenDto arma
-            // en el JWT (empresaId = contractor_id, proyectoIds = ss_contratista_usuario_proyecto)
-            // porque el cron no tiene ese token — solo puede leerlo de la base.
+            // Mismo alcance que ResolverProyectoIdsActualesAsync: el proyecto real de un
+            // supervisor de campo sale de la vinculación vigente de su worker (solo el
+            // trabajador/persona sabe en qué obra está hoy), no de la asignación estática
+            // ss_contratista_usuario_proyecto — esa tabla solo aplica a cuentas sin worker_id
+            // (admin de contratista sin persona física detrás). El cron no tiene JWT, así que
+            // reconstruye esto directo de la base.
             var rows = await conn.QueryAsync<CandidatoRawFlat>(
                 @"SELECT
                     scu.user_id       AS UserId,
                     scu.contractor_id AS ContributorId,
                     au.email          AS Email,
                     COALESCE(p.full_name, au.email) AS Nombre,
-                    scup.proyecto_id  AS ProyectoId
+                    COALESCE(wv.proyecto_id, scup.proyecto_id) AS ProyectoId
                   FROM ss_contratista_usuario scu
                   JOIN app_user au ON au.user_id = scu.user_id
-                  JOIN ss_contratista_usuario_proyecto scup ON scup.contratista_usuario_id = scu.id
-                  LEFT JOIN workers w ON w.id = (
-                      SELECT w2.id FROM workers w2
-                      JOIN person p2 ON p2.person_id = w2.person_id
-                      WHERE w2.state AND p2.user_id = scu.user_id LIMIT 1)
+                  LEFT JOIN worker_vinculaciones wv ON wv.worker_id = scu.worker_id AND wv.fecha_fin IS NULL
+                  LEFT JOIN ss_contratista_usuario_proyecto scup
+                    ON scup.contratista_usuario_id = scu.id AND scu.worker_id IS NULL
+                  LEFT JOIN workers w ON w.id = scu.worker_id
                   LEFT JOIN person p ON p.person_id = w.person_id
-                  WHERE scu.activo = TRUE");
+                  WHERE scu.activo = TRUE
+                    AND COALESCE(wv.proyecto_id, scup.proyecto_id) IS NOT NULL");
 
             return rows
                 .GroupBy(r => (r.UserId, r.ContributorId))

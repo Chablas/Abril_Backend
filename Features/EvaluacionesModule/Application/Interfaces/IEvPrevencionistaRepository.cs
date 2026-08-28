@@ -7,6 +7,17 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
     {
         Task<EvPrevencionistaInicioDto> GetInicioAsync(int evaluadorUserId, int evaluadorContributorId, List<int> proyectoIds);
         Task<int?> ResolverEvaluadorSsUsuarioIdAsync(int userId, int contributorId);
+
+        /// <summary>
+        /// Proyecto(s) actual(es) del supervisor de campo logueado: sale de la vinculación
+        /// vigente (worker_vinculaciones, fecha_fin IS NULL) del worker/person ligado a su
+        /// ss_contratista_usuario — solo el trabajador/persona sabe en qué obra está realmente
+        /// hoy, así que esto reemplaza al claim estático "proyectoIds" del JWT (que salía de
+        /// ss_contratista_usuario_proyecto y quedaba desactualizado apenas la persona rotaba
+        /// de obra). Si el usuario no tiene worker_id (cuenta admin sin persona física detrás),
+        /// cae de vuelta a la asignación estática histórica.
+        /// </summary>
+        Task<List<int>> ResolverProyectoIdsActualesAsync(int userId, int contractorId);
         Task<EvEvaluacionPrevencionista> CreateAsync(
             EvEvaluacionPrevencionista eval, List<EvEvaluacionPrevencionistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int evaluadoUserId, int proyectoId, int evaluadorSsContratistaUsuarioId);

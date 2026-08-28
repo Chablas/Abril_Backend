@@ -79,6 +79,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                         };
                         dto.YaEvalueMiCoordinador = await YaEvaluoAnonimoAsync(periodo.Id, evaluadorUserId);
                     }
+
+                    // D5: Prevencionista -> otros Prevencionistas de su mismo proyecto (identificada,
+                    // igual que D3 — no anónima como D4, porque acá evalúan a un par, no a su jefe).
+                    dto.Prevencionistas = (await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos))
+                        .Where(p => p.UserId != evaluadorUserId)
+                        .Select(p => ToAEvaluarDto(p, evaluadas)).ToList();
                 }
             }
 
@@ -145,6 +151,23 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 var misProyectos = await ObtenerProyectosDeAsync(conn, evaluadorUserId);
                 if (misProyectos.Count == 0)
                     return new EvGestionSsomaContextoDto { Valido = false, Error = "No tiene un proyecto asignado este período." };
+
+                // D5: si viene un evaluadoUserId, es una evaluación identificada a otro
+                // Prevencionista de su mismo proyecto — distinto de D4 (anónima, sin elegir).
+                if (evaluadoUserIdSolicitado is int evaluadoPeerId)
+                {
+                    var prevencionistas = await ObtenerPoolRolAsync(conn, RolPrevencionista, misProyectos);
+                    var objetivo = prevencionistas.FirstOrDefault(p => p.UserId == evaluadoPeerId && p.UserId != evaluadorUserId);
+                    if (objetivo == null)
+                        return new EvGestionSsomaContextoDto { Valido = false, Error = "Ese Prevencionista no pertenece a su(s) proyecto(s)." };
+
+                    return new EvGestionSsomaContextoDto
+                    {
+                        Valido = true, EvaluadorRol = Roles.Prevencionista,
+                        EvaluadoUserId = objetivo.UserId, EvaluadoRol = Roles.Prevencionista,
+                        ProyectoId = objetivo.ProyectoId
+                    };
+                }
 
                 var coordinadores = await ObtenerPoolRolAsync(conn, RolCoordinadorSsoma, misProyectos);
                 var miCoordinador = coordinadores.OrderBy(c => c.NombreCompleto).FirstOrDefault();
@@ -301,6 +324,23 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 });
             }
 
+            // D5: cada Prevencionista evalúa a los demás Prevencionistas de su mismo proyecto.
+            foreach (var evaluador in prevencionistas)
+            {
+                if (evaluador.ProyectoId == null) continue;
+                var paresDelProyecto = prevencionistas.Where(p => p.ProyectoId == evaluador.ProyectoId && p.UserId != evaluador.UserId);
+                foreach (var par in paresDelProyecto)
+                {
+                    totalEsperadas++;
+                    if (evaluadasIdentificadas.Contains((evaluador.UserId, par.UserId))) totalCompletadas++;
+                    else pendientes.Add(new EvGestionSsomaPendienteDto
+                    {
+                        UserId = evaluador.UserId, NombreCompleto = evaluador.NombreCompleto,
+                        EmailCorporativo = evaluador.EmailCorporativo, Relacion = "D5"
+                    });
+                }
+            }
+
             // D1/D2: el/los Jefe SSOMA evalúan a todos los Prevencionistas y Coordinadores.
             var jefes = await ObtenerPoolRolAsync(conn, RolJefeSsoma, proyectoIds: null);
             foreach (var jefe in jefes)
@@ -415,6 +455,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             if (evaluadorRol == Roles.AdministradorSsoma && evaluadoRol == Roles.Prevencionista) return "D1";
             if (evaluadorRol == Roles.AdministradorSsoma && evaluadoRol == Roles.CoordinadorSsoma) return "D2";
             if (evaluadorRol == Roles.CoordinadorSsoma && evaluadoRol == Roles.Prevencionista) return "D3";
+            if (evaluadorRol == Roles.Prevencionista && evaluadoRol == Roles.Prevencionista) return "D5";
             return "?";
         }
 

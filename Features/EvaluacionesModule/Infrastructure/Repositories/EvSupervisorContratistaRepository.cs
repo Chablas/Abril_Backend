@@ -36,12 +36,28 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
             return await conn.QueryFirstOrDefaultAsync<int?>(
                 @"SELECT pu.categoria_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE w.state AND p.user_id = @UserId
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
                   LIMIT 1",
                 new { UserId = userId });
+        }
+
+        public async Task<bool> EsJefeSsomaAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
         }
 
         public async Task<EvSupervisorContratistaInicioDto> GetInicioAsync(int evaluadorUserId)
@@ -68,23 +84,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   )",
                 new { PeriodoId = periodo.Id, UserId = evaluadorUserId });
 
-            // El Jefe SSOMA (rol 9) supervisa todos los proyectos, no solo el suyo — a
-            // diferencia del Prevencionista/Coordinador, cuyo alcance es su vinculación vigente.
+            // El Jefe SSOMA (puesto único, PuestoIds.JefeSsoma) supervisa todos los proyectos,
+            // no solo el suyo — a diferencia del Prevencionista/Coordinador, cuyo alcance es
+            // su vinculación vigente.
             var esJefeSsoma = await conn.QueryFirstOrDefaultAsync<bool>(
                 @"SELECT EXISTS (
-                    SELECT 1 FROM user_role
-                    WHERE user_id = @UserId AND role_id = 9 AND active = TRUE AND state = TRUE
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
                   )",
-                new { UserId = evaluadorUserId });
+                new { UserId = evaluadorUserId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
 
             var proyectoIds = esJefeSsoma
                 ? (await conn.QueryAsync<int>("SELECT project_id FROM project")).ToList()
                 : (await conn.QueryAsync<int>(
                     @"SELECT DISTINCT wv.proyecto_id
-                      FROM workers w
-                      JOIN person p ON p.person_id = w.person_id
+                      FROM app_user au
+                      JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                       JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE w.state AND p.user_id = @UserId",
+                      WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'",
                     new { UserId = evaluadorUserId })).ToList();
 
             if (proyectoIds.Count == 0)
@@ -319,6 +339,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN puesto pu   ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND w.contrata_casa = 'Casa'
                     AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
                     AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
                 new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });

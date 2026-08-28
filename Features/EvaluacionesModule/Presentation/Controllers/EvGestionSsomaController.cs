@@ -37,13 +37,14 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
         /// <summary>
-        /// Jefe SSOMA sigue siendo un rol de sistema; Coordinador SSOMA/Prevencionista se
-        /// resuelven por el PUESTO real (workers.puesto_id -> puesto.categoria_id), no por
-        /// un user_role aparte que nadie asignaba en la práctica.
+        /// Jefe SSOMA, Coordinador SSOMA y Prevencionista se resuelven TODOS por el puesto
+        /// real (workers.puesto_id -> puesto.categoria_id / PuestoIds.JefeSsoma) — ningún
+        /// user_role de por medio. El rol de sistema 9 (antes usado para Jefe SSOMA) estaba
+        /// asignado a ~50 cuentas sin relación con SSOMA, así que no servía como filtro.
         /// </summary>
         private async Task<bool> ParticipaDeGestionSsomaAsync(int userId)
         {
-            if (User.IsInRole(Roles.AdministradorSsoma)) return true;
+            if (await _repo.EsJefeSsomaAsync(userId)) return true;
             var categoria = await _repo.ObtenerCategoriaPuestoAsync(userId);
             return categoria == CategoriaIds.CoordinadorSsoma || categoria == CategoriaIds.Prevencionista;
         }
@@ -113,11 +114,14 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("pendientes")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetPendientes([FromQuery] int? periodoId)
         {
             try
             {
+                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var periodo = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
                 if (periodo == null) return Ok(new EvGestionSsomaCumplimientoDto());
                 return Ok(await _repo.GetCumplimientoAsync(periodo.Value));
@@ -127,10 +131,16 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("resultados")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetResultados([FromQuery] int? periodoId)
         {
-            try { return Ok(await _repo.GetResultadosAsync(periodoId)); }
+            try
+            {
+                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetResultadosAsync(periodoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.GetResultados"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

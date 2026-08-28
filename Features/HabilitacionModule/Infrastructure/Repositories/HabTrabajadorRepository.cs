@@ -875,6 +875,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 && dto.NuevaEmpresaId != currentEmpresaId
                 && !esContratista;
 
+            // Contratista cambiando de razón social: a diferencia de Casa (donde solo
+            // SCTR/VidaLey/CertAptitud dependen de la empresa — ver esCambioEmpresa y
+            // requiereRevisionAptitud más abajo), para un Contratista NINGÚN entregable de
+            // la empresa anterior es válido para la nueva: SCTR, Vida Ley, EMO, Certijoven,
+            // etc. son responsabilidad de cada empleador y ninguno se hereda entre
+            // contratistas distintas. Se resetea TODA la ficha, no solo tres ítems.
+            var esCambioEmpresaContratista = esContratista
+                && dto.NuevaEmpresaId.HasValue
+                && dto.NuevaEmpresaId != currentEmpresaId;
+
             // Un cambio de obra puro (mismo puesto, misma empresa, misma clasificación) no
             // altera nada de la aptitud del trabajador — el EMO sigue siendo válido para el
             // mismo puesto en otra obra. Solo estos tres casos exigen revisar el EMO:
@@ -1021,6 +1031,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ));
             }
 
+            if (esCambioEmpresaContratista)
+            {
+                var todosLosItems = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId)
+                    .Select(h => h.ItemId)
+                    .ToListAsync();
+                foreach (var id in todosLosItems) itemsToReset.Add(id);
+            }
+
             foreach (var v in activas)
             {
                 v.FechaFin = fechaCambio;
@@ -1085,7 +1104,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // SCTR/Vida Ley de la empresa anterior. Si no se hace esto, la empresa
             // anterior lo vuelve a aprobar automaticamente cada vez que renueva su
             // poliza mensual, aunque el trabajador ya no trabaje ahi.
-            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            if ((esCambioEmpresa || esCambioEmpresaContratista) && currentEmpresaId.HasValue)
             {
                 var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
                     .Where(svw => svw.WorkerId == workerId)
@@ -1126,7 +1145,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
-            if (esCambioEmpresa)
+            if (esCambioEmpresa || esCambioEmpresaContratista)
                 ctx.WorkerEvento.Add(new WorkerEvento
                 {
                     WorkerId = workerId,
@@ -1375,6 +1394,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var esCambioProyecto = dto.NuevoProyectoId.HasValue && dto.NuevoProyectoId != currentProyectoId;
             var esCambioEmpresa = dto.NuevaEmpresaId.HasValue && !esContratista;
 
+            // Contratista reingresando a OTRA empresa: mismo criterio que en CambiarObraAsync
+            // (ver esCambioEmpresaContratista ahí) — ningún entregable (SCTR, Vida Ley, EMO,
+            // Certijoven, etc.) es responsabilidad de la empresa anterior, así que se resetea
+            // toda la ficha en vez de solo los tres ítems que sí alcanzan a Casa.
+            var esCambioEmpresaContratista = esContratista
+                && dto.NuevaEmpresaId.HasValue
+                && dto.NuevaEmpresaId != currentEmpresaId;
+
             var itemsToReset = new HashSet<int>();
             var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
 
@@ -1435,6 +1462,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     $"Reingreso de trabajador — Certificado de Aptitud — {worker.Person?.FullName}",
                     BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
                 ));
+            }
+
+            if (esCambioEmpresaContratista)
+            {
+                var todosLosItems = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId)
+                    .Select(h => h.ItemId)
+                    .ToListAsync();
+                foreach (var id in todosLosItems) itemsToReset.Add(id);
             }
 
             // Siempre cerrar la vinculación anterior (si quedó abierta) y crear una nueva.
@@ -1502,7 +1538,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             // Cambio de empresa en el reingreso: mismo cuidado que en CambiarObraAsync —
             // sacar al trabajador de la nomina de polizas SCTR/Vida Ley de la empresa anterior.
-            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            if ((esCambioEmpresa || esCambioEmpresaContratista) && currentEmpresaId.HasValue)
             {
                 var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
                     .Where(svw => svw.WorkerId == workerId)
@@ -1540,7 +1576,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
-            if (esCambioEmpresa)
+            if (esCambioEmpresa || esCambioEmpresaContratista)
                 ctx.WorkerEvento.Add(new WorkerEvento
                 {
                     WorkerId = workerId,

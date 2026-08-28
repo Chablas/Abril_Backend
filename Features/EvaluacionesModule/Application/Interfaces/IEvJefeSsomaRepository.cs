@@ -17,6 +17,13 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<int?> ObtenerCategoriaPuestoAsync(int userId);
 
         /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma) — usado
+        /// para las pantallas "solo Jefe SSOMA" (Pendientes/Resultados), no para saber quién
+        /// evalúa (eso es Coordinador SSOMA/Prevencionista, ver ObtenerCategoriaPuestoAsync).
+        /// </summary>
+        Task<bool> EsJefeSsomaPuestoAsync(int userId);
+
+        /// <summary>
         /// Inserta la evaluación (sin autor) y la marca de cumplimiento (sin nota) en la
         /// misma transacción. Deliberadamente no hay forma de unir ambas filas después.
         /// </summary>

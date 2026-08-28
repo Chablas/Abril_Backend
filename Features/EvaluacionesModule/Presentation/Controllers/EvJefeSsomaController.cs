@@ -99,11 +99,14 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("pendientes")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetPendientes([FromQuery] int? periodoId)
         {
             try
             {
+                if (!await _repo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var periodo = periodoId ?? (await _periodoRepo.GetActivoAsync())?.Id;
                 if (periodo == null) return Ok(new EvJefeSsomaCumplimientoDto());
                 return Ok(await _repo.GetCumplimientoAsync(periodo.Value));
@@ -113,10 +116,16 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("resultados")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetResultados([FromQuery] int? periodoId)
         {
-            try { return Ok(await _repo.GetResultadosAsync(periodoId)); }
+            try
+            {
+                if (!await _repo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetResultadosAsync(periodoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvJefeSsomaController.GetResultados"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

@@ -12,18 +12,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
-        // Jefe SSOMA sigue siendo un rol de sistema (user_role) — es una designación de
-        // liderazgo, no un puesto del catálogo, así que no tiene categoria_id.
-        private const int RolJefeSsoma = 9;
-
-        // Coordinador SSOMA y Prevencionista, en cambio, SÍ son puestos reales de Habilitación
-        // (workers.puesto_id -> puesto.categoria_id, ver CategoriaIds). Antes esto se resolvía
-        // con un user_role separado (70/72) que había que asignar a mano y que en la práctica
-        // nadie asignaba — José Albines Caballero (puesto "COORDINADOR SSOMA" en su ficha) y su
-        // Prevencionista de Gran Manzano no evaluaban ni eran evaluados por tener ese user_role
-        // vacío, pese a que su puesto real ya decía quiénes eran. Usar la categoría del puesto
-        // evita ese doble mantenimiento: si Habilitación ya sabe que alguien es Coordinador
-        // SSOMA/Prevencionista, esta evaluación también lo sabe.
+        // Jefe SSOMA, Coordinador SSOMA y Prevencionista se resuelven TODOS por el puesto real
+        // de Habilitación (workers.puesto_id -> puesto.categoria_id, ver CategoriaIds), nunca
+        // por un user_role. El intento anterior de usar el rol de sistema 9 para Jefe SSOMA
+        // salió mal: en la práctica ese rol terminó asignado a ~50 cuentas de todas las áreas
+        // (Gerentes, Ingenieros, Asistentes...) sin relación con SSOMA, así que no servía para
+        // nada — cualquiera de esas cuentas se veía tratada como Jefe SSOMA. Coordinador SSOMA
+        // (categoria_id 41) y Prevencionista (categoria_id 35) sí tienen categoría propia;
+        // Jefe SSOMA no (comparte la categoría genérica "JEFE" con jefaturas de otras áreas),
+        // así que se identifica por su puesto único en el catálogo (PuestoIds.JefeSsoma).
         private const int CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma;
         private const int CategoriaPrevencionista = CategoriaIds.Prevencionista;
 
@@ -38,6 +35,14 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
             return await ObtenerCategoriaDeAsync(conn, userId);
+        }
+
+        public async Task<bool> EsJefeSsomaAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await EsJefeSsomaAsync(conn, userId);
         }
 
         public async Task<EvGestionSsomaInicioDto> GetInicioAsync(int evaluadorUserId)
@@ -57,9 +62,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             if (periodo == null) return dto;
             dto.Periodo = MapPeriodo(periodo);
 
-            var esJefeSsoma = (await conn.QueryFirstOrDefaultAsync<int?>(
-                "SELECT role_id FROM user_role WHERE user_id = @UserId AND role_id = @RolJefeSsoma AND active = TRUE AND state = TRUE",
-                new { UserId = evaluadorUserId, RolJefeSsoma })) != null;
+            var esJefeSsoma = await EsJefeSsomaAsync(conn, evaluadorUserId);
             var categoriaEvaluador = await ObtenerCategoriaDeAsync(conn, evaluadorUserId);
 
             var evaluadas = (await conn.QueryAsync<int>(
@@ -117,9 +120,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            var esJefeSsoma = (await conn.QueryFirstOrDefaultAsync<int?>(
-                "SELECT role_id FROM user_role WHERE user_id = @UserId AND role_id = @RolJefeSsoma AND active = TRUE AND state = TRUE",
-                new { UserId = evaluadorUserId, RolJefeSsoma })) != null;
+            var esJefeSsoma = await EsJefeSsomaAsync(conn, evaluadorUserId);
             var categoriaEvaluador = await ObtenerCategoriaDeAsync(conn, evaluadorUserId);
 
             // Prioridad Jefe > Coordinador > Prevencionista para el caso (raro) de
@@ -361,7 +362,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             }
 
             // D1/D2: el/los Jefe SSOMA evalúan a todos los Prevencionistas y Coordinadores.
-            var jefes = await ObtenerPoolRolAsync(conn, RolJefeSsoma, proyectoIds: null);
+            var jefes = await ObtenerPoolJefeSsomaAsync(conn);
             foreach (var jefe in jefes)
             {
                 foreach (var prev in prevencionistas)
@@ -491,13 +492,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         // (mismo criterio que EvContratistaRepository.GetEvaluadoresCandidatosAsync /
         // EvJefeSsomaRepository.GetCumplimientoAsync). proyectoIds = null -> sin filtro
         // de proyecto (alcance compañía, para el Jefe SSOMA).
-        private static async Task<List<PoolRaw>> ObtenerPoolRolAsync(
-            System.Data.IDbConnection conn, int roleId, List<int>? proyectoIds)
+        // Jefe SSOMA no tiene categoría propia (comparte la genérica "JEFE" con otras áreas),
+        // así que su pool se arma por puesto único (PuestoIds.JefeSsoma) en vez de categoría.
+        // Sin user_role de por medio: el antiguo role_id 9 estaba asignado a ~50 cuentas sin
+        // relación con SSOMA (Gerentes, Ingenieros, Asistentes...), así que no servía de nada.
+        private static async Task<List<PoolRaw>> ObtenerPoolJefeSsomaAsync(System.Data.IDbConnection conn)
         {
-            // Se arma el SQL en dos ramas (en vez de "@P::int[] IS NULL OR ...") porque
-            // Npgsql no siempre puede inferir el tipo de un array-parameter nulo.
-            var filtroProyecto = proyectoIds != null ? "AND wv.proyecto_id = ANY(@ProyectoIds)" : "";
-
             var rows = await conn.QueryAsync<PoolRaw>(
                 @"SELECT DISTINCT au.user_id AS UserId, p.full_name AS NombreCompleto,
                     w.email_corporativo AS EmailCorporativo,
@@ -505,22 +505,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id = @RoleId AND ur.active = TRUE AND ur.state = TRUE
                   LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
-                    " + filtroProyecto,
-                new { RoleId = roleId, ProyectoIds = proyectoIds?.ToArray() ?? [] });
+                    AND w.contrata_casa = 'Casa'
+                    AND w.puesto_id = @PuestoJefeSsoma
+                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy,
+                new { PuestoJefeSsoma = PuestoIds.JefeSsoma });
 
             return rows.ToList();
         }
 
         // Trabajadores activos con vinculación vigente cuyo PUESTO pertenece a la categoría
         // indicada (workers.puesto_id -> puesto.categoria_id — Coordinador SSOMA=41,
-        // Prevencionista=35). Es el equivalente a ObtenerPoolRolAsync pero por categoría de
-        // puesto en vez de user_role: Habilitación ya mantiene esto al día, así que no
-        // depende de que alguien recuerde asignar un rol de sistema aparte.
+        // Prevencionista=35). Habilitación ya mantiene esto al día, así que no depende de
+        // que alguien recuerde asignar un rol de sistema aparte.
         private static async Task<List<PoolRaw>> ObtenerPoolCategoriaAsync(
             System.Data.IDbConnection conn, int categoriaId, List<int>? proyectoIds)
         {
@@ -537,6 +536,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND w.contrata_casa = 'Casa'
                     AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
                     " + filtroProyecto,
                 new { CategoriaId = categoriaId, ProyectoIds = proyectoIds?.ToArray() ?? [] });
@@ -546,16 +546,35 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
         // Categoría del puesto actual del usuario logueado (null si no tiene worker propio
         // o su puesto no tiene categoría reconocida) — resuelve "es Coordinador SSOMA /
-        // Prevencionista" sin pasar por user_role.
+        // Prevencionista" sin pasar por user_role. Matchea por email (au.email =
+        // w.email_corporativo), el MISMO criterio que ObtenerPoolCategoriaAsync — no por
+        // person.user_id, que no está sincronizado para todas las cuentas (era el bug real
+        // detrás de que José Albines apareciera bien en los reportes pero no pudiera
+        // acceder a "Evaluar Jefe SSOMA": el reporte matchea por email, este método antes
+        // matcheaba por person.user_id y le daba null).
         private static Task<int?> ObtenerCategoriaDeAsync(System.Data.IDbConnection conn, int userId)
             => conn.QueryFirstOrDefaultAsync<int?>(
                 @"SELECT pu.categoria_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE w.state AND p.user_id = @UserId
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
                   LIMIT 1",
                 new { UserId = userId });
+
+        // Jefe SSOMA no tiene categoría propia (comparte la genérica "JEFE" con otras áreas)
+        // así que se identifica por su puesto único en el catálogo (PuestoIds.JefeSsoma),
+        // con el mismo criterio de matcheo por email que el resto de este archivo.
+        private static Task<bool> EsJefeSsomaAsync(System.Data.IDbConnection conn, int userId)
+            => conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
 
         private static async Task<List<int>> ObtenerProyectosDeAsync(System.Data.IDbConnection conn, int userId)
         {

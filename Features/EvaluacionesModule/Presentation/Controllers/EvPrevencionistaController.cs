@@ -122,10 +122,16 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("dashboard")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetDashboard([FromQuery] int? periodoId, [FromQuery] int? proyectoId)
         {
-            try { return Ok(await _repo.GetDashboardAsync(periodoId, proyectoId)); }
+            try
+            {
+                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetDashboardAsync(periodoId, proyectoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvPrevencionistaController.GetDashboard"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

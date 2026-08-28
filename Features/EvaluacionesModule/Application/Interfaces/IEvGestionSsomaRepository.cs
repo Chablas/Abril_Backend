@@ -14,6 +14,12 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<int?> ObtenerCategoriaPuestoAsync(int userId);
 
         /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma) — no
+        /// depende de ningún user_role.
+        /// </summary>
+        Task<bool> EsJefeSsomaAsync(int userId);
+
+        /// <summary>
         /// Determina, a partir del rol de quien llama, si la evaluación es D1/D2/D3
         /// (identificada, requiere evaluadoUserIdSolicitado) o D4 (anónima, el
         /// evaluado se resuelve solo — evaluadoUserIdSolicitado se ignora).

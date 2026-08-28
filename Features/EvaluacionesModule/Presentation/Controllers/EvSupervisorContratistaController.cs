@@ -33,13 +33,13 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private int GetUserId() =>
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
-        // El Jefe SSOMA (rol 9, sigue siendo un rol de sistema) también puede evaluar de forma
+        // El Jefe SSOMA (puesto único, PuestoIds.JefeSsoma) también puede evaluar de forma
         // opcional, además de ver el consolidado. Coordinador SSOMA/Prevencionista se resuelven
         // por el PUESTO real (workers.puesto_id -> puesto.categoria_id) — para ellos esta
-        // evaluación es su función habitual.
+        // evaluación es su función habitual. Ningún user_role de por medio.
         private async Task<bool> PuedeEvaluarSupervisoresAsync(int userId)
         {
-            if (User.IsInRole(Roles.AdministradorSsoma)) return true;
+            if (await _repo.EsJefeSsomaAsync(userId)) return true;
             var categoria = await _repo.ObtenerCategoriaPuestoAsync(userId);
             return categoria == CategoriaIds.CoordinadorSsoma || categoria == CategoriaIds.Prevencionista;
         }
@@ -146,19 +146,31 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("ver")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetVer([FromQuery] int? periodoId, [FromQuery] int? proyectoId)
         {
-            try { return Ok(await _repo.GetVerInicioAsync(periodoId, proyectoId)); }
+            try
+            {
+                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetVerInicioAsync(periodoId, proyectoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.GetVer"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("dashboard")]
-        [Authorize(Roles = Roles.AdministradorSsoma)]
+        [Authorize]
         public async Task<IActionResult> GetDashboard([FromQuery] int? periodoId, [FromQuery] int? proyectoId)
         {
-            try { return Ok(await _repo.GetDashboardAsync(periodoId, proyectoId)); }
+            try
+            {
+                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetDashboardAsync(periodoId, proyectoId));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.GetDashboard"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

@@ -28,6 +28,12 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         /// Reemplaza el antiguo gate por user_role (70/72) en "Mi perfil".
         /// </summary>
         Task<int?> ObtenerCategoriaPuestoAsync(int userId);
+
+        /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma) — para
+        /// la pantalla "solo Jefe SSOMA" (Dashboard consolidado).
+        /// </summary>
+        Task<bool> EsJefeSsomaAsync(int userId);
         Task<EvPrevencionistaDashboardDto> GetDashboardAsync(int? periodoId, int? proyectoId);
 
         /// <summary>

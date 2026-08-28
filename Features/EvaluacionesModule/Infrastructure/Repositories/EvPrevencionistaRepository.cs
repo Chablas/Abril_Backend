@@ -50,7 +50,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
-                  WHERE w.state AND wv.proyecto_id = ANY(@ProyectoIds)",
+                  WHERE w.state AND w.contrata_casa = 'Casa' AND wv.proyecto_id = ANY(@ProyectoIds)",
                 new {
                     ProyectoIds = proyectoIds.ToArray(),
                     CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma,
@@ -137,12 +137,28 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
             return await conn.QueryFirstOrDefaultAsync<int?>(
                 @"SELECT pu.categoria_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE w.state AND p.user_id = @UserId
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
                   LIMIT 1",
                 new { UserId = userId });
+        }
+
+        public async Task<bool> EsJefeSsomaAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
         }
 
         public async Task<int?> ResolverEvaluadorSsUsuarioIdAsync(int userId, int contributorId)

@@ -12,6 +12,11 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         /// Reemplaza el antiguo gate por user_role (70/72) en el controller.
         /// </summary>
         Task<int?> ObtenerCategoriaPuestoAsync(int userId);
+
+        /// <summary>
+        /// true si el puesto actual del usuario es Jefe SSOMA (PuestoIds.JefeSsoma).
+        /// </summary>
+        Task<bool> EsJefeSsomaAsync(int userId);
         Task<EvEvaluacionSupervisorContratista> CreateAsync(
             EvEvaluacionSupervisorContratista eval, List<EvEvaluacionSupervisorContratistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int supervisorWorkerId, int evaluadorUserId);

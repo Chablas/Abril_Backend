@@ -50,12 +50,28 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
             return await conn.QueryFirstOrDefaultAsync<int?>(
                 @"SELECT pu.categoria_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE w.state AND p.user_id = @UserId
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
                   LIMIT 1",
                 new { UserId = userId });
+        }
+
+        public async Task<bool> EsJefeSsomaPuestoAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1
+                    FROM app_user au
+                    JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                      AND w.puesto_id = @PuestoJefeSsoma
+                  )",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
         }
 
         public async Task<bool> YaEvaluoAsync(int periodoId, int evaluadorUserId)
@@ -122,6 +138,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
+                    AND w.contrata_casa = 'Casa'
                     AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
                     AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
                 new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });

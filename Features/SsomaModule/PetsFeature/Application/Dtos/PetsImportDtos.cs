@@ -21,16 +21,7 @@ public class PetsImportPreviewDto
     // Todos los párrafos con contenido del documento, en orden, con el mismo tipo/
     // jerarquía ya detectados — respaldo cuando no se encuentra el título de la
     // sección automáticamente, o el usuario prefiere elegir el rango a mano.
-    public List<ImportParrafoDto> TodosLosParrafos { get; set; } = [];
-}
-
-public class ImportParrafoDto
-{
-    public int Indice { get; set; }
-    public int? ParentIndice { get; set; }
-    public string Tipo { get; set; } = "paso";
-    public string Texto { get; set; } = string.Empty;
-    public string? ImagenBase64 { get; set; }
+    public List<ImportPasoPreviewDto> TodosLosParrafos { get; set; } = [];
 }
 
 public class ImportPasoConfirmDto

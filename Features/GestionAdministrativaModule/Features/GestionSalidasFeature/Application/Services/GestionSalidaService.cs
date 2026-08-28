@@ -577,6 +577,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Máximo de líneas que puede ocupar el texto de una celda de la tabla.</summary>
         private const int TablaMaxLineas = 2;
 
+        /// <summary>
+        /// Texto de la columna MOTIVO de la planilla: el motivo del catálogo con su detalle pegado
+        /// cuando el motivo lo exige (requiere_motivo_adicional), que es lo que justifica el gasto.
+        /// La celda recorta a <see cref="TablaMaxLineas"/> líneas, así que el detalle se captura
+        /// acotado en el formulario para que entre junto al motivo.
+        /// </summary>
+        private static string MotivoConDetalle(string? motivo, string? motivoAdicional) =>
+            string.IsNullOrWhiteSpace(motivoAdicional)
+                ? (motivo ?? "")
+                : $"{motivo} — {motivoAdicional}";
+
         private static string LogoPath() => Path.Combine(
             AppContext.BaseDirectory,
             "Features", "GestionAdministrativaModule", "Features", "GestionSalidasFeature",
@@ -747,7 +758,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     foreach (var it in pageItems)
                     {
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, it.FechaSalida.ToString("dd/MM/yyyy"), center: true));
-                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.Motivo ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, MotivoConDetalle(it.Motivo, it.MotivoAdicional)));
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarOrigen ?? ""));
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarDestino ?? ""));
                         // Importe: mostrar siempre que venga del catálogo (incluso si es 0.00)

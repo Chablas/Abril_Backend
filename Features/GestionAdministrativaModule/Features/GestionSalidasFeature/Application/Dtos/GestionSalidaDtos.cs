@@ -333,6 +333,8 @@
         public TimeOnly HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
+        /// <summary>Detalle que escribió el trabajador cuando el motivo lo exige. Null si no aplica.</summary>
+        public string? MotivoAdicional { get; set; }
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
         /// <summary>Documentos adjuntos del trayecto (motivos con requiere_adjunto). Vacío si no tiene.</summary>
@@ -413,6 +415,9 @@
         public string? Area { get; set; }
         public DateOnly FechaSalida { get; set; }
         public string Motivo { get; set; } = string.Empty;
+        /// <summary>Detalle del motivo (motivos con requiere_motivo_adicional). Se imprime pegado
+        /// al motivo en la columna MOTIVO de la planilla. Null si no aplica.</summary>
+        public string? MotivoAdicional { get; set; }
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
         /// <summary>Razón social de la empresa a la que está afiliado el trabajador.</summary>

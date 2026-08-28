@@ -135,15 +135,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     throw new AbrilException($"Trayecto {pos}: el lugar de origen y el lugar de destino no pueden ser iguales.", 400);
             }
 
-            // 1. Subir los documentos adjuntos ANTES de persistir: los motivos con
+            // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
+            //    necesitan documento adjunto y cuáles necesitan motivo adicional.
+            var exigencias = await CargarExigenciasMotivosAsync(dto);
+
+            // 2. Motivo adicional: se valida antes de subir nada a SharePoint para que una
+            //    solicitud inválida no deje archivos huérfanos en la carpeta.
+            for (int i = 0; i < dto.Trayectos.Count; i++)
+            {
+                var t = dto.Trayectos[i];
+                var exige = t.MotivoId.HasValue
+                         && exigencias.TryGetValue(t.MotivoId.Value, out var e)
+                         && e.RequiereMotivoAdicional;
+
+                if (exige && string.IsNullOrWhiteSpace(t.MotivoAdicional))
+                    throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere que indiques un motivo adicional.", 400);
+
+                // El detalle pertenece al motivo que lo exige: si el motivo no lo pide, no se
+                // guarda nada aunque el cliente lo haya mandado (ej. cambió de motivo y no limpió).
+                t.MotivoAdicional = exige ? t.MotivoAdicional!.Trim() : null;
+            }
+
+            // 3. Subir los documentos adjuntos ANTES de persistir: los motivos con
             //    requiere_adjunto exigen archivo, y así una falla de subida no deja
             //    solicitudes creadas sin su adjunto obligatorio.
-            var adjuntosPorIndice = await SubirAdjuntosAsync(dto, adjuntos);
+            var adjuntosPorIndice = await SubirAdjuntosAsync(dto, adjuntos, exigencias);
 
-            // 2. Persistir solicitud + trayectos (con las referencias de los adjuntos)
+            // 4. Persistir solicitud + trayectos (con las referencias de los adjuntos)
             var (solicitud, trayectos, solicitante) = await _repo.Create(dto, userId, adjuntosPorIndice);
 
-            // 3. Resolver aprobador + enviar emails (best-effort)
+            // 5. Resolver aprobador + enviar emails (best-effort)
             //    Hacemos UNA sola resolución de trayectos en memoria y la compartimos
             //    entre los dos correos (al aprobador y de confirmación al solicitante).
             try
@@ -156,7 +177,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var (trayectosResueltos, mostrarRecordatorio) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                // 3a. Email al revisor resuelto (workers_revisores → fallback GTH). Se guarda
+                // 5a. Email al revisor resuelto (workers_revisores → fallback GTH). Se guarda
                 //     el correo al que se envió (enviado_a_correo); el aprobador real
                 //     (aprobador_worker_id / aprobador_area_scope_id) se llena recién al
                 //     momento de la decisión. enviado_a_correo se guarda apenas se resuelve el
@@ -174,7 +195,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var enviadoRevisorA = await SendNotificacionAprobadorAsync(
                     solicitud, trayectosResueltos, mostrarRecordatorio, aprobadorEmail, nombreSolicitante, adjuntos);
 
-                // 3b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
+                // 5b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
                 if (userId.HasValue)
                 {
                     try
@@ -196,6 +217,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         /// <summary>
+        /// Lee de una sola vez lo que exigen los motivos del catálogo elegidos en la solicitud:
+        /// documento adjunto y/o motivo adicional. Devuelve un diccionario motivoId → exigencias
+        /// (vacío si todos los trayectos usan "Otro motivo").
+        /// </summary>
+        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)>>
+            CargarExigenciasMotivosAsync(SolicitudSalidaCreateDto dto)
+        {
+            var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
+            if (motivoIds.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+            var filas = await ctx.GaMotivoSalida
+                .Where(m => motivoIds.Contains(m.Id))
+                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional })
+                .ToListAsync();
+
+            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional));
+        }
+
+        /// <summary>
         /// Valida y sube los documentos adjuntos de la solicitud (N por trayecto cuyo motivo
         /// tenga requiere_adjunto = true) a la carpeta configurada de SharePoint/OneDrive
         /// (ga_adjunto_folder). Devuelve el resultado por índice de trayecto (0-based) —
@@ -203,7 +244,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// </summary>
         private async Task<Dictionary<int, List<TrayectoAdjuntoSubidoDto>>?> SubirAdjuntosAsync(
             SolicitudSalidaCreateDto dto,
-            IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos)
+            IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos,
+            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)> exigencias)
         {
             var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
                 .Where(a => a.File != null && a.File.Length > 0)
@@ -218,23 +260,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 .ToDictionary(g => g.Key, g => g.Select(a => a.File).ToList());
 
             // Motivos que exigen adjunto: todo trayecto con uno de esos motivos debe traer al menos un archivo.
-            var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
-            if (motivoIds.Count > 0)
+            for (int i = 0; i < dto.Trayectos.Count; i++)
             {
-                using var ctx = _factory.CreateDbContext();
-                var requieren = (await ctx.GaMotivoSalida
-                        .Where(m => motivoIds.Contains(m.Id) && m.RequiereAdjunto)
-                        .Select(m => m.Id)
-                        .ToListAsync())
-                    .ToHashSet();
-
-                for (int i = 0; i < dto.Trayectos.Count; i++)
-                {
-                    var t = dto.Trayectos[i];
-                    if (t.MotivoId.HasValue && requieren.Contains(t.MotivoId.Value) &&
-                        (!porIndice.TryGetValue(i, out var lst) || lst.Count == 0))
-                        throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere al menos un documento adjunto.", 400);
-                }
+                var t = dto.Trayectos[i];
+                if (t.MotivoId.HasValue &&
+                    exigencias.TryGetValue(t.MotivoId.Value, out var e) && e.RequiereAdjunto &&
+                    (!porIndice.TryGetValue(i, out var lst) || lst.Count == 0))
+                    throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere al menos un documento adjunto.", 400);
             }
 
             if (porIndice.Count == 0) return null;
@@ -373,7 +405,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>
         /// Resuelve los trayectos de la entidad a tuplas listas para embeber en el cuerpo del email.
-        /// Hace lookups por motivo y por lugar (origen/destino) para mostrar nombres legibles.
+        /// Hace lookups por motivo y por lugar (origen/destino) para mostrar nombres legibles. Los
+        /// motivos con motivo adicional se muestran como "Motivo — detalle": el correo tiene una
+        /// sola fila de motivo y el detalle es justamente lo que el revisor necesita leer.
         /// Devuelve además si corresponde mostrar el recordatorio de recuperación de horas:
         /// solo se muestra cuando al menos un trayecto tiene un motivo del catálogo de hora
         /// exacta. Los motivos de hora estimada y el motivo libre (personalizado) quedan
@@ -394,6 +428,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                         .Select(m => new { m.Descripcion, m.EsHoraEstimada })
                         .FirstOrDefaultAsync();
                     motivo = m?.Descripcion ?? "—";
+                    if (!string.IsNullOrWhiteSpace(t.MotivoAdicional))
+                        motivo = $"{motivo} — {t.MotivoAdicional}";
                     if (m == null || !m.EsHoraEstimada) algunaHoraExacta = true;
                 }
                 else

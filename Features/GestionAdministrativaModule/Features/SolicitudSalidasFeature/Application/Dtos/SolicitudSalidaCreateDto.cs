@@ -23,6 +23,8 @@
         public TimeOnly HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
+        /// <summary>Detalle escrito por el trabajador cuando el motivo lo exige. Null si no aplica.</summary>
+        public string? MotivoAdicional { get; set; }
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
         /// <summary>Documentos adjuntos del trayecto (motivos con requiere_adjunto). Vacío si no tiene.</summary>
@@ -76,6 +78,8 @@
         public int? MotivoId { get; set; }
         /// <summary>Texto libre cuando MotivoId es nulo.</summary>
         public string? MotivoLibre { get; set; }
+        /// <summary>Detalle obligatorio cuando el motivo elegido tiene requiere_motivo_adicional.</summary>
+        public string? MotivoAdicional { get; set; }
 
         /// <summary>Id de ga_lugar. Nulo cuando el usuario elige "Otro lugar".</summary>
         public int? LugarOrigenId { get; set; }

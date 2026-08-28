@@ -771,6 +771,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
                         Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                        MotivoAdicional = t.MotivoAdicional,
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                     : lo.Nombre,
@@ -949,6 +950,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Area             = w.Area,     // fallback; se sobrescribe abajo si hay area_scope_id
                         FechaSalida      = s.FechaSalida,
                         Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
+                        MotivoAdicional  = t.MotivoAdicional,
                         LugarOrigen      = lo == null ? t.LugarOrigenLibre
                                          : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : null)
                                          : lo.Nombre,

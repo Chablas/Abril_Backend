@@ -15,6 +15,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public TimeOnly? HoraRetorno { get; set; }
         public int? MotivoId { get; set; }
         public string? MotivoLibre { get; set; }
+        /// <summary>Detalle que acompaña al motivo del catálogo cuando este tiene
+        /// requiere_motivo_adicional = true. No confundir con <see cref="MotivoLibre"/>,
+        /// que es la vía "Otro motivo" (motivo fuera del catálogo, con MotivoId nulo).</summary>
+        public string? MotivoAdicional { get; set; }
         public int? LugarOrigenId { get; set; }
         public string? LugarOrigenLibre { get; set; }
         public int? LugarDestinoId { get; set; }

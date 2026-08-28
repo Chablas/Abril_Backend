@@ -29,6 +29,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                     Activo          = m.Activo,
                     RequiereAdjunto = m.RequiereAdjunto,
                     EsHoraEstimada  = m.EsHoraEstimada,
+                    RequiereMotivoAdicional = m.RequiereMotivoAdicional,
                     CreatedAt       = m.CreatedAt,
                 })
                 .ToListAsync();
@@ -55,6 +56,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                 Activo          = true,
                 RequiereAdjunto = dto.RequiereAdjunto,
                 EsHoraEstimada  = dto.EsHoraEstimada,
+                RequiereMotivoAdicional = dto.RequiereMotivoAdicional,
                 CreatedAt       = DateTimeOffset.UtcNow,
             });
 
@@ -94,6 +96,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
             motivo.Descripcion     = descripcion;
             motivo.RequiereAdjunto = dto.RequiereAdjunto;
             motivo.EsHoraEstimada  = dto.EsHoraEstimada;
+            motivo.RequiereMotivoAdicional = dto.RequiereMotivoAdicional;
             await ctx.SaveChangesAsync();
         }
     }

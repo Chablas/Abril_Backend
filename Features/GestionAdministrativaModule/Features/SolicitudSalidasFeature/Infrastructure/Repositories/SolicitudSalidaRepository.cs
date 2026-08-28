@@ -25,7 +25,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var motivos = await ctx.GaMotivoSalida
                 .Where(m => m.Activo)
                 .OrderBy(m => m.Descripcion)
-                .Select(m => new MotivoSalidaDto { Id = m.Id, Descripcion = m.Descripcion, RequiereAdjunto = m.RequiereAdjunto, EsHoraEstimada = m.EsHoraEstimada })
+                .Select(m => new MotivoSalidaDto
+                {
+                    Id                      = m.Id,
+                    Descripcion             = m.Descripcion,
+                    RequiereAdjunto         = m.RequiereAdjunto,
+                    EsHoraEstimada          = m.EsHoraEstimada,
+                    RequiereMotivoAdicional = m.RequiereMotivoAdicional,
+                })
                 .ToListAsync();
 
             var lugares = await (
@@ -245,6 +252,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     HoraRetorno       = t.HoraRetorno,
                     MotivoId          = t.MotivoId,
                     MotivoLibre       = string.IsNullOrWhiteSpace(t.MotivoLibre) ? null : t.MotivoLibre.Trim(),
+                    MotivoAdicional   = string.IsNullOrWhiteSpace(t.MotivoAdicional) ? null : t.MotivoAdicional.Trim(),
                     LugarOrigenId     = t.LugarOrigenId,
                     LugarOrigenLibre  = string.IsNullOrWhiteSpace(t.LugarOrigenLibre) ? null : t.LugarOrigenLibre.Trim(),
                     LugarDestinoId    = t.LugarDestinoId,
@@ -421,6 +429,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
                         Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                        MotivoAdicional = t.MotivoAdicional,
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                     : lo.Nombre,

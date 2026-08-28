@@ -31,6 +31,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// <summary>Si true, las horas declaradas con este motivo son estimadas (cambia la etiqueta
         /// de la hora de retorno en el formulario y recepción no registra hora real).</summary>
         public bool EsHoraEstimada { get; set; }
+        /// <summary>Si true, el frontend exige escribir un motivo adicional (detalle) al elegir este motivo.</summary>
+        public bool RequiereMotivoAdicional { get; set; }
     }
 
     public class LugarSalidaDto

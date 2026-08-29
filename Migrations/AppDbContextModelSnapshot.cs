@@ -9669,7 +9669,7 @@ namespace Abril_Backend.Migrations
                     b.ToTable("bim_actividad", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimBloqueo", b =>
+            modelBuilder.Entity("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimRestriccion", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -24305,7 +24305,7 @@ namespace Abril_Backend.Migrations
                     b.Navigation("MacroActividad");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimBloqueo", b =>
+            modelBuilder.Entity("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimRestriccion", b =>
                 {
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Project")
                         .WithMany()

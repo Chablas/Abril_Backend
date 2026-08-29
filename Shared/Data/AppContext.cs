@@ -571,7 +571,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<BimProyectoFase> BimProyectoFase => Set<BimProyectoFase>();
         public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
         public DbSet<BimEvidenciaFoto> BimEvidenciaFoto => Set<BimEvidenciaFoto>();
-        public DbSet<BimBloqueo> BimBloqueo => Set<BimBloqueo>();
+        public DbSet<BimRestriccion> BimRestriccion => Set<BimRestriccion>();
         public DbSet<BimMetaSemanal> BimMetaSemanal => Set<BimMetaSemanal>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1878,13 +1878,34 @@ namespace Abril_Backend.Infrastructure.Data
                  .OnDelete(DeleteBehavior.Cascade);
             });
 
-            modelBuilder.Entity<BimBloqueo>(e =>
+            modelBuilder.Entity<BimRestriccion>(e =>
             {
                 e.HasIndex(x => x.ProjectId);
+
                 e.HasOne(x => x.Project)
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(x => x.Zona)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.ZonaNivel)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaNivelId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.ZonaSector)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaSectorId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.Actividad)
+                 .WithMany()
+                 .HasForeignKey(x => x.ActividadId)
+                 .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<BimMetaSemanal>(e =>

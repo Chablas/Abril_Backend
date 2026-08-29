@@ -287,6 +287,45 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<int?> ResolverPropioWorkerIdAsync(int userId, int contributorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT worker_id FROM ss_contratista_usuario
+                  WHERE user_id = @UserId AND contractor_id = @ContributorId AND activo = TRUE
+                  LIMIT 1",
+                new { UserId = userId, ContributorId = contributorId });
+        }
+
+        public async Task<EvSupervisorContratistaMiPerfilDto> GetMiPerfilAsync(int supervisorWorkerId, int? periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var rows = await conn.QueryAsync<NotaComentarioRaw>(
+                @"SELECT nota AS Nota, comentario AS Comentario
+                  FROM ev_evaluacion_supervisor_contratista
+                  WHERE supervisor_worker_id = @SupervisorWorkerId
+                    AND NOT no_aplica
+                    AND (@PeriodoId IS NULL OR periodo_id = @PeriodoId)",
+                new { SupervisorWorkerId = supervisorWorkerId, PeriodoId = periodoId });
+
+            var lista = rows.ToList();
+            var conNota = lista.Where(r => r.Nota.HasValue).ToList();
+
+            return new EvSupervisorContratistaMiPerfilDto
+            {
+                TotalEvaluaciones = lista.Count,
+                PromedioGeneral = conNota.Count > 0 ? Math.Round(conNota.Average(r => r.Nota!.Value), 2) : null,
+                Comentarios = lista.Where(r => !string.IsNullOrWhiteSpace(r.Comentario)).Select(r => r.Comentario!).ToList()
+            };
+        }
+
+        private record NotaComentarioRaw(decimal? Nota, string? Comentario);
+
         private static async Task<List<EvSupervisorContratistaResumenDto>> ObtenerResumenesAsync(
             System.Data.IDbConnection conn, int? periodoId, int? proyectoId)
         {

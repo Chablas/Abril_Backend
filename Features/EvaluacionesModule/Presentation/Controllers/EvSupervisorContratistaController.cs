@@ -33,6 +33,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private int GetUserId() =>
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
+        private int GetEmpresaId() =>
+            int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : 0;
+
         // El Jefe SSOMA (puesto único, PuestoIds.JefeSsoma) también puede evaluar de forma
         // opcional, además de ver el consolidado. Coordinador SSOMA/Prevencionista se resuelven
         // por el PUESTO real (workers.puesto_id -> puesto.categoria_id) — para ellos esta
@@ -143,6 +146,22 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.MarcarNoAplica"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("mi-perfil")]
+        [Authorize(Roles = Roles.Contratista)]
+        public async Task<IActionResult> GetMiPerfil([FromQuery] int? periodoId)
+        {
+            try
+            {
+                var workerId = await _repo.ResolverPropioWorkerIdAsync(GetUserId(), GetEmpresaId());
+                if (workerId == null)
+                    return StatusCode(403, new { message = "No se pudo identificar su ficha de trabajador en el proyecto." });
+
+                return Ok(await _repo.GetMiPerfilAsync(workerId.Value, periodoId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.GetMiPerfil"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("ver")]

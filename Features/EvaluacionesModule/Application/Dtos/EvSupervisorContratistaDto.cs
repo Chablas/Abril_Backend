@@ -52,6 +52,15 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public decimal? NotaPrevia { get; set; }
     }
 
+    // ─── MI PERFIL (el propio supervisor/prevencionista de la contratista — sin
+    //     identidad de quién lo calificó, igual que EvPrevencionistaMiPerfilDto) ─
+    public class EvSupervisorContratistaMiPerfilDto
+    {
+        public decimal? PromedioGeneral { get; set; }
+        public int TotalEvaluaciones { get; set; }
+        public List<string> Comentarios { get; set; } = [];
+    }
+
     // ─── VER EVALUACIONES / DASHBOARD (solo Jefe SSOMA) ────────────────────────
     public class EvSupervisorContratistaVerInicioDto
     {

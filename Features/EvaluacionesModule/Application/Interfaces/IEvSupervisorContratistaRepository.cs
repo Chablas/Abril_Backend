@@ -28,6 +28,15 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<EvSupervisorContratistaDashboardDto> GetDashboardAsync(int? periodoId, int? proyectoId);
 
         /// <summary>
+        /// worker_id del propio supervisor/prevencionista logueado como contratista
+        /// (ss_contratista_usuario.worker_id) — es la llave con la que se le busca en
+        /// ev_evaluacion_supervisor_contratista.supervisor_worker_id, tenga o no cuenta
+        /// logueada quien lo evaluó no importa acá: importa la suya propia.
+        /// </summary>
+        Task<int?> ResolverPropioWorkerIdAsync(int userId, int contributorId);
+        Task<EvSupervisorContratistaMiPerfilDto> GetMiPerfilAsync(int supervisorWorkerId, int? periodoId);
+
+        /// <summary>
         /// Coordinador SSOMA / Prevencionista activos con vinculación vigente — pool
         /// para el recordatorio consolidado (para quienes esta evaluación es función
         /// habitual; el Jefe SSOMA queda afuera porque para él es opcional).

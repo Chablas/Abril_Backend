@@ -38,7 +38,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
     public class EvGestionSsomaInicioDto
     {
         public EvPeriodoDto? Periodo { get; set; }
-        public List<EvSupervisorContratistaCriterioDto> Plantilla { get; set; } = [];
+        /// <summary>Criterios para cuando el evaluado es Coordinador SSOMA (liderazgo de equipo).</summary>
+        public List<EvSupervisorContratistaCriterioDto> PlantillaCoordinador { get; set; } = [];
+        /// <summary>Criterios para cuando el evaluado es Prevencionista (desempeño operativo).</summary>
+        public List<EvSupervisorContratistaCriterioDto> PlantillaPrevencionista { get; set; } = [];
 
         // D1 (Jefe SSOMA) y D3 (Coordinador SSOMA): a quién le falta/ya evaluó.
         public List<EvGestionSsomaAEvaluarDto> Prevencionistas { get; set; } = [];

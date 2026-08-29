@@ -54,11 +54,18 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var periodo = await conn.QueryFirstOrDefaultAsync<EvPeriodoRaw>(
                 "SELECT id, mes, anio, fecha_apertura, fecha_cierre, activo FROM ev_periodo WHERE activo = TRUE LIMIT 1");
 
-            var plantilla = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
+            var plantillaCoordinador = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
                 @"SELECT id AS Id, criterio AS Criterio, orden AS Orden
-                  FROM ev_gestion_ssoma_plantilla WHERE activo = TRUE ORDER BY orden");
+                  FROM ev_gestion_ssoma_plantilla WHERE activo = TRUE AND rol_evaluado = 'COORDINADOR' ORDER BY orden");
+            var plantillaPrevencionista = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
+                @"SELECT id AS Id, criterio AS Criterio, orden AS Orden
+                  FROM ev_gestion_ssoma_plantilla WHERE activo = TRUE AND rol_evaluado = 'PREVENCIONISTA' ORDER BY orden");
 
-            var dto = new EvGestionSsomaInicioDto { Plantilla = plantilla.ToList() };
+            var dto = new EvGestionSsomaInicioDto
+            {
+                PlantillaCoordinador = plantillaCoordinador.ToList(),
+                PlantillaPrevencionista = plantillaPrevencionista.ToList(),
+            };
             if (periodo == null) return dto;
             dto.Periodo = MapPeriodo(periodo);
 

@@ -14,4 +14,16 @@ public interface IPetsService
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
     Task<string> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName);
+
+    // Catálogo (Marco Legal / EPP / Recursos)
+    Task<List<CatalogoItemDto>> GetCatalogoAsync(string grupo, string? tipo);
+    Task<int> CrearCatalogoItemAsync(CrearCatalogoItemRequest request);
+    Task DesactivarCatalogoItemAsync(int catalogoItemId);
+    Task<int> SeleccionarCatalogoItemAsync(int petId, SeleccionarItemCatalogoRequest request);
+    Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request);
+    Task EliminarSeleccionAsync(int petId, int seleccionId);
+
+    // Anexos
+    Task<string> SubirAnexoAsync(int petId, string nombre, Stream fileStream, string fileName);
+    Task EliminarAnexoAsync(int petId, int anexoId);
 }

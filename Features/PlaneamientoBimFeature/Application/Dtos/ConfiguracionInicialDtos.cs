@@ -17,7 +17,6 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
         public List<NivelDto> Niveles { get; set; } = new();
-        public List<SectorDto> Sectores { get; set; } = new();
     }
 
     public class NivelDto
@@ -25,6 +24,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
+        public string? TipoEstructura { get; set; }
+        /// <summary>Efectivo: sectores propios de este nivel + sectores
+        /// compartidos de la zona (zona_nivel_id NULL).</summary>
+        public List<SectorDto> Sectores { get; set; } = new();
     }
 
     public class SectorDto
@@ -67,7 +70,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
         public List<NivelUpdateDto> Niveles { get; set; } = new();
-        public List<SectorUpdateDto> Sectores { get; set; } = new();
+        /// <summary>Sectores compartidos por TODOS los niveles de esta zona
+        /// (zona_nivel_id NULL al persistir). Separado de los sectores
+        /// propios de cada nivel (ver NivelUpdateDto.Sectores).</summary>
+        public List<SectorUpdateDto> SectoresCompartidos { get; set; } = new();
     }
 
     public class NivelUpdateDto
@@ -75,6 +81,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public int? Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
+        public string? TipoEstructura { get; set; }
+        /// <summary>Sectores exclusivos de este nivel (zona_nivel_id = este nivel).</summary>
+        public List<SectorUpdateDto> Sectores { get; set; } = new();
     }
 
     public class SectorUpdateDto

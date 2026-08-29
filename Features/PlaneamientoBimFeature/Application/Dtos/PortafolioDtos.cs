@@ -7,8 +7,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         /// <summary>PPC = cumplidas/programadas sobre bim_registro_diario de TODO el portafolio, últimos 7 días.</summary>
         public decimal PpcPromedioUltimaSemana { get; set; }
         public List<ProyectosPorFaseDto> ProyectosPorFase { get; set; } = new();
-        /// <summary>Proyectos con al menos un bloqueo sin cerrar creado hace más de 3 días.</summary>
-        public int ProyectosConBloqueosVencidos { get; set; }
+        /// <summary>Proyectos con al menos una restricción sin cerrar creada hace más de 3 días.</summary>
+        public int ProyectosConRestriccionesVencidas { get; set; }
         /// <summary>Pareto de causas de incumplimiento del mes calendario en curso, cross-proyecto.</summary>
         public CausasParetoDto CausasTopMes { get; set; } = new();
     }

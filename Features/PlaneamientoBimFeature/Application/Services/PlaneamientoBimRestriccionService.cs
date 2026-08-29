@@ -5,35 +5,34 @@ using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 {
-    public class PlaneamientoBimBloqueoService : IPlaneamientoBimBloqueoService
+    public class PlaneamientoBimRestriccionService : IPlaneamientoBimRestriccionService
     {
-        /// <summary>Estados asignables por el usuario. "CERRADO" solo lo asigna el endpoint Cerrar, nunca Create/Update.</summary>
         private static readonly string[] EstadosValidos = { "ABIERTO", "EN_GESTION" };
 
-        private readonly IPlaneamientoBimBloqueoRepository _repository;
+        private readonly IPlaneamientoBimRestriccionRepository _repository;
 
-        public PlaneamientoBimBloqueoService(IPlaneamientoBimBloqueoRepository repository)
+        public PlaneamientoBimRestriccionService(IPlaneamientoBimRestriccionRepository repository)
         {
             _repository = repository;
         }
 
-        public Task<List<BloqueoDto>> GetPaged(int projectId, bool? soloActivos)
+        public Task<List<RestriccionDto>> GetPaged(int projectId, bool? soloActivos)
             => _repository.GetPaged(projectId, soloActivos);
 
-        public Task<BloqueoDto> Create(int projectId, BloqueoCreateDto dto, int userId)
+        public Task<RestriccionDto> Create(int projectId, RestriccionCreateDto dto, int userId)
         {
             ValidarDescripcionYEstado(dto.Descripcion, dto.Estado);
             return _repository.Create(projectId, dto, userId);
         }
 
-        public Task<BloqueoDto> Update(int bloqueoId, BloqueoUpdateDto dto)
+        public Task<RestriccionDto> Update(int restriccionId, RestriccionUpdateDto dto)
         {
             ValidarDescripcionYEstado(dto.Descripcion, dto.Estado);
-            return _repository.Update(bloqueoId, dto);
+            return _repository.Update(restriccionId, dto);
         }
 
-        public Task<BloqueoDto> Cerrar(int bloqueoId)
-            => _repository.Cerrar(bloqueoId);
+        public Task<RestriccionDto> Cerrar(int restriccionId)
+            => _repository.Cerrar(restriccionId);
 
         private static void ValidarDescripcionYEstado(string descripcion, string estado)
         {

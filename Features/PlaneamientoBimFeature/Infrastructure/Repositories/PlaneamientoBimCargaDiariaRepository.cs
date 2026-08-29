@@ -24,24 +24,39 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             if (!existeProyecto)
                 return null;
 
-            var zonas = await ctx.BimProyectoZona
+            // Se materializa primero (Include + ToListAsync) y el merge "propio del nivel +
+            // compartido de la zona" se arma en memoria — un .Concat() de dos navegaciones
+            // distintas dentro de una proyección LINQ-to-SQL no es traducible por Npgsql
+            // (InvalidOperationException en runtime, ver incidente CEDRO 33 28/08/2026).
+            var zonasEntidades = await ctx.BimProyectoZona
                 .Where(z => z.ProjectId == projectId)
+                .Include(z => z.Niveles)
+                    .ThenInclude(n => n.Sectores)
+                .Include(z => z.Sectores)
                 .OrderBy(z => z.Orden)
-                .Select(z => new ZonaDto
-                {
-                    Id = z.Id,
-                    Nombre = z.Nombre,
-                    Orden = z.Orden,
-                    Niveles = z.Niveles
-                        .OrderBy(n => n.Orden)
-                        .Select(n => new NivelDto { Id = n.Id, Nombre = n.Nombre, Orden = n.Orden })
-                        .ToList(),
-                    Sectores = z.Sectores
-                        .OrderBy(s => s.Orden)
-                        .Select(s => new SectorDto { Id = s.Id, Nombre = s.Nombre, Orden = s.Orden })
-                        .ToList(),
-                })
                 .ToListAsync();
+
+            var zonas = zonasEntidades.Select(z => new ZonaDto
+            {
+                Id = z.Id,
+                Nombre = z.Nombre,
+                Orden = z.Orden,
+                Niveles = z.Niveles
+                    .OrderBy(n => n.Orden)
+                    .Select(n => new NivelDto
+                    {
+                        Id = n.Id,
+                        Nombre = n.Nombre,
+                        Orden = n.Orden,
+                        TipoEstructura = n.TipoEstructura,
+                        Sectores = n.Sectores
+                            .Concat(z.Sectores.Where(s => s.ZonaNivelId == null))
+                            .OrderBy(s => s.Orden)
+                            .Select(s => new SectorDto { Id = s.Id, Nombre = s.Nombre, Orden = s.Orden })
+                            .ToList(),
+                    })
+                    .ToList(),
+            }).ToList();
 
             var actividades = await ctx.BimActividad
                 .OrderBy(a => a.MacroActividad.Orden).ThenBy(a => a.Orden)
@@ -82,10 +97,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 .Select(e => new EvidenciaFotoDto { Id = e.Id, Url = e.Url, CreatedDateTime = e.CreatedDateTime })
                 .ToListAsync();
 
-            var bloqueosActivos = await ctx.BimBloqueo
+            var restriccionesActivas = await ctx.BimRestriccion
                 .Where(b => b.ProjectId == projectId && b.FechaCierre == null)
                 .OrderByDescending(b => b.FechaCreacion)
-                .Select(b => new BloqueoDto
+                .Select(b => new RestriccionDto
                 {
                     Id = b.Id,
                     ProjectId = b.ProjectId,
@@ -94,6 +109,15 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     FechaCreacion = b.FechaCreacion,
                     FechaActualizacion = b.FechaActualizacion,
                     FechaCierre = b.FechaCierre,
+                    FechaLevantamientoPrevista = b.FechaLevantamientoPrevista,
+                    ZonaId = b.ZonaId,
+                    ZonaNombre = b.Zona != null ? b.Zona.Nombre : null,
+                    ZonaNivelId = b.ZonaNivelId,
+                    ZonaNivelNombre = b.ZonaNivel != null ? b.ZonaNivel.Nombre : null,
+                    ZonaSectorId = b.ZonaSectorId,
+                    ZonaSectorNombre = b.ZonaSector != null ? b.ZonaSector.Nombre : null,
+                    ActividadId = b.ActividadId,
+                    ActividadNombre = b.Actividad != null ? b.Actividad.Nombre : null,
                 })
                 .ToListAsync();
 
@@ -106,7 +130,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 Causas = causas,
                 Celdas = celdas,
                 Evidencias = evidencias,
-                BloqueosActivos = bloqueosActivos,
+                RestriccionesActivas = restriccionesActivas,
             };
         }
 

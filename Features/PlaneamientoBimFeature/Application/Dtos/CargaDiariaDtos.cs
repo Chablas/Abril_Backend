@@ -14,7 +14,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public List<CausaCatalogoDto> Causas { get; set; } = new();
         public List<CeldaDto> Celdas { get; set; } = new();
         public List<EvidenciaFotoDto> Evidencias { get; set; } = new();
-        public List<BloqueoDto> BloqueosActivos { get; set; } = new();
+        public List<RestriccionDto> RestriccionesActivas { get; set; } = new();
     }
 
     public class ActividadCatalogoDto

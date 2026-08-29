@@ -24,39 +24,29 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             if (!existeProyecto)
                 return null;
 
-            // Se materializa primero (Include + ToListAsync) y el merge "propio del nivel +
-            // compartido de la zona" se arma en memoria — un .Concat() de dos navegaciones
-            // distintas dentro de una proyección LINQ-to-SQL no es traducible por Npgsql
-            // (InvalidOperationException en runtime, ver incidente CEDRO 33 28/08/2026).
-            var zonasEntidades = await ctx.BimProyectoZona
-                .Where(z => z.ProjectId == projectId)
-                .Include(z => z.Niveles)
-                    .ThenInclude(n => n.Sectores)
-                .Include(z => z.Sectores)
-                .OrderBy(z => z.Orden)
+            var torres = await ctx.BimProyectoTorre
+                .Where(t => t.ProjectId == projectId)
+                .Include(t => t.Niveles)
+                .OrderBy(t => t.Orden)
+                .Select(t => new TorreDto
+                {
+                    Id = t.Id,
+                    Nombre = t.Nombre,
+                    Orden = t.Orden,
+                    CantidadSectoresSubestructura = t.CantidadSectoresSubestructura,
+                    CantidadSectoresSuperestructura = t.CantidadSectoresSuperestructura,
+                    Niveles = t.Niveles
+                        .OrderBy(n => n.Orden)
+                        .Select(n => new NivelDto
+                        {
+                            Id = n.Id,
+                            Nombre = n.Nombre,
+                            Orden = n.Orden,
+                            TipoEstructura = n.TipoEstructura,
+                        })
+                        .ToList(),
+                })
                 .ToListAsync();
-
-            var zonas = zonasEntidades.Select(z => new ZonaDto
-            {
-                Id = z.Id,
-                Nombre = z.Nombre,
-                Orden = z.Orden,
-                Niveles = z.Niveles
-                    .OrderBy(n => n.Orden)
-                    .Select(n => new NivelDto
-                    {
-                        Id = n.Id,
-                        Nombre = n.Nombre,
-                        Orden = n.Orden,
-                        TipoEstructura = n.TipoEstructura,
-                        Sectores = n.Sectores
-                            .Concat(z.Sectores.Where(s => s.ZonaNivelId == null))
-                            .OrderBy(s => s.Orden)
-                            .Select(s => new SectorDto { Id = s.Id, Nombre = s.Nombre, Orden = s.Orden })
-                            .ToList(),
-                    })
-                    .ToList(),
-            }).ToList();
 
             var actividades = await ctx.BimActividad
                 .OrderBy(a => a.MacroActividad.Orden).ThenBy(a => a.Orden)
@@ -80,11 +70,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 .Where(r => r.ProjectId == projectId && r.Fecha == fecha)
                 .Select(r => new CeldaDto
                 {
-                    ZonaId = r.ZonaId,
+                    TorreId = r.TorreId,
                     NivelId = r.NivelId,
                     SectorId = r.SectorId,
                     ActividadId = r.ActividadId,
                     PorcentajeAvance = r.PorcentajeAvance,
+                    Cumplida = r.PorcentajeAvance == 100m,
                     CausaId = r.CausaId,
                     CausaNombre = r.Causa != null ? r.Causa.Nombre : null,
                     CausaDetalle = r.CausaDetalle,
@@ -110,12 +101,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     FechaActualizacion = b.FechaActualizacion,
                     FechaCierre = b.FechaCierre,
                     FechaLevantamientoPrevista = b.FechaLevantamientoPrevista,
-                    ZonaId = b.ZonaId,
-                    ZonaNombre = b.Zona != null ? b.Zona.Nombre : null,
-                    ZonaNivelId = b.ZonaNivelId,
-                    ZonaNivelNombre = b.ZonaNivel != null ? b.ZonaNivel.Nombre : null,
-                    ZonaSectorId = b.ZonaSectorId,
-                    ZonaSectorNombre = b.ZonaSector != null ? b.ZonaSector.Nombre : null,
+                    TorreId = b.TorreId,
+                    TorreNombre = b.Torre != null ? b.Torre.Nombre : null,
+                    NivelId = b.NivelId,
+                    NivelNombre = b.Nivel != null ? b.Nivel.Nombre : null,
+                    Sector = b.Sector,
                     ActividadId = b.ActividadId,
                     ActividadNombre = b.Actividad != null ? b.Actividad.Nombre : null,
                 })
@@ -125,13 +115,29 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             {
                 Fecha = fecha,
                 Categoria = categoria,
-                Zonas = zonas,
+                Torres = torres,
                 Actividades = actividades,
                 Causas = causas,
                 Celdas = celdas,
                 Evidencias = evidencias,
                 RestriccionesActivas = restriccionesActivas,
             };
+        }
+
+        public async Task<List<NivelRangoSectorDto>> GetRangosSectorPorNivel(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.BimTorreNivel
+                .Where(n => n.Torre.ProjectId == projectId)
+                .Select(n => new NivelRangoSectorDto
+                {
+                    NivelId = n.Id,
+                    TipoEstructura = n.TipoEstructura,
+                    CantidadSectoresSubestructura = n.Torre.CantidadSectoresSubestructura,
+                    CantidadSectoresSuperestructura = n.Torre.CantidadSectoresSuperestructura,
+                })
+                .ToListAsync();
         }
 
         public async Task GuardarCargaDiaria(int projectId, DateOnly fecha, CargaDiariaUpdateDto dto, int userId)
@@ -150,16 +156,31 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
             foreach (var celda in dto.Celdas)
             {
+                var targetTorreId = celda.TorreId != 0 ? celda.TorreId : celda.ZonaId;
+
                 var registro = existentes.FirstOrDefault(r =>
-                    r.ZonaId == celda.ZonaId && r.NivelId == celda.NivelId &&
+                    r.TorreId == targetTorreId && r.NivelId == celda.NivelId &&
                     r.SectorId == celda.SectorId && r.ActividadId == celda.ActividadId);
+
+                if (!celda.Cumplida.HasValue)
+                {
+                    // Cumplida == null: Celda neutra / no evaluada / sin programar.
+                    // Si existía un registro previo, se remueve para retornar la celda a estado neutro.
+                    if (registro != null)
+                    {
+                        ctx.BimRegistroDiario.Remove(registro);
+                    }
+                    continue;
+                }
+
+                bool esCumplida = celda.Cumplida.Value;
 
                 if (registro == null)
                 {
                     registro = new BimRegistroDiario
                     {
                         ProjectId = projectId,
-                        ZonaId = celda.ZonaId,
+                        TorreId = targetTorreId,
                         NivelId = celda.NivelId,
                         SectorId = celda.SectorId,
                         ActividadId = celda.ActividadId,
@@ -175,9 +196,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     registro.UpdatedDateTime = ahora;
                 }
 
-                registro.PorcentajeAvance = celda.PorcentajeAvance;
-                registro.CausaId = celda.PorcentajeAvance == 100 ? null : celda.CausaId;
-                registro.CausaDetalle = celda.PorcentajeAvance == 100 ? null : celda.CausaDetalle;
+                registro.PorcentajeAvance = esCumplida ? 100m : 0m;
+                registro.CausaId = esCumplida ? null : celda.CausaId;
+                registro.CausaDetalle = esCumplida ? null : celda.CausaDetalle;
             }
 
             await ctx.SaveChangesAsync();

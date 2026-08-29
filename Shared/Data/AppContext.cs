@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.LearningModule.Infrastructure.Models;
@@ -571,8 +571,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<BimActividad> BimActividad => Set<BimActividad>();
         public DbSet<BimCausaNoCumplimiento> BimCausaNoCumplimiento => Set<BimCausaNoCumplimiento>();
         public DbSet<BimFase> BimFase => Set<BimFase>();
-        public DbSet<BimProyectoZona> BimProyectoZona => Set<BimProyectoZona>();
-        public DbSet<BimZonaNivel> BimZonaNivel => Set<BimZonaNivel>();
+        public DbSet<BimProyectoTorre> BimProyectoTorre => Set<BimProyectoTorre>();
+        public DbSet<BimTorreNivel> BimTorreNivel => Set<BimTorreNivel>();
         public DbSet<BimZonaSector> BimZonaSector => Set<BimZonaSector>();
         public DbSet<BimProyectoFase> BimProyectoFase => Set<BimProyectoFase>();
         public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
@@ -1804,7 +1804,7 @@ namespace Abril_Backend.Infrastructure.Data
                  .OnDelete(DeleteBehavior.Restrict);
             });
 
-            modelBuilder.Entity<BimProyectoZona>(e =>
+            modelBuilder.Entity<BimProyectoTorre>(e =>
             {
                 e.HasIndex(x => x.ProjectId);
                 e.HasOne(x => x.Project)
@@ -1813,20 +1813,22 @@ namespace Abril_Backend.Infrastructure.Data
                  .OnDelete(DeleteBehavior.Cascade);
             });
 
-            modelBuilder.Entity<BimZonaNivel>(e =>
+            modelBuilder.Entity<BimTorreNivel>(e =>
             {
-                e.HasIndex(x => x.ZonaId);
-                e.HasOne(x => x.Zona)
-                 .WithMany(z => z.Niveles)
-                 .HasForeignKey(x => x.ZonaId)
+                e.HasIndex(x => x.TorreId);
+                e.HasOne(x => x.Torre)
+                 .WithMany(t => t.Niveles)
+                 .HasForeignKey(x => x.TorreId)
                  .OnDelete(DeleteBehavior.Cascade);
             });
 
+            // Huérfana (ver comentario en BimZonaSector.cs): sin navegación inversa desde
+            // BimProyectoTorre, esta tabla ya no forma parte del árbol torre/nivel.
             modelBuilder.Entity<BimZonaSector>(e =>
             {
                 e.HasIndex(x => x.ZonaId);
                 e.HasOne(x => x.Zona)
-                 .WithMany(z => z.Sectores)
+                 .WithMany()
                  .HasForeignKey(x => x.ZonaId)
                  .OnDelete(DeleteBehavior.Cascade);
             });
@@ -1847,14 +1849,33 @@ namespace Abril_Backend.Infrastructure.Data
 
             modelBuilder.Entity<BimRegistroDiario>(e =>
             {
+                e.ToTable("bim_registro_diario");
+                e.Property(x => x.Id).HasColumnName("id");
+                e.Property(x => x.ProjectId).HasColumnName("project_id");
+                e.Property(x => x.TorreId).HasColumnName("torre_id");
+                e.Property(x => x.NivelId).HasColumnName("nivel_id");
+                e.Property(x => x.SectorId).HasColumnName("sector_id");
+                e.Property(x => x.ActividadId).HasColumnName("actividad_id");
+                e.Property(x => x.Fecha).HasColumnName("fecha");
+                e.Property(x => x.PorcentajeAvance).HasColumnName("porcentaje_avance");
+                e.Property(x => x.CausaId).HasColumnName("causa_id");
+                e.Property(x => x.CausaDetalle).HasColumnName("causa_detalle");
+                e.Property(x => x.CreatedUserId).HasColumnName("created_user_id");
+                e.Property(x => x.CreatedDateTime).HasColumnName("created_date_time");
+                e.Property(x => x.UpdatedUserId).HasColumnName("updated_user_id");
+                e.Property(x => x.UpdatedDateTime).HasColumnName("updated_date_time");
+
+                e.Ignore(x => x.ZonaId);
+                e.Ignore(x => x.Zona);
+
                 // Evita duplicados y define que una corrección dentro de la ventana de
                 // edición sea UPDATE sobre esta fila, no un INSERT nuevo.
                 // Nombre real en producción: ix_bim_registro_diario_unico (creado a mano,
                 // más corto que el que EF generaría por convención — 63+ chars se trunca).
-                e.HasIndex(x => new { x.ProjectId, x.ZonaId, x.NivelId, x.SectorId, x.ActividadId, x.Fecha })
+                e.HasIndex(x => new { x.ProjectId, x.TorreId, x.NivelId, x.SectorId, x.ActividadId, x.Fecha })
                  .IsUnique()
                  .HasDatabaseName("ix_bim_registro_diario_unico");
-                e.HasIndex(x => x.ZonaId);
+                e.HasIndex(x => x.TorreId);
                 e.HasIndex(x => x.NivelId);
                 e.HasIndex(x => x.SectorId);
                 e.HasIndex(x => x.ActividadId);
@@ -1863,17 +1884,13 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
-                e.HasOne(x => x.Zona)
+                e.HasOne(x => x.Torre)
                  .WithMany()
-                 .HasForeignKey(x => x.ZonaId)
+                 .HasForeignKey(x => x.TorreId)
                  .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Nivel)
                  .WithMany()
                  .HasForeignKey(x => x.NivelId)
-                 .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Sector)
-                 .WithMany()
-                 .HasForeignKey(x => x.SectorId)
                  .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Actividad)
                  .WithMany()
@@ -1896,26 +1913,39 @@ namespace Abril_Backend.Infrastructure.Data
 
             modelBuilder.Entity<BimRestriccion>(e =>
             {
+                e.ToTable("bim_bloqueo");
+                e.Property(x => x.Id).HasColumnName("id");
+                e.Property(x => x.ProjectId).HasColumnName("project_id");
+                e.Property(x => x.Descripcion).HasColumnName("descripcion");
+                e.Property(x => x.Estado).HasColumnName("estado");
+                e.Property(x => x.FechaCreacion).HasColumnName("fecha_creacion");
+                e.Property(x => x.FechaActualizacion).HasColumnName("fecha_actualizacion");
+                e.Property(x => x.FechaCierre).HasColumnName("fecha_cierre");
+                e.Property(x => x.FechaLevantamientoPrevista).HasColumnName("fecha_levantamiento_prevista");
+                e.Property(x => x.CreatedUserId).HasColumnName("created_user_id");
+                e.Property(x => x.TorreId).HasColumnName("torre_id");
+                e.Property(x => x.NivelId).HasColumnName("nivel_id");
+                e.Property(x => x.Sector).HasColumnName("sector");
+                e.Property(x => x.ActividadId).HasColumnName("actividad_id");
+
                 e.HasIndex(x => x.ProjectId);
+                e.HasIndex(x => x.TorreId);
+                e.HasIndex(x => x.NivelId);
+                e.HasIndex(x => x.ActividadId);
 
                 e.HasOne(x => x.Project)
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
 
-                e.HasOne(x => x.Zona)
+                e.HasOne(x => x.Torre)
                  .WithMany()
-                 .HasForeignKey(x => x.ZonaId)
+                 .HasForeignKey(x => x.TorreId)
                  .OnDelete(DeleteBehavior.SetNull);
 
-                e.HasOne(x => x.ZonaNivel)
+                e.HasOne(x => x.Nivel)
                  .WithMany()
-                 .HasForeignKey(x => x.ZonaNivelId)
-                 .OnDelete(DeleteBehavior.SetNull);
-
-                e.HasOne(x => x.ZonaSector)
-                 .WithMany()
-                 .HasForeignKey(x => x.ZonaSectorId)
+                 .HasForeignKey(x => x.NivelId)
                  .OnDelete(DeleteBehavior.SetNull);
 
                 e.HasOne(x => x.Actividad)

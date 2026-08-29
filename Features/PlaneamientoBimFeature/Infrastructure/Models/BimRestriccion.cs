@@ -40,20 +40,35 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         public int CreatedUserId { get; set; }
 
         // ── Ubicación afectada (todas nullable) ─────────────────────────────
-        [Column("zona_id")]
-        public int? ZonaId { get; set; }
-        public BimProyectoZona? Zona { get; set; }
+        [Column("torre_id")]
+        public int? TorreId { get; set; }
+        public BimProyectoTorre? Torre { get; set; }
 
-        [Column("zona_nivel_id")]
-        public int? ZonaNivelId { get; set; }
-        public BimZonaNivel? ZonaNivel { get; set; }
+        [Column("nivel_id")]
+        public int? NivelId { get; set; }
+        public BimTorreNivel? Nivel { get; set; }
 
-        [Column("zona_sector_id")]
-        public int? ZonaSectorId { get; set; }
-        public BimZonaSector? ZonaSector { get; set; }
+        [Column("sector")]
+        public int? Sector { get; set; }
 
         [Column("actividad_id")]
         public int? ActividadId { get; set; }
         public BimActividad? Actividad { get; set; }
+
+        // ── Compatibilidad retroactiva (propiedades obsoletas no mapeadas) ──
+        [NotMapped]
+        public int? ZonaId { get => TorreId; set => TorreId = value; }
+
+        [NotMapped]
+        public BimProyectoTorre? Zona { get => Torre; set => Torre = value; }
+
+        [NotMapped]
+        public int? ZonaNivelId { get => NivelId; set => NivelId = value; }
+
+        [NotMapped]
+        public BimTorreNivel? ZonaNivel { get => Nivel; set => Nivel = value; }
+
+        [NotMapped]
+        public int? ZonaSectorId { get => Sector; set => Sector = value; }
     }
 }

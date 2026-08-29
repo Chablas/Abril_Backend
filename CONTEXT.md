@@ -5969,3 +5969,35 @@ Al guardar Configuración con un sector nuevo asignado a un nivel específico, e
 - **Bug nuevo sin resolver, investigación cortada a mitad**: reporte de que un sector creado desde el frontend en el panel "exclusivos de este nivel" termina clasificado como compartido tras guardar y recargar. No se pudo confirmar la causa — no hay logging de request body (se agregó temporalmente y se revirtió sin llegar a reproducir), y el estado real en BD (proyecto 12, BOSQUE REAL, zona "EDIFICIO PRINCIPAL" id=6, niveles "Sotano 1"/"Piso 1") no tiene ningún sector asociado (ni compartido ni de nivel) — no coincide con el síntoma reportado. Hipótesis del usuario (no confirmada): la zona/niveles se crearon con el bug #2 todavía activo, el intento de agregar sectores falló con 409 y nunca se persistieron; un guardado posterior sin esos sectores en el payload los habría "borrado" correctamente (comportamiento esperado del diff-by-Id, no un bug). **No se tocó el proyecto 12 (datos reales).**
 - Deploy a `master` sigue pendiente — falta confirmación de que el frontend terminó su parte, ya que esto rompe contrato JSON (`CargaDiariaDto.BloqueosActivos`→`RestriccionesActivas`, `ZonaDto.Sectores` cambió de forma a `NivelDto.Sectores`).
 - Confirmar con el usuario si retoma la investigación del bug de clasificación de sectores (con logging de payload) antes o después del deploy a `master`.
+
+## Sesión 2026-08-29 — Rediseño de Torres/Niveles/Sectores y Alineación de Restricciones & Carga Diaria en Planeamiento BIM
+
+Rediseño completo de la arquitectura del módulo de Planeamiento BIM para alinearse al nuevo modelo de datos de Torres/Niveles y sectores derivados 1..N, eliminando definitivamente la dependencia con la tabla huérfana `bim_zona_sector`.
+
+### 1. Modelo de Datos y Entidades
+- **Torres & Niveles**: Reemplazo de `BimProyectoZona` y `BimZonaNivel` por `BimProyectoTorre` (`bim_proyecto_torre`) y `BimTorreNivel` (`bim_torre_nivel`).
+- **Sectores Derivados**: `bim_zona_sector` pasa a ser tabla huérfana no navegable. El sector es un entero derivado 1..N calculado según `TipoEstructura` ("SUBESTRUCTURA" → `CantidadSectoresSubestructura`, "SUPERESTRUCTURA" → `CantidadSectoresSuperestructura`).
+- **Restricciones (`bim_bloqueo`)**:
+  - Removida la FK `fk_bim_bloqueo_zona_sector`.
+  - Mapeadas columnas reales: `torre_id` (FK a `bim_proyecto_torre`), `nivel_id` (FK a `bim_torre_nivel`), `sector` (`int?` nullable derivado).
+  - Propiedades legadas `ZonaId`, `Zona`, `ZonaNivelId`, `ZonaNivel`, `ZonaSectorId` marcadas con `[NotMapped]` y Fluent API `e.ToTable("bim_bloqueo")` con `.HasColumnName(...)` explícito.
+- **Carga Diaria (`bim_registro_diario`)**:
+  - Columna `zona_id` renombrada a `torre_id` (FK `fk_bim_registro_diario_torre` a `bim_proyecto_torre.id`).
+  - Columna `nivel_id` mantenida con FK `fk_bim_registro_diario_nivel` a `bim_torre_nivel.id`.
+  - Columna `sector_id` mantenida como entero plano 1..N (sin FK).
+  - `BimRegistroDiario.cs`: Mapeadas únicamente `TorreId`, `NivelId`, `SectorId`. Propiedades legadas `ZonaId` y `Zona` marcadas con `[NotMapped]` y desmapeadas en Fluent API con `e.Ignore(x => x.ZonaId)` y `e.Ignore(x => x.Zona)`.
+  - Soporte de `Cumplida = null` (celdas neutras / no evaluadas / sin programar): `CausaId` es exigido ÚNICAMENTE si `Cumplida.HasValue && Cumplida.Value == false`. Celdas neutras no registran fila en BD o remueven la fila previa existente si la hubiere.
+
+### 2. Migraciones DDL Transaccionales Ejecutadas en VPS (PostgreSQL)
+- `Migrations/Manual/20260829_UpdateBimBloqueoTorreNivelSector.sql`:
+  - `ALTER TABLE bim_bloqueo DROP CONSTRAINT fk_bim_bloqueo_zona_sector;`
+  - Renombrado de columnas `zona_id` → `torre_id`, `zona_nivel_id` → `nivel_id`, `zona_sector_id` → `sector`.
+  - Creación de FKs `fk_bim_bloqueo_bim_proyecto_torre_torre_id` y `fk_bim_bloqueo_bim_torre_nivel_nivel_id`.
+- `Migrations/Manual/20260829_UpdateBimRegistroDiarioTorreFk.sql`:
+  - Renombrado de columna `zona_id` → `torre_id` en `bim_registro_diario`.
+  - Removidas constraints obsoletas `bim_registro_diario_zona_sector_id_fkey`, `bim_registro_diario_zona_nivel_id_fkey`.
+  - Recreadas constraints limpias: `fk_bim_registro_diario_torre` ON `torre_id` → `bim_proyecto_torre(id)` y `fk_bim_registro_diario_nivel` ON `nivel_id` → `bim_torre_nivel(id)`.
+
+### 3. Verificación
+- Compilación `dotnet build` → **0 errores** (247 warnings preexistentes sin cambios).
+- Commit realizado en rama **`victor-backend`**: `feat(planeamiento-bim): refactor Torres, Niveles, Restricciones y Carga Diaria`.

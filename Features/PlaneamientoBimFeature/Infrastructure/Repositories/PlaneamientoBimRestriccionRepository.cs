@@ -36,12 +36,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     FechaActualizacion = b.FechaActualizacion,
                     FechaCierre = b.FechaCierre,
                     FechaLevantamientoPrevista = b.FechaLevantamientoPrevista,
-                    ZonaId = b.ZonaId,
-                    ZonaNombre = b.Zona != null ? b.Zona.Nombre : null,
-                    ZonaNivelId = b.ZonaNivelId,
-                    ZonaNivelNombre = b.ZonaNivel != null ? b.ZonaNivel.Nombre : null,
-                    ZonaSectorId = b.ZonaSectorId,
-                    ZonaSectorNombre = b.ZonaSector != null ? b.ZonaSector.Nombre : null,
+                    TorreId = b.TorreId,
+                    TorreNombre = b.Torre != null ? b.Torre.Nombre : null,
+                    NivelId = b.NivelId,
+                    NivelNombre = b.Nivel != null ? b.Nivel.Nombre : null,
+                    Sector = b.Sector,
                     ActividadId = b.ActividadId,
                     ActividadNombre = b.Actividad != null ? b.Actividad.Nombre : null,
                 })
@@ -64,9 +63,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 FechaCreacion = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,
                 FechaLevantamientoPrevista = dto.FechaLevantamientoPrevista,
-                ZonaId = dto.ZonaId,
-                ZonaNivelId = dto.ZonaNivelId,
-                ZonaSectorId = dto.ZonaSectorId,
+                TorreId = dto.TorreId,
+                NivelId = dto.NivelId,
+                Sector = dto.Sector,
                 ActividadId = dto.ActividadId,
             };
 
@@ -90,9 +89,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             restriccion.Estado = dto.Estado;
             restriccion.FechaActualizacion = DateTimeOffset.UtcNow;
             restriccion.FechaLevantamientoPrevista = dto.FechaLevantamientoPrevista;
-            restriccion.ZonaId = dto.ZonaId;
-            restriccion.ZonaNivelId = dto.ZonaNivelId;
-            restriccion.ZonaSectorId = dto.ZonaSectorId;
+            restriccion.TorreId = dto.TorreId;
+            restriccion.NivelId = dto.NivelId;
+            restriccion.Sector = dto.Sector;
             restriccion.ActividadId = dto.ActividadId;
 
             await ctx.SaveChangesAsync();
@@ -133,12 +132,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                     FechaActualizacion = b.FechaActualizacion,
                     FechaCierre = b.FechaCierre,
                     FechaLevantamientoPrevista = b.FechaLevantamientoPrevista,
-                    ZonaId = b.ZonaId,
-                    ZonaNombre = b.Zona != null ? b.Zona.Nombre : null,
-                    ZonaNivelId = b.ZonaNivelId,
-                    ZonaNivelNombre = b.ZonaNivel != null ? b.ZonaNivel.Nombre : null,
-                    ZonaSectorId = b.ZonaSectorId,
-                    ZonaSectorNombre = b.ZonaSector != null ? b.ZonaSector.Nombre : null,
+                    TorreId = b.TorreId,
+                    TorreNombre = b.Torre != null ? b.Torre.Nombre : null,
+                    NivelId = b.NivelId,
+                    NivelNombre = b.Nivel != null ? b.Nivel.Nombre : null,
+                    Sector = b.Sector,
                     ActividadId = b.ActividadId,
                     ActividadNombre = b.Actividad != null ? b.Actividad.Nombre : null,
                 })

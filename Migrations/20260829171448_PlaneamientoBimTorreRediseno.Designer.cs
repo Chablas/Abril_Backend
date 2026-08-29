@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260829171448_PlaneamientoBimTorreRediseno")]
+    partial class PlaneamientoBimTorreRediseno
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -11641,21 +11644,21 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("fecha_levantamiento_prevista");
 
-                    b.Property<int?>("NivelId")
-                        .HasColumnType("integer")
-                        .HasColumnName("nivel_id");
-
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
 
-                    b.Property<int?>("Sector")
+                    b.Property<int?>("ZonaId")
                         .HasColumnType("integer")
-                        .HasColumnName("sector");
+                        .HasColumnName("zona_id");
 
-                    b.Property<int?>("TorreId")
+                    b.Property<int?>("ZonaNivelId")
                         .HasColumnType("integer")
-                        .HasColumnName("torre_id");
+                        .HasColumnName("zona_nivel_id");
+
+                    b.Property<int?>("ZonaSectorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("zona_sector_id");
 
                     b.HasKey("Id")
                         .HasName("pk_bim_bloqueo");
@@ -11663,14 +11666,17 @@ namespace Abril_Backend.Migrations
                     b.HasIndex("ActividadId")
                         .HasDatabaseName("ix_bim_bloqueo_actividad_id");
 
-                    b.HasIndex("NivelId")
-                        .HasDatabaseName("ix_bim_bloqueo_nivel_id");
-
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_bim_bloqueo_project_id");
 
-                    b.HasIndex("TorreId")
-                        .HasDatabaseName("ix_bim_bloqueo_torre_id");
+                    b.HasIndex("ZonaId")
+                        .HasDatabaseName("ix_bim_bloqueo_zona_id");
+
+                    b.HasIndex("ZonaNivelId")
+                        .HasDatabaseName("ix_bim_bloqueo_zona_nivel_id");
+
+                    b.HasIndex("ZonaSectorId")
+                        .HasDatabaseName("ix_bim_bloqueo_zona_sector_id");
 
                     b.ToTable("bim_bloqueo", (string)null);
                 });
@@ -27407,6 +27413,13 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_bim_registro_diario_project_project_id");
 
+                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimZonaSector", "Sector")
+                        .WithMany()
+                        .HasForeignKey("SectorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_bim_registro_diario_bim_zona_sector_sector_id");
+
                     b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimProyectoTorre", "Zona")
                         .WithMany()
                         .HasForeignKey("ZonaId")
@@ -27422,6 +27435,8 @@ namespace Abril_Backend.Migrations
 
                     b.Navigation("Project");
 
+                    b.Navigation("Sector");
+
                     b.Navigation("Zona");
                 });
 
@@ -27433,12 +27448,6 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_bim_bloqueo_bim_actividad_actividad_id");
 
-                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimTorreNivel", "Nivel")
-                        .WithMany()
-                        .HasForeignKey("NivelId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_bim_bloqueo_bim_torre_nivel_nivel_id");
-
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
@@ -27446,19 +27455,33 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_bim_bloqueo_project_project_id");
 
-                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimProyectoTorre", "Torre")
+                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimProyectoTorre", "Zona")
                         .WithMany()
-                        .HasForeignKey("TorreId")
+                        .HasForeignKey("ZonaId")
                         .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_bim_bloqueo_bim_proyecto_torre_torre_id");
+                        .HasConstraintName("fk_bim_bloqueo_bim_proyecto_torre_zona_id");
+
+                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimTorreNivel", "ZonaNivel")
+                        .WithMany()
+                        .HasForeignKey("ZonaNivelId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_bim_bloqueo_bim_torre_nivel_zona_nivel_id");
+
+                    b.HasOne("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimZonaSector", "ZonaSector")
+                        .WithMany()
+                        .HasForeignKey("ZonaSectorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_bim_bloqueo_bim_zona_sector_zona_sector_id");
 
                     b.Navigation("Actividad");
 
-                    b.Navigation("Nivel");
-
                     b.Navigation("Project");
 
-                    b.Navigation("Torre");
+                    b.Navigation("Zona");
+
+                    b.Navigation("ZonaNivel");
+
+                    b.Navigation("ZonaSector");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models.BimTorreNivel", b =>

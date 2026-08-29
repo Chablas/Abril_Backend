@@ -27,12 +27,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
             // Los diccionarios de nombres se arman en memoria (no en el Select) porque
             // ToDictionary() sobre una colección de navegación no es traducible a SQL por EF Core.
-            var zonasEntidades = await ctx.BimProyectoZona
-                .Where(z => z.ProjectId == projectId)
-                .Include(z => z.Niveles)
-                    .ThenInclude(n => n.Sectores)
-                .Include(z => z.Sectores)
-                .OrderBy(z => z.Orden)
+            var zonasEntidades = await ctx.BimProyectoTorre
+                .Where(t => t.ProjectId == projectId)
+                .Include(t => t.Niveles)
+                .OrderBy(t => t.Orden)
                 .ToListAsync();
 
             var zonas = zonasEntidades.Select(z => new
@@ -40,23 +38,16 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 z.Id,
                 z.Nombre,
                 Niveles = z.Niveles.ToDictionary(n => n.Id, n => n.Nombre),
-                // Propios de cada nivel (z.Niveles[].Sectores) + compartidos de la zona
-                // (ZonaNivelId null) — mismo criterio que CargaDiaria/Configuracion, en vez
-                // de leer z.Sectores directo. No cambia el resultado (z.Sectores ya incluye
-                // ambos casos, vía ZonaId), es solo consistencia con el modelo Nivel->Sector.
-                Sectores = z.Niveles.SelectMany(n => n.Sectores)
-                    .Concat(z.Sectores.Where(s => s.ZonaNivelId == null))
-                    .ToDictionary(s => s.Id, s => s.Nombre),
             }).ToList();
 
             var celdas = await ctx.BimRegistroDiario
                 .Where(r => r.ProjectId == projectId
                     && (!desde.HasValue || r.Fecha >= desde.Value)
                     && (!hasta.HasValue || r.Fecha <= hasta.Value))
-                .GroupBy(r => new { r.ZonaId, r.NivelId, r.SectorId })
+                .GroupBy(r => new { r.TorreId, r.NivelId, r.SectorId })
                 .Select(g => new
                 {
-                    g.Key.ZonaId,
+                    g.Key.TorreId,
                     g.Key.NivelId,
                     g.Key.SectorId,
                     Total = g.Count(),
@@ -67,13 +58,17 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             var zonasDto = new List<ZonaAvanceDto>();
             foreach (var zona in zonas)
             {
-                var celdasZona = celdas.Where(c => c.ZonaId == zona.Id)
+                // Sectores ya no tienen nombre propio (ver BimZonaSector.cs): bajo el modelo
+                // nuevo son un número derivado de Torre.CantidadSectoresX + Nivel.TipoEstructura,
+                // no una entidad con Nombre. SectorNombre queda como el número crudo — cero
+                // consultas a bim_zona_sector acá.
+                var celdasZona = celdas.Where(c => c.TorreId == zona.Id)
                     .Select(c => new CeldaAvanceDto
                     {
                         NivelId = c.NivelId,
                         NivelNombre = zona.Niveles.GetValueOrDefault(c.NivelId, string.Empty),
                         SectorId = c.SectorId,
-                        SectorNombre = zona.Sectores.GetValueOrDefault(c.SectorId, string.Empty),
+                        SectorNombre = c.SectorId.ToString(),
                         TotalRegistros = c.Total,
                         CumplidosRegistros = c.SumaPorcentaje,
                         PorcentajeAvance = PorcentajeDe(c.SumaPorcentaje, c.Total),

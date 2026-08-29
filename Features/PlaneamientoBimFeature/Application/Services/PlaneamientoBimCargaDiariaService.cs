@@ -20,11 +20,6 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 
         private static readonly string[] CategoriasValidas = { "GENERAL", "PROCURA" };
 
-        /// <summary>Set fijo de porcentajes de avance permitidos por celda — confirmado con
-        /// Planeamiento (punto 3 de sus observaciones): no numérico libre, para no perder
-        /// comparabilidad en Avance/PPC/Pareto.</summary>
-        public static readonly decimal[] PorcentajesValidos = { 0m, 25m, 50m, 75m, 100m };
-
         private readonly IPlaneamientoBimCargaDiariaRepository _repository;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
@@ -55,14 +50,42 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
         {
             ValidarVentanaDeEdicion(fecha);
 
-            var invalidos = dto.Celdas.Where(c => !PorcentajesValidos.Contains(c.PorcentajeAvance)).ToList();
-            if (invalidos.Count > 0)
-                throw new AbrilException($"Porcentaje de avance inválido. Use uno de: {string.Join("%, ", PorcentajesValidos)}%.", 400);
+            if (dto.Celdas.Any(c => c.Cumplida.HasValue && c.Cumplida.Value == false && c.CausaId == null))
+                throw new AbrilException("Debe indicar la causa de no cumplimiento para las celdas marcadas como no hechas.", 400);
 
-            if (dto.Celdas.Any(c => c.PorcentajeAvance < 100 && c.CausaId == null))
-                throw new AbrilException("Debe indicar la causa de no cumplimiento para las celdas con avance menor a 100%.", 400);
+            await ValidarSectores(projectId, dto.Celdas);
 
             await _repository.GuardarCargaDiaria(projectId, fecha, dto, userId);
+        }
+
+        /// <summary>SectorId es un número derivado (1..N), no una FK — se valida acá que
+        /// esté dentro del rango que le corresponde al nivel según su TipoEstructura y los
+        /// conteos de la torre (ver NivelRangoSectorDto). Nunca se llega a la BD con un
+        /// sector fuera de rango.</summary>
+        private async Task ValidarSectores(int projectId, List<CeldaUpdateDto> celdas)
+        {
+            var evaluadas = celdas.Where(c => c.Cumplida.HasValue).ToList();
+            if (evaluadas.Count == 0)
+                return;
+
+            var rangos = (await _repository.GetRangosSectorPorNivel(projectId)).ToDictionary(r => r.NivelId);
+
+            foreach (var celda in evaluadas)
+            {
+                if (!rangos.TryGetValue(celda.NivelId, out var nivel))
+                    throw new AbrilException($"El nivel {celda.NivelId} no pertenece a este proyecto.", 400);
+
+                var maxSectores = nivel.TipoEstructura switch
+                {
+                    "SUBESTRUCTURA" => nivel.CantidadSectoresSubestructura,
+                    "SUPERESTRUCTURA" => nivel.CantidadSectoresSuperestructura,
+                    _ => 0,
+                };
+
+                if (maxSectores > 0 && (celda.SectorId < 1 || celda.SectorId > maxSectores))
+                    throw new AbrilException(
+                        $"El sector {celda.SectorId} no es válido para el nivel {celda.NivelId} (rango permitido: 1 a {maxSectores}).", 400);
+            }
         }
 
         public async Task<List<EvidenciaFotoDto>> SubirEvidencias(int projectId, DateOnly fecha, IFormFileCollection files, int userId, string categoria = "GENERAL")

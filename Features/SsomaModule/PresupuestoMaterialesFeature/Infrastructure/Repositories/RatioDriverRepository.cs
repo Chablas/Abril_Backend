@@ -36,23 +36,46 @@ public class RatioDriverRepository : IRatioDriverRepository
     }
 
     /// <summary>
-    /// HH real por proyecto desde el Tareo de Control de Acceso (personas del día x horas de
-    /// jornada de ese día, sumado en todo el rango registrado) — misma fórmula que el dashboard
-    /// de Horas Hombre. OJO: si el Tareo no arranca junto con el proyecto (se empezó a
-    /// registrar después de que la obra ya había avanzado), este total queda por debajo del HH
-    /// real de toda la obra — es una limitación de la fuente, no del cálculo.
+    /// HH real por proyecto. Prioridad por proyecto (no se mezclan las dos fuentes para el mismo
+    /// proyecto, para no arriesgar doble conteo entre semanas de planilla y días de Tareo que se
+    /// solapen):
+    ///   1. Excel de planilla/Tareo semanal (HhCargaService) si el proyecto tiene alguna carga
+    ///      activa — es la fuente más completa cuando alguien se tomó el trabajo de subirla.
+    ///   2. Si no, Tareo de Control de Acceso (personas del día x horas de jornada de ese día,
+    ///      sumado en todo el rango registrado) — misma fórmula que el dashboard de Horas Hombre.
+    ///      OJO: si el Tareo no arranca junto con el proyecto (se empezó a registrar después de
+    ///      que la obra ya había avanzado), este total queda por debajo del HH real de toda la
+    ///      obra — es la limitación que la carga por Excel busca complementar.
     /// </summary>
     public async Task<List<ProyectoHhRealRow>> ObtenerHhRealPorProyectoAsync(List<int> projectIds)
     {
         if (projectIds.Count == 0) return [];
         using var ctx = _factory.CreateDbContext();
 
+        var hhExcel = await ctx.SsHhCargaLinea
+            .Where(l => l.Activo && projectIds.Contains(l.ProjectId))
+            .Select(l => new { l.ProjectId, l.Anio, l.SemanaNum, l.HorasLaboradas })
+            .ToListAsync();
+
+        var resultado = hhExcel.GroupBy(l => l.ProjectId).Select(g => new ProyectoHhRealRow
+        {
+            ProjectId = g.Key,
+            HhTotal = g.Sum(l => l.HorasLaboradas),
+            // No hay fecha diaria en el Excel de planilla, solo semana — se aproxima a días
+            // calendario para que sea comparable en escala con DiasRegistrados del Tareo.
+            DiasRegistrados = g.Select(l => (l.Anio, l.SemanaNum)).Distinct().Count() * 7,
+        }).ToList();
+
+        var proyectosConExcel = resultado.Select(r => r.ProjectId).ToHashSet();
+        var projectIdsSoloTareo = projectIds.Where(id => !proyectosConExcel.Contains(id)).ToList();
+        if (projectIdsSoloTareo.Count == 0) return resultado;
+
         var tareos = await ctx.SsTareo
-            .Where(t => projectIds.Contains(t.ProyectoId))
+            .Where(t => projectIdsSoloTareo.Contains(t.ProyectoId))
             .Select(t => new { t.Id, t.ProyectoId, t.Fecha })
             .ToListAsync();
 
-        if (tareos.Count == 0) return [];
+        if (tareos.Count == 0) return resultado;
 
         var tareoIds = tareos.Select(t => t.Id).ToList();
 
@@ -68,7 +91,7 @@ public class RatioDriverRepository : IRatioDriverRepository
             .Select(g => new { TareoId = g.Key, Cantidad = g.Sum(d => d.CantidadPersonas) })
             .ToDictionaryAsync(g => g.TareoId, g => g.Cantidad);
 
-        return tareos.GroupBy(t => t.ProyectoId).Select(g =>
+        resultado.AddRange(tareos.GroupBy(t => t.ProyectoId).Select(g =>
         {
             decimal hhTotal = 0;
             foreach (var t in g)
@@ -83,7 +106,9 @@ public class RatioDriverRepository : IRatioDriverRepository
                 HhTotal = hhTotal,
                 DiasRegistrados = g.Select(t => t.Fecha).Distinct().Count(),
             };
-        }).ToList();
+        }));
+
+        return resultado;
     }
 
     /// <summary>

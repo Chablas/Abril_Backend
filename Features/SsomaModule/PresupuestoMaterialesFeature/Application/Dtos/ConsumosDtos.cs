@@ -7,6 +7,10 @@ public class ImportConsumoResultDto
     public int CargaId { get; set; }
     public string NombreArchivo { get; set; } = null!;
     public int TotalLineas { get; set; }
+    public int LineasNuevas { get; set; }
+    public int LineasActualizadas { get; set; }
+    public int LineasEliminadas { get; set; }
+    public int LineasSinCambio { get; set; }
     public int LineasEstandarizadas { get; set; }
     public int LineasPendientes { get; set; }
     public int LineasSinMatch { get; set; }
@@ -22,6 +26,9 @@ public class ConsumoCargaResumenDto
     public DateOnly FechaMin { get; set; }
     public DateOnly FechaMax { get; set; }
     public int TotalLineas { get; set; }
+    public int LineasNuevas { get; set; }
+    public int LineasActualizadas { get; set; }
+    public int LineasEliminadas { get; set; }
     public int LineasEstandarizadas { get; set; }
     public int LineasPendientes { get; set; }
     public string Estado { get; set; } = null!;

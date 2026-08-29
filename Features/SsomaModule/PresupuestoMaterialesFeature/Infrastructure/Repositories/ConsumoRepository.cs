@@ -12,22 +12,6 @@ public class ConsumoRepository : IConsumoRepository
 
     public ConsumoRepository(IDbContextFactory<AppDbContext> factory) => _factory = factory;
 
-    public async Task<bool> ExisteHashAsync(string hash)
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsConsumoCarga.AnyAsync(c => c.HashArchivo == hash && c.Estado == "ACTIVA");
-    }
-
-    public async Task<bool> ExisteSolapamientoFechasAsync(int projectId, DateOnly fechaMin, DateOnly fechaMax, int? excluirCargaId = null)
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsConsumoCarga
-            .Where(c => c.ProjectId == projectId && c.Estado == "ACTIVA"
-                && (excluirCargaId == null || c.Id != excluirCargaId)
-                && c.FechaMin <= fechaMax && c.FechaMax >= fechaMin)
-            .AnyAsync();
-    }
-
     public async Task<SsConsumoCarga> CrearCargaAsync(SsConsumoCarga carga)
     {
         using var ctx = _factory.CreateDbContext();
@@ -36,19 +20,63 @@ public class ConsumoRepository : IConsumoRepository
         return carga;
     }
 
-    public async Task InsertarLineasBulkAsync(IEnumerable<SsConsumoLinea> lineas)
-    {
-        using var ctx = _factory.CreateDbContext();
-        ctx.SsConsumoLinea.AddRange(lineas);
-        await ctx.SaveChangesAsync();
-    }
-
     public async Task<List<SsConsumoLinea>> ObtenerLineasSinEstandarizarAsync(int cargaId)
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
             .Where(l => l.CargaId == cargaId && !l.Estandarizado)
             .ToListAsync();
+    }
+
+    public async Task<List<SsConsumoLinea>> ObtenerLineasActivasConGuiaPorProyectoAsync(int projectId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => l.ProjectId == projectId && l.Activo && l.NroGuia != null)
+            .ToListAsync();
+    }
+
+    public async Task AplicarDiffCargaAsync(
+        IEnumerable<SsConsumoLinea> nuevas,
+        IEnumerable<(long LineaId, decimal Cantidad, decimal PrecioUnitario, decimal PrecioTotal, DateOnly FechaGuia)> actualizaciones,
+        IEnumerable<long> idsDarDeBaja,
+        string motivoBaja)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ahora = DateTimeOffset.UtcNow;
+
+        ctx.SsConsumoLinea.AddRange(nuevas);
+
+        var idsActualizar = actualizaciones.Select(a => a.LineaId).ToList();
+        if (idsActualizar.Count > 0)
+        {
+            var porActualizar = await ctx.SsConsumoLinea
+                .Where(l => idsActualizar.Contains(l.Id))
+                .ToDictionaryAsync(l => l.Id);
+            foreach (var (lineaId, cantidad, precioUnitario, precioTotal, fechaGuia) in actualizaciones)
+            {
+                if (!porActualizar.TryGetValue(lineaId, out var linea)) continue;
+                linea.Cantidad = cantidad;
+                linea.PrecioUnitario = precioUnitario;
+                linea.PrecioTotal = precioTotal;
+                linea.FechaGuia = fechaGuia;
+                linea.ActualizadoEn = ahora;
+            }
+        }
+
+        var idsBaja = idsDarDeBaja.ToList();
+        if (idsBaja.Count > 0)
+        {
+            var porDarDeBaja = await ctx.SsConsumoLinea.Where(l => idsBaja.Contains(l.Id)).ToListAsync();
+            foreach (var linea in porDarDeBaja)
+            {
+                linea.Activo = false;
+                linea.MotivoInactivo = motivoBaja;
+                linea.ActualizadoEn = ahora;
+            }
+        }
+
+        await ctx.SaveChangesAsync();
     }
 
     public async Task ActualizarLineaEstandarizadaAsync(long lineaId, int itemId, bool perteneceSsoma, string metodo, decimal score, string? estadoRevision, decimal factorConversion = 1)
@@ -77,6 +105,18 @@ public class ConsumoRepository : IConsumoRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task ActualizarResumenCargaAsync(int cargaId, int totalLineas, int nuevas, int actualizadas, int eliminadas)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var carga = await ctx.SsConsumoCarga.FindAsync(cargaId);
+        if (carga == null) return;
+        carga.TotalLineas = totalLineas;
+        carga.LineasNuevas = nuevas;
+        carga.LineasActualizadas = actualizadas;
+        carga.LineasEliminadas = eliminadas;
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task<List<ConsumoCargaResumenDto>> ObtenerCargasPorProyectoAsync(int projectId)
     {
         using var ctx = _factory.CreateDbContext();
@@ -91,6 +131,9 @@ public class ConsumoRepository : IConsumoRepository
                 FechaMin = c.FechaMin,
                 FechaMax = c.FechaMax,
                 TotalLineas = c.TotalLineas,
+                LineasNuevas = c.LineasNuevas,
+                LineasActualizadas = c.LineasActualizadas,
+                LineasEliminadas = c.LineasEliminadas,
                 LineasEstandarizadas = c.LineasEstandarizadas,
                 LineasPendientes = c.LineasPendientes,
                 Estado = c.Estado,
@@ -103,7 +146,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => l.ProjectId == projectId && l.EstadoRevision == "PENDIENTE")
+            .Where(l => l.ProjectId == projectId && l.Activo && l.EstadoRevision == "PENDIENTE")
             .Include(l => l.Item).ThenInclude(i => i!.Familia)
             .OrderByDescending(l => l.PrecioTotal)
             .Select(l => new MaterialPendienteDto
@@ -128,7 +171,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => l.EstadoRevision == "PENDIENTE")
+            .Where(l => l.Activo && l.EstadoRevision == "PENDIENTE")
             .Include(l => l.Item).ThenInclude(i => i!.Familia)
             .Include(l => l.Proyecto)
             .OrderByDescending(l => l.PrecioTotal)
@@ -155,7 +198,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => !l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO")
+            .Where(l => l.Activo && (!l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO"))
             .Include(l => l.Proyecto)
             .OrderByDescending(l => l.FechaGuia)
             .Select(l => new MaterialNoSsomaDto

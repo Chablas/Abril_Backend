@@ -30,6 +30,7 @@ public class RatioRepository : IRatioRepository
             JOIN ss_material_familia f ON f.id = i.familia_id
             JOIN ss_material_tipo t   ON t.id = f.tipo_id
             WHERE l.project_id = @projectId
+              AND l.activo = true
               AND l.estandarizado = true
               AND l.pertenece_ssoma = true
               AND (l.estado_revision IS NULL OR l.estado_revision = 'AUTORIZADO')

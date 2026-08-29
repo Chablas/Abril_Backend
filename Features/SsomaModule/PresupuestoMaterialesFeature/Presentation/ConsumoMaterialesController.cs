@@ -32,7 +32,12 @@ public class ConsumoMaterialesController : ControllerBase
 
     // ─── Import S10 ───────────────────────────────────────────────────────────
 
-    /// <summary>Sube un Excel S10 semanal, deduplica y dispara estandarización automática.</summary>
+    /// <summary>
+    /// Sube el Kardex de materiales del proyecto (Movimiento/Nro. Guía/Partida de Control). Acepta
+    /// el archivo acumulado completo en cada subida — compara línea por línea contra lo ya cargado
+    /// (nuevas, regularizadas, dadas de baja) y dispara estandarización automática solo sobre las
+    /// líneas nuevas.
+    /// </summary>
     [HttpPost("proyectos/{projectId}/cargas")]
     [RequestSizeLimit(20_000_000)] // 20 MB
     public async Task<IActionResult> ImportarS10(int projectId, IFormFile archivo)

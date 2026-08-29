@@ -247,6 +247,8 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IKitService, KitService>();
             services.AddScoped<IRatioDriverRepository, RatioDriverRepository>();
             services.AddScoped<IRatioDriverService, RatioDriverService>();
+            services.AddScoped<IHhCargaRepository, HhCargaRepository>();
+            services.AddScoped<IHhCargaService, HhCargaService>();
 
             // Horas Hombre (a partir del Tareo de Control de Acceso)
             services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();

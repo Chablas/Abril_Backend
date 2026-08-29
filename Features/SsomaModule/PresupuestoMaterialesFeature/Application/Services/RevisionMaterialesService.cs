@@ -71,6 +71,10 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                 else if (decision.Decision == "RECHAZADO")
                 {
                     await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "RECHAZADO", null);
+                    // Aprender: la próxima vez que aparezca este mismo texto (este u otro proyecto),
+                    // se rechaza solo, sin volver a pasar por Revisión.
+                    var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
+                    await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
                     if (!rechazadosPorProyecto.TryGetValue(linea.ProjectId, out var lista))
                         rechazadosPorProyecto[linea.ProjectId] = lista = [];
                     lista.Add((linea.RecursoCrudo, decision.MotivoRechazo));
@@ -125,6 +129,10 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                 else if (decision.Decision == "RECHAZADO")
                 {
                     await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "RECHAZADO", null);
+                    // Aprender: la próxima vez que aparezca este mismo texto (este u otro proyecto),
+                    // se rechaza solo, sin volver a pasar por Revisión.
+                    var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
+                    await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
                     rechazadosParaNotificar.Add((linea.RecursoCrudo, decision.MotivoRechazo));
                     resultado.Rechazados++;
                 }
@@ -149,28 +157,26 @@ public class RevisionMaterialesService : IRevisionMaterialesService
         return resultado;
     }
 
+    /// <summary>
+    /// Substring + similarity trigram (misma técnica que la Etapa 4 automática) — un Contains
+    /// exacto obligaba a escribir el nombre del catálogo palabra por palabra ("BARRA EXTENSIBLE"
+    /// no encontraba "BARRA EXPANDIBLE" aunque sea, en la práctica, el mismo material).
+    /// </summary>
     public async Task<List<BuscarItemDto>> BuscarItemsAsync(string texto)
     {
         if (string.IsNullOrWhiteSpace(texto) || texto.Length < 3)
             return [];
 
-        using var ctx = _factory.CreateDbContext();
         var textoNorm = TextoNormalizador.Normalizar(texto);
-
-        return await ctx.SsMaterialItem
-            .Where(i => i.Activo && !i.NoUsar && i.NombreNormalizado.Contains(textoNorm))
-            .Include(i => i.Familia).ThenInclude(f => f.Tipo)
-            .OrderBy(i => i.Nombre)
-            .Take(20)
-            .Select(i => new BuscarItemDto
-            {
-                Id = i.Id,
-                Nombre = i.Nombre,
-                NombreFamilia = i.Familia.Nombre,
-                TipoMaterial = i.Familia.Tipo.Nombre,
-                PerteneceSsoma = i.Familia.PerteneceSsoma
-            })
-            .ToListAsync();
+        var resultados = await _estandarizacionRepo.BuscarItemsSimilaresAsync(textoNorm);
+        return resultados.Select(r => new BuscarItemDto
+        {
+            Id = r.ItemId,
+            Nombre = r.NombreItem,
+            NombreFamilia = r.NombreFamilia,
+            TipoMaterial = r.TipoMaterial ?? "",
+            PerteneceSsoma = r.PerteneceSsoma,
+        }).ToList();
     }
 
     private async Task<int> NotificarOficinaTecnicaAsync(int projectId, List<(string RecursoCrudo, string? Motivo)> rechazados)
@@ -181,9 +187,22 @@ public class RevisionMaterialesService : IRevisionMaterialesService
             var proyecto = await ctx.Project.FindAsync(projectId);
             if (proyecto == null) return 0;
 
-            var destinatarios = new List<string>();
-            if (!string.IsNullOrWhiteSpace(proyecto.StaffEmail)) destinatarios.Add(proyecto.StaffEmail);
-            if (!string.IsNullOrWhiteSpace(proyecto.EmailResidente)) destinatarios.Add(proyecto.EmailResidente);
+            // Oficina Técnica y Almacenero DEL PROYECTO, no un contacto fijo del proyecto: se
+            // resuelve por vinculación vigente (fecha_fin null) en worker_vinculaciones, cuyo
+            // Puesto es el cargo real que tenía la persona en ESA obra (texto congelado al
+            // vincularse, ver WorkerVinculacion.Puesto) — no el genérico Project.StaffEmail/
+            // EmailResidente, que no distinguía cargo y mandaba a quien fuera que tuviera ese
+            // campo lleno, sin importar su proyecto real.
+            var destinatarios = await ctx.WorkerVinculacion
+                .Include(v => v.Worker)
+                .Where(v => v.ProyectoId == projectId && v.FechaFin == null
+                    && v.Worker != null && v.Worker.EmailCorporativo != null
+                    && v.Puesto != null
+                    && (EF.Functions.ILike(v.Puesto, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Puesto, "%OFICINA TÉCNICA%")
+                        || EF.Functions.ILike(v.Puesto, "%ALMACEN%") || EF.Functions.ILike(v.Puesto, "%ALMACÉN%")))
+                .Select(v => v.Worker!.EmailCorporativo!)
+                .Distinct()
+                .ToListAsync();
             if (destinatarios.Count == 0) return 0;
 
             var filas = rechazados.Select(r =>

@@ -26,7 +26,7 @@ public class EstandarizacionService : IEstandarizacionService
         var resultado = new EstandarizacionLoteResultDto { TotalProcesadas = lineas.Count };
         var detalles = new List<EstandarizacionLineaDto>();
 
-        int autoResueltas = 0, enRevision = 0, sinMatch = 0;
+        int autoResueltas = 0, autoRechazadas = 0, enRevision = 0, sinMatch = 0;
 
         foreach (var linea in lineas)
         {
@@ -41,6 +41,9 @@ public class EstandarizacionService : IEstandarizacionService
                 case "AUTO_FUZZY":
                     autoResueltas++;
                     break;
+                case "AUTO_RECHAZADO":
+                    autoRechazadas++;
+                    break;
                 case "REVISION":
                     enRevision++;
                     break;
@@ -51,16 +54,28 @@ public class EstandarizacionService : IEstandarizacionService
         }
 
         resultado.AutoResueltas = autoResueltas;
+        resultado.AutoRechazadas = autoRechazadas;
         resultado.EnRevision = enRevision;
         resultado.SinMatch = sinMatch;
         resultado.Detalles = detalles;
 
-        await _consumoRepo.ActualizarContadoresCargaAsync(cargaId, autoResueltas, enRevision);
+        // "Pendientes" incluye sin match: ambas terminan con estado PENDIENTE y aparecen juntas en
+        // Revisión de Materiales — si solo contara enRevision, el historial de cargas mostraría
+        // menos pendientes de los que en verdad hay que resolver.
+        await _consumoRepo.ActualizarContadoresCargaAsync(cargaId, autoResueltas, enRevision + sinMatch);
         return resultado;
     }
 
     private async Task<EstandarizacionLineaDto> ProcesarLineaAsync(long lineaId, string recursoCrudo, string textoNorm)
     {
+        // Etapa 0: ¿Ya se rechazó este mismo texto antes en Revisión? No volver a preguntar —
+        // se aprende igual que un alias de ítem, pero para "esto no es SSOMA" (ver CrearAliasRechazoAsync).
+        if (await _estandarizacionRepo.EsRechazoConocidoAsync(textoNorm))
+        {
+            await _consumoRepo.MarcarRechazadoAutomaticoAsync(lineaId);
+            return new EstandarizacionLineaDto { LineaId = lineaId, RecursoCrudo = recursoCrudo, Resultado = "AUTO_RECHAZADO" };
+        }
+
         // Etapa 1: Alias exacto (O(1) — diccionario de aprendizaje)
         var match = await _estandarizacionRepo.BuscarPorAliasExactoAsync(textoNorm);
         if (match != null)
@@ -113,7 +128,8 @@ public class EstandarizacionService : IEstandarizacionService
             }
         }
 
-        // Etapa 5: Sin match
+        // Etapa 5: Sin match — igual va a Revisión (sin sugerencia), para asignarle un ítem a mano.
+        await _consumoRepo.MarcarSinMatchAsync(lineaId);
         return new EstandarizacionLineaDto
         {
             LineaId = lineaId,

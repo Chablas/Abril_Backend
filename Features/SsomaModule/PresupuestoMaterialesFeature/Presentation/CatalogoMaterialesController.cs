@@ -70,6 +70,24 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
             catch (Exception) { return StatusCode(500, new { message = "Error al actualizar la familia." }); }
         }
 
+        /// <summary>Alta manual de un ítem que de verdad no existe en el catálogo, desde el buscador de Revisión.</summary>
+        [HttpPost("items")]
+        public async Task<IActionResult> CrearItem([FromBody] CrearItemCatalogoDto dto)
+        {
+            try { return Ok(await _service.CrearItemAsync(dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error al crear el ítem." }); }
+        }
+
+        /// <summary>Alta manual de una família nueva, cuando el material no encaja en ninguna categoría existente.</summary>
+        [HttpPost("familias")]
+        public async Task<IActionResult> CrearFamilia([FromBody] CrearFamiliaCatalogoDto dto)
+        {
+            try { return Ok(await _service.CrearFamiliaAsync(dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error al crear la família." }); }
+        }
+
         // ─── Sección 2: materiales sin estandarizar (global) ───────────────
 
         [HttpGet("sin-estandarizar")]

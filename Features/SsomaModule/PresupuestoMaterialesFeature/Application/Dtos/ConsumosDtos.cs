@@ -12,6 +12,7 @@ public class ImportConsumoResultDto
     public int LineasEliminadas { get; set; }
     public int LineasSinCambio { get; set; }
     public int LineasEstandarizadas { get; set; }
+    public int LineasAutoRechazadas { get; set; }
     public int LineasPendientes { get; set; }
     public int LineasSinMatch { get; set; }
     public string Estado { get; set; } = null!;

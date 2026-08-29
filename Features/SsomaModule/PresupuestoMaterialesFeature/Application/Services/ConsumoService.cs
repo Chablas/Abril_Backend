@@ -142,6 +142,7 @@ public class ConsumoService : IConsumoService
             LineasEliminadas = idsDarDeBaja.Count,
             LineasSinCambio = sinCambio,
             LineasEstandarizadas = resultadoEstand.AutoResueltas,
+            LineasAutoRechazadas = resultadoEstand.AutoRechazadas,
             LineasPendientes = resultadoEstand.EnRevision,
             LineasSinMatch = resultadoEstand.SinMatch,
             Estado = "ACTIVA",

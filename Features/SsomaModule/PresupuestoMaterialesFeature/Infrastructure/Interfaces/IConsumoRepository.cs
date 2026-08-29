@@ -20,6 +20,10 @@ public interface IConsumoRepository
         string motivoBaja);
     Task<List<SsConsumoLinea>> ObtenerLineasSinEstandarizarAsync(int cargaId);
     Task ActualizarLineaEstandarizadaAsync(long lineaId, int itemId, bool perteneceSsoma, string metodo, decimal score, string? estadoRevision, decimal factorConversion = 1);
+    /// <summary>Ninguna estrategia automática encontró candidato: la marca PENDIENTE sin item sugerido, para que aparezca en Revisión y se le asigne uno a mano.</summary>
+    Task MarcarSinMatchAsync(long lineaId);
+    /// <summary>Ya se sabe (alias de rechazo) que este texto no es SSOMA: rechaza directo, sin pasar por Revisión.</summary>
+    Task MarcarRechazadoAutomaticoAsync(long lineaId);
     Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes);
     Task ActualizarResumenCargaAsync(int cargaId, int totalLineas, int nuevas, int actualizadas, int eliminadas);
     Task<List<ConsumoCargaResumenDto>> ObtenerCargasPorProyectoAsync(int projectId);

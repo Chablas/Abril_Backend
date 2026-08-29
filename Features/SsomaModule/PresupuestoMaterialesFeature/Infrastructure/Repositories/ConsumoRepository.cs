@@ -95,6 +95,27 @@ public class ConsumoRepository : IConsumoRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task MarcarSinMatchAsync(long lineaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
+        if (linea == null) return;
+        linea.EstadoRevision = "PENDIENTE";
+        linea.MetodoMatch = "SIN_MATCH";
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task MarcarRechazadoAutomaticoAsync(long lineaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
+        if (linea == null) return;
+        linea.EstadoRevision = "RECHAZADO";
+        linea.PerteneceSsoma = false;
+        linea.MetodoMatch = "ALIAS_RECHAZO";
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes)
     {
         using var ctx = _factory.CreateDbContext();
@@ -264,6 +285,11 @@ public class ConsumoRepository : IConsumoRepository
         if (itemIdConfirmado.HasValue)
         {
             linea.ItemId = itemIdConfirmado.Value;
+            // Una línea que llegó a Revisión sin match automático (Estandarizado seguía en false,
+            // ver EstandarizacionService/MarcarSinMatchAsync) recién tiene item real acá — sin esto,
+            // quedaba con item asignado pero invisible para el cálculo de ratios (exige
+            // estandarizado=true). Las que ya venían con sugerencia automática ya estaban en true.
+            linea.Estandarizado = true;
             // El item confirmado en revisión siempre genera un alias nuevo con factor 1 (ver RevisionMaterialesService).
             linea.CantidadReal = linea.Cantidad;
             linea.PrecioUnitarioReal = linea.Cantidad > 0 ? linea.PrecioTotal / linea.Cantidad : 0;

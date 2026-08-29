@@ -19,6 +19,38 @@ public class CatalogoMaterialesService : ICatalogoMaterialesService
     public Task ActualizarFamiliaAsync(int id, ActualizarFamiliaDto dto)
         => _repo.ActualizarFamiliaAsync(id, dto);
 
+    public async Task<BuscarItemDto> CrearItemAsync(CrearItemCatalogoDto dto)
+    {
+        var nombre = dto.Nombre.Trim();
+        if (string.IsNullOrWhiteSpace(nombre))
+            throw new Abril_Backend.Application.Exceptions.AbrilException("El nombre es obligatorio.", 400);
+
+        var normalizado = TextoNormalizador.Normalizar(nombre);
+        var (item, nombreFamilia, nombreTipo, perteneceSsoma) =
+            await _repo.CrearItemManualAsync(nombre, normalizado, dto.FamiliaId);
+
+        return new BuscarItemDto
+        {
+            Id = item.Id,
+            Nombre = item.Nombre,
+            NombreFamilia = nombreFamilia,
+            TipoMaterial = nombreTipo,
+            PerteneceSsoma = perteneceSsoma,
+        };
+    }
+
+    public async Task<FamiliaCatalogoDto> CrearFamiliaAsync(CrearFamiliaCatalogoDto dto)
+    {
+        var nombre = dto.Nombre.Trim();
+        if (string.IsNullOrWhiteSpace(nombre))
+            throw new Abril_Backend.Application.Exceptions.AbrilException("El nombre es obligatorio.", 400);
+        if (string.IsNullOrWhiteSpace(dto.VariableBase))
+            throw new Abril_Backend.Application.Exceptions.AbrilException("\"Se calcula por\" es obligatorio.", 400);
+
+        var normalizado = TextoNormalizador.Normalizar(nombre);
+        return await _repo.CrearFamiliaManualAsync(nombre, normalizado, dto.TipoId, dto.VariableBase, dto.UnidadMedida, dto.PerteneceSsoma);
+    }
+
     public async Task<List<TipoMaterialDto>> ListarTiposAsync()
     {
         var tipos = await _repo.GetTiposAsync();

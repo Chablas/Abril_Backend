@@ -84,4 +84,45 @@ public class EstandarizacionRepository : IEstandarizacionRepository
             """;
         await conn.ExecuteAsync(sql, new { textoCrudo, textoCrudoNorm, itemId, origen, confianza = (double)confianza });
     }
+
+    public async Task<bool> EsRechazoConocidoAsync(string textoCrudoNorm)
+    {
+        using var conn = Conn();
+        const string sql = "SELECT 1 FROM ss_material_alias WHERE texto_crudo_norm = @norm AND item_id IS NULL LIMIT 1";
+        var fila = await conn.QueryFirstOrDefaultAsync<int?>(sql, new { norm = textoCrudoNorm });
+        return fila.HasValue;
+    }
+
+    public async Task CrearAliasRechazoAsync(string textoCrudo, string textoCrudoNorm)
+    {
+        using var conn = Conn();
+        const string sql = """
+            INSERT INTO ss_material_alias (texto_crudo, texto_crudo_norm, item_id, origen, confianza, creado_en)
+            VALUES (@textoCrudo, @textoCrudoNorm, NULL, 'RECHAZO_CONFIRMADO', 1.0, now())
+            ON CONFLICT (texto_crudo_norm) DO NOTHING
+            """;
+        await conn.ExecuteAsync(sql, new { textoCrudo, textoCrudoNorm });
+    }
+
+    public async Task<List<MatchResult>> BuscarItemsSimilaresAsync(string textoNorm)
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT i.id AS ItemId, i.nombre AS NombreItem,
+                   f.id AS FamiliaId, f.nombre AS NombreFamilia,
+                   f.pertenece_ssoma AS PerteneceSsoma,
+                   t.nombre AS TipoMaterial,
+                   similarity(i.nombre_normalizado, @texto) AS Score,
+                   'BUSQUEDA_MANUAL' AS Metodo
+            FROM ss_material_item i
+            JOIN ss_material_familia f ON f.id = i.familia_id
+            JOIN ss_material_tipo t ON t.id = f.tipo_id
+            WHERE i.no_usar = false AND i.activo = true
+              AND (i.nombre_normalizado ILIKE '%' || @texto || '%' OR similarity(i.nombre_normalizado, @texto) > 0.2)
+            ORDER BY similarity(i.nombre_normalizado, @texto) DESC, i.nombre
+            LIMIT 20
+            """;
+        var resultados = await conn.QueryAsync<MatchResult>(sql, new { texto = textoNorm });
+        return resultados.ToList();
+    }
 }

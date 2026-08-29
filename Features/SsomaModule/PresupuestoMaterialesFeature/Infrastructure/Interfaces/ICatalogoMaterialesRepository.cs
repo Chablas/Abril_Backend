@@ -20,6 +20,14 @@ public interface ICatalogoMaterialesRepository
     Task<(SsMaterialItem Item, bool Creado)> GetOrCreateItemAsync(
         string nombre, string nombreNormalizado, int familiaId, string? talla, string? dimensionNorm, bool noUsar);
 
+    /// <summary>Alta manual desde el buscador de Revisión (a diferencia de GetOrCreateItemAsync, usado en bloque por el seed, esta devuelve família/tipo ya resueltos para la respuesta al front).</summary>
+    Task<(SsMaterialItem Item, string NombreFamilia, string NombreTipo, bool PerteneceSsoma)> CrearItemManualAsync(
+        string nombre, string nombreNormalizado, int familiaId);
+
+    /// <summary>Alta manual de família desde Revisión, cuando el material no encaja en ninguna família existente.</summary>
+    Task<FamiliaCatalogoDto> CrearFamiliaManualAsync(
+        string nombre, string nombreNormalizado, int tipoId, string variableBase, string? unidadMedida, bool perteneceSsoma);
+
     Task<bool> CreateAliasIfNotExistsAsync(
         string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza,
         decimal factorConversion = 1);

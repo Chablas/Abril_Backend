@@ -9,14 +9,14 @@ using Microsoft.AspNetCore.Mvc;
 namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
 {
     [ApiController]
-    [Route("api/v1/planeamiento-bim/bloqueos")]
+    [Route("api/v1/planeamiento-bim/restricciones")]
     [Authorize]
     [RequireFeature("planeamiento-bim.configuracion-inicial")]
-    public class PlaneamientoBimBloqueoController : ControllerBase
+    public class PlaneamientoBimRestriccionController : ControllerBase
     {
-        private readonly IPlaneamientoBimBloqueoService _service;
+        private readonly IPlaneamientoBimRestriccionService _service;
 
-        public PlaneamientoBimBloqueoController(IPlaneamientoBimBloqueoService service)
+        public PlaneamientoBimRestriccionController(IPlaneamientoBimRestriccionService service)
         {
             _service = service;
         }
@@ -45,7 +45,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         }
 
         [HttpPost("{projectId:int}")]
-        public async Task<IActionResult> Create(int projectId, [FromBody] BloqueoCreateDto dto)
+        public async Task<IActionResult> Create(int projectId, [FromBody] RestriccionCreateDto dto)
         {
             try
             {
@@ -67,7 +67,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         }
 
         [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] BloqueoUpdateDto dto)
+        public async Task<IActionResult> Update(int id, [FromBody] RestriccionUpdateDto dto)
         {
             try
             {

@@ -14,10 +14,14 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
     public class PlaneamientoBimConfiguracionController : ControllerBase
     {
         private readonly IPlaneamientoBimConfiguracionService _service;
+        private readonly ILogger<PlaneamientoBimConfiguracionController> _logger;
 
-        public PlaneamientoBimConfiguracionController(IPlaneamientoBimConfiguracionService service)
+        public PlaneamientoBimConfiguracionController(
+            IPlaneamientoBimConfiguracionService service,
+            ILogger<PlaneamientoBimConfiguracionController> logger)
         {
             _service = service;
+            _logger = logger;
         }
 
         [HttpGet("responsables")]
@@ -31,8 +35,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en GetResponsables");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -48,8 +53,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en GetConfiguracion (projectId={ProjectId})", projectId);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -66,8 +72,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en GuardarConfiguracion (projectId={ProjectId})", projectId);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

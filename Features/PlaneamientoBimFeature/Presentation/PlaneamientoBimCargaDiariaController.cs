@@ -15,10 +15,14 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
     public class PlaneamientoBimCargaDiariaController : ControllerBase
     {
         private readonly IPlaneamientoBimCargaDiariaService _service;
+        private readonly ILogger<PlaneamientoBimCargaDiariaController> _logger;
 
-        public PlaneamientoBimCargaDiariaController(IPlaneamientoBimCargaDiariaService service)
+        public PlaneamientoBimCargaDiariaController(
+            IPlaneamientoBimCargaDiariaService service,
+            ILogger<PlaneamientoBimCargaDiariaController> logger)
         {
             _service = service;
+            _logger = logger;
         }
 
         private int? GetUserId()
@@ -38,8 +42,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en GetCargaDiaria (projectId={ProjectId}, fecha={Fecha}, categoria={Categoria})", projectId, fecha, categoria);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -60,8 +65,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en GuardarCargaDiaria (projectId={ProjectId}, fecha={Fecha})", projectId, fecha);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -83,8 +89,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error en SubirEvidencias (projectId={ProjectId}, fecha={Fecha}, categoria={Categoria})", projectId, fecha, categoria);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

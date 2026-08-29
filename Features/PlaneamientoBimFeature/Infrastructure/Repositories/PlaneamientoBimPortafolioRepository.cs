@@ -67,10 +67,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 .OrderBy(x => x.FaseId == 0 ? int.MaxValue : x.FaseId)
                 .ToList();
 
-            // KPI 3: proyectos con bloqueos abiertos hace más de 3 días.
-            var limiteBloqueo = DateTimeOffset.UtcNow.AddDays(-3);
-            var proyectosConBloqueosVencidos = await ctx.BimBloqueo
-                .Where(b => proyectosScope.Contains(b.ProjectId) && b.FechaCierre == null && b.FechaCreacion < limiteBloqueo)
+            // KPI 3: proyectos con restricciones abiertas hace más de 3 días.
+            var limiteRestriccion = DateTimeOffset.UtcNow.AddDays(-3);
+            var proyectosConRestriccionesVencidas = await ctx.BimRestriccion
+                .Where(b => proyectosScope.Contains(b.ProjectId) && b.FechaCierre == null && b.FechaCreacion < limiteRestriccion)
                 .Select(b => b.ProjectId)
                 .Distinct()
                 .CountAsync();
@@ -90,7 +90,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             {
                 PpcPromedioUltimaSemana = ppcPromedio,
                 ProyectosPorFase = proyectosPorFase,
-                ProyectosConBloqueosVencidos = proyectosConBloqueosVencidos,
+                ProyectosConRestriccionesVencidas = proyectosConRestriccionesVencidas,
                 CausasTopMes = new CausasParetoDto
                 {
                     TotalNoCumplidas = totalCausasMes,

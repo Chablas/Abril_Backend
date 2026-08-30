@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,10 +16,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
     public class PlaneamientoBimDashboardController : ControllerBase
     {
         private readonly IPlaneamientoBimDashboardService _service;
+        private readonly IPlaneamientoBimAccesoService _acceso;
 
-        public PlaneamientoBimDashboardController(IPlaneamientoBimDashboardService service)
+        public PlaneamientoBimDashboardController(IPlaneamientoBimDashboardService service, IPlaneamientoBimAccesoService acceso)
         {
             _service = service;
+            _acceso = acceso;
         }
 
         private int? GetUserId()
@@ -27,11 +30,20 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
             return claim != null ? int.Parse(claim.Value) : null;
         }
 
+        private bool EsAdmin() => User.IsInRole(Roles.AdministradorSistema) || User.IsInRole(Roles.AdministradorUdp);
+        private bool EsPlaneamientoUdp() => User.IsInRole(Roles.PlaneamientoUdp);
+
         [HttpGet("{projectId:int}/avance")]
         public async Task<IActionResult> GetAvance(int projectId, [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta)
         {
             try
             {
+                var userId = GetUserId();
+                if (userId == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 return Ok(await _service.GetAvance(projectId, desde, hasta));
             }
             catch (AbrilException ex)
@@ -49,6 +61,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var userId = GetUserId();
+                if (userId == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 return Ok(await _service.GetPpcHistorico(projectId, desde, hasta));
             }
             catch (AbrilException ex)
@@ -66,6 +84,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var userId = GetUserId();
+                if (userId == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 return Ok(await _service.GetMetasSemanales(projectId));
             }
             catch (AbrilException ex)
@@ -87,6 +111,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
                 if (userId == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 await _service.GuardarMetasSemanales(projectId, dto, userId.Value);
                 return NoContent();
             }
@@ -105,6 +131,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var userId = GetUserId();
+                if (userId == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 return Ok(await _service.GetPlanMaestro(projectId));
             }
             catch (AbrilException ex)
@@ -122,6 +154,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var userId = GetUserId();
+                if (userId == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _acceso.ValidarAccesoProyecto(userId.Value, projectId, EsAdmin(), EsPlaneamientoUdp());
+
                 return Ok(await _service.GetCausasPareto(projectId, desde, hasta));
             }
             catch (AbrilException ex)

@@ -16,14 +16,28 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
     public class PlaneamientoBimConfiguracionController : ControllerBase
     {
         private readonly IPlaneamientoBimConfiguracionService _service;
+        private readonly IPlaneamientoBimAccesoService _acceso;
         private readonly ILogger<PlaneamientoBimConfiguracionController> _logger;
 
         public PlaneamientoBimConfiguracionController(
             IPlaneamientoBimConfiguracionService service,
+            IPlaneamientoBimAccesoService acceso,
             ILogger<PlaneamientoBimConfiguracionController> logger)
         {
             _service = service;
+            _acceso = acceso;
             _logger = logger;
+        }
+
+        /// <summary>userId/esAdmin/esPlaneamientoUdp resueltos de los claims, para pasar a
+        /// IPlaneamientoBimAccesoService.ValidarAccesoProyecto en cada acción con projectId.</summary>
+        private (int userId, bool esAdmin, bool esPlaneamientoUdp) GetAccesoClaims()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            var userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+            var esAdmin = User.IsInRole(Roles.AdministradorSistema) || User.IsInRole(Roles.AdministradorUdp);
+            var esPlaneamientoUdp = User.IsInRole(Roles.PlaneamientoUdp);
+            return (userId, esAdmin, esPlaneamientoUdp);
         }
 
         [HttpGet("responsables")]
@@ -53,14 +67,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var userId = int.Parse(userIdClaim.Value);
-                var esAdmin = User.IsInRole(Roles.AdministradorSistema) || User.IsInRole(Roles.AdministradorUdp);
-                var esPlaneamientoUdp = User.IsInRole(Roles.PlaneamientoUdp);
-
+                var (userId, esAdmin, esPlaneamientoUdp) = GetAccesoClaims();
                 return Ok(await _service.GetProyectosDisponibles(userId, esAdmin, esPlaneamientoUdp));
             }
             catch (AbrilException ex)
@@ -79,6 +89,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var (userId, esAdmin, esPlaneamientoUdp) = GetAccesoClaims();
+                await _acceso.ValidarAccesoProyecto(userId, projectId, esAdmin, esPlaneamientoUdp);
+
                 return Ok(await _service.GetConfiguracion(projectId));
             }
             catch (AbrilException ex)
@@ -97,6 +110,9 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
         {
             try
             {
+                var (userId, esAdmin, esPlaneamientoUdp) = GetAccesoClaims();
+                await _acceso.ValidarAccesoProyecto(userId, projectId, esAdmin, esPlaneamientoUdp);
+
                 await _service.GuardarConfiguracion(projectId, dto);
                 return NoContent();
             }

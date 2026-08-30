@@ -6001,3 +6001,29 @@ Rediseño completo de la arquitectura del módulo de Planeamiento BIM para aline
 ### 3. Verificación
 - Compilación `dotnet build` → **0 errores** (247 warnings preexistentes sin cambios).
 - Commit realizado en rama **`victor-backend`**: `feat(planeamiento-bim): refactor Torres, Niveles, Restricciones y Carga Diaria`.
+
+## Sesión 2026-08-30 — Diagnóstico post-merge de Planeamiento BIM + campo Responsable Planeamiento UDP
+
+### 1. Actualizar rama + diagnóstico del merge
+- `actualizar rama` trajo 1 commit ajeno de `origin/master` (`0530e5c9`, presupuesto-materiales, de otra persona) — confirmado sin relación alguna a Planeamiento BIM (sin tocar `Features/PlaneamientoBimFeature/`, sin migraciones, sin menciones a `bim_zona_sector`/`bim_bloqueo`/`bim_torre`/etc.). Build limpio tras el merge.
+- A pedido del usuario se auditó a fondo el commit `dbffca3c` (rediseño Torres/Niveles/Restricciones/Carga Diaria, autoría propia del 2026-08-29) para retomar el diseño de Restricciones que había quedado sin cerrar.
+
+### 2. Shim `[NotMapped]` de `BimRestriccion.cs`: diagnóstico y decisión
+- Se verificó que el commit `dbffca3c` agregó dos shims de compatibilidad de nombres viejos (`Zona*`), pero con propósitos distintos:
+  - `CeldaDto`/`CeldaUpdateDto.ZonaId` (`CargaDiariaDtos.cs`) — **real y activo**: wire-compat con el frontend que puede seguir mandando `zonaId` en el JSON. Consumido en `PlaneamientoBimCargaDiariaRepository.cs:159` y `PlaneamientoBimReportePdfService.cs:96,99`. **No tocar.**
+  - `BimRestriccion.ZonaId/.Zona/.ZonaNivelId/.ZonaNivel/.ZonaSectorId` (el modelo EF) — **código muerto**: la entidad nunca se serializa directo (siempre pasa por `RestriccionDto`, ya renombrado sin campos legados en el mismo commit), y no hay ningún consumidor C# real. No hay tests en el repo.
+- Decisión del usuario: no completar el shim (dejar el hueco de `ZonaSector` sin agregar) ni eliminarlo todavía — queda como limpieza pendiente para cuando se cierre el diseño completo de cascada de Restricciones (Controller/Service/UX, que `dbffca3c` nunca tocó).
+
+### 3. Deuda histórica de sectores sin clasificar en Carga Diaria
+- Query real contra producción (túnel SSH `localhost:5544`, confirmado que no hay separación local/prod real en este proyecto — mismo connection string en `appsettings.Development.json`/`appsettings.Production.json`): 3 registros de `bim_registro_diario` (ids 1, 2 en **KAURÍ**; id 3 en **TORRE ABRIL**) cuyo nivel (`Piso 1` de `Torre A` en ambos proyectos) tiene `tipo_estructura = NULL` — mismo patrón ya documentado en `BimTorreNivel.cs` para BOSQUE REAL.
+- Decisión del usuario (opción 1): dejar esos 3 registros tal cual, sin tocar/reinterpretar/asignar default. Quedan como deuda histórica hasta que alguien clasifique esos niveles (tipo_estructura + cantidad de sectores) en Configuración Inicial. La validación de rango de `SectorId` en `PlaneamientoBimCargaDiariaService` aplica solo a guardados nuevos.
+
+### 4. Feature nueva: "Responsable Planeamiento UDP" en Configuración de Proyectos
+- Requerimiento: campo nuevo tipo autocomplete en Configuración → Proyectos → sección RESPONSABLE, mismo patrón que "Responsable UDP"/"Responsable Arq. Comercial" (`GET api/v1/project/responsables?tipo=...`, filtro por `Worker.Subarea` + `WorkersEstadoId == Activo`).
+- Investigación previa a codear: la subárea real en el catálogo de `workers` es `"Planeamiento BIM"` (5 activos), distinta de `"Ingeniería BIM"` (2 activos, modelado/arquitectura BIM — explícitamente excluida por el usuario).
+- **Hallazgo clave que cambió el diseño**: `Project.ResponsablePlaneamientoBimId`/`ResponsablePlaneamientoBim` ya existían y ya estaban cableados end-to-end desde Planeamiento BIM → Configuración Inicial (`PlaneamientoBimConfiguracionRepository`, mismo filtro exacto por subárea "Planeamiento BIM"). El usuario confirmó que es el mismo dato/rol — no se creó columna nueva ni migración.
+- Cambios (commit `a8a73f0e`, rama `victor-backend`, **sin push todavía** — pendiente de verificación en UI real con frontend antes de mergear/considerar cerrado, ver [[project_responsable_planeamiento_udp]] en memoria):
+  - `ProjectRepository.cs`: nuevo case `"PLANEAMIENTO_UDP" => "Planeamiento BIM"` en el switch de `GetResponsables(tipo)`; campo agregado a la proyección `ProjectDto` del listado/detalle; agregado a ambos overloads de `ApplyDtoToEntity` (`ProjectCreateDto` y `ProjectEditDto`).
+  - `ProjectDto.cs`, `ProjectEditDto.cs`, `ProjectCreateDto.cs`: agregado el par `ResponsablePlaneamientoBim`/`ResponsablePlaneamientoBimId`.
+- Build `dotnet build` → 0 errores.
+- **Pendiente**: esperar a que frontend termine su parte y verificar en UI real (crear/editar proyecto desde Configuración de Proyectos, confirmar persistencia y que no rompe lo que ya guarda Planeamiento BIM → Configuración Inicial sobre la misma columna) antes de dar la feature por cerrada.

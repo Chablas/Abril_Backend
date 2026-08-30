@@ -1,4 +1,5 @@
-﻿using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -39,7 +40,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM app_user au
                   JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                   LIMIT 1",
                 new { UserId = userId });
         }
@@ -54,7 +55,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
@@ -92,7 +93,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = evaluadorUserId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
@@ -104,7 +105,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       FROM app_user au
                       JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                       JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                      WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'",
+                      WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */",
                     new { UserId = evaluadorUserId })).ToList();
 
             if (proyectoIds.Count == 0)
@@ -144,15 +145,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 });
 
             var yaEvaluadas = await conn.QueryAsync<YaEvaluadaRaw>(
-                @"SELECT supervisor_worker_id AS SupervisorId, nota AS Nota
+                @"SELECT id AS EvaluacionId, supervisor_worker_id AS SupervisorId, nota AS Nota, comentario AS Comentario
                   FROM ev_evaluacion_supervisor_contratista
                   WHERE periodo_id = @PeriodoId AND evaluador_user_id = @UserId AND supervisor_worker_id IS NOT NULL",
                 new { PeriodoId = periodo.Id, UserId = evaluadorUserId });
             var evaluadasMap = yaEvaluadas.ToDictionary(x => x.SupervisorId);
 
+            var detallesPrevios = await conn.QueryAsync<DetallePrevioRaw>(
+                @"SELECT d.evaluacion_supervisor_contratista_id AS EvaluacionId,
+                    d.plantilla_id AS PlantillaId, d.criterio AS Criterio, d.puntaje AS Puntaje, d.es_na AS EsNa
+                  FROM ev_evaluacion_supervisor_contratista_detalle d
+                  JOIN ev_evaluacion_supervisor_contratista e ON e.id = d.evaluacion_supervisor_contratista_id
+                  WHERE e.periodo_id = @PeriodoId AND e.evaluador_user_id = @UserId",
+                new { PeriodoId = periodo.Id, UserId = evaluadorUserId });
+            var detallesPreviosMap = detallesPrevios
+                .GroupBy(d => d.EvaluacionId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             var aEvaluar = supervisores.Select(s =>
             {
                 var yaEvalue = evaluadasMap.TryGetValue(s.SupervisorWorkerId, out var previa);
+                detallesPreviosMap.TryGetValue(yaEvalue ? previa!.EvaluacionId : 0, out var detallesPrevia);
                 return new EvSupervisorContratistaAEvaluarDto
                 {
                     SupervisorSsContratistaUsuarioId = s.SupervisorWorkerId,
@@ -162,7 +175,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ProyectoId = s.ProyectoId,
                     ProyectoNombre = s.ProyectoNombre,
                     YaEvalue = yaEvalue,
-                    NotaPrevia = yaEvalue ? previa.Nota : null
+                    NotaPrevia = yaEvalue ? previa!.Nota : null,
+                    EvaluacionId = yaEvalue ? previa!.EvaluacionId : null,
+                    ComentarioPrevio = yaEvalue ? previa!.Comentario : null,
+                    DetallesPrevios = (yaEvalue ? detallesPrevia : null)?.Select(d => new EvSupervisorContratistaDetallePrevioDto
+                    {
+                        PlantillaId = d.PlantillaId, Criterio = d.Criterio, Puntaje = d.Puntaje, EsNa = d.EsNa
+                    }).ToList() ?? []
                 };
             }).ToList();
 
@@ -207,6 +226,39 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             }
 
             ctx.EvEvaluacionesSupervisorContratista.Add(eval);
+            await ctx.SaveChangesAsync();
+            return eval;
+        }
+
+        public async Task<EvEvaluacionSupervisorContratista?> ObtenerPorIdAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvEvaluacionesSupervisorContratista
+                .Include(e => e.Detalles)
+                .FirstOrDefaultAsync(e => e.Id == id);
+        }
+
+        public async Task<EvEvaluacionSupervisorContratista> ActualizarAsync(
+            int id, string? comentario, List<EvEvaluacionSupervisorContratistaDetalle> detalles)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var eval = await ctx.EvEvaluacionesSupervisorContratista
+                .Include(e => e.Detalles)
+                .FirstOrDefaultAsync(e => e.Id == id)
+                ?? throw new AbrilException("Evaluación no encontrada.", 404);
+
+            int maxPorCriterio = 4;
+            var puntajesValidos = detalles.Where(d => !d.EsNa && d.Puntaje.HasValue).Select(d => d.Puntaje!.Value).ToList();
+            int totalMax = puntajesValidos.Count * maxPorCriterio;
+            decimal sumPuntajes = puntajesValidos.Sum();
+
+            eval.Nota = totalMax > 0 ? Math.Round((sumPuntajes / totalMax) * 20m, 2) : 0;
+            eval.Comentario = comentario;
+            eval.UpdatedAt = DateTime.UtcNow;
+
+            ctx.EvEvaluacionesSupervisorContratistaDetalle.RemoveRange(eval.Detalles);
+            eval.Detalles = detalles;
+
             await ctx.SaveChangesAsync();
             return eval;
         }
@@ -379,9 +431,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND w.contrata_casa = 'Casa'
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    AND w.workers_estado_id = @WorkersEstadoActivo
                     AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
-                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });
+                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista, WorkersEstadoActivo = WorkersEstadoIds.Activo });
 
             return rows.ToList();
         }
@@ -398,7 +450,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
         private record SupervisorRaw(int SupervisorWorkerId, string SupervisorNombre, int ContributorId, string ContributorNombre, int ProyectoId, string ProyectoNombre);
-        private record YaEvaluadaRaw(int SupervisorId, decimal? Nota);
+        private record YaEvaluadaRaw(int EvaluacionId, int SupervisorId, decimal? Nota, string? Comentario);
+        private record DetallePrevioRaw(int EvaluacionId, int? PlantillaId, string Criterio, int? Puntaje, bool EsNa);
         private record WorkerDatosRaw(int? ContributorId, string? Nombre);
     }
 }

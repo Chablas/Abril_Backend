@@ -20,6 +20,14 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<EvEvaluacionSupervisorContratista> CreateAsync(
             EvEvaluacionSupervisorContratista eval, List<EvEvaluacionSupervisorContratistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int supervisorWorkerId, int evaluadorUserId);
+
+        /// <summary>Para el guard de edición: dueño (EvaluadorUserId) y período de la evaluación.</summary>
+        Task<EvEvaluacionSupervisorContratista?> ObtenerPorIdAsync(int id);
+
+        /// <summary>Edita nota/comentario/detalles de una evaluación ya registrada — solo mientras
+        /// su período siga activo (lo valida el controller antes de llamar acá).</summary>
+        Task<EvEvaluacionSupervisorContratista> ActualizarAsync(
+            int id, string? comentario, List<EvEvaluacionSupervisorContratistaDetalle> detalles);
         Task<bool> ExisteNoAplicaAsync(int periodoId, int evaluadorUserId);
         Task RegistrarNoAplicaAsync(
             int periodoId, int evaluadorUserId, string motivo,

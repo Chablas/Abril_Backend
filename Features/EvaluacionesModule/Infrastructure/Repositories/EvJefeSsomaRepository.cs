@@ -53,7 +53,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM app_user au
                   JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                   LIMIT 1",
                 new { UserId = userId });
         }
@@ -68,7 +68,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
@@ -139,9 +139,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND w.contrata_casa = 'Casa'
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    AND w.workers_estado_id = @WorkersEstadoActivo
                     AND EXISTS (SELECT 1 FROM worker_vinculaciones wv WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL)",
-                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista });
+                new { CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma, CategoriaPrevencionista = CategoriaIds.Prevencionista, WorkersEstadoActivo = WorkersEstadoIds.Activo });
 
             var completaron = (await conn.QueryAsync<int>(
                 "SELECT evaluador_user_id FROM ev_evaluacion_jefe_ssoma_cumplimiento WHERE periodo_id = @PeriodoId",

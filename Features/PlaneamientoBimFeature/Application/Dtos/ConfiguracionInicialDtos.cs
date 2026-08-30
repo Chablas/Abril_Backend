@@ -39,6 +39,17 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public string ApellidoNombre { get; set; } = string.Empty;
     }
 
+    /// <summary>Opción del selector "Proyecto Seleccionado" de las 4 pestañas de Planeamiento
+    /// BIM que lo usan (Configuración Inicial, Carga Diaria, Restricciones, Dashboard —
+    /// Portafolio no aplica, tiene su propio criterio de acceso). Mismo shape que
+    /// ProjectSimpleDTO (projectId/projectDescription) para no romper el contrato que el
+    /// frontend ya consume de projectResident.</summary>
+    public class ProyectoBimSimpleDto
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+    }
+
     /// <summary>Id de la fila bim_proyecto_fase (no del catálogo bim_fase). Las 5 fases siempre existen; solo se editan sus fechas.</summary>
     public class FaseDto
     {

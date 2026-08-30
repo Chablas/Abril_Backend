@@ -18,5 +18,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task<bool?> ToggleArquitecturaComercial(int projectId);
         Task<List<ResponsableLookupDto>> GetResponsables(string tipo);
         Task<List<int>> GetMyProjectIds(int userId);
+        Task<MyWorkerDto?> GetMyWorker(int userId);
     }
 }

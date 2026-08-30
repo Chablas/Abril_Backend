@@ -58,6 +58,7 @@
         public const string AdministradorSolicitudSalidas     = "76"; // ADMINISTRADOR DE SOLICITUD DE SALIDAS
         public const string UsuarioGth                        = "77"; // USUARIO DE GTH
         public const string UsuarioRevisorSalidas             = "78"; // USUARIO REVISOR DE SALIDAS
+        public const string PlaneamientoUdp                   = "80"; // PLANEAMIENTO UDP
 
         /// <summary>
         /// TESORERO. No basta con tenerlo: las features que concede solo se otorgan si además el

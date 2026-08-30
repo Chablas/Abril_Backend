@@ -35,6 +35,11 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             return await _repository.GetResponsables();
         }
 
+        public async Task<List<ProyectoBimSimpleDto>> GetProyectosDisponibles(int userId, bool esAdmin, bool esPlaneamientoUdp)
+        {
+            return await _repository.GetProyectosDisponibles(userId, esAdmin, esPlaneamientoUdp);
+        }
+
         private static readonly HashSet<string> TiposEstructuraValidos = new(StringComparer.OrdinalIgnoreCase)
         {
             "SUBESTRUCTURA", "SUPERESTRUCTURA",

@@ -348,6 +348,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 .ToListAsync();
         }
 
+        /// <summary>Mismo cruce User→Person.UserId→Worker.PersonId que <see cref="GetMyProjectIds"/>.
+        /// Null si el usuario no tiene ficha de Worker vinculada (personal externo, cuentas
+        /// administrativas sin Worker propio, etc.).</summary>
+        public async Task<MyWorkerDto?> GetMyWorker(int userId)
+        {
+            return await _context.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => new MyWorkerDto
+                {
+                    WorkerId = w.Id,
+                    ApellidoNombre = w.Person!.FullName ?? string.Empty,
+                })
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)
         {
             var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);

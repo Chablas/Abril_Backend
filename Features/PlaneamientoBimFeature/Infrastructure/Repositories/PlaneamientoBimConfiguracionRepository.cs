@@ -109,6 +109,53 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        /// <summary>Alimenta el selector "Proyecto Seleccionado" de las 4 pestañas de
+        /// Planeamiento BIM que lo usan. Administradores ven el mismo universo que
+        /// ProjectResidentRepository.GetProjectsDescription() (mismo criterio, sin exponer
+        /// ese endpoint compartido directo — evita romper Control de IVTs/Cuaderno de
+        /// Obra/Seguimiento de Residentes si algún día cambia). Rol Planeamiento UDP ve
+        /// únicamente los proyectos donde es Project.ResponsablePlaneamientoBimId.</summary>
+        public async Task<List<ProyectoBimSimpleDto>> GetProyectosDisponibles(int userId, bool esAdmin, bool esPlaneamientoUdp)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            if (esAdmin)
+            {
+                var registros = from projectResident in ctx.ProjectResident
+                    join project in ctx.Project on projectResident.ProjectId equals project.ProjectId
+                    where projectResident.State && projectResident.Active && project.Active
+                        && !ctx.ProyectoFiltro.Any(f => f.ProjectId == project.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
+                    orderby project.ProjectDescription
+                    select new ProyectoBimSimpleDto
+                    {
+                        ProjectId = project.ProjectId,
+                        ProjectDescription = project.ProjectDescription ?? string.Empty,
+                    };
+                return await registros.ToListAsync();
+            }
+
+            if (!esPlaneamientoUdp)
+                return new List<ProyectoBimSimpleDto>();
+
+            var workerId = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => (int?)w.Id)
+                .FirstOrDefaultAsync();
+
+            if (workerId == null)
+                return new List<ProyectoBimSimpleDto>();
+
+            return await ctx.Project
+                .Where(p => p.State && p.Active && p.ResponsablePlaneamientoBimId == workerId)
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProyectoBimSimpleDto
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription ?? string.Empty,
+                })
+                .ToListAsync();
+        }
+
         public async Task GuardarConfiguracion(int projectId, ConfiguracionInicialUpdateDto dto)
         {
             using var ctx = _factory.CreateDbContext();

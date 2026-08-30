@@ -155,7 +155,18 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
         var existente = await ctx.SsMaterialItem
             .FirstOrDefaultAsync(i => i.NombreNormalizado == nombreNormalizado && i.FamiliaId == familiaId);
         if (existente != null)
+        {
+            // El usuario pidió "crear" porque no lo encontraba: si ya existía pero estaba
+            // marcado no_usar/inactivo (por eso no aparecía en ninguna búsqueda), reactivarlo
+            // es lo correcto — devolverlo oculto tal cual repetiría el mismo "no lo encuentro".
+            if (existente.NoUsar || !existente.Activo)
+            {
+                existente.NoUsar = false;
+                existente.Activo = true;
+                await ctx.SaveChangesAsync();
+            }
             return (existente, familia.Nombre, familia.Tipo.Nombre, familia.PerteneceSsoma);
+        }
 
         var nuevo = new SsMaterialItem
         {

@@ -188,18 +188,26 @@ public class RevisionMaterialesService : IRevisionMaterialesService
             if (proyecto == null) return 0;
 
             // Oficina Técnica y Almacenero DEL PROYECTO, no un contacto fijo del proyecto: se
-            // resuelve por vinculación vigente (fecha_fin null) en worker_vinculaciones, cuyo
-            // Puesto es el cargo real que tenía la persona en ESA obra (texto congelado al
-            // vincularse, ver WorkerVinculacion.Puesto) — no el genérico Project.StaffEmail/
-            // EmailResidente, que no distinguía cargo y mandaba a quien fuera que tuviera ese
-            // campo lleno, sin importar su proyecto real.
+            // resuelve por vinculación vigente (fecha_fin null) en worker_vinculaciones — no el
+            // genérico Project.StaffEmail/EmailResidente, que no distinguía cargo y mandaba a
+            // quien fuera que tuviera ese campo lleno, sin importar su proyecto real.
+            // El puesto se busca en dos fuentes porque coexisten: WorkerVinculacion.Puesto es
+            // texto congelado al vincularse (vinculaciones viejas) y puede venir vacío en las
+            // nuevas, que ya usan el catálogo normalizado Worker.PuestoId -> Puesto.Nombre (el
+            // campo de presentación real, el que se muestra en pantalla/PDFs/correos).
             var destinatarios = await ctx.WorkerVinculacion
                 .Include(v => v.Worker)
+                    .ThenInclude(w => w!.PuestoCatalogo)
                 .Where(v => v.ProyectoId == projectId && v.FechaFin == null
                     && v.Worker != null && v.Worker.EmailCorporativo != null
-                    && v.Puesto != null
-                    && (EF.Functions.ILike(v.Puesto, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Puesto, "%OFICINA TÉCNICA%")
-                        || EF.Functions.ILike(v.Puesto, "%ALMACEN%") || EF.Functions.ILike(v.Puesto, "%ALMACÉN%")))
+                    && (
+                        (v.Puesto != null
+                            && (EF.Functions.ILike(v.Puesto, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Puesto, "%OFICINA TÉCNICA%")
+                                || EF.Functions.ILike(v.Puesto, "%ALMACEN%") || EF.Functions.ILike(v.Puesto, "%ALMACÉN%")))
+                        || (v.Worker.PuestoCatalogo != null
+                            && (EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%OFICINA TÉCNICA%")
+                                || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%ALMACEN%") || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%ALMACÉN%")))
+                    ))
                 .Select(v => v.Worker!.EmailCorporativo!)
                 .Distinct()
                 .ToListAsync();

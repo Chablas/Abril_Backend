@@ -78,10 +78,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ProjectDepartment = p.ProjectDepartment,
                     ProjectLocation   = p.ProjectLocation,
 
-                    ResponsableArqCom   = p.ResponsableArqCom,
-                    ResponsableArqComId = p.ResponsableArqComId,
-                    ResponsableUdp      = p.ResponsableUdp,
-                    ResponsableUdpId    = p.ResponsableUdpId,
+                    ResponsableArqCom             = p.ResponsableArqCom,
+                    ResponsableArqComId           = p.ResponsableArqComId,
+                    ResponsableUdp                = p.ResponsableUdp,
+                    ResponsableUdpId              = p.ResponsableUdpId,
+                    ResponsablePlaneamientoBim    = p.ResponsablePlaneamientoBim,
+                    ResponsablePlaneamientoBimId  = p.ResponsablePlaneamientoBimId,
 
                     FechaInicio = p.FechaInicio,
                     FechaFin    = p.FechaFin,
@@ -298,9 +300,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         {
             var subarea = tipo switch
             {
-                "ARQ_COMERCIAL" => "Arquitectura Comercial",
-                "UDP"           => "Unidad de Proyectos",
-                _ => throw new AbrilException("Tipo de responsable inválido. Use ARQ_COMERCIAL o UDP.", 400)
+                "ARQ_COMERCIAL"    => "Arquitectura Comercial",
+                "UDP"              => "Unidad de Proyectos",
+                "PLANEAMIENTO_UDP" => "Planeamiento BIM",
+                _ => throw new AbrilException("Tipo de responsable inválido. Use ARQ_COMERCIAL, UDP o PLANEAMIENTO_UDP.", 400)
             };
 
             return await _context.Worker
@@ -402,10 +405,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
             project.ProjectLocation    = dto.ProjectLocation?.Trim();
 
-            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
-            project.ResponsableArqComId  = dto.ResponsableArqComId;
-            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
-            project.ResponsableUdpId     = dto.ResponsableUdpId;
+            project.ResponsableArqCom             = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId           = dto.ResponsableArqComId;
+            project.ResponsableUdp                = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId              = dto.ResponsableUdpId;
+            project.ResponsablePlaneamientoBim    = dto.ResponsablePlaneamientoBim?.Trim();
+            project.ResponsablePlaneamientoBimId  = dto.ResponsablePlaneamientoBimId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;
@@ -444,10 +449,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
             project.ProjectLocation    = dto.ProjectLocation?.Trim();
 
-            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
-            project.ResponsableArqComId  = dto.ResponsableArqComId;
-            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
-            project.ResponsableUdpId     = dto.ResponsableUdpId;
+            project.ResponsableArqCom             = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId           = dto.ResponsableArqComId;
+            project.ResponsableUdp                = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId              = dto.ResponsableUdpId;
+            project.ResponsablePlaneamientoBim    = dto.ResponsablePlaneamientoBim?.Trim();
+            project.ResponsablePlaneamientoBimId  = dto.ResponsablePlaneamientoBimId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;

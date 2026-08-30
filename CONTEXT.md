@@ -6027,3 +6027,30 @@ Rediseño completo de la arquitectura del módulo de Planeamiento BIM para aline
   - `ProjectDto.cs`, `ProjectEditDto.cs`, `ProjectCreateDto.cs`: agregado el par `ResponsablePlaneamientoBim`/`ResponsablePlaneamientoBimId`.
 - Build `dotnet build` → 0 errores.
 - **Pendiente**: esperar a que frontend termine su parte y verificar en UI real (crear/editar proyecto desde Configuración de Proyectos, confirmar persistencia y que no rompe lo que ya guarda Planeamiento BIM → Configuración Inicial sobre la misma columna) antes de dar la feature por cerrada.
+
+## Sesión 2026-08-30 (cont.) — 2 reglas de acceso por rol en Planeamiento BIM (rol PLANEAMIENTO_UDP)
+
+Requerimiento nuevo del usuario, separado del anterior: diseñar e implementar que un `PLANEAMIENTO_UDP` (rol real en BD, `role_id=80`, nombre `"PLANEAMIENTO UDP"` — **no estaba en `Roles.cs`**, el archivo saltaba de 78 a 83) solo vea/edite proyectos donde es `Project.ResponsablePlaneamientoBimId`; `ADMINISTRADOR_SISTEMA`/`ADMINISTRADOR_UDP` siguen viendo todo, sin cambios.
+
+### 1. Investigación de modelo de roles/permisos (solo lectura)
+- `AdministradorUdp = "2"` en `Roles.cs`. Acceso a los 5 controllers de Planeamiento BIM vía `[Authorize]` + `[RequireFeature("planeamiento-bim.configuracion-inicial")]` (Portafolio usa `.portafolio`, no tocado) — filtro dinámico contra `role_feature`/`feature`, no roles hardcodeados.
+- `role_feature` real (consultado contra producción, túnel SSH) para esos feature_keys: roles `1` (AdministradorSistema), `2` (AdministradorUdp), **`80`** (PlaneamientoUdp) — la nota vieja de una sesión anterior que decía "UsuarioUdp (3)" estaba desactualizada.
+- `Project.ResponsablePlaneamientoBimId` guarda `Worker.Id`, sin FK real en BD (igual que `ResponsableUdpId`). Cruce `User→Person.UserId→Worker.PersonId` (ya existente en `ProjectRepository.GetMyProjectIds`), no hay atajo directo `User.WorkerId`.
+- Selector "Proyecto Seleccionado" de las 4 pestañas (Config. Inicial, Carga Diaria, Restricciones, Dashboard — Portafolio no aplica, tabla completa) resuelto en frontend por `ProjectResidentService.getProjectsDescription()` → `GET api/v1/projectResident/projects`, compartido con Control de IVTs/Cuaderno de Obra/Seguimiento de Residentes (repo `Abril-Frontend`, sibling de este). El endpoint filtra por `JOIN ProjectResident` + exclusión `ProyectoFiltroFuncionalidades.Residentes`, **no** por `Project.State && Active` simple — verificado con query real: 9 resultados vs. 30 con el criterio simple (21 de diferencia, incluía pseudo-proyectos administrativos como `OFICINA CENTRAL`/`EVENTOS`).
+
+### 2. Endpoints nuevos (commit `3c9b4d5d`)
+- `GET api/v1/project/me/worker` (`ProjectController.cs`, junto a `mine`): resuelve `MyWorkerDto { WorkerId, ApellidoNombre }` del usuario logueado, mismo cruce que `GetMyProjectIds`. 404 si no tiene ficha.
+- `GET /api/v1/planeamiento-bim/proyectos` (ruta absoluta en `PlaneamientoBimConfiguracionController.cs`, a propósito sin el segmento `configuracion` — las 4 pestañas comparten `feature_key`): admin ve el mismo universo que `projectResident.GetProjectsDescription()` (criterio replicado tal cual dentro de `PlaneamientoBimConfiguracionRepository`, no expuesto directo — decisión explícita del usuario tras confirmar la diferencia real de 21 proyectos); `PlaneamientoUdp` ve solo donde es `ResponsablePlaneamientoBimId`; sin ninguno de los 2 roles, `[]`.
+- `Roles.cs`: agregada la constante faltante `PlaneamientoUdp = "80"`.
+- Pendiente documentado (no backend): frontend debe cambiar las 4 pestañas para llamar al endpoint nuevo en vez de `projectResident`.
+
+### 3. Autorización real por projectId (commit `43cd63c2`)
+Frontend hizo la pregunta correcta: sin esto, el filtro del dropdown es solo cosmético — nada impedía llamar a mano (Postman/DevTools) a cualquiera de los 15 endpoints de las 4 pestañas con el `projectId` de un proyecto ajeno. Se auditaron los 4 controllers endpoint por endpoint (ninguno validaba pertenencia hasta ahora) y se encontró un caso extra no cubierto por la descripción original del problema: `PlaneamientoBimRestriccionController.Update`/`Cerrar` (`PUT {id}`, `PUT {id}/cerrar`) no reciben `projectId` en la ruta, solo el `id` de la restricción (secuencial, adivinable).
+
+- `IPlaneamientoBimAccesoService`/`PlaneamientoBimAccesoService` (nuevo, registrado en `PlaneamientoBimModule.cs`): `ValidarAccesoProyecto(userId, projectId, esAdmin, esPlaneamientoUdp)` (403 si no corresponde) y `ResolverProjectIdDeRestriccion(restriccionId)` (404 si no existe, resuelve `BimRestriccion.ProjectId` antes de validar) — único lugar con la lógica, para no duplicar el cruce Worker+rol en cada acción.
+- Los 4 controllers llaman a `ValidarAccesoProyecto` al inicio de las 15 acciones que reciben `projectId` (13 directas + `Update`/`Cerrar` de Restricciones vía `ResolverProjectIdDeRestriccion`), antes de tocar el service de negocio.
+- Build `dotnet build` → 0 errores en ambos commits.
+
+### Pendiente
+- Frontend: migrar las 4 pestañas de `projectResident.getProjectsDescription()` a `GET /api/v1/planeamiento-bim/proyectos`.
+- Frontend/QA: verificar que un usuario `PLANEAMIENTO_UDP` sin proyecto asignado recibe 403 al intentar acceder a un `projectId` ajeno por URL directa, y que un admin sigue viendo/editando todo sin cambios.

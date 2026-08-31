@@ -1,6 +1,7 @@
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {

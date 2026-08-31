@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
@@ -191,7 +192,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task EnviarAvisoFormularioCompletadoAsync(FormularioCompletadoContextoDto ctx)
         {
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FormularioCompletado);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FormularioCompletado);
             var para = dest.EmailsPara;
             if (para.Count == 0) return;
 
@@ -482,8 +483,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private Task<SolicitudDestinatariosDto> ResolverDestinatariosFormularioAsync(bool esRechazo) =>
             _destinatarios.ResolverAsync(esRechazo
-                ? CorreoTipoReclutamiento.FormularioCorreccion
-                : CorreoTipoReclutamiento.FormularioEnvio);
+                ? CorreoTipoGth.FormularioCorreccion
+                : CorreoTipoGth.FormularioEnvio);
 
         public Task<FormularioRevisionDto> GetRevision(int candidatoId) => _repo.GetRevision(candidatoId);
 
@@ -570,7 +571,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftEmo);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FftEmo);
                 if (dest.Para.Count == 0)
                 {
                     // También entra acá cuando el correo está apagado con su interruptor maestro.

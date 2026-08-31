@@ -11,6 +11,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 
 namespace Abril_Backend.Features.GestionGthModule
 {

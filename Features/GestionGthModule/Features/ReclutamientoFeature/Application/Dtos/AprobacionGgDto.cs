@@ -1,4 +1,5 @@
-﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     // RutaAprobacion vive en el namespace padre (Application): la ruta de una vacante es
     // regla de negocio, no forma del DTO, pero varios de estos la derivan.
@@ -456,7 +457,7 @@
 
         /// <summary>
         /// Los reemplazos que ya tienen el visto bueno del gerente del área y esperan el de GTH:
-        /// es lo que lista el correo de <see cref="CorreoTipoReclutamiento.AprobacionReemplazoGth"/>
+        /// es lo que lista el correo de <see cref="CorreoTipoGth.AprobacionReemplazoGth"/>
         /// cuando hay que reenviarlo. Los que el área rechazó no están —esos ya no continúan— y
         /// los que todavía no decidió tampoco: GTH no los ve hasta que el área firma.
         /// </summary>
@@ -540,7 +541,7 @@
         /// Vacantes que ESTA decisión aprobó pero que todavía esperan la firma que sigue. Hoy son
         /// siempre los reemplazos que acaba de aprobar el gerente del área: con su visto bueno se
         /// le abre el turno a GTH, así que son exactamente las que lleva el correo
-        /// <see cref="CorreoTipoReclutamiento.AprobacionReemplazoGth"/>. Vacía en la decisión de
+        /// <see cref="CorreoTipoGth.AprobacionReemplazoGth"/>. Vacía en la decisión de
         /// Gerencia General (su firma va sola) y en la de GTH (es la última).
         /// </summary>
         public List<AprobacionGgVacanteDto> EsperandoSiguienteFirma { get; set; } = new();

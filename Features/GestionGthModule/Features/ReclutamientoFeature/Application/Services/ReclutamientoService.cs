@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
@@ -107,13 +108,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
             // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
             dto.Destinatarios = await _destinatarios.ResolverAsync(
-                CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
+                CorreoTipoGth.AprobacionGg, dto.AreaScopeId);
 
             // Una vacante de ingreso directo no la aprueba nadie: su aviso va derecho a GTH y con
             // otros destinatarios. Solo para quien puede marcar la casilla —GTH— porque al resto el
             // formulario ni le muestra el bloque y sería un roundtrip por un aviso que no se ve.
             if (dto.PuedePedirIngresoDirecto)
-                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoGth.FftSolicitudGg);
 
             return dto;
         }
@@ -181,7 +182,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongListDecision);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.LongListDecision);
                 if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
@@ -349,7 +350,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task NotificarCandidatoRetomadoAlSolicitanteAsync(RetomarCandidatoContextoDto ctx)
         {
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.CandidatoRetomado);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.CandidatoRetomado);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
@@ -452,7 +453,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Destinatarios: el principal (Para) es SIEMPRE el postulante citado; la configuración
             // del correo de ENTREVISTA solo aporta principales adicionales y copias.
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Entrevista);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.Entrevista);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Resumen.CorreoEnvio, dest);
 
             // Sin nadie a quien mandársela no hay envío que intentar: pasa cuando el postulante
@@ -612,7 +613,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private async Task NotificarRespuestaEntrevistaAGthAsync(EntrevistaRespuestaContextoDto ctx)
         {
             var emailGth = await _correoConfig.GetEmailAreaGthAsync();
-            var dest     = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.EntrevistaRespuesta);
+            var dest     = await _destinatarios.ResolverAsync(CorreoTipoGth.EntrevistaRespuesta);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(emailGth, dest);
 
             if (principales.Count == 0)
@@ -699,7 +700,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private async Task NotificarEntrevistaConfirmadaAlSolicitanteAsync(EntrevistaRespuestaContextoDto ctx)
         {
             var dest = await _destinatarios.ResolverAsync(
-                CorreoTipoReclutamiento.EntrevistaConfirmadaSolicitante);
+                CorreoTipoGth.EntrevistaConfirmadaSolicitante);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
@@ -907,7 +908,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaEnvio);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FinalistaEnvio);
                 var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
                 if (principales.Count == 0)
@@ -1077,7 +1078,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task<bool> EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
         {
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Agradecimiento);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.Agradecimiento);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
 
             if (principales.Count == 0)
@@ -1228,7 +1229,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaDecision);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FinalistaDecision);
                 if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
@@ -1389,7 +1390,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 2) Destinatarios del correo de long list.
             //    El destinatario PRINCIPAL (Para/To) es SIEMPRE el solicitante que registró la
             //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.LongList);
 
             // Para = solicitante primero + principales configurados; CC = copias que no estén en Para.
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);

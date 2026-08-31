@@ -2,6 +2,7 @@
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -52,7 +53,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                var tipoCodigo = CorreoTipoGth.FromSlug(tipo);
                 if (tipoCodigo == null)
                     return BadRequest(new { message = "Tipo de correo no válido." });
 
@@ -77,7 +78,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                var tipoCodigo = CorreoTipoGth.FromSlug(tipo);
                 if (tipoCodigo == null)
                     return BadRequest(new { message = "Tipo de correo no válido." });
 

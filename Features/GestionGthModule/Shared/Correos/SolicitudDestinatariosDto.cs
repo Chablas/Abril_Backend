@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
 {
     /// <summary>
     /// Destinatarios efectivos del correo de "solicitud de personal por aprobar" (tipo

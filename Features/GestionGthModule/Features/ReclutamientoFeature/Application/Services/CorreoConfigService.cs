@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
@@ -24,27 +25,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///   • aprobaciones       → los que dispara una decisión de esa pantalla (los avisos a GTH
         ///                            y a TI).
         ///   • reclutamiento      → los que salen desde la bandeja de GTH.
+        ///   • onboarding         → los de la fase que sigue al cierre del requerimiento.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, string[]> CorreosPorPantalla =
             new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
             {
                 ["solicitud-personal"] = new[]
                 {
-                    CorreoTipoReclutamiento.AprobacionGg,
+                    CorreoTipoGth.AprobacionGg,
                     // Aviso al gerente del área de las vacantes NUEVAS: sale junto con el de arriba
                     // y con las mismas vacantes, pero solo para que se entere — no las aprueba él.
-                    CorreoTipoReclutamiento.AvisoGerenteArea,
+                    CorreoTipoGth.AvisoGerenteArea,
                     // Los reemplazos no suben a Gerencia General: los aprueban el gerente del área
                     // y GTH, en ese orden. Este es el primero de los dos y sale en el mismo momento
                     // que el de arriba (al registrar la solicitud), así que se configura acá; el de
                     // GTH lo dispara la firma del área y se configura en Aprobaciones.
-                    CorreoTipoReclutamiento.AprobacionReemplazo,
+                    CorreoTipoGth.AprobacionReemplazo,
                     // Ingreso directo FFT: sale al registrar la solicitud, en lugar del correo de
                     // aprobación (a un FFT no lo aprueba nadie), así que se configura acá y no en
                     // Aprobaciones.
-                    CorreoTipoReclutamiento.FftSolicitudGg,
-                    CorreoTipoReclutamiento.LongListDecision,
-                    CorreoTipoReclutamiento.FinalistaDecision,
+                    CorreoTipoGth.FftSolicitudGg,
+                    CorreoTipoGth.LongListDecision,
+                    CorreoTipoGth.FinalistaDecision,
                 },
                 // Los correos que dispara una decisión de la pantalla «Aprobaciones», no el
                 // solicitante: se configuran acá, que es donde esas decisiones se toman.
@@ -53,11 +55,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // GTH) y REEMPLAZO_APROBADO, de la de GTH, que es la que completa el reemplazo.
                 ["aprobaciones"] = new[]
                 {
-                    CorreoTipoReclutamiento.Solicitud,
-                    CorreoTipoReclutamiento.AprobacionReemplazoGth,
-                    CorreoTipoReclutamiento.ReemplazoAprobado,
-                    CorreoTipoReclutamiento.Ti,
-                    CorreoTipoReclutamiento.FftAprobacionGg,
+                    CorreoTipoGth.Solicitud,
+                    CorreoTipoGth.AprobacionReemplazoGth,
+                    CorreoTipoGth.ReemplazoAprobado,
+                    CorreoTipoGth.Ti,
+                    CorreoTipoGth.FftAprobacionGg,
                 },
                 // Todos los correos que salen desde la bandeja de GTH, en el orden del proceso.
                 // AGRADECIMIENTO también lo dispara el rechazo de un finalista desde Solicitud de
@@ -65,25 +67,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // que es de donde sale en el resto de los casos.
                 ["reclutamiento"] = new[]
                 {
-                    CorreoTipoReclutamiento.LongList,
-                    CorreoTipoReclutamiento.FormularioEnvio,
-                    CorreoTipoReclutamiento.FormularioCompletado,
-                    CorreoTipoReclutamiento.FormularioCorreccion,
+                    CorreoTipoGth.LongList,
+                    CorreoTipoGth.FormularioEnvio,
+                    CorreoTipoGth.FormularioCompletado,
+                    CorreoTipoGth.FormularioCorreccion,
                     // El candidato FFT no pasa por entrevistas ni por decisión de finalista: al
                     // aprobarle el formulario, GTH avisa con este correo que pasa a su EMO. Va acá
                     // porque esa aprobación se hace en esta pantalla.
-                    CorreoTipoReclutamiento.FftEmo,
-                    CorreoTipoReclutamiento.Entrevista,
-                    CorreoTipoReclutamiento.EntrevistaRespuesta,
+                    CorreoTipoGth.FftEmo,
+                    CorreoTipoGth.Entrevista,
+                    CorreoTipoGth.EntrevistaRespuesta,
                     // Misma respuesta del candidato, otro destinatario: al solicitante le avisa
                     // cuándo y dónde es la entrevista a la que tiene que ir. Sale desde el
                     // endpoint público de la respuesta, igual que el de arriba.
-                    CorreoTipoReclutamiento.EntrevistaConfirmadaSolicitante,
-                    CorreoTipoReclutamiento.FinalistaEnvio,
+                    CorreoTipoGth.EntrevistaConfirmadaSolicitante,
+                    CorreoTipoGth.FinalistaEnvio,
                     // Retomar a un rechazado se hace desde esta pantalla, así que su aviso al
                     // solicitante se configura acá.
-                    CorreoTipoReclutamiento.CandidatoRetomado,
-                    CorreoTipoReclutamiento.Agradecimiento,
+                    CorreoTipoGth.CandidatoRetomado,
+                    CorreoTipoGth.Agradecimiento,
+                },
+                // Onboarding, la fase que sigue al cierre del requerimiento. Hoy tiene un solo
+                // correo —la carta oferta al colaborador—, que sale tanto al abrir el onboarding
+                // como al reenviar el enlace de firma. Es su propia pantalla y no una sección más
+                // de Reclutamiento porque son bandejas distintas y las administra quien trabaja en
+                // cada una.
+                ["onboarding"] = new[]
+                {
+                    CorreoTipoGth.CartaOferta,
                 },
             };
 
@@ -139,7 +150,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (string.IsNullOrWhiteSpace(valor))
                 throw new AbrilException("Falta indicar de qué correo se trata.", 400);
 
-            var codigo = CorreoTipoReclutamiento.FromSlug(valor) ?? valor.Trim().ToUpperInvariant();
+            var codigo = CorreoTipoGth.FromSlug(valor) ?? valor.Trim().ToUpperInvariant();
             if (!CorreosDeLaPantalla(pantalla).Contains(codigo, StringComparer.OrdinalIgnoreCase))
                 throw new AbrilException("Ese correo no se configura desde esta pantalla.", 400);
 

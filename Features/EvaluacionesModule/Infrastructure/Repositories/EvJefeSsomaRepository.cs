@@ -86,37 +86,35 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             List<(int? plantillaId, string criterio, int puntaje)> detalles, decimal nota)
         {
             using var ctx = _factory.CreateDbContext();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-            try
-            {
-                var eval = new EvEvaluacionJefeSsoma
-                {
-                    PeriodoId = periodoId,
-                    Nota = nota,
-                    Comentario = comentario,
-                    Detalles = detalles.Select(d => new EvEvaluacionJefeSsomaDetalle
-                    {
-                        PlantillaId = d.plantillaId,
-                        Criterio = d.criterio,
-                        Puntaje = d.puntaje
-                    }).ToList()
-                };
-                ctx.EvEvaluacionesJefeSsoma.Add(eval);
 
-                ctx.EvEvaluacionesJefeSsomaCumplimiento.Add(new EvEvaluacionJefeSsomaCumplimiento
-                {
-                    PeriodoId = periodoId,
-                    EvaluadorUserId = evaluadorUserId
-                });
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-            }
-            catch
+            // Sin transacción manual a propósito: Program.cs tiene EnableRetryOnFailure para
+            // Npgsql, y una transacción abierta con BeginTransactionAsync() no es compatible con
+            // esa execution strategy de reintentos — EF Core la rechaza en tiempo de ejecución
+            // ("The configured execution strategy ... does not support user-initiated
+            // transactions"), lo que tiraba 500 en TODO intento de registrar esta evaluación.
+            // No hace falta: los dos Add() de abajo ya se guardan atómicamente en un solo
+            // SaveChangesAsync().
+            var eval = new EvEvaluacionJefeSsoma
             {
-                await tx.RollbackAsync();
-                throw;
-            }
+                PeriodoId = periodoId,
+                Nota = nota,
+                Comentario = comentario,
+                Detalles = detalles.Select(d => new EvEvaluacionJefeSsomaDetalle
+                {
+                    PlantillaId = d.plantillaId,
+                    Criterio = d.criterio,
+                    Puntaje = d.puntaje
+                }).ToList()
+            };
+            ctx.EvEvaluacionesJefeSsoma.Add(eval);
+
+            ctx.EvEvaluacionesJefeSsomaCumplimiento.Add(new EvEvaluacionJefeSsomaCumplimiento
+            {
+                PeriodoId = periodoId,
+                EvaluadorUserId = evaluadorUserId
+            });
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<EvJefeSsomaCumplimientoDto> GetCumplimientoAsync(int periodoId)

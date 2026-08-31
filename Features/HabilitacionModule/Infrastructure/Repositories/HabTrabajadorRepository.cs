@@ -147,8 +147,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              //    Bloquea SOLO si la vigencia anterior (conservada en Vigencia) ya venció o
                              //    no existe; mientras siga vigente, el trabajador se mantiene habilitado
                              //    aunque la renovación esté pendiente de aprobación.
+                             //  - Aprobado con vigencia ya pasada: el cron de VigenciaRevisionService recién
+                             //    marca esto "Falta"/"Vencido" una vez al día — sin este chequeo en vivo,
+                             //    un documento vencido seguía mostrando "Habilitado" en la ficha hasta que
+                             //    corriera el cron, aunque Control de Acceso (que sí compara vigencia en
+                             //    vivo) ya lo mostrara "No Autorizado" — caso Mego Lozano (Vida ley vencida).
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
+                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow)) ||
+                              (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= DateTime.UtcNow)) &&
                              // Antes se excluía el ítem EMO (id 4) para "Casa" acá, confiando SOLO
                              // en el chequeo de WorkerEmo.Estado de la línea de abajo como única
                              // fuente de verdad. Si ese estado quedaba desincronizado (p.ej. el job

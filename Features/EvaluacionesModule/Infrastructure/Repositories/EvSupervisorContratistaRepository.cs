@@ -221,7 +221,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                       WHERE w.state AND w.id = @Id",
                     new { Id = eval.SupervisorWorkerId.Value });
-                eval.ContributorId = datos?.ContributorId ?? 0;
+                // Sin "?? 0": si el worker no tiene empresa resuelta (ni vinculación activa ni
+                // contributor_id propio), ContributorId debe quedar en null, no en 0 — un 0
+                // viola la FK NOT NULL a contributor y tira 500 (mismo bug que RegistrarNoAplicaAsync).
+                eval.ContributorId = datos?.ContributorId;
                 eval.SupervisorNombre = datos?.Nombre ?? eval.SupervisorNombre;
             }
 
@@ -284,11 +287,14 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             int? proyectoId = null, int? supervisorWorkerId = null)
         {
             using var ctx = _factory.CreateDbContext();
+            // "No aplica" para todo el período (proyectoId/supervisorWorkerId ambos null) no
+            // tiene proyecto ni empresa — antes se guardaba ProyectoId=0/ContributorId=0 (default
+            // de int), que viola la FK NOT NULL a project/contributor y tiraba 500 en cada intento.
             ctx.EvEvaluacionesSupervisorContratista.Add(new EvEvaluacionSupervisorContratista
             {
                 PeriodoId = periodoId,
                 EvaluadorUserId = evaluadorUserId,
-                ProyectoId = proyectoId ?? 0,
+                ProyectoId = proyectoId,
                 SupervisorWorkerId = supervisorWorkerId,
                 NoAplica = true,
                 NoAplicaMotivo = motivo

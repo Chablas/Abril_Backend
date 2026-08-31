@@ -7,8 +7,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Models
     {
         public int Id { get; set; }
         public int PeriodoId { get; set; }
-        public int ProyectoId { get; set; }
-        public int ContributorId { get; set; }
+        // Nullable: un registro "No aplica" para todo el período (sin proyecto/supervisor
+        // específico) no tiene proyecto ni empresa asociados — ver RegistrarNoAplicaAsync.
+        public int? ProyectoId { get; set; }
+        public int? ContributorId { get; set; }
 
         [Column("supervisor_ss_contratista_usuario_id")]
         public int? SupervisorSsContratistaUsuarioId { get; set; }

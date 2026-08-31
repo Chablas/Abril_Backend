@@ -724,16 +724,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var rowWorkerIds = rows.Select(r => r.WorkerId).ToList();
 
-            var vinculaciones = await ctx.WorkerVinculacion
+            var vinculacionesTodas = await ctx.WorkerVinculacion
                 .Where(wv => rowWorkerIds.Contains(wv.WorkerId) && wv.FechaFin == null)
-                .GroupBy(wv => wv.WorkerId)
-                .Select(g => g.OrderByDescending(wv => wv.Id).First())
                 .ToListAsync();
 
-            var vinMap = vinculaciones.ToDictionary(v => v.WorkerId);
+            // Si hay filtro de proyecto, mostrar la vinculación de ESE proyecto cuando exista
+            // (el trabajador puede tener otra vinculación más reciente en otro proyecto vía
+            // WorkerProyecto/multi-proyecto Casa, y no debe mostrarse ese otro proyecto).
+            var vinMap = vinculacionesTodas
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => proyectoId.HasValue
+                        ? (g.FirstOrDefault(v => v.ProyectoId == proyectoId.Value) ?? g.OrderByDescending(v => v.Id).First())
+                        : g.OrderByDescending(v => v.Id).First());
 
-            var empIds  = vinculaciones.Where(v => v.EmpresaId  != null).Select(v => v.EmpresaId!.Value).Distinct().ToList();
-            var proyIds = vinculaciones.Where(v => v.ProyectoId != null).Select(v => v.ProyectoId!.Value).Distinct().ToList();
+            var empIds  = vinculacionesTodas.Where(v => v.EmpresaId  != null).Select(v => v.EmpresaId!.Value).Distinct().ToList();
+            var proyIds = vinculacionesTodas.Where(v => v.ProyectoId != null).Select(v => v.ProyectoId!.Value).Distinct().ToList();
 
             var empMap = await ctx.Contributor
                 .Where(c => empIds.Contains(c.ContributorId))

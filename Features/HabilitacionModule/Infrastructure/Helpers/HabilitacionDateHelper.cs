@@ -3,7 +3,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Helpers
     public static class HabilitacionDateHelper
     {
         private static readonly HashSet<int> ItemsSctrVidaLey = new() { 15, 16 };
-        private static readonly HashSet<int> ItemsCentinela = new() { 12, 13, 14, 17, 18, 19, 21, 23, 24, 25 };
+
+        // Ítems "de una sola vez" (no vencen, vigencia sintética 2040-12-31). Público para que
+        // VigenciaRevisionService pueda excluirlos del todos del cron de vencimientos — antes
+        // el cron traía su propia lista hardcodeada {11,12,13,15} que no incluía 14/17-19/21/23-25,
+        // así que un registro histórico de esos ítems con una vigencia vieja e incorrecta (de antes
+        // de que se agregaran a este set) sí podía vencer y caer a "Falta" aunque el documento
+        // fuera legítimamente permanente.
+        public static readonly HashSet<int> ItemsCentinela = new() { 12, 13, 14, 17, 18, 19, 21, 23, 24, 25 };
 
         public static DateTime? AsUtc(DateTime? value)
         {

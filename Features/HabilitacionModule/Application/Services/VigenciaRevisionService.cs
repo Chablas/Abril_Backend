@@ -30,11 +30,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 h.UpdatedAt = DateTime.UtcNow;
             }
 
+            // Excluye TODOS los ítems Centinela (documentos de una sola vez, vigencia sintética
+            // 2040-12-31 — ver HabilitacionDateHelper.ItemsCentinela) y SCTR/Vida Ley (11 es el
+            // ítem legado de SCTR en Empresa; 15/16 son los actuales), no solo un subconjunto
+            // hardcodeado. Antes esta lista {11,12,13,15} dejaba fuera a 14/17/18/19/21/23/24/25,
+            // así que un registro con vigencia vieja e incorrecta de esos ítems sí podía vencer.
+            var itemsExcluidos = Abril_Backend.Features.Habilitacion.Infrastructure.Helpers.HabilitacionDateHelper.ItemsCentinela;
             var empresas = await ctx.SsHabEmpresa
                 .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo")
                          && h.Vigencia < hoy
-                         && h.ItemId != 12 && h.ItemId != 13
-                         && h.ItemId != 15 && h.ItemId != 11)
+                         && h.ItemId != 11 && h.ItemId != 15 && h.ItemId != 16
+                         && !itemsExcluidos.Contains(h.ItemId))
                 .ToListAsync();
 
             foreach (var h in empresas)

@@ -738,6 +738,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var userIds = versiones
                 .Where(v => v.SubidoPorUserId.HasValue)
                 .Select(v => v.SubidoPorUserId!.Value)
+                .Concat(versiones.Where(v => v.AprobadoPorUserId.HasValue).Select(v => v.AprobadoPorUserId!.Value))
                 .Distinct()
                 .ToList();
 
@@ -771,6 +772,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ProyectoId = v.ProyectoId,
                 EmpresaId = v.EmpresaId,
                 AprobadoPorUserId = v.AprobadoPorUserId,
+                AprobadoPorNombre = v.AprobadoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.AprobadoPorUserId.Value, out var aprobadoNombre)
+                    ? aprobadoNombre
+                    : null,
                 MotivoRechazo = v.MotivoRechazo,
                 CreatedAt = v.CreatedAt
             }).ToList();

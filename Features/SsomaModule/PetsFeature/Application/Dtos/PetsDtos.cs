@@ -32,14 +32,22 @@ public class PetDetalleDto
     // OPT jala este mismo dato vía GET /pets/{id}/pasos.
     public List<PetPasoDto> Pasos { get; set; } = [];
 
-    // Resto de secciones de texto libre en árbol, por clave de sección:
-    // introduccion | alcance | objetivo | definiciones | responsabilidades | restricciones.
-    public Dictionary<string, List<PetPasoDto>> Secciones { get; set; } = [];
+    // Responsabilidades sí tiene estructura real (subtítulo por cargo, con ítems
+    // debajo) — es el único árbol además de Procedimiento.
+    public List<PetPasoDto> Responsabilidades { get; set; } = [];
+
+    // Secciones narrativas — un solo bloque de texto cada una, por clave:
+    // introduccion | alcance | objetivo | definiciones | restricciones.
+    // "" si todavía no se ha escrito nada.
+    public Dictionary<string, string> SeccionesTexto { get; set; } = [];
 
     public List<PetItemSeleccionadoDto> MarcoLegal { get; set; } = [];
     public List<PetItemSeleccionadoDto> Epp { get; set; } = [];
     public List<PetItemSeleccionadoDto> Recursos { get; set; } = [];
     public List<PetAnexoDto> Anexos { get; set; } = [];
+
+    // Elaborado por / Revisado por / Aprobado por — siempre las 3 claves presentes.
+    public Dictionary<string, PetFirmaDto> Firmas { get; set; } = [];
 }
 
 public class CrearPetRequest
@@ -61,8 +69,8 @@ public class CrearPetPasoRequest
 {
     public string Descripcion { get; set; } = string.Empty;
 
-    // procedimiento (default) | introduccion | alcance | objetivo | definiciones |
-    // responsabilidades | restricciones.
+    // procedimiento (default) | responsabilidades — las únicas dos secciones en
+    // árbol; el resto son bloques de texto único (ver SeccionesTexto).
     public string Seccion { get; set; } = "procedimiento";
 
     // null = nivel superior de la sección. Si se indica, el nuevo paso se crea
@@ -94,6 +102,13 @@ public class ReordenarPasosRequest
 
     // Ids de los pasos ACTIVOS de ese grupo de hermanos, en el nuevo orden deseado.
     public List<int> PasoIds { get; set; } = [];
+}
+
+// ── Secciones de texto único (Introducción / Alcance / Objetivo / Definiciones / Restricciones) ──
+
+public class ActualizarSeccionTextoRequest
+{
+    public string Contenido { get; set; } = string.Empty;
 }
 
 // ── Catálogo (Marco Legal / EPP / Recursos) ──────────────────────────────────────
@@ -157,4 +172,22 @@ public class PetAnexoDto
     public string Nombre { get; set; } = string.Empty;
     public string ArchivoUrl { get; set; } = string.Empty;
     public int Orden { get; set; }
+}
+
+// ── Firmas (Elaborado por / Revisado por / Aprobado por) ────────────────────────
+
+public class PetFirmaDto
+{
+    public string Rol { get; set; } = string.Empty;
+    public string? Nombre { get; set; }
+    public string? Cargo { get; set; }
+    public DateOnly? Fecha { get; set; }
+    public string? FirmaUrl { get; set; }
+}
+
+public class ActualizarFirmaRequest
+{
+    public string? Nombre { get; set; }
+    public string? Cargo { get; set; }
+    public DateOnly? Fecha { get; set; }
 }

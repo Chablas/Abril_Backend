@@ -322,6 +322,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
         public DbSet<SsomaCatalogoItem> SsomaCatalogoItem { get; set; }
         public DbSet<SsomaPetItemSeleccionado> SsomaPetItemSeleccionado { get; set; }
+        public DbSet<SsomaPetSeccionTexto> SsomaPetSeccionTexto { get; set; }
+        public DbSet<SsomaPetFirma> SsomaPetFirma { get; set; }
         public DbSet<SsomaPetAnexo> SsomaPetAnexo { get; set; }
         public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
         public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
@@ -1044,6 +1046,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaPetItemSeleccionado>()
                 .HasOne(x => x.CatalogoItem).WithMany().HasForeignKey(x => x.CatalogoItemId)
                 .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SsomaPetSeccionTexto>().ToTable("ssoma_pet_seccion_texto");
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasIndex(x => new { x.PetId, x.Seccion }).IsUnique();
+            modelBuilder.Entity<SsomaPetFirma>().ToTable("ssoma_pet_firma");
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasIndex(x => new { x.PetId, x.Rol }).IsUnique();
             modelBuilder.Entity<SsomaPetAnexo>().ToTable("ssoma_pet_anexo");
             modelBuilder.Entity<SsomaPetAnexo>()
                 .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);

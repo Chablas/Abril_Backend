@@ -16,11 +16,17 @@ public class ImportPasoPreviewDto
 public class PetsImportPreviewDto
 {
     public bool SeccionEncontrada { get; set; }
-    public List<ImportPasoPreviewDto> Pasos { get; set; } = [];
+
+    // Procedimiento y Responsabilidades — las únicas dos secciones en árbol.
+    public Dictionary<string, List<ImportPasoPreviewDto>> SeccionesArbol { get; set; } = [];
+
+    // Introducción/Alcance/Objetivo/Definiciones/Restricciones — texto ya concatenado
+    // por sección, listo para revisar/editar antes de guardar.
+    public Dictionary<string, string> SeccionesTexto { get; set; } = [];
 
     // Todos los párrafos con contenido del documento, en orden, con el mismo tipo/
-    // jerarquía ya detectados — respaldo cuando no se encuentra el título de la
-    // sección automáticamente, o el usuario prefiere elegir el rango a mano.
+    // jerarquía ya detectados — respaldo cuando no se detecta NINGÚN título de
+    // sección conocido, o el usuario prefiere elegir el rango a mano.
     public List<ImportPasoPreviewDto> TodosLosParrafos { get; set; } = [];
 }
 
@@ -35,5 +41,12 @@ public class ImportPasoConfirmDto
 
 public class ConfirmarImportacionRequest
 {
-    public List<ImportPasoConfirmDto> Pasos { get; set; } = [];
+    public Dictionary<string, List<ImportPasoConfirmDto>> SeccionesArbol { get; set; } = [];
+    public Dictionary<string, string> SeccionesTexto { get; set; } = [];
+
+    // true: antes de insertar, desactiva los pasos vigentes de cada sección en árbol
+    // presente en SeccionesArbol — para cuando se vuelve a importar una versión
+    // corregida del mismo documento. false (default): agrega al final, como antes.
+    // No aplica a SeccionesTexto: esas siempre se sobrescriben (es un solo bloque).
+    public bool Reemplazar { get; set; }
 }

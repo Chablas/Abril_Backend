@@ -159,6 +159,17 @@ public class PetsController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.SubirImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    // ── Secciones de texto único (Introducción / Alcance / Objetivo / Definiciones / Restricciones) ──
+
+    [HttpPut("{id:int}/secciones-texto/{seccion}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ActualizarSeccionTexto(int id, string seccion, [FromBody] ActualizarSeccionTextoRequest request)
+    {
+        try { await _service.UpsertSeccionTextoAsync(id, seccion, request.Contenido); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ActualizarSeccionTexto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     // ── Catálogo (Marco Legal / EPP / Recursos) ──────────────────────────────────
 
     [HttpGet("catalogo")]
@@ -243,5 +254,49 @@ public class PetsController : ControllerBase
         try { await _service.EliminarAnexoAsync(id, anexoId); return NoContent(); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.EliminarAnexo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // ── Firmas (Elaborado por / Revisado por / Aprobado por) ──────────────────────
+
+    [HttpPut("{id:int}/firmas/{rol}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ActualizarFirma(int id, string rol, [FromBody] ActualizarFirmaRequest request)
+    {
+        try { await _service.UpsertFirmaAsync(id, rol, request.Nombre, request.Cargo, request.Fecha); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ActualizarFirma"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/firmas/{rol}/imagen")]
+    [RequireFeature("ssoma.gestion.pets")]
+    [RequestSizeLimit(10_000_000)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> SubirFirma(int id, string rol, [FromForm] IFormFile file)
+    {
+        try
+        {
+            using var stream = file.OpenReadStream();
+            var url = await _service.SubirFirmaAsync(id, rol, stream, file.FileName);
+            return Ok(new { firmaUrl = url });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.SubirFirma"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // ── Exportar ──────────────────────────────────────────────────────────────
+
+    [HttpGet("{id:int}/exportar-pdf")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ExportarPdf(int id)
+    {
+        try
+        {
+            var bytes = await _service.ExportarPdfAsync(id);
+            // Sin fileDownloadName a propósito: eso fuerza "Content-Disposition: attachment"
+            // (descarga). Así el navegador lo abre inline con su visor de PDF nativo.
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 }

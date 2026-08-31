@@ -34,10 +34,20 @@ public class PetsRepository : IPetsRepository
             .ToListAsync();
     }
 
-    // Secciones de texto libre en árbol, además de "procedimiento" (que se sigue
-    // exponiendo aparte porque OPT depende de ese endpoint puntual).
-    private static readonly string[] OtrasSecciones =
-        ["introduccion", "alcance", "objetivo", "definiciones", "responsabilidades", "restricciones"];
+    // Secciones narrativas: un solo bloque de texto cada una (no árbol).
+    private static readonly string[] SeccionesTextoKeys =
+        ["introduccion", "alcance", "objetivo", "definiciones", "restricciones"];
+
+    private static readonly string[] RolesFirma = ["elaborado", "revisado", "aprobado"];
+
+    private static PetFirmaDto MapFirma(string rol, SsomaPetFirma? f) => new()
+    {
+        Rol = rol,
+        Nombre = f?.Nombre,
+        Cargo = f?.Cargo,
+        Fecha = f?.Fecha,
+        FirmaUrl = f?.FirmaUrl
+    };
 
     private static PetPasoDto MapPaso(SsomaPetPaso x) => new()
     {
@@ -74,6 +84,10 @@ public class PetsRepository : IPetsRepository
         var pasosPorSeccion = todosPasos.GroupBy(x => x.Seccion)
             .ToDictionary(g => g.Key, g => g.Select(MapPaso).ToList());
 
+        var textosPorSeccion = await ctx.SsomaPetSeccionTexto
+            .Where(x => x.PetId == id)
+            .ToDictionaryAsync(x => x.Seccion, x => x.Contenido);
+
         var seleccionadosEntidades = await ctx.SsomaPetItemSeleccionado
             .Include(x => x.CatalogoItem)
             .Where(x => x.PetId == id && x.Activo)
@@ -87,6 +101,10 @@ public class PetsRepository : IPetsRepository
             .Select(x => new PetAnexoDto { Id = x.Id, Nombre = x.Nombre, ArchivoUrl = x.ArchivoUrl, Orden = x.Orden })
             .ToListAsync();
 
+        var firmasPorRol = await ctx.SsomaPetFirma
+            .Where(x => x.PetId == id)
+            .ToDictionaryAsync(x => x.Rol);
+
         return new PetDetalleDto
         {
             Id = pet.Id,
@@ -95,11 +113,13 @@ public class PetsRepository : IPetsRepository
             SharepointUrl = pet.SharepointUrl,
             Activo = pet.Activo,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
-            Secciones = OtrasSecciones.ToDictionary(s => s, s => pasosPorSeccion.GetValueOrDefault(s) ?? []),
+            Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
+            SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
             MarcoLegal = seleccionados.Where(x => x.Grupo == "marco_legal").ToList(),
             Epp = seleccionados.Where(x => x.Grupo == "epp").ToList(),
             Recursos = seleccionados.Where(x => x.Grupo == "recurso").ToList(),
-            Anexos = anexos
+            Anexos = anexos,
+            Firmas = RolesFirma.ToDictionary(r => r, r => MapFirma(r, firmasPorRol.GetValueOrDefault(r)))
         };
     }
 
@@ -152,8 +172,10 @@ public class PetsRepository : IPetsRepository
     }
 
     private static readonly HashSet<string> TiposValidos = ["subtitulo", "paso", "letra", "guion"];
-    private static readonly HashSet<string> SeccionesValidas =
-        ["procedimiento", "introduccion", "alcance", "objetivo", "definiciones", "responsabilidades", "restricciones"];
+
+    // Solo estas dos secciones usan el árbol de pasos — el resto (Introducción,
+    // Alcance, Objetivo, Definiciones, Restricciones) son bloques de texto único.
+    private static readonly HashSet<string> SeccionesValidas = ["procedimiento", "responsabilidades"];
 
     private static string ValidarTipo(string? tipo)
     {
@@ -275,6 +297,59 @@ public class PetsRepository : IPetsRepository
 
         paso.ImagenUrl = imagenUrl;
         paso.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    // Usado al reimportar un Word corregido: borra (desactiva) todo lo que había
+    // en esa sección antes de insertar los pasos nuevos, en vez de acumularlos.
+    public async Task DesactivarSeccionAsync(int petId, string seccion)
+    {
+        seccion = ValidarSeccion(seccion);
+        using var ctx = _factory.CreateDbContext();
+        var pasos = await ctx.SsomaPetPaso
+            .Where(p => p.PetId == petId && p.Seccion == seccion && p.Activo)
+            .ToListAsync();
+
+        foreach (var p in pasos)
+        {
+            p.Activo = false;
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── Secciones de texto único (Introducción / Alcance / Objetivo / Definiciones / Restricciones) ──
+
+    private static string ValidarSeccionTexto(string seccion)
+    {
+        if (!SeccionesTextoKeys.Contains(seccion))
+            throw new AbrilException($"Sección de texto inválida: '{seccion}'.", 400);
+        return seccion;
+    }
+
+    public async Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido)
+    {
+        seccion = ValidarSeccionTexto(seccion);
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var fila = await ctx.SsomaPetSeccionTexto.FirstOrDefaultAsync(x => x.PetId == petId && x.Seccion == seccion);
+        if (fila == null)
+        {
+            ctx.SsomaPetSeccionTexto.Add(new SsomaPetSeccionTexto
+            {
+                PetId = petId,
+                Seccion = seccion,
+                Contenido = contenido,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            fila.Contenido = contenido;
+            fila.UpdatedAt = DateTime.UtcNow;
+        }
         await ctx.SaveChangesAsync();
     }
 
@@ -461,6 +536,65 @@ public class PetsRepository : IPetsRepository
             ?? throw new AbrilException("Anexo no encontrado.", 404);
 
         anexo.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── Firmas (Elaborado por / Revisado por / Aprobado por) ────────────────────
+
+    private static string ValidarRolFirma(string rol)
+    {
+        if (!RolesFirma.Contains(rol))
+            throw new AbrilException($"Rol de firma inválido: '{rol}'.", 400);
+        return rol;
+    }
+
+    public async Task UpsertFirmaAsync(int petId, string rol, string? nombre, string? cargo, DateOnly? fecha)
+    {
+        rol = ValidarRolFirma(rol);
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
+        if (fila == null)
+        {
+            ctx.SsomaPetFirma.Add(new SsomaPetFirma
+            {
+                PetId = petId,
+                Rol = rol,
+                Nombre = nombre,
+                Cargo = cargo,
+                Fecha = fecha,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            fila.Nombre = nombre;
+            fila.Cargo = cargo;
+            fila.Fecha = fecha;
+            fila.UpdatedAt = DateTime.UtcNow;
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task SetFirmaUrlAsync(int petId, string rol, string firmaUrl)
+    {
+        rol = ValidarRolFirma(rol);
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
+        if (fila == null)
+        {
+            ctx.SsomaPetFirma.Add(new SsomaPetFirma { PetId = petId, Rol = rol, FirmaUrl = firmaUrl, UpdatedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            fila.FirmaUrl = firmaUrl;
+            fila.UpdatedAt = DateTime.UtcNow;
+        }
         await ctx.SaveChangesAsync();
     }
 }

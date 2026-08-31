@@ -18,7 +18,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
 
         /// <summary>
         /// Resuelve el token para las acciones (mostrar el PDF, guardar la firma, firmar): a qué
-        /// onboarding apunta, de qué ficha es la firma y dónde está la carta. No escribe nada.
+        /// onboarding apunta, de qué ficha es la firma y dónde está la carta. Trae además los datos
+        /// del colaborador y de su vacante, que son los del aviso a GTH al firmar: son joins de una
+        /// fila sobre llaves que la consulta ya recorre, así que firmar no paga un roundtrip extra
+        /// por ellos. No escribe nada.
         /// </summary>
         Task<CartaOfertaFirmaContextoDto> PrepararPorToken(string token);
 

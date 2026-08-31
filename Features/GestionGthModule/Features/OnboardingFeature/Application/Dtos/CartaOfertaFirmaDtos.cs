@@ -89,6 +89,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// <summary>Documento de identidad, solo para ese mismo caso de rearmado.</summary>
         public string Dni { get; set; } = string.Empty;
 
+        // ── Datos del colaborador y de su vacante (solo para el aviso a GTH) ───
+        // Viajan en la misma consulta que resuelve el token en vez de pedirse aparte al firmar:
+        // son joins de una fila sobre las llaves que la consulta ya recorre.
+
+        /// <summary>
+        /// Nombre del colaborador tal como lo ve GTH en la bandeja de Onboarding (el de la base
+        /// maestra y, si todavía no tiene ficha, el que registró GTH). Es otro que
+        /// <see cref="Nombre"/>, que es el del file digital y NO puede cambiar.
+        /// </summary>
+        public string NombreColaborador { get; set; } = string.Empty;
+
+        public string? Puesto { get; set; }
+        public string? Area { get; set; }
+        public string? Empresa { get; set; }
+        public string? ProyectoObra { get; set; }
+        public string? JefeDirecto { get; set; }
+        public DateOnly? FechaIngreso { get; set; }
+
+        /// <summary>Correo personal al que se le envió la carta oferta.</summary>
+        public string? Correo { get; set; }
+
         // ── Carta oferta que subió GTH (la que se muestra y se firma) ──────────
         public string? CartaOfertaNombre { get; set; }
         public string? CartaOfertaUrl { get; set; }

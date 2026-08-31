@@ -87,14 +87,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoTipoGth.CandidatoRetomado,
                     CorreoTipoGth.Agradecimiento,
                 },
-                // Onboarding, la fase que sigue al cierre del requerimiento. Hoy tiene un solo
-                // correo —la carta oferta al colaborador—, que sale tanto al abrir el onboarding
-                // como al reenviar el enlace de firma. Es su propia pantalla y no una sección más
-                // de Reclutamiento porque son bandejas distintas y las administra quien trabaja en
-                // cada una.
+                // Onboarding, la fase que sigue al cierre del requerimiento. Es su propia pantalla
+                // y no una sección más de Reclutamiento porque son bandejas distintas y las
+                // administra quien trabaja en cada una. Sus dos correos son la ida y la vuelta de
+                // la carta oferta: el primero se la manda al colaborador (al abrir el onboarding o
+                // al reenviarle el enlace) y el segundo le avisa a GTH cuando él la firma.
                 ["onboarding"] = new[]
                 {
                     CorreoTipoGth.CartaOferta,
+                    CorreoTipoGth.CartaOfertaFirmada,
                 },
             };
 

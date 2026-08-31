@@ -28,7 +28,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// <summary>
         /// Firma la carta oferta: estampa la firma registrada en la última página del PDF, sube el
         /// resultado a la carpeta «Carta Oferta Firmada» del file digital del colaborador y lo deja
-        /// como carta firmada del onboarding, pendiente de la revisión de GTH.
+        /// como carta firmada del onboarding, pendiente de la revisión de GTH. Al final le avisa a
+        /// GTH por correo, porque nadie de la empresa dispara esto: sin ese aviso el documento
+        /// firmado esperaría a que alguien pase por la bandeja.
         /// </summary>
         Task<CartaOfertaFirmarResultDto> Firmar(string token);
     }

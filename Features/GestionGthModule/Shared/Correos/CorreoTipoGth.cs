@@ -6,7 +6,8 @@
     ///
     /// Vive en el <c>Shared/</c> del módulo y no dentro de una feature porque lo usan dos:
     /// Reclutamiento (todo el flujo de la vacante, desde la solicitud hasta el cierre) y
-    /// Onboarding (la carta oferta al colaborador que ya fue elegido). La tabla que refleja es
+    /// Onboarding (la carta oferta al colaborador que ya fue elegido y el aviso de que la firmó).
+    /// La tabla que refleja es
     /// una sola para el módulo y las cuatro pantallas de Configuración se reparten sus filas.
     /// </summary>
     public static class CorreoTipoGth
@@ -208,12 +209,24 @@
         /// la firma en línea. Lo disparan tanto el alta del onboarding como el reenvío del enlace,
         /// con el mismo cuerpo.
         ///
-        /// Es el único correo de la feature de Onboarding, así que su pantalla de Configuración
-        /// (<c>/gestion-gth/onboarding/configuracion</c>) administra solo este. El destinatario
-        /// principal es SIEMPRE el colaborador; la configuración aporta principales adicionales y
-        /// copias.
+        /// El destinatario principal es SIEMPRE el colaborador; la configuración aporta principales
+        /// adicionales y copias.
         /// </summary>
         public const string CartaOferta = "CARTA_OFERTA";
+
+        /// <summary>
+        /// Correo de "el colaborador firmó su carta oferta" (va a GTH). Es la vuelta de
+        /// <see cref="CartaOferta"/>: lo dispara el propio colaborador al pulsar «Firmar» en la
+        /// página pública, sin que nadie de la empresa haga nada, y avisa que ya hay un documento
+        /// firmado esperando la revisión de GTH —que es la primera actividad obligatoria de su
+        /// checklist y lo que destraba el onboarding—. Su botón abre el detalle de ese colaborador
+        /// en la bandeja de Onboarding, que es donde se aprueba.
+        ///
+        /// No tiene destinatario principal automático: a quién le llega sale entero de
+        /// Configuración, igual que en <see cref="FormularioCompletado"/>, que es el mismo caso del
+        /// lado de Reclutamiento.
+        /// </summary>
+        public const string CartaOfertaFirmada = "CARTA_OFERTA_FIRMADA";
 
         /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>aprobacion-reemplazo</c> /
@@ -224,8 +237,8 @@
         /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
         /// <c>entrevista</c> / <c>entrevista-respuesta</c> /
         /// <c>entrevista-confirmada-solicitante</c> / <c>candidato-retomado</c> /
-        /// <c>agradecimiento</c> / <c>carta-oferta</c>) al código estable. Devuelve null si el slug
-        /// no corresponde a un tipo conocido.
+        /// <c>agradecimiento</c> / <c>carta-oferta</c> / <c>carta-oferta-firmada</c>) al código
+        /// estable. Devuelve null si el slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
@@ -252,6 +265,7 @@
             "candidato-retomado"     => CandidatoRetomado,
             "agradecimiento"         => Agradecimiento,
             "carta-oferta"           => CartaOferta,
+            "carta-oferta-firmada"   => CartaOfertaFirmada,
             _ => null,
         };
     }

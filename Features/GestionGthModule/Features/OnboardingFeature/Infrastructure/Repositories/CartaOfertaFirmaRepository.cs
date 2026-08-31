@@ -110,11 +110,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 where ob.State && ob.CartaOfertaToken == token
                 join c in ctx.GthCandidato on ob.GthCandidatoId equals c.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                    // De acá para abajo, todo es para el aviso a GTH de que la carta quedó firmada:
+                    // los mismos joins que ya hace GetPublicoByToken, sobre la misma fila.
+                join s in ctx.GthSolicitud on r.GthSolicitudId equals s.GthSolicitudId
+                join p in ctx.Puesto on r.PuestoId equals p.PuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                    // Razón social, ficha maestra y jefe directo son todos opcionales en la vacante.
+                join co in ctx.Contributor on r.ContributorId equals (int?)co.ContributorId into coJoin
+                from co in coJoin.DefaultIfEmpty()
+                join pe in ctx.Person on ob.PersonId equals (int?)pe.PersonId into peJoin
+                from pe in peJoin.DefaultIfEmpty()
+                join w in ctx.Worker on s.SolicitanteWorkerId equals (int?)w.Id into wJoin
+                from w in wJoin.DefaultIfEmpty()
                 select new
                 {
                     Ob = ob,
                     r.Codigo,
                     CandidatoNombre = c.Nombre,
+                    PersonNombre    = pe == null ? null : pe.FullName,
+                    Puesto          = p.Nombre,
+                    Area            = s.AreaNombre,
+                    Empresa         = co == null ? null : co.ContributorName,
+                    ProyectoObra    = pr.ProjectDescription,
+                    JefeDirecto     = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
                     // El nombre con el que se armó el file digital: el que declaró el postulante en su
                     // formulario y, si no hay formulario, el que registró GTH. NO el de la base
                     // maestra, que puede haber cambiado después del envío y llevaría el documento
@@ -155,6 +173,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 Nombre       = string.IsNullOrWhiteSpace(fila.FormularioNombre)
                     ? fila.CandidatoNombre : fila.FormularioNombre!,
                 Dni                = fila.Dni ?? string.Empty,
+
+                // Mismo criterio que la bandeja de Onboarding: manda el nombre de la base maestra y
+                // el del candidato es el respaldo mientras no tenga ficha.
+                NombreColaborador = string.IsNullOrWhiteSpace(fila.PersonNombre)
+                    ? fila.CandidatoNombre : fila.PersonNombre!,
+                Puesto       = fila.Puesto,
+                Area         = fila.Area,
+                Empresa      = fila.Empresa,
+                ProyectoObra = fila.ProyectoObra,
+                JefeDirecto  = fila.JefeDirecto,
+                FechaIngreso = onboarding.FechaIngreso,
+                Correo       = onboarding.CartaOfertaCorreo,
+
                 CartaOfertaNombre  = onboarding.CartaOfertaNombre,
                 CartaOfertaUrl     = onboarding.CartaOfertaUrl,
                 CartaOfertaDriveId = onboarding.CartaOfertaDriveId,

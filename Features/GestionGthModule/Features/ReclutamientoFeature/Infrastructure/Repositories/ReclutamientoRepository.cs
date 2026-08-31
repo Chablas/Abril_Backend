@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
@@ -3418,6 +3419,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
+            var detalles = DetallesAprobacionVivos(ctx);
+
             // Cabecera del requerimiento (scope: el área del usuario, ver EnScope).
             var head = await (
                 from r in EnScope(ctx.GthRequerimiento, scope)
@@ -3427,12 +3430,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // LEFT: sin fila de detalle están los requerimientos anteriores a la aprobación y
+                // los ingresos directos de hoy, que no los firma nadie.
+                join d in detalles on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
                 select new
                 {
                     r.GthRequerimientoId,
                     r.Codigo,
                     Puesto            = p.Nombre,
                     Tipo              = t.Nombre,
+                    TipoCodigo        = t.Codigo,
                     Area              = r.Solicitud!.AreaNombre,
                     ProyectoObra      = pr.ProjectDescription,
                     r.GthSolicitudId,
@@ -3446,6 +3454,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoOrden       = e.Orden,
                     r.Solicitud.SustentoNombre,
                     r.Solicitud.SustentoUrl,
+                    TieneDetalle        = d != null,
+                    AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGth         = d != null ? d.AprobadoGth : null,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
@@ -3477,16 +3488,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // quitarles su fase actual daría el proceso por más avanzado de lo que está.
             if (head.EsFft)
             {
-                var tuvoAprobacionGg = await (
-                    from d in ctx.GthAprobacionGgDetalle
-                    where d.GthRequerimientoId == requerimientoId && d.State
-                    join a in ctx.GthAprobacionGg on d.GthAprobacionGgId equals a.GthAprobacionGgId
-                    where a.State
-                    select d.GthAprobacionGgDetalleId).AnyAsync();
-
                 fases.RemoveAll(f => f.Codigo != head.EstadoCodigo
                                   && (FftFlujo.FasesOmitidas.Contains(f.Codigo)
-                                   || (!tuvoAprobacionGg && f.Codigo == EstadoReclutamiento.AprobacionGg)));
+                                   || (!head.TieneDetalle && f.Codigo == EstadoReclutamiento.AprobacionGg)));
             }
 
             // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
@@ -3523,7 +3527,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 FftCandidatoNombre    = head.FftCandidatoNombre,
                 Enviado               = head.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo          = head.EstadoCodigo,
-                EstadoNombre          = head.EstadoNombre,
+                // El badge de "Estado actual" nombra a quien tiene que firmar ESTA vacante; la
+                // línea de tiempo de abajo sigue describiendo la fase entera, con sus dos caminos.
+                EstadoNombre          = EtiquetaEstado(
+                                            head.EstadoCodigo, head.EstadoNombre, head.EsFft, head.TipoCodigo,
+                                            head.TieneDetalle, head.AprobadoGerenteArea, head.AprobadoGth),
                 EstadoOrden           = head.EstadoOrden,
                 SustentoNombre        = head.SustentoNombre,
                 SustentoUrl           = head.SustentoUrl,
@@ -3579,16 +3587,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static async Task<List<SolicitudVacanteListItemDto>> ProjectRequerimientos(
             AppDbContext ctx, IQueryable<GthRequerimiento> reqs)
         {
+            var detalles = DetallesAprobacionVivos(ctx);
+
             var raw = await (
                 from r in reqs
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // El tipo (NUEVO / REEMPLAZO) es la mitad de por dónde pasa la firma de la vacante;
+                // la otra mitad es es_fft. Con eso el badge dice a quién se está esperando.
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 // Quién lo pidió. Desde que la tabla muestra los requerimientos del área y no solo
                 // los propios, la fila tiene que decirlo: si no, no hay forma de distinguir el
                 // pedido de uno del pedido del vecino. LEFT porque el usuario puede no tener ficha.
                 join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into solicitanteJoin
                 from ps in solicitanteJoin.DefaultIfEmpty()
+                // LEFT: sin fila de detalle están los requerimientos anteriores a la aprobación y
+                // los ingresos directos de hoy, que no los firma nadie.
+                join d in detalles on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
                 select new
                 {
@@ -3602,6 +3619,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
                     Solicitante = ps != null ? ps.FullName : null,
+                    r.EsFft,
+                    TipoCodigo = t.Codigo,
+                    TieneDetalle = d != null,
+                    AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGth = d != null ? d.AprobadoGth : null,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
@@ -3615,9 +3637,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra    = x.ProyectoObra,
                 Enviado         = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo    = x.EstadoCodigo,
-                EstadoNombre    = x.EstadoNombre,
+                EstadoNombre    = EtiquetaEstado(
+                                      x.EstadoCodigo, x.EstadoNombre, x.EsFft, x.TipoCodigo,
+                                      x.TieneDetalle, x.AprobadoGerenteArea, x.AprobadoGth),
                 Solicitante     = x.Solicitante,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Filas de <c>gth_aprobacion_gg_detalle</c> que cuentan: las vivas de una aprobación viva.
+        /// A lo sumo hay una por requerimiento (una aprobación viva por solicitud y una fila viva
+        /// por par), así que sirve como LEFT JOIN sin multiplicar filas.
+        /// </summary>
+        private static IQueryable<GthAprobacionGgDetalle> DetallesAprobacionVivos(AppDbContext ctx) =>
+            ctx.GthAprobacionGgDetalle.Where(d => d.State
+                && ctx.GthAprobacionGg.Any(a => a.GthAprobacionGgId == d.GthAprobacionGgId && a.State));
+
+        /// <summary>
+        /// Nombre del estado tal como lo lee el solicitante. Es el del catálogo salvo en
+        /// <see cref="EstadoReclutamiento.AprobacionGg"/>, que es una sola fase para firmas de
+        /// distinta gente: ahí el badge dice de quién se está esperando la firma ahora mismo (ver
+        /// <see cref="EtiquetaAprobacion"/>).
+        /// </summary>
+        private static string EtiquetaEstado(
+            string estadoCodigo, string estadoNombre, bool esFft, string? tipoCodigo,
+            bool tieneDetalleAprobacion, bool? aprobadoGerenteArea, bool? aprobadoGth)
+        {
+            if (estadoCodigo != EstadoReclutamiento.AprobacionGg) return estadoNombre;
+
+            var ruta = RutaAprobacion.De(esFft, tipoCodigo, tieneDetalleAprobacion);
+            return EtiquetaAprobacion.DeLaVacante(ruta, aprobadoGerenteArea, aprobadoGth) ?? estadoNombre;
         }
 
         // ── Configuración de destinatarios del correo (por tipo: SOLICITUD / LONG_LIST) ─

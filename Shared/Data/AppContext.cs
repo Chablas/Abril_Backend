@@ -23,6 +23,7 @@ using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
@@ -319,6 +320,11 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
         public DbSet<SsomaPet> SsomaPet { get; set; }
         public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
+        public DbSet<SsomaCatalogoItem> SsomaCatalogoItem { get; set; }
+        public DbSet<SsomaPetItemSeleccionado> SsomaPetItemSeleccionado { get; set; }
+        public DbSet<SsomaPetSeccionTexto> SsomaPetSeccionTexto { get; set; }
+        public DbSet<SsomaPetFirma> SsomaPetFirma { get; set; }
+        public DbSet<SsomaPetAnexo> SsomaPetAnexo { get; set; }
         public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
         public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
@@ -481,6 +487,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsMaterialAlias> SsMaterialAlias => Set<SsMaterialAlias>();
         public DbSet<SsConsumoCarga> SsConsumoCarga => Set<SsConsumoCarga>();
         public DbSet<SsConsumoLinea> SsConsumoLinea => Set<SsConsumoLinea>();
+        public DbSet<SsHhCarga> SsHhCarga => Set<SsHhCarga>();
+        public DbSet<SsHhCargaLinea> SsHhCargaLinea => Set<SsHhCargaLinea>();
         public DbSet<SsRatioProyecto> SsRatioProyecto => Set<SsRatioProyecto>();
         public DbSet<SsPresupuesto> SsPresupuesto => Set<SsPresupuesto>();
         public DbSet<SsPresupuestoDetalle> SsPresupuestoDetalle => Set<SsPresupuestoDetalle>();
@@ -571,7 +579,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<BimProyectoFase> BimProyectoFase => Set<BimProyectoFase>();
         public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
         public DbSet<BimEvidenciaFoto> BimEvidenciaFoto => Set<BimEvidenciaFoto>();
-        public DbSet<BimBloqueo> BimBloqueo => Set<BimBloqueo>();
+        public DbSet<BimRestriccion> BimRestriccion => Set<BimRestriccion>();
         public DbSet<BimMetaSemanal> BimMetaSemanal => Set<BimMetaSemanal>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1031,6 +1039,26 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaPetPaso>()
                 .HasOne(x => x.Parent).WithMany(x => x.Hijos).HasForeignKey(x => x.ParentId)
                 .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SsomaCatalogoItem>().ToTable("ssoma_catalogo_item");
+            modelBuilder.Entity<SsomaPetItemSeleccionado>().ToTable("ssoma_pet_item_seleccionado");
+            modelBuilder.Entity<SsomaPetItemSeleccionado>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetItemSeleccionado>()
+                .HasOne(x => x.CatalogoItem).WithMany().HasForeignKey(x => x.CatalogoItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SsomaPetSeccionTexto>().ToTable("ssoma_pet_seccion_texto");
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasIndex(x => new { x.PetId, x.Seccion }).IsUnique();
+            modelBuilder.Entity<SsomaPetFirma>().ToTable("ssoma_pet_firma");
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasIndex(x => new { x.PetId, x.Rol }).IsUnique();
+            modelBuilder.Entity<SsomaPetAnexo>().ToTable("ssoma_pet_anexo");
+            modelBuilder.Entity<SsomaPetAnexo>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
             modelBuilder.Entity<SsomaOptCriterioVerificacion>().ToTable("ssoma_opt_criterio_verificacion");
             modelBuilder.Entity<SsomaOptVerificacion>().ToTable("ssoma_opt_verificacion");
             modelBuilder.Entity<SsomaOptPaso>().ToTable("ssoma_opt_paso");
@@ -1878,13 +1906,34 @@ namespace Abril_Backend.Infrastructure.Data
                  .OnDelete(DeleteBehavior.Cascade);
             });
 
-            modelBuilder.Entity<BimBloqueo>(e =>
+            modelBuilder.Entity<BimRestriccion>(e =>
             {
                 e.HasIndex(x => x.ProjectId);
+
                 e.HasOne(x => x.Project)
                  .WithMany()
                  .HasForeignKey(x => x.ProjectId)
                  .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(x => x.Zona)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.ZonaNivel)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaNivelId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.ZonaSector)
+                 .WithMany()
+                 .HasForeignKey(x => x.ZonaSectorId)
+                 .OnDelete(DeleteBehavior.SetNull);
+
+                e.HasOne(x => x.Actividad)
+                 .WithMany()
+                 .HasForeignKey(x => x.ActividadId)
+                 .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<BimMetaSemanal>(e =>

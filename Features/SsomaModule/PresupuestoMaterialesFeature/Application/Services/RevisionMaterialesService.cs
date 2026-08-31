@@ -44,6 +44,7 @@ public class RevisionMaterialesService : IRevisionMaterialesService
     {
         var resultado = new RevisionResultDto();
         var rechazadosPorProyecto = new Dictionary<int, List<(string RecursoCrudo, string? Motivo)>>();
+        List<MaterialPendienteGlobalDto>? pendientesSnapshot = null;
 
         foreach (var decision in decisiones)
         {
@@ -65,12 +66,25 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                         var textoNorm = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                         await _estandarizacionRepo.CrearAliasAsync(linea.RecursoCrudo, textoNorm,
                             decision.ItemIdConfirmado.Value, "FUZZY_CONFIRMADO", 1.0m);
+
+                        pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                        resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                            "AUTORIZADO", textoNorm, decision.LineaId, decision.ItemIdConfirmado, pendientesSnapshot);
                     }
                     resultado.Autorizados++;
                 }
                 else if (decision.Decision == "RECHAZADO")
                 {
                     await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "RECHAZADO", null);
+                    // Aprender: la próxima vez que aparezca este mismo texto (este u otro proyecto),
+                    // se rechaza solo, sin volver a pasar por Revisión.
+                    var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
+                    await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
+
+                    pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                    resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                        "RECHAZADO", textoNormRechazo, decision.LineaId, null, pendientesSnapshot);
+
                     if (!rechazadosPorProyecto.TryGetValue(linea.ProjectId, out var lista))
                         rechazadosPorProyecto[linea.ProjectId] = lista = [];
                     lista.Add((linea.RecursoCrudo, decision.MotivoRechazo));
@@ -93,10 +107,44 @@ public class RevisionMaterialesService : IRevisionMaterialesService
         return resultado;
     }
 
+    /// <summary>
+    /// Otras líneas pendientes (cualquier proyecto, del snapshot tomado al inicio del lote) cuyo texto
+    /// crudo normaliza IGUAL al que el usuario acaba de decidir: aplicarles la misma decisión evita
+    /// pedirle que confirme/rechace el mismo material línea por línea cada vez que aparece repetido.
+    /// Nunca vuelve a notificar a Oficina Técnica por estas — ya se avisó con la línea original.
+    /// </summary>
+    private async Task<int> AplicarRetroactivamenteAsync(
+        string decision, string textoNorm, long lineaIdOrigen, int? itemIdConfirmado,
+        List<MaterialPendienteGlobalDto> pendientesSnapshot)
+    {
+        var afectadas = 0;
+        bool? perteneceSsoma = null;
+        foreach (var otra in pendientesSnapshot)
+        {
+            if (otra.LineaId == lineaIdOrigen) continue;
+            if (TextoNormalizador.Normalizar(otra.RecursoCrudo) != textoNorm) continue;
+
+            if (decision == "AUTORIZADO" && itemIdConfirmado.HasValue)
+            {
+                perteneceSsoma ??= await _estandarizacionRepo.ObtenerPerteneceSsomaDeItemAsync(itemIdConfirmado.Value);
+                await _consumoRepo.ActualizarLineaEstandarizadaAsync(
+                    otra.LineaId, itemIdConfirmado.Value, perteneceSsoma.Value, "ALIAS_RETROACTIVO", 1.0m, null);
+                afectadas++;
+            }
+            else if (decision == "RECHAZADO")
+            {
+                await _consumoRepo.ActualizarRevisionAsync(otra.LineaId, "RECHAZADO", null);
+                afectadas++;
+            }
+        }
+        return afectadas;
+    }
+
     public async Task<RevisionResultDto> ProcesarRevisionAsync(RevisionLoteDto dto, int usuarioId)
     {
         var resultado = new RevisionResultDto();
         var rechazadosParaNotificar = new List<(string RecursoCrudo, string? Motivo)>();
+        List<MaterialPendienteGlobalDto>? pendientesSnapshot = null;
 
         foreach (var decision in dto.Decisiones)
         {
@@ -119,12 +167,25 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                         var textoNorm = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                         await _estandarizacionRepo.CrearAliasAsync(linea.RecursoCrudo, textoNorm,
                             decision.ItemIdConfirmado.Value, "FUZZY_CONFIRMADO", 1.0m);
+
+                        pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                        resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                            "AUTORIZADO", textoNorm, decision.LineaId, decision.ItemIdConfirmado, pendientesSnapshot);
                     }
                     resultado.Autorizados++;
                 }
                 else if (decision.Decision == "RECHAZADO")
                 {
                     await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "RECHAZADO", null);
+                    // Aprender: la próxima vez que aparezca este mismo texto (este u otro proyecto),
+                    // se rechaza solo, sin volver a pasar por Revisión.
+                    var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
+                    await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
+
+                    pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                    resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                        "RECHAZADO", textoNormRechazo, decision.LineaId, null, pendientesSnapshot);
+
                     rechazadosParaNotificar.Add((linea.RecursoCrudo, decision.MotivoRechazo));
                     resultado.Rechazados++;
                 }
@@ -149,28 +210,26 @@ public class RevisionMaterialesService : IRevisionMaterialesService
         return resultado;
     }
 
+    /// <summary>
+    /// Substring + similarity trigram (misma técnica que la Etapa 4 automática) — un Contains
+    /// exacto obligaba a escribir el nombre del catálogo palabra por palabra ("BARRA EXTENSIBLE"
+    /// no encontraba "BARRA EXPANDIBLE" aunque sea, en la práctica, el mismo material).
+    /// </summary>
     public async Task<List<BuscarItemDto>> BuscarItemsAsync(string texto)
     {
         if (string.IsNullOrWhiteSpace(texto) || texto.Length < 3)
             return [];
 
-        using var ctx = _factory.CreateDbContext();
         var textoNorm = TextoNormalizador.Normalizar(texto);
-
-        return await ctx.SsMaterialItem
-            .Where(i => i.Activo && !i.NoUsar && i.NombreNormalizado.Contains(textoNorm))
-            .Include(i => i.Familia).ThenInclude(f => f.Tipo)
-            .OrderBy(i => i.Nombre)
-            .Take(20)
-            .Select(i => new BuscarItemDto
-            {
-                Id = i.Id,
-                Nombre = i.Nombre,
-                NombreFamilia = i.Familia.Nombre,
-                TipoMaterial = i.Familia.Tipo.Nombre,
-                PerteneceSsoma = i.Familia.PerteneceSsoma
-            })
-            .ToListAsync();
+        var resultados = await _estandarizacionRepo.BuscarItemsSimilaresAsync(textoNorm);
+        return resultados.Select(r => new BuscarItemDto
+        {
+            Id = r.ItemId,
+            Nombre = r.NombreItem,
+            NombreFamilia = r.NombreFamilia,
+            TipoMaterial = r.TipoMaterial ?? "",
+            PerteneceSsoma = r.PerteneceSsoma,
+        }).ToList();
     }
 
     private async Task<int> NotificarOficinaTecnicaAsync(int projectId, List<(string RecursoCrudo, string? Motivo)> rechazados)
@@ -181,9 +240,30 @@ public class RevisionMaterialesService : IRevisionMaterialesService
             var proyecto = await ctx.Project.FindAsync(projectId);
             if (proyecto == null) return 0;
 
-            var destinatarios = new List<string>();
-            if (!string.IsNullOrWhiteSpace(proyecto.StaffEmail)) destinatarios.Add(proyecto.StaffEmail);
-            if (!string.IsNullOrWhiteSpace(proyecto.EmailResidente)) destinatarios.Add(proyecto.EmailResidente);
+            // Oficina Técnica y Almacenero DEL PROYECTO, no un contacto fijo del proyecto: se
+            // resuelve por vinculación vigente (fecha_fin null) en worker_vinculaciones — no el
+            // genérico Project.StaffEmail/EmailResidente, que no distinguía cargo y mandaba a
+            // quien fuera que tuviera ese campo lleno, sin importar su proyecto real.
+            // El puesto se busca en dos fuentes porque coexisten: WorkerVinculacion.Puesto es
+            // texto congelado al vincularse (vinculaciones viejas) y puede venir vacío en las
+            // nuevas, que ya usan el catálogo normalizado Worker.PuestoId -> Puesto.Nombre (el
+            // campo de presentación real, el que se muestra en pantalla/PDFs/correos).
+            var destinatarios = await ctx.WorkerVinculacion
+                .Include(v => v.Worker)
+                    .ThenInclude(w => w!.PuestoCatalogo)
+                .Where(v => v.ProyectoId == projectId && v.FechaFin == null
+                    && v.Worker != null && v.Worker.EmailCorporativo != null
+                    && (
+                        (v.Puesto != null
+                            && (EF.Functions.ILike(v.Puesto, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Puesto, "%OFICINA TÉCNICA%")
+                                || EF.Functions.ILike(v.Puesto, "%ALMACEN%") || EF.Functions.ILike(v.Puesto, "%ALMACÉN%")))
+                        || (v.Worker.PuestoCatalogo != null
+                            && (EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%OFICINA TECNICA%") || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%OFICINA TÉCNICA%")
+                                || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%ALMACEN%") || EF.Functions.ILike(v.Worker.PuestoCatalogo.Nombre, "%ALMACÉN%")))
+                    ))
+                .Select(v => v.Worker!.EmailCorporativo!)
+                .Distinct()
+                .ToListAsync();
             if (destinatarios.Count == 0) return 0;
 
             var filas = rechazados.Select(r =>

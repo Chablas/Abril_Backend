@@ -30,6 +30,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             var zonasEntidades = await ctx.BimProyectoZona
                 .Where(z => z.ProjectId == projectId)
                 .Include(z => z.Niveles)
+                    .ThenInclude(n => n.Sectores)
                 .Include(z => z.Sectores)
                 .OrderBy(z => z.Orden)
                 .ToListAsync();
@@ -39,7 +40,13 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 z.Id,
                 z.Nombre,
                 Niveles = z.Niveles.ToDictionary(n => n.Id, n => n.Nombre),
-                Sectores = z.Sectores.ToDictionary(s => s.Id, s => s.Nombre),
+                // Propios de cada nivel (z.Niveles[].Sectores) + compartidos de la zona
+                // (ZonaNivelId null) — mismo criterio que CargaDiaria/Configuracion, en vez
+                // de leer z.Sectores directo. No cambia el resultado (z.Sectores ya incluye
+                // ambos casos, vía ZonaId), es solo consistencia con el modelo Nivel->Sector.
+                Sectores = z.Niveles.SelectMany(n => n.Sectores)
+                    .Concat(z.Sectores.Where(s => s.ZonaNivelId == null))
+                    .ToDictionary(s => s.Id, s => s.Nombre),
             }).ToList();
 
             var celdas = await ctx.BimRegistroDiario

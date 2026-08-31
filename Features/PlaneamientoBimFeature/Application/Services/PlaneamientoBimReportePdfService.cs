@@ -18,7 +18,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
         public byte[] GenerarPdf(string proyectoNombre, string faseActual, CargaDiariaDto carga, PpcHistoricoDto ppc)
         {
             var nivelNombrePorId = carga.Zonas.SelectMany(z => z.Niveles).ToDictionary(n => n.Id, n => n.Nombre);
-            var sectorNombrePorId = carga.Zonas.SelectMany(z => z.Sectores).ToDictionary(s => s.Id, s => s.Nombre);
+            var sectorNombrePorId = carga.Zonas.SelectMany(z => z.Niveles).SelectMany(n => n.Sectores)
+                .GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.First().Nombre);
             var zonaNombrePorId = carga.Zonas.ToDictionary(z => z.Id, z => z.Nombre);
             var actividadNombrePorId = carga.Actividades.ToDictionary(a => a.Id, a => a.Nombre);
 
@@ -118,19 +119,19 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                         });
 
                         col.Item().PaddingTop(10).Background(ColorSecundario).Padding(4)
-                            .Text("BLOQUEOS ACTIVOS").Bold().FontSize(10).FontColor(Colors.White);
+                            .Text("RESTRICCIONES ACTIVAS").Bold().FontSize(10).FontColor(Colors.White);
 
-                        col.Item().PaddingTop(4).Column(bloqueosCol =>
+                        col.Item().PaddingTop(4).Column(restriccionesCol =>
                         {
-                            if (carga.BloqueosActivos.Count == 0)
+                            if (carga.RestriccionesActivas.Count == 0)
                             {
-                                bloqueosCol.Item().Text("Sin bloqueos activos.").FontSize(8).Italic();
+                                restriccionesCol.Item().Text("Sin restricciones activas.").FontSize(8).Italic();
                             }
                             else
                             {
-                                foreach (var bloqueo in carga.BloqueosActivos)
+                                foreach (var restriccion in carga.RestriccionesActivas)
                                 {
-                                    bloqueosCol.Item().Text($"• [{bloqueo.Estado}] {bloqueo.Descripcion} (desde {bloqueo.FechaCreacion:dd/MM/yyyy})")
+                                    restriccionesCol.Item().Text($"• [{restriccion.Estado}] {restriccion.Descripcion} (desde {restriccion.FechaCreacion:dd/MM/yyyy})")
                                         .FontSize(8);
                                 }
                             }

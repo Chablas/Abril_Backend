@@ -145,6 +145,82 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
         return (nuevo, true);
     }
 
+    public async Task<(SsMaterialItem Item, string NombreFamilia, string NombreTipo, bool PerteneceSsoma)> CrearItemManualAsync(
+        string nombre, string nombreNormalizado, int familiaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var familia = await ctx.SsMaterialFamilia.Include(f => f.Tipo).FirstOrDefaultAsync(f => f.Id == familiaId)
+            ?? throw new AbrilException("Familia no encontrada.", 404);
+
+        var existente = await ctx.SsMaterialItem
+            .FirstOrDefaultAsync(i => i.NombreNormalizado == nombreNormalizado && i.FamiliaId == familiaId);
+        if (existente != null)
+        {
+            // El usuario pidió "crear" porque no lo encontraba: si ya existía pero estaba
+            // marcado no_usar/inactivo (por eso no aparecía en ninguna búsqueda), reactivarlo
+            // es lo correcto — devolverlo oculto tal cual repetiría el mismo "no lo encuentro".
+            if (existente.NoUsar || !existente.Activo)
+            {
+                existente.NoUsar = false;
+                existente.Activo = true;
+                await ctx.SaveChangesAsync();
+            }
+            return (existente, familia.Nombre, familia.Tipo.Nombre, familia.PerteneceSsoma);
+        }
+
+        var nuevo = new SsMaterialItem
+        {
+            Nombre = nombre,
+            NombreNormalizado = nombreNormalizado,
+            FamiliaId = familiaId,
+            Activo = true,
+            CreadoEn = DateTimeOffset.UtcNow
+        };
+        ctx.SsMaterialItem.Add(nuevo);
+        await ctx.SaveChangesAsync();
+        return (nuevo, familia.Nombre, familia.Tipo.Nombre, familia.PerteneceSsoma);
+    }
+
+    public async Task<FamiliaCatalogoDto> CrearFamiliaManualAsync(
+        string nombre, string nombreNormalizado, int tipoId, string variableBase, string? unidadMedida, bool perteneceSsoma)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var tipo = await ctx.SsMaterialTipo.FindAsync(tipoId)
+            ?? throw new AbrilException("Tipo no encontrado.", 404);
+
+        var existente = await ctx.SsMaterialFamilia.FirstOrDefaultAsync(f => f.NombreNormalizado == nombreNormalizado);
+        if (existente != null)
+        {
+            return new FamiliaCatalogoDto
+            {
+                Id = existente.Id, Nombre = existente.Nombre, TipoId = existente.TipoId, NombreTipo = tipo.Nombre,
+                VariableBase = existente.VariableBase, UnidadMedida = existente.UnidadMedida,
+                PerteneceSsoma = existente.PerteneceSsoma, Activo = existente.Activo,
+            };
+        }
+
+        var nueva = new SsMaterialFamilia
+        {
+            Nombre = nombre,
+            NombreNormalizado = nombreNormalizado,
+            TipoId = tipoId,
+            VariableBase = variableBase,
+            UnidadMedida = unidadMedida,
+            PerteneceSsoma = perteneceSsoma,
+            Activo = true,
+            CreadoEn = DateTimeOffset.UtcNow
+        };
+        ctx.SsMaterialFamilia.Add(nueva);
+        await ctx.SaveChangesAsync();
+
+        return new FamiliaCatalogoDto
+        {
+            Id = nueva.Id, Nombre = nueva.Nombre, TipoId = nueva.TipoId, NombreTipo = tipo.Nombre,
+            VariableBase = nueva.VariableBase, UnidadMedida = nueva.UnidadMedida,
+            PerteneceSsoma = nueva.PerteneceSsoma, Activo = nueva.Activo,
+        };
+    }
+
     public async Task<bool> CreateAliasIfNotExistsAsync(
         string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza,
         decimal factorConversion = 1)

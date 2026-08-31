@@ -11,6 +11,13 @@ public class CalcularRatiosResultDto
     public List<string> Advertencias { get; set; } = [];
 }
 
+/// <summary>Resultado de calcular ratios de todos los proyectos con consumo estandarizado de una vez.</summary>
+public class CalcularRatiosTodosResultDto
+{
+    public int TotalProyectosProcesados { get; set; }
+    public List<CalcularRatiosResultDto> Proyectos { get; set; } = [];
+}
+
 public class RatioProyectoDto
 {
     public int Id { get; set; }

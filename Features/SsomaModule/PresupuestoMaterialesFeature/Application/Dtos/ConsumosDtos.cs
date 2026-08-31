@@ -7,7 +7,12 @@ public class ImportConsumoResultDto
     public int CargaId { get; set; }
     public string NombreArchivo { get; set; } = null!;
     public int TotalLineas { get; set; }
+    public int LineasNuevas { get; set; }
+    public int LineasActualizadas { get; set; }
+    public int LineasEliminadas { get; set; }
+    public int LineasSinCambio { get; set; }
     public int LineasEstandarizadas { get; set; }
+    public int LineasAutoRechazadas { get; set; }
     public int LineasPendientes { get; set; }
     public int LineasSinMatch { get; set; }
     public string Estado { get; set; } = null!;
@@ -22,6 +27,9 @@ public class ConsumoCargaResumenDto
     public DateOnly FechaMin { get; set; }
     public DateOnly FechaMax { get; set; }
     public int TotalLineas { get; set; }
+    public int LineasNuevas { get; set; }
+    public int LineasActualizadas { get; set; }
+    public int LineasEliminadas { get; set; }
     public int LineasEstandarizadas { get; set; }
     public int LineasPendientes { get; set; }
     public string Estado { get; set; } = null!;
@@ -69,6 +77,9 @@ public class RevisionResultDto
     public int Autorizados { get; set; }
     public int Rechazados { get; set; }
     public int NotificacionesEnviadas { get; set; }
+    /// <summary>Otras líneas pendientes (cualquier proyecto) con el mismo texto crudo exacto que se
+    /// resolvieron solas al aplicar la misma decisión que el usuario ya confirmó para ese texto.</summary>
+    public int AplicadosRetroactivamente { get; set; }
     public List<string> Errores { get; set; } = [];
 }
 

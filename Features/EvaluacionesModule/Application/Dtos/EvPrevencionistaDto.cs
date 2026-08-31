@@ -20,7 +20,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
     public class EvPrevencionistaInicioDto
     {
         public EvPeriodoDto? Periodo { get; set; }
-        public List<EvSupervisorContratistaCriterioDto> Plantilla { get; set; } = [];
+        /// <summary>Criterios para cuando el evaluado es Coordinador SSOMA.</summary>
+        public List<EvSupervisorContratistaCriterioDto> PlantillaCoordinador { get; set; } = [];
+        /// <summary>Criterios para cuando el evaluado es Prevencionista.</summary>
+        public List<EvSupervisorContratistaCriterioDto> PlantillaPrevencionista { get; set; } = [];
         public List<EvPrevencionistaAEvaluarDto> AEvaluar { get; set; } = [];
     }
 

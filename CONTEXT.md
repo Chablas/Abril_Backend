@@ -5938,3 +5938,60 @@ La columna ya existía (`Activo`: Finalizado|Activo|Inactivo) y ya la leía `Rat
 - Cargar drivers de Sauce Zen (Área Techada mínimo) y generar su presupuesto.
 - Carga semanal histórica de HH vía Excel (análoga al S10 de materiales) — **no implementada todavía**, bloqueada esperando que el usuario pase un archivo de ejemplo real de su reporte de asistencia/Tareo (no hay formato estándar como el S10 para esto).
 - Módulo PETS: el usuario mencionó que quedan "modelos" pendientes de otra sesión más allá de este fix puntual de build.
+
+## Sesión 2026-08-28 (continuación) — Planeamiento BIM: sectores por nivel, Restricciones (rename de Bloqueos), 2 bugs reales encontrados y arreglados
+
+Implementa las 3 observaciones de Planeamiento pendientes de la sesión del 25/08 (Bloqueos→Restricciones, Sector/Nivel) más el fix de PPC META fijo:
+
+### Tarea 1 — PPC META fijo en 85%
+`PlaneamientoBimConfiguracionService.MetaPpcEstandar` (const `85m`, `public` porque `PlaneamientoBimDashboardRepository.GetPpcHistorico` la referencia). Deja de ser editable desde Configuración; `GuardarConfiguracion`/`GetConfiguracion` fuerzan el valor. `PlaneamientoBimReportePdfService` no se tocó — hereda el valor vía la cadena `PortafolioService.ExportarPdf → DashboardService.GetPpcHistorico → repo`.
+
+### Tarea 2 — Sectores por nivel + subestructura
+`bim_zona_sector.zona_nivel_id` (nullable, diseño híbrido: NULL = compartido entre todos los niveles de la zona, con valor = exclusivo de ese nivel — sin migrar datos existentes) y `bim_zona_nivel.tipo_estructura` (SUBESTRUCTURA|SUPERESTRUCTURA). `ZonaDto.Sectores` se mueve a `NivelDto.Sectores` (merge propio-del-nivel + compartido-de-zona). `ZonaUpdateDto.SectoresCompartidos` nuevo, paralelo a `NivelUpdateDto.Sectores`, para poder seguir creando sectores compartidos desde la API. Migración: `Migrations/Manual/20260828_BimSectorPorNivelYTipoEstructura.sql`.
+
+### Tarea 3 — Restricciones (rename de Bloqueos) + ubicación + fecha prevista
+`BimBloqueo`→`BimRestriccion` (tabla física sigue `bim_bloqueo`, solo cambian clases/rutas C#: `PlaneamientoBimRestriccion{Controller,Service,Repository}`, ruta `api/v1/planeamiento-bim/restricciones`). Nuevas columnas nullable: `zona_id`, `zona_nivel_id`, `zona_sector_id`, `actividad_id`, `fecha_levantamiento_prevista` (la fecha real ya existía como `fecha_cierre`). Migración: `Migrations/Manual/20260828_BimRestriccionUbicacionYFechaPrevista.sql`. Fix manual del snapshot EF (`AppDbContextModelSnapshot.cs`, 2 ocurrencias de `BimBloqueo`→`BimRestriccion`) para evitar que un futuro `dotnet ef migrations add` genere un DropTable+CreateTable espurio por el rename de clase.
+
+### Bug real #1 — Concat de navegaciones no traducible por Npgsql (encontrado en incidente de producción, CEDRO 33)
+`GetCargaDiaria`/`GetConfiguracion` armaban `NivelDto.Sectores` con `n.Sectores.Concat(z.Sectores.Where(...))` dentro de una proyección LINQ-to-SQL — `InvalidOperationException` en runtime (Npgsql no lo traduce), aunque compilaba bien. Fix: materializar primero con `Include(z => z.Niveles).ThenInclude(n => n.Sectores).Include(z => z.Sectores)` + `ToListAsync()`, y armar el merge en memoria (LINQ-to-Objects) después. `PlaneamientoBimDashboardRepository.GetAvance` no tenía el bug (nunca hacía Concat en SQL) pero se alineó al mismo patrón por consistencia.
+
+### Bug real #2 — FK violation al crear sector exclusivo de nivel (`SincronizarSectoresDeNivel`)
+Al guardar Configuración con un sector nuevo asignado a un nivel específico, el INSERT fallaba con `bim_zona_sector_zona_id_fkey` (`zona_id=0`) — el método solo hacía `nivel.Sectores.Add(sector)` (fixup de `ZonaNivelId`) pero nunca asignaba la relación con `Zona`. El `catch (DbUpdateException... SqlState=="23503")` de `GuardarConfiguracion` devolvía el mismo 409 genérico de "no se puede eliminar", enmascarando que en realidad era un INSERT mal formado, no un DELETE bloqueado. Fix: `sector = new BimZonaSector { Zona = zona }` (mismo patrón de fixup por navegación que ya usaba `SincronizarSectoresCompartidos` con `zona.Sectores.Add(sector)`), pasando `zona` como parámetro nuevo de `SincronizarSectoresDeNivel`.
+
+### Logging real agregado
+`PlaneamientoBimCargaDiariaController` y `PlaneamientoBimConfiguracionController`: `ILogger<T>` inyectado, los `catch (Exception)` ahora loguean con `_logger.LogError(ex, ...)`. Antes no quedaba rastro de ningún 500 — el incidente de CEDRO 33 hubo que reproducirlo a mano para conseguir el stack trace real.
+
+### Verificado (reproducción real contra la BD de prod vía túnel, con datos de prueba marcados y borrados después)
+- Los 2 bugs reproducidos y confirmados arreglados con `curl` real contra `TORRE ABRIL` (id=15) y un proyecto de prueba (`ROBLES`, id=50, inactivo, sin datos reales) — 204 en los 3 escenarios: crear desde cero, sector compartido, y sector nuevo agregado a un nivel con sector compartido preexistente con Carga Diaria asociada (el sector viejo no se toca).
+- `dotnet build` → 0 errores, 247 warnings (línea base, sin cambios).
+
+### Pendiente
+- **Bug nuevo sin resolver, investigación cortada a mitad**: reporte de que un sector creado desde el frontend en el panel "exclusivos de este nivel" termina clasificado como compartido tras guardar y recargar. No se pudo confirmar la causa — no hay logging de request body (se agregó temporalmente y se revirtió sin llegar a reproducir), y el estado real en BD (proyecto 12, BOSQUE REAL, zona "EDIFICIO PRINCIPAL" id=6, niveles "Sotano 1"/"Piso 1") no tiene ningún sector asociado (ni compartido ni de nivel) — no coincide con el síntoma reportado. Hipótesis del usuario (no confirmada): la zona/niveles se crearon con el bug #2 todavía activo, el intento de agregar sectores falló con 409 y nunca se persistieron; un guardado posterior sin esos sectores en el payload los habría "borrado" correctamente (comportamiento esperado del diff-by-Id, no un bug). **No se tocó el proyecto 12 (datos reales).**
+- Deploy a `master` sigue pendiente — falta confirmación de que el frontend terminó su parte, ya que esto rompe contrato JSON (`CargaDiariaDto.BloqueosActivos`→`RestriccionesActivas`, `ZonaDto.Sectores` cambió de forma a `NivelDto.Sectores`).
+- Confirmar con el usuario si retoma la investigación del bug de clasificación de sectores (con logging de payload) antes o después del deploy a `master`.
+
+## Sesión 2026-08-30 — Módulo PETS: estructura completa, Firmas, exportación PDF + Presupuesto Materiales: progreso de estandarización y ratios masivo
+
+### 1) PETS — resto de la estructura del documento
+Sobre el árbol de pasos (`ssoma_pet_paso`, ya en producción) se agregó:
+- **Secciones narrativas** (Introducción, Alcance, Objetivo, Definiciones, Restricciones) como un bloque de texto único por sección — tabla nueva `ssoma_pet_seccion_texto` (`pet_id`, `seccion`, `contenido`). Pivote de diseño: al principio se reusó el árbol de `ssoma_pet_paso` para estas secciones también (columna `seccion` agregada), pero al probarlo el usuario notó que fragmentar cada oración importada en una fila con su propio tipo/controles no tenía sentido para prosa — se migró a texto único. Procedimiento y Responsabilidades sí se quedaron en árbol (tienen estructura real).
+- **Catálogo global reusable** para Marco Legal / EPP (básico|específico|emergencia) / Recursos (equipo|herramienta|material): `ssoma_catalogo_item` (catálogo compartido) + `ssoma_pet_item_seleccionado` (selección por PETS, puede venir del catálogo o ser propia de un solo PETS). "Eliminar" desactiva, nunca borra — no rompe selecciones históricas.
+- **Anexos** (`ssoma_pet_anexo`) y **Firmas** (`ssoma_pet_firma`: Elaborado/Revisado/Aprobado por, cada uno con nombre/cargo/fecha/firma opcional como imagen — `Fecha` es `DateOnly` a propósito para que el `<input type="date">` del frontend no necesite parseo).
+- **Importador de Word reescrito para multi-sección**: antes solo buscaba "PROCEDIMIENTO DE TRABAJO"; ahora detecta los 10 títulos de sección conocidos (Introducción/Alcance/Objetivo/Marco Legal/Definiciones/Responsabilidades/Gestión de personal/Procedimiento/Restricciones/Anexos) y reparte cada tramo a su sección — árbol para Procedimiento/Responsabilidades, texto concatenado para las narrativas. Marco Legal/Gestión de personal/Anexos solo delimitan (no se auto-importan, son catálogo/archivos, no párrafos). El respaldo manual (cuando no se detecta nada) sigue existiendo, solo carga a Procedimiento.
+- **Exportación a PDF** (`PetsPdfService.cs`, patrón QuestPDF ya usado en RAC/Inspección/Accidentes): botón "Vista previa PDF" en Datos generales, abre inline en pestaña nueva (no descarga — `File()` sin `fileDownloadName` en el backend + `window.open` con `location.href` diferido en el frontend). Se descartó generar `.docx` real con OpenXml.Wordprocessing por no poder compilar para verificarlo y no existir precedente de generación (solo de lectura) en el repo.
+
+Bug real encontrado y corregido: `GetDetalleAsync` hacía `.Select(x => MapSeleccion(x))` DENTRO de la query EF (antes de `ToListAsync`) — EF no traduce un método C# arbitrario a SQL, tiraba 500 al abrir cualquier PETS con al menos una selección de catálogo. Se corrigió materializando primero y mapeando en memoria.
+
+### 2) Presupuesto Materiales — progreso en vivo + ratios masivo
+- `EstandarizacionProgreso.cs` (estático, en memoria vía `ConcurrentDictionary`): progreso de una estandarización de carga en curso, expuesto via `GET cargas/{cargaId}/progreso`, para pantallas que disparan lotes grandes (Kardex histórico de miles de líneas) y quieren mostrar "línea X de Y".
+- Nuevo endpoint `POST proyectos/calcular-todos` en `RatioMaterialesController`: calcula ratios de todos los proyectos con consumo estandarizado de una sola vez, en vez de entrar proyecto por proyecto.
+
+### Verificado
+- `dotnet build` → 0 errores (solo warnings preexistentes sin cambios, ninguno en los archivos tocados).
+- No se corrió `npm run build` (regla del proyecto: no compilar salvo pedido explícito; el build de este skill solo cubre el repo backend).
+
+### Pendiente
+- Frontend de PETS: probar en el navegador el fix de "PDF inline" recién aplicado (antes forzaba descarga).
+- 7 mejoras de usabilidad de PETS identificadas y sin construir (la más urgente: el botón "Importar desde Word" vive solo en la pestaña Procedimiento pero ahora importa TODAS las secciones).
+- Poblar el catálogo global de Marco Legal/EPP/Recursos — sigue vacío.
+- Estándares e IPERC: cero código, reusar el mismo patrón (catálogo + árbol) que PETS.

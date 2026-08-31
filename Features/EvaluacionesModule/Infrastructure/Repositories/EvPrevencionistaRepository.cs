@@ -26,12 +26,19 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var periodo = await conn.QueryFirstOrDefaultAsync<EvPeriodoRaw>(
                 "SELECT id, mes, anio, fecha_apertura, fecha_cierre, activo FROM ev_periodo WHERE activo = TRUE LIMIT 1");
 
-            var plantilla = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
+            var plantillaCoordinador = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
                 @"SELECT id AS Id, criterio AS Criterio, orden AS Orden
-                  FROM ev_prevencionista_plantilla WHERE activo = TRUE ORDER BY orden");
+                  FROM ev_prevencionista_plantilla WHERE activo = TRUE AND rol_evaluado = 'COORDINADOR' ORDER BY orden");
+            var plantillaPrevencionista = await conn.QueryAsync<EvSupervisorContratistaCriterioDto>(
+                @"SELECT id AS Id, criterio AS Criterio, orden AS Orden
+                  FROM ev_prevencionista_plantilla WHERE activo = TRUE AND rol_evaluado = 'PREVENCIONISTA' ORDER BY orden");
 
             if (periodo == null || proyectoIds.Count == 0)
-                return new EvPrevencionistaInicioDto { Plantilla = plantilla.ToList() };
+                return new EvPrevencionistaInicioDto
+                {
+                    PlantillaCoordinador = plantillaCoordinador.ToList(),
+                    PlantillaPrevencionista = plantillaPrevencionista.ToList(),
+                };
 
             var evaluadorSsUsuarioId = await ResolverEvaluadorSsUsuarioIdAsync(conn, evaluadorUserId, evaluadorContributorId);
 
@@ -50,7 +57,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
-                  WHERE w.state AND w.contrata_casa = 'Casa' AND wv.proyecto_id = ANY(@ProyectoIds)",
+                  WHERE w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */ AND wv.proyecto_id = ANY(@ProyectoIds)",
                 new {
                     ProyectoIds = proyectoIds.ToArray(),
                     CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma,
@@ -94,7 +101,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             return new EvPrevencionistaInicioDto
             {
                 Periodo = MapPeriodo(periodo),
-                Plantilla = plantilla.ToList(),
+                PlantillaCoordinador = plantillaCoordinador.ToList(),
+                PlantillaPrevencionista = plantillaPrevencionista.ToList(),
                 AEvaluar = aEvaluar
             };
         }
@@ -140,7 +148,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM app_user au
                   JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                   LIMIT 1",
                 new { UserId = userId });
         }
@@ -155,7 +163,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });

@@ -13,6 +13,9 @@ public class SsConsumoCarga
     public int TotalLineas { get; set; }
     public int LineasEstandarizadas { get; set; }
     public int LineasPendientes { get; set; }
+    public int LineasNuevas { get; set; }
+    public int LineasActualizadas { get; set; }
+    public int LineasEliminadas { get; set; }
     // ACTIVA | ANULADA | REEMPLAZADA
     public string Estado { get; set; } = "ACTIVA";
     public int SubidoPor { get; set; }

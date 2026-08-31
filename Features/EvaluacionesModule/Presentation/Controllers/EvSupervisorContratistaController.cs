@@ -33,6 +33,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         private int GetUserId() =>
             int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
+        private int GetEmpresaId() =>
+            int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : 0;
+
         // El Jefe SSOMA (puesto único, PuestoIds.JefeSsoma) también puede evaluar de forma
         // opcional, además de ver el consolidado. Coordinador SSOMA/Prevencionista se resuelven
         // por el PUESTO real (workers.puesto_id -> puesto.categoria_id) — para ellos esta
@@ -107,6 +110,49 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPut("{id:int}")]
+        [Authorize]
+        public async Task<IActionResult> Update(int id, [FromBody] EvSupervisorContratistaEvaluacionCreateDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await PuedeEvaluarSupervisoresAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta evaluación." });
+
+                var periodo = await _periodoRepo.GetActivoAsync()
+                    ?? throw new AbrilException("No hay período de evaluación activo.", 400);
+
+                var existente = await _repo.ObtenerPorIdAsync(id)
+                    ?? throw new AbrilException("Evaluación no encontrada.", 404);
+
+                if (existente.EvaluadorUserId != userId)
+                    return StatusCode(403, new { message = "No puede editar una evaluación de otro evaluador." });
+
+                if (existente.PeriodoId != periodo.Id)
+                    throw new AbrilException("El período de esta evaluación ya cerró, no se puede editar.", 400);
+
+                if (dto.Detalles.Count == 0)
+                    throw new AbrilException("Debe calificar al menos un criterio.", 400);
+
+                if (dto.Detalles.Any(d => !d.EsNa && (d.Puntaje is null or < 0 or > 4)))
+                    throw new AbrilException("El puntaje debe estar entre 0 y 4.", 400);
+
+                var detalles = dto.Detalles.Select(d => new EvEvaluacionSupervisorContratistaDetalle
+                {
+                    PlantillaId = d.PlantillaId,
+                    Criterio = d.Criterio,
+                    Puntaje = d.EsNa ? null : d.Puntaje,
+                    EsNa = d.EsNa
+                }).ToList();
+
+                var result = await _repo.ActualizarAsync(id, dto.Comentario, detalles);
+                return Ok(new { result.Id, result.Nota, message = "Evaluación actualizada correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("no-aplica")]
         [Authorize]
         public async Task<IActionResult> MarcarNoAplica([FromBody] EvSupervisorContratistaNoAplicaCreateDto dto)
@@ -143,6 +189,22 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.MarcarNoAplica"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("mi-perfil")]
+        [Authorize(Roles = Roles.Contratista)]
+        public async Task<IActionResult> GetMiPerfil([FromQuery] int? periodoId)
+        {
+            try
+            {
+                var workerId = await _repo.ResolverPropioWorkerIdAsync(GetUserId(), GetEmpresaId());
+                if (workerId == null)
+                    return StatusCode(403, new { message = "No se pudo identificar su ficha de trabajador en el proyecto." });
+
+                return Ok(await _repo.GetMiPerfilAsync(workerId.Value, periodoId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvSupervisorContratistaController.GetMiPerfil"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("ver")]

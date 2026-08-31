@@ -14,4 +14,22 @@ public interface IPetsRepository
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
     Task SetImagenPasoAsync(int petId, int pasoId, string? imagenUrl);
+    Task DesactivarSeccionAsync(int petId, string seccion);
+    Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido);
+
+    // Catálogo (Marco Legal / EPP / Recursos)
+    Task<List<CatalogoItemDto>> GetCatalogoAsync(string grupo, string? tipo);
+    Task<int> CrearCatalogoItemAsync(CrearCatalogoItemRequest request);
+    Task DesactivarCatalogoItemAsync(int catalogoItemId);
+    Task<int> SeleccionarCatalogoItemAsync(int petId, SeleccionarItemCatalogoRequest request);
+    Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request);
+    Task EliminarSeleccionAsync(int petId, int seleccionId);
+
+    // Anexos
+    Task<int> AgregarAnexoAsync(int petId, string nombre, string archivoUrl);
+    Task EliminarAnexoAsync(int petId, int anexoId);
+
+    // Firmas
+    Task UpsertFirmaAsync(int petId, string rol, string? nombre, string? cargo, DateOnly? fecha);
+    Task SetFirmaUrlAsync(int petId, string rol, string firmaUrl);
 }

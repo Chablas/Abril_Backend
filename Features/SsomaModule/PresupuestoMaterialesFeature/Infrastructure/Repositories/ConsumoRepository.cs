@@ -12,22 +12,6 @@ public class ConsumoRepository : IConsumoRepository
 
     public ConsumoRepository(IDbContextFactory<AppDbContext> factory) => _factory = factory;
 
-    public async Task<bool> ExisteHashAsync(string hash)
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsConsumoCarga.AnyAsync(c => c.HashArchivo == hash && c.Estado == "ACTIVA");
-    }
-
-    public async Task<bool> ExisteSolapamientoFechasAsync(int projectId, DateOnly fechaMin, DateOnly fechaMax, int? excluirCargaId = null)
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsConsumoCarga
-            .Where(c => c.ProjectId == projectId && c.Estado == "ACTIVA"
-                && (excluirCargaId == null || c.Id != excluirCargaId)
-                && c.FechaMin <= fechaMax && c.FechaMax >= fechaMin)
-            .AnyAsync();
-    }
-
     public async Task<SsConsumoCarga> CrearCargaAsync(SsConsumoCarga carga)
     {
         using var ctx = _factory.CreateDbContext();
@@ -36,19 +20,63 @@ public class ConsumoRepository : IConsumoRepository
         return carga;
     }
 
-    public async Task InsertarLineasBulkAsync(IEnumerable<SsConsumoLinea> lineas)
-    {
-        using var ctx = _factory.CreateDbContext();
-        ctx.SsConsumoLinea.AddRange(lineas);
-        await ctx.SaveChangesAsync();
-    }
-
     public async Task<List<SsConsumoLinea>> ObtenerLineasSinEstandarizarAsync(int cargaId)
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
             .Where(l => l.CargaId == cargaId && !l.Estandarizado)
             .ToListAsync();
+    }
+
+    public async Task<List<SsConsumoLinea>> ObtenerLineasActivasConGuiaPorProyectoAsync(int projectId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => l.ProjectId == projectId && l.Activo && l.NroGuia != null)
+            .ToListAsync();
+    }
+
+    public async Task AplicarDiffCargaAsync(
+        IEnumerable<SsConsumoLinea> nuevas,
+        IEnumerable<(long LineaId, decimal Cantidad, decimal PrecioUnitario, decimal PrecioTotal, DateOnly FechaGuia)> actualizaciones,
+        IEnumerable<long> idsDarDeBaja,
+        string motivoBaja)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ahora = DateTimeOffset.UtcNow;
+
+        ctx.SsConsumoLinea.AddRange(nuevas);
+
+        var idsActualizar = actualizaciones.Select(a => a.LineaId).ToList();
+        if (idsActualizar.Count > 0)
+        {
+            var porActualizar = await ctx.SsConsumoLinea
+                .Where(l => idsActualizar.Contains(l.Id))
+                .ToDictionaryAsync(l => l.Id);
+            foreach (var (lineaId, cantidad, precioUnitario, precioTotal, fechaGuia) in actualizaciones)
+            {
+                if (!porActualizar.TryGetValue(lineaId, out var linea)) continue;
+                linea.Cantidad = cantidad;
+                linea.PrecioUnitario = precioUnitario;
+                linea.PrecioTotal = precioTotal;
+                linea.FechaGuia = fechaGuia;
+                linea.ActualizadoEn = ahora;
+            }
+        }
+
+        var idsBaja = idsDarDeBaja.ToList();
+        if (idsBaja.Count > 0)
+        {
+            var porDarDeBaja = await ctx.SsConsumoLinea.Where(l => idsBaja.Contains(l.Id)).ToListAsync();
+            foreach (var linea in porDarDeBaja)
+            {
+                linea.Activo = false;
+                linea.MotivoInactivo = motivoBaja;
+                linea.ActualizadoEn = ahora;
+            }
+        }
+
+        await ctx.SaveChangesAsync();
     }
 
     public async Task ActualizarLineaEstandarizadaAsync(long lineaId, int itemId, bool perteneceSsoma, string metodo, decimal score, string? estadoRevision, decimal factorConversion = 1)
@@ -67,6 +95,52 @@ public class ConsumoRepository : IConsumoRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task MarcarSinMatchAsync(long lineaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
+        if (linea == null) return;
+        linea.EstadoRevision = "PENDIENTE";
+        linea.MetodoMatch = "SIN_MATCH";
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task MarcarRechazadoAutomaticoAsync(long lineaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
+        if (linea == null) return;
+        linea.EstadoRevision = "RECHAZADO";
+        linea.PerteneceSsoma = false;
+        linea.MetodoMatch = "ALIAS_RECHAZO";
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task AplicarResultadosEstandarizacionAsync(List<ResultadoLineaParaGuardar> resultados)
+    {
+        if (resultados.Count == 0) return;
+        using var ctx = _factory.CreateDbContext();
+        var ids = resultados.Select(r => r.LineaId).ToList();
+        var lineasPorId = await ctx.SsConsumoLinea.Where(l => ids.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+
+        foreach (var r in resultados)
+        {
+            if (!lineasPorId.TryGetValue(r.LineaId, out var linea)) continue;
+            linea.Estandarizado = r.Estandarizado;
+            linea.ItemId = r.ItemId;
+            linea.PerteneceSsoma = r.PerteneceSsoma;
+            linea.MetodoMatch = r.MetodoMatch;
+            linea.ScoreMatch = r.ScoreMatch;
+            linea.EstadoRevision = r.EstadoRevision;
+            if (r.Estandarizado)
+            {
+                linea.CantidadReal = linea.Cantidad * r.FactorConversion;
+                linea.PrecioUnitarioReal = linea.CantidadReal > 0 ? linea.PrecioTotal / linea.CantidadReal : 0;
+            }
+        }
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes)
     {
         using var ctx = _factory.CreateDbContext();
@@ -74,6 +148,18 @@ public class ConsumoRepository : IConsumoRepository
         if (carga == null) return;
         carga.LineasEstandarizadas = estandarizadas;
         carga.LineasPendientes = pendientes;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task ActualizarResumenCargaAsync(int cargaId, int totalLineas, int nuevas, int actualizadas, int eliminadas)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var carga = await ctx.SsConsumoCarga.FindAsync(cargaId);
+        if (carga == null) return;
+        carga.TotalLineas = totalLineas;
+        carga.LineasNuevas = nuevas;
+        carga.LineasActualizadas = actualizadas;
+        carga.LineasEliminadas = eliminadas;
         await ctx.SaveChangesAsync();
     }
 
@@ -91,6 +177,9 @@ public class ConsumoRepository : IConsumoRepository
                 FechaMin = c.FechaMin,
                 FechaMax = c.FechaMax,
                 TotalLineas = c.TotalLineas,
+                LineasNuevas = c.LineasNuevas,
+                LineasActualizadas = c.LineasActualizadas,
+                LineasEliminadas = c.LineasEliminadas,
                 LineasEstandarizadas = c.LineasEstandarizadas,
                 LineasPendientes = c.LineasPendientes,
                 Estado = c.Estado,
@@ -103,7 +192,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => l.ProjectId == projectId && l.EstadoRevision == "PENDIENTE")
+            .Where(l => l.ProjectId == projectId && l.Activo && l.EstadoRevision == "PENDIENTE")
             .Include(l => l.Item).ThenInclude(i => i!.Familia)
             .OrderByDescending(l => l.PrecioTotal)
             .Select(l => new MaterialPendienteDto
@@ -128,7 +217,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => l.EstadoRevision == "PENDIENTE")
+            .Where(l => l.Activo && l.EstadoRevision == "PENDIENTE")
             .Include(l => l.Item).ThenInclude(i => i!.Familia)
             .Include(l => l.Proyecto)
             .OrderByDescending(l => l.PrecioTotal)
@@ -155,7 +244,7 @@ public class ConsumoRepository : IConsumoRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea
-            .Where(l => !l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO")
+            .Where(l => l.Activo && (!l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO"))
             .Include(l => l.Proyecto)
             .OrderByDescending(l => l.FechaGuia)
             .Select(l => new MaterialNoSsomaDto
@@ -221,6 +310,11 @@ public class ConsumoRepository : IConsumoRepository
         if (itemIdConfirmado.HasValue)
         {
             linea.ItemId = itemIdConfirmado.Value;
+            // Una línea que llegó a Revisión sin match automático (Estandarizado seguía en false,
+            // ver EstandarizacionService/MarcarSinMatchAsync) recién tiene item real acá — sin esto,
+            // quedaba con item asignado pero invisible para el cálculo de ratios (exige
+            // estandarizado=true). Las que ya venían con sugerencia automática ya estaban en true.
+            linea.Estandarizado = true;
             // El item confirmado en revisión siempre genera un alias nuevo con factor 1 (ver RevisionMaterialesService).
             linea.CantidadReal = linea.Cantidad;
             linea.PrecioUnitarioReal = linea.Cantidad > 0 ? linea.PrecioTotal / linea.Cantidad : 0;

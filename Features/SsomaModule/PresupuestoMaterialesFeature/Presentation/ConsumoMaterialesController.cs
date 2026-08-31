@@ -32,7 +32,12 @@ public class ConsumoMaterialesController : ControllerBase
 
     // ─── Import S10 ───────────────────────────────────────────────────────────
 
-    /// <summary>Sube un Excel S10 semanal, deduplica y dispara estandarización automática.</summary>
+    /// <summary>
+    /// Sube el Kardex de materiales del proyecto (Movimiento/Nro. Guía/Partida de Control). Acepta
+    /// el archivo acumulado completo en cada subida — compara línea por línea contra lo ya cargado
+    /// (nuevas, regularizadas, dadas de baja) y dispara estandarización automática solo sobre las
+    /// líneas nuevas.
+    /// </summary>
     [HttpPost("proyectos/{projectId}/cargas")]
     [RequestSizeLimit(20_000_000)] // 20 MB
     public async Task<IActionResult> ImportarS10(int projectId, IFormFile archivo)
@@ -93,6 +98,16 @@ public class ConsumoMaterialesController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception) { return StatusCode(500, new { message = "Error en el proceso de estandarización." }); }
+    }
+
+    /// <summary>Progreso en vivo de la estandarización de una carga, para pantallas que la disparan
+    /// y quieren mostrar "línea X de Y" mientras corre (puede tardar minutos en lotes grandes).</summary>
+    [HttpGet("cargas/{cargaId}/progreso")]
+    public IActionResult ObtenerProgreso(int cargaId)
+    {
+        var progreso = _estandarizacionService.ObtenerProgreso(cargaId);
+        if (progreso == null) return Ok(new { enProceso = false });
+        return Ok(new { enProceso = true, procesadas = progreso.Value.Procesadas, total = progreso.Value.Total });
     }
 
     // ─── Revisión de materiales ───────────────────────────────────────────────

@@ -79,7 +79,13 @@ public class SsomaPetPaso
     public int Id { get; set; }
     public int PetId { get; set; }
 
-    // Árbol: null = nivel superior de "Procedimiento". "Orden" es la posición entre
+    // Sección del documento a la que pertenece este árbol: procedimiento (original) |
+    // introduccion | alcance | objetivo | definiciones | responsabilidades |
+    // restricciones. Cada sección es un árbol independiente dentro del mismo PetId —
+    // "hermanos" se agrupan por (PetId, Seccion, ParentId).
+    public string Seccion { get; set; } = "procedimiento";
+
+    // Árbol: null = nivel superior de la sección. "Orden" es la posición entre
     // los HERMANOS del mismo ParentId (no global) — así insertar/reordenar dentro de
     // un subtítulo no toca el orden de otro subtítulo.
     public int? ParentId { get; set; }

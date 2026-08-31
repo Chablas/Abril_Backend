@@ -1,4 +1,4 @@
-﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
@@ -38,44 +38,80 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 await ctx.SaveChangesAsync();
             }
 
-            return await ctx.Project
+            // 3 queries secuenciales (proyecto/zonas/fases) en vez de 1 sola proyección:
+            // la de zonas necesita Include+ToListAsync (ver comentario abajo, es la que
+            // tenía el bug de traducción), lo que rompe el shape de "un solo Select desde
+            // Project" que se usaba antes. No se combinan en 1: ni zonas se puede fusionar
+            // dentro de la proyección de Project sin reintroducir el bug de Concat, ni se
+            // paralelizan con Task.WhenAll: R2 (regla de codificación existente) prohíbe
+            // Task.WhenAll contra la BD salvo Microsoft Graph. Si en el futuro se confirma
+            // que R7 (IDbContextFactory por query paralela) reemplaza/reconcilia eso, esto
+            // es candidato a paralelizarse con 3 DbContext separados — no se hizo acá para
+            // no meter una técnica nueva sin probar en un hotfix de incidente.
+            var proyecto = await ctx.Project
                 .Where(p => p.ProjectId == projectId)
-                .Select(p => new ConfiguracionInicialDto
+                .Select(p => new
                 {
-                    ResponsableId = p.ResponsablePlaneamientoBimId,
-                    ResponsableNombre = p.ResponsablePlaneamientoBim,
-                    MetaPpc = p.MetaPpc,
-                    Zonas = ctx.BimProyectoZona
-                        .Where(z => z.ProjectId == p.ProjectId)
-                        .OrderBy(z => z.Orden)
-                        .Select(z => new ZonaDto
-                        {
-                            Id = z.Id,
-                            Nombre = z.Nombre,
-                            Orden = z.Orden,
-                            Niveles = z.Niveles
-                                .OrderBy(n => n.Orden)
-                                .Select(n => new NivelDto { Id = n.Id, Nombre = n.Nombre, Orden = n.Orden })
-                                .ToList(),
-                            Sectores = z.Sectores
-                                .OrderBy(s => s.Orden)
-                                .Select(s => new SectorDto { Id = s.Id, Nombre = s.Nombre, Orden = s.Orden })
-                                .ToList(),
-                        })
-                        .ToList(),
-                    Fases = ctx.BimProyectoFase
-                        .Where(f => f.ProjectId == p.ProjectId)
-                        .OrderBy(f => f.Fase.Orden)
-                        .Select(f => new FaseDto
-                        {
-                            Id = f.Id,
-                            Nombre = f.Fase.Nombre,
-                            FechaInicio = f.FechaInicio,
-                            FechaFinMeta = f.FechaFinMeta,
-                        })
-                        .ToList(),
+                    p.ResponsablePlaneamientoBimId,
+                    p.ResponsablePlaneamientoBim,
+                    p.MetaPpc,
                 })
-                .FirstOrDefaultAsync();
+                .FirstAsync();
+
+            // Se materializa primero (Include + ToListAsync) y el merge "propio del nivel +
+            // compartido de la zona" se arma en memoria — un .Concat() de dos navegaciones
+            // distintas dentro de una proyección LINQ-to-SQL no es traducible por Npgsql
+            // (InvalidOperationException en runtime, ver incidente CEDRO 33 28/08/2026).
+            var zonasEntidades = await ctx.BimProyectoZona
+                .Where(z => z.ProjectId == projectId)
+                .Include(z => z.Niveles)
+                    .ThenInclude(n => n.Sectores)
+                .Include(z => z.Sectores)
+                .OrderBy(z => z.Orden)
+                .ToListAsync();
+
+            var zonas = zonasEntidades.Select(z => new ZonaDto
+            {
+                Id = z.Id,
+                Nombre = z.Nombre,
+                Orden = z.Orden,
+                Niveles = z.Niveles
+                    .OrderBy(n => n.Orden)
+                    .Select(n => new NivelDto
+                    {
+                        Id = n.Id,
+                        Nombre = n.Nombre,
+                        Orden = n.Orden,
+                        TipoEstructura = n.TipoEstructura,
+                        Sectores = n.Sectores
+                            .Concat(z.Sectores.Where(s => s.ZonaNivelId == null))
+                            .OrderBy(s => s.Orden)
+                            .Select(s => new SectorDto { Id = s.Id, Nombre = s.Nombre, Orden = s.Orden })
+                            .ToList(),
+                    })
+                    .ToList(),
+            }).ToList();
+
+            var fases = await ctx.BimProyectoFase
+                .Where(f => f.ProjectId == projectId)
+                .OrderBy(f => f.Fase.Orden)
+                .Select(f => new FaseDto
+                {
+                    Id = f.Id,
+                    Nombre = f.Fase.Nombre,
+                    FechaInicio = f.FechaInicio,
+                    FechaFinMeta = f.FechaFinMeta,
+                })
+                .ToListAsync();
+
+            return new ConfiguracionInicialDto
+            {
+                ResponsableId = proyecto.ResponsablePlaneamientoBimId,
+                ResponsableNombre = proyecto.ResponsablePlaneamientoBim,
+                MetaPpc = proyecto.MetaPpc,
+                Zonas = zonas,
+                Fases = fases,
+            };
         }
 
         public async Task<List<ResponsableBimLookupDto>> GetResponsables()
@@ -104,6 +140,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             var zonasExistentes = await ctx.BimProyectoZona
                 .Where(z => z.ProjectId == projectId)
                 .Include(z => z.Niveles)
+                    .ThenInclude(n => n.Sectores)
                 .Include(z => z.Sectores)
                 .ToListAsync();
 
@@ -127,7 +164,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
                 zona.Orden = zonaDto.Orden;
 
                 SincronizarNiveles(ctx, zona, zonaDto.Niveles);
-                SincronizarSectores(ctx, zona, zonaDto.Sectores);
+                SincronizarSectoresCompartidos(ctx, zona, zonaDto.SectoresCompartidos);
             }
 
             if (dto.Fases.Count > 0)
@@ -181,24 +218,62 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
                 nivel.Nombre = (nivelDto.Nombre ?? string.Empty).Trim();
                 nivel.Orden = nivelDto.Orden;
+                nivel.TipoEstructura = nivelDto.TipoEstructura;
+
+                SincronizarSectoresDeNivel(ctx, zona, nivel, nivelDto.Sectores);
             }
         }
 
-        private static void SincronizarSectores(AppDbContext ctx, BimProyectoZona zona, List<SectorUpdateDto> sectores)
+        /// <summary>Solo toca sectores EXCLUSIVOS de este nivel (ZonaNivelId == nivel.Id).
+        /// Nunca borra ni edita los "compartidos" — esos los maneja
+        /// SincronizarSectoresCompartidos, aparte.</summary>
+        private static void SincronizarSectoresDeNivel(AppDbContext ctx, BimProyectoZona zona, BimZonaNivel nivel, List<SectorUpdateDto> sectores)
         {
             var idsEnviados = sectores.Where(s => s.Id.HasValue).Select(s => s.Id!.Value).ToHashSet();
-            foreach (var sectorEliminado in zona.Sectores.Where(s => !idsEnviados.Contains(s.Id)).ToList())
+            foreach (var sectorEliminado in nivel.Sectores.Where(s => !idsEnviados.Contains(s.Id)).ToList())
                 ctx.BimZonaSector.Remove(sectorEliminado);
 
             foreach (var sectorDto in sectores)
             {
                 var sector = sectorDto.Id.HasValue
-                    ? zona.Sectores.FirstOrDefault(s => s.Id == sectorDto.Id.Value)
+                    ? nivel.Sectores.FirstOrDefault(s => s.Id == sectorDto.Id.Value)
                     : null;
 
                 if (sector == null)
                 {
-                    sector = new BimZonaSector();
+                    // BimZonaSector tiene 2 relaciones requeridas (Zona vía ZonaId NOT NULL,
+                    // y ZonaNivel vía ZonaNivelId). nivel.Sectores.Add(sector) mas abajo solo
+                    // hace fixup de la relacion con ZonaNivel — la relacion con Zona necesita
+                    // su propio fixup explicito, igual que SincronizarSectoresCompartidos lo
+                    // logra con zona.Sectores.Add(sector). Se asigna la navegacion (no el Id
+                    // escalar) para que funcione aunque zona.Id todavia sea 0 (zona nueva).
+                    sector = new BimZonaSector { Zona = zona };
+                    nivel.Sectores.Add(sector);
+                }
+
+                sector.Nombre = (sectorDto.Nombre ?? string.Empty).Trim();
+                sector.Orden = sectorDto.Orden;
+            }
+        }
+
+        /// <summary>Solo toca sectores COMPARTIDOS de la zona (ZonaNivelId == null).
+        /// Nunca borra ni edita los exclusivos de un nivel.</summary>
+        private static void SincronizarSectoresCompartidos(AppDbContext ctx, BimProyectoZona zona, List<SectorUpdateDto> sectores)
+        {
+            var compartidosExistentes = zona.Sectores.Where(s => s.ZonaNivelId == null).ToList();
+            var idsEnviados = sectores.Where(s => s.Id.HasValue).Select(s => s.Id!.Value).ToHashSet();
+            foreach (var sectorEliminado in compartidosExistentes.Where(s => !idsEnviados.Contains(s.Id)))
+                ctx.BimZonaSector.Remove(sectorEliminado);
+
+            foreach (var sectorDto in sectores)
+            {
+                var sector = sectorDto.Id.HasValue
+                    ? compartidosExistentes.FirstOrDefault(s => s.Id == sectorDto.Id.Value)
+                    : null;
+
+                if (sector == null)
+                {
+                    sector = new BimZonaSector { ZonaNivelId = null };
                     zona.Sectores.Add(sector);
                 }
 

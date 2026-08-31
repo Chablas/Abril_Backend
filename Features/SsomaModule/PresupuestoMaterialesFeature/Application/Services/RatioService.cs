@@ -21,6 +21,53 @@ public class RatioService : IRatioService
 
     public async Task<CalcularRatiosResultDto> CalcularRatiosProyectoAsync(int projectId)
     {
+        var familiaIdsAfectadas = new HashSet<int>();
+        var resultado = await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsAfectadas);
+
+        // Detectar outliers con IQR comparando la MISMA familia entre todos los proyectos
+        // (no familias distintas dentro de este proyecto — eso comparaba peras con manzanas),
+        // en un solo lote (antes era una consulta + guardado por familia).
+        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.ToList());
+
+        return resultado;
+    }
+
+    /// <summary>
+    /// Calcula ratios de TODOS los proyectos que tengan consumo SSOMA estandarizado, de una sola vez
+    /// — antes había que entrar a la ficha de cada proyecto y darle "Calcular" uno por uno, algo que
+    /// hay que repetir cada vez que cambia el Kardex de cualquier histórico. La detección de outliers
+    /// corre una sola vez al final, sobre todas las familias que se tocaron en el lote entero (no una
+    /// vez por proyecto), que es más rápido y da el mismo resultado porque solo mira el estado final.
+    /// </summary>
+    public async Task<CalcularRatiosTodosResultDto> CalcularRatiosTodosLosProyectosAsync()
+    {
+        var proyectos = await _repo.ObtenerProyectosConConsumoEstandarizadoAsync();
+        var resultado = new CalcularRatiosTodosResultDto { TotalProyectosProcesados = proyectos.Count };
+        var familiaIdsAfectadas = new HashSet<int>();
+
+        foreach (var (projectId, projectDescription) in proyectos)
+        {
+            try
+            {
+                resultado.Proyectos.Add(await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsAfectadas));
+            }
+            catch (AbrilException ex)
+            {
+                resultado.Proyectos.Add(new CalcularRatiosResultDto
+                {
+                    ProjectId = projectId,
+                    ProjectDescription = projectDescription,
+                    Advertencias = [ex.Message]
+                });
+            }
+        }
+
+        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.ToList());
+        return resultado;
+    }
+
+    private async Task<CalcularRatiosResultDto> CalcularRatiosProyectoInternoAsync(int projectId, HashSet<int> familiaIdsAfectadas)
+    {
         using var ctx = _factory.CreateDbContext();
         var proyecto = await ctx.Project.FindAsync(projectId)
             ?? throw new AbrilException("Proyecto no encontrado.", 404);
@@ -72,11 +119,8 @@ public class RatioService : IRatioService
 
         // Una sola conexion para todas las familias (antes se abria una por familia).
         await _repo.UpsertRatiosBulkAsync(itemsAGuardar);
-
-        // Detectar outliers con IQR comparando la MISMA familia entre todos los proyectos
-        // (no familias distintas dentro de este proyecto — eso comparaba peras con manzanas),
-        // en un solo lote (antes era una consulta + guardado por familia).
-        await RecalcularOutliersDeFamiliasAsync(itemsAGuardar.Select(i => i.FamiliaId).Distinct().ToList());
+        foreach (var id in itemsAGuardar.Select(i => i.FamiliaId).Distinct())
+            familiaIdsAfectadas.Add(id);
 
         return resultado;
     }

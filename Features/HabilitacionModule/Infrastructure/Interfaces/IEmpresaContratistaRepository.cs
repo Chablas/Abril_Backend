@@ -16,5 +16,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<SsEmpresaProyecto>> GetProyectosAsync(int empresaId);
         Task AddProyectoAsync(SsEmpresaProyecto ep);
         Task RemoveProyectoAsync(int empresaId, int proyectoId);
+        Task<int?> GetProyectoActualDeUsuarioAsync(int userId);
     }
 }

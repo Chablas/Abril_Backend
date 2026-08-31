@@ -27,6 +27,8 @@ public class RatioUpsertItem
 public interface IRatioRepository
 {
     Task<List<RatioRawData>> ObtenerConsumosPorProyectoAsync(int projectId);
+    /// <summary>Proyectos que tienen al menos una línea de consumo SSOMA ya estandarizada — candidatos para "Calcular ratios de todos".</summary>
+    Task<List<(int ProjectId, string ProjectDescription)>> ObtenerProyectosConConsumoEstandarizadoAsync();
     Task UpsertRatiosBulkAsync(List<RatioUpsertItem> items);
     Task<List<RatioProyectoDto>> ObtenerRatiosPorProyectoAsync(int projectId);
     Task<List<RatioProyectoDto>> ObtenerRatiosPorFamiliaAsync(int familiaId);

@@ -7,7 +7,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     /// <summary>
-    /// Configuración de los destinatarios de los 4 correos de EMO: programación
+    /// Configuración de los destinatarios de los correos de EMO: programación
     /// automática, programación manual, aceptada por la clínica y rechazada por la
     /// clínica. Cada correo se configura por perfil de trabajador
     /// (Oficina Central / Staff / Obra / Contratista).

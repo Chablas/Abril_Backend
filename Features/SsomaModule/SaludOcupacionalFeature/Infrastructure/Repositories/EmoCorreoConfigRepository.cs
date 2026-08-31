@@ -166,9 +166,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             ctx.SsEmoCorreoDestinatario.Add(dest);
             await ctx.SaveChangesAsync();
 
-            // Celda en los 4 correos × 4 perfiles: activo solo en el correo desde cuya
-            // sección se agregó, para que el alta haga lo que el usuario espera sin
-            // prenderle de golpe los otros tres.
+            // Celda en cada correo × perfil: activo solo en el correo desde cuya sección se
+            // agregó, para que el alta haga lo que el usuario espera sin prenderle de golpe
+            // los demás.
             var eventos  = await ctx.SsEmoCorreoEvento.AsNoTracking()
                 .Where(e => e.State).Select(e => new { e.Id, e.Codigo }).ToListAsync();
             var perfiles = await ctx.SsEmoCorreoPerfil.AsNoTracking()

@@ -32,7 +32,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             _logger  = logger;
         }
 
-        /// <summary>Perfiles y los 4 correos con su matriz completa, en una sola petición.</summary>
+        /// <summary>Perfiles y los correos con su matriz completa, en una sola petición.</summary>
         [HttpGet("correos")]
         public async Task<IActionResult> GetCorreos()
         {

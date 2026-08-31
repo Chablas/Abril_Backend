@@ -13,10 +13,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
     /// negocio Abril controla únicamente el EMO de sus propios trabajadores, así que un
     /// trabajador de contratista no cae en ningún perfil y no recibe estos correos.
     ///
-    /// Tiene los mismos 3 valores que <c>workers_obra_oficina_staff</c> pero no lo
-    /// reutiliza: este es un catálogo de configuración de correos y aquel es de datos
-    /// maestros de RR.HH.; atarlos obligaría a que agregar una modalidad de trabajador
-    /// cambiara en silencio la matriz de destinatarios.
+    /// No reutiliza <c>workers_obra_oficina_staff</c>: este es un catálogo de configuración
+    /// de correos y aquel es de datos maestros de RR.HH.; atarlos obligaría a que agregar una
+    /// modalidad de trabajador cambiara en silencio la matriz de destinatarios. De hecho ya
+    /// difieren: "Personal Externo" existe allá y acá cae en <c>OBRA</c> (ver
+    /// <c>EmoCorreoPerfilCodigo.Resolver</c>).
     /// </summary>
     [Table("ss_emo_correo_perfil")]
     public class SsEmoCorreoPerfil
@@ -25,7 +26,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("id")]
         public int Id { get; set; }
 
-        /// <summary>Clave estable: OFICINA_CENTRAL, STAFF, OBRA, CONTRATISTA.</summary>
+        /// <summary>Clave estable: OFICINA_CENTRAL, STAFF, OBRA.</summary>
         [Column("codigo")]
         public string Codigo { get; set; } = string.Empty;
 

@@ -6,7 +6,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
     /// <summary>
     /// Catálogo de los correos de EMO cuyos destinatarios se configuran en
     /// /ssoma/salud-ocupacional/emos/configuracion (una sección por fila):
-    /// programación automática, programación manual, aceptada y rechazada.
+    /// programación automática, programación manual, aceptada, rechazada y el
+    /// resultado del examen.
     ///
     /// Es el eje "correo" de la matriz <see cref="SsEmoCorreoRegla"/>.
     /// </summary>
@@ -17,7 +18,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("id")]
         public int Id { get; set; }
 
-        /// <summary>Clave estable: PROGRAMACION_AUTOMATICA, PROGRAMACION_MANUAL, ACEPTADA, RECHAZADA.</summary>
+        /// <summary>Clave estable: PROGRAMACION_AUTOMATICA, PROGRAMACION_MANUAL, ACEPTADA, RECHAZADA, RESULTADO.</summary>
         [Column("codigo")]
         public string Codigo { get; set; } = string.Empty;
 

@@ -10,8 +10,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
     ///
     /// Hay tres clases de fila, distinguidas por <see cref="Codigo"/> y <see cref="Email"/>:
     ///  • <b>Dinámica</b> (código + sin correo): el correo NO vive acá, se resuelve al
-    ///    enviar según el trabajador — <c>CLINICA</c>, <c>JEFE</c>, <c>TRABAJADOR</c>,
-    ///    <c>RESIDENTE</c>, <c>COORD_ADMIN</c>, <c>COORD_SSOMA</c>,
+    ///    enviar según el trabajador — <c>CLINICA</c>, <c>JEFE</c>, <c>JEFE_SOLICITANTE</c>,
+    ///    <c>TRABAJADOR</c>, <c>RESIDENTE</c>, <c>COORD_ADMIN</c>, <c>COORD_SSOMA</c>,
     ///    <c>ADMIN_RAZON_SOCIAL</c>, <c>GTH</c>. No se editan ni se eliminan.
     ///  • <b>Buzón de área</b> (código + correo): el correo vive acá y se edita desde la
     ///    pantalla, pero la fila no se puede eliminar — <c>MEDICINA_OCUPACIONAL</c>,

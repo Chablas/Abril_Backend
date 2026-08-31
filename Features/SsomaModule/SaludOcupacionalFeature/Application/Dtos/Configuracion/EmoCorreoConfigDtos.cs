@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
     }
 
     /// <summary>
-    /// Códigos del catálogo <c>ss_emo_correo_evento</c>: los 4 correos de EMO cuyos
+    /// Códigos del catálogo <c>ss_emo_correo_evento</c>: los correos de EMO cuyos
     /// destinatarios se configuran en /ssoma/salud-ocupacional/emos/configuracion.
     /// </summary>
     public static class EmoCorreoEventoCodigo
@@ -23,6 +23,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         public const string Aceptada               = "ACEPTADA";
         /// <summary>La clínica rechazó la cita.</summary>
         public const string Rechazada              = "RECHAZADA";
+        /// <summary>
+        /// Se registró el resultado del examen. Solo sale con un veredicto cerrado —Apto,
+        /// Apto con Restricciones o No Apto—; "Observado" no envía nada porque todavía no
+        /// hay resultado que comunicar (ver <c>EmoResultadoNotificacionService</c>).
+        /// </summary>
+        public const string Resultado              = "RESULTADO";
     }
 
     /// <summary>
@@ -76,6 +82,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         public const string Clinica            = "CLINICA";
         /// <summary>Jefe personalizado del trabajador o, si no tiene, el revisor de su área.</summary>
         public const string Jefe               = "JEFE";
+        /// <summary>
+        /// El mismo <see cref="Jefe"/> mientras el trabajador ya esté en Abril, pero el
+        /// <b>solicitante de la vacante</b> cuando la ficha todavía es de pre-ingreso
+        /// (<c>workers.workers_estado_id</c> en <c>WorkersEstadoIds.PreIngreso</c>): a un
+        /// postulante que viene de Solicitud de Personal el resultado de su EMO le importa a
+        /// quien pidió la vacante, no al revisor del área a la que todavía no entró.
+        ///
+        /// Es un destinatario aparte de <see cref="Jefe"/> a propósito: los otros correos de
+        /// EMO no tienen por qué cambiar de destinatario por esto.
+        /// </summary>
+        public const string JefeSolicitante    = "JEFE_SOLICITANTE";
         /// <summary>Correo corporativo del propio trabajador.</summary>
         public const string Trabajador         = "TRABAJADOR";
         /// <summary>Residente del proyecto donde está vinculado el trabajador.</summary>
@@ -168,7 +185,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
 
     /// <summary>
     /// Respuesta única de la pantalla de Configuración de EMOs: los perfiles (columnas)
-    /// y los 4 correos con su matriz completa, en una sola petición.
+    /// y los correos con su matriz completa, en una sola petición.
     /// </summary>
     public class EmoCorreosConfigDto
     {
@@ -180,7 +197,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
 
     public class EmoCorreoAdicionalCreateDto
     {
-        /// <summary>Correo desde cuya sección se está agregando: nace activo en sus 4 perfiles.</summary>
+        /// <summary>Correo desde cuya sección se está agregando: nace activo en todos sus perfiles.</summary>
         public string EventoCodigo { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? Nombre { get; set; }

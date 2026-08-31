@@ -240,12 +240,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return entregable;
         }
 
-        public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId)
+        public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int proyectoId, int itemId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var habEmpresaIds = await ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == empresaId && h.ItemId == itemId)
+                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId && h.ItemId == itemId)
                 .Select(h => h.Id)
                 .ToListAsync();
 

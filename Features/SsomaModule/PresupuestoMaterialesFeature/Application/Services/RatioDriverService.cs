@@ -43,6 +43,13 @@ public class RatioDriverService : IRatioDriverService
 
         foreach (var p in proyectos)
         {
+            // Un proyecto que sigue Activo/Inactivo (obra sin cerrar) aporta un HH/Trabajadores
+            // parcial, no el total real de la obra — por eso arranca EXCLUIDO del cálculo de la
+            // mediana por defecto. Solo un proyecto Finalizado se incluye automáticamente. El
+            // responsable siempre puede forzar la inclusión a mano desde la pantalla de Ratios,
+            // y esa decisión manual queda registrada y no se pisa en recálculos posteriores.
+            var incluidoPorDefecto = p.CicloVida == "Finalizado";
+
             if (hhPorProyecto.TryGetValue(p.ProjectId, out var hh) && hh.HhTotal > 0)
             {
                 items.Add(new RatioDriverUpsertItem
@@ -53,6 +60,7 @@ public class RatioDriverService : IRatioDriverService
                     Cantidad = hh.HhTotal,
                     Ratio = hh.HhTotal / p.AreaTechada,
                     DiasRegistrados = hh.DiasRegistrados,
+                    IncluidoManualDefault = incluidoPorDefecto,
                 });
             }
             else
@@ -70,6 +78,7 @@ public class RatioDriverService : IRatioDriverService
                     Cantidad = trab.TotalTrabajadoresDistintos,
                     Ratio = trab.TotalTrabajadoresDistintos / p.AreaTechada,
                     DiasRegistrados = 0,
+                    IncluidoManualDefault = incluidoPorDefecto,
                 });
             }
         }

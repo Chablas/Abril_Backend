@@ -11,12 +11,19 @@ using Microsoft.AspNetCore.Http;
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
 
 /// <summary>
-/// Importa el Excel semanal de Horas Hombre (planilla/Tareo, ej. "PROYECTOTAREOOBREROTOTAL"):
-/// complementa al HH del Tareo de Control de Acceso, que queda parcial cuando no arranca junto
-/// con el proyecto (ver RatioDriverRepository.ObtenerHhRealPorProyectoAsync). A diferencia de
-/// materiales, aquí NO se filtra por Partida de Control — el driver de HH necesita el total de
-/// horas de TODA la obra (todos los oficios), no solo SSOMA, como denominador del ratio de
-/// consumo SSOMA por HH trabajada.
+/// Importa el Excel semanal de Horas Hombre (planilla/Tareo, ej. "PROYECTOTAREOOBREROTOTAL").
+/// Se importan TODAS las partidas de control (no solo Seguridad y Salud Ocupacional) porque esta
+/// misma carga alimenta dos usos distintos:
+///   1. HH de Seguridad y Salud Ocupacional, para ver consumo de materiales SSOMA según hitos del
+///      cronograma (filtra por Partida de Control al consultar, no al importar).
+///   2. HH totales y personal total (obreros) de TODA la obra, usado como driver de "Ratios de
+///      dotación" (ver RatioDriverRepository.ObtenerHhRealPorProyectoAsync) — necesita todas las
+///      partidas, no solo SSOMA.
+/// Lo único que se descarta siempre, en ambos usos, es el personal "EMPLEADO" en Recurso
+/// Equivalente (personal de planilla/staff, no obrero) — criterio confirmado por el responsable
+/// SSOMA. Que un archivo dé 0 filas válidas es un resultado legítimo (todo el personal del
+/// período era EMPLEADO) y no bloquea el import: igual se registra la carga para que el diff dé
+/// de baja lo que ya estaba activo y no vuelve a aparecer.
 /// </summary>
 public class HhCargaService : IHhCargaService
 {
@@ -34,18 +41,25 @@ public class HhCargaService : IHhCargaService
         }
         var hash = Convert.ToHexString(SHA256.HashData(contenidoBytes));
 
-        var (lineasRaw, proyectosDistintos) = ParsearHh(contenidoBytes, archivo.FileName);
-        if (lineasRaw.Count == 0)
-            throw new AbrilException("No se encontraron filas de Horas Hombre válidas en el archivo.", 400);
+        var (lineasRaw, proyectosDistintos, descartadas, totalFilasLeidas, anioMinRaw, anioMaxRaw, semanaMinRaw, semanaMaxRaw)
+            = ParsearHh(contenidoBytes, archivo.FileName);
+        if (totalFilasLeidas == 0)
+            throw new AbrilException("No se encontraron filas con datos en el archivo (verifica Año, Semana, Trabajador y Horas).", 400);
 
         var advertencias = new List<string>();
+        if (descartadas > 0)
+            advertencias.Add($"{descartadas} fila(s) descartadas por ser Recurso Equivalente \"EMPLEADO\".");
+        if (lineasRaw.Count == 0)
+            advertencias.Add("Todo el personal del archivo es \"EMPLEADO\" — se registra la carga en 0 y se da de baja todo lo que estaba activo antes.");
         if (proyectosDistintos.Count > 1)
             advertencias.Add($"El archivo trae más de un proyecto en la columna \"Proyecto\" ({string.Join(", ", proyectosDistintos)}). Verifica que sea el archivo correcto — solo se cargó contra el proyecto seleccionado.");
 
-        var anioMin = lineasRaw.Min(l => l.Anio);
-        var anioMax = lineasRaw.Max(l => l.Anio);
-        var semanaMin = lineasRaw.Where(l => l.Anio == anioMin).Min(l => l.SemanaNum);
-        var semanaMax = lineasRaw.Where(l => l.Anio == anioMax).Max(l => l.SemanaNum);
+        // Período del archivo completo (no solo de las líneas SSOMA que sobrevivan el filtro),
+        // para que una carga que filtra a 0 filas igual registre el período real cubierto.
+        var anioMin = anioMinRaw!.Value;
+        var anioMax = anioMaxRaw!.Value;
+        var semanaMin = semanaMinRaw!.Value;
+        var semanaMax = semanaMaxRaw!.Value;
 
         var lineasConOcurrencia = lineasRaw
             .OrderBy(l => l.Anio).ThenBy(l => l.SemanaNum).ThenBy(l => l.Trabajador)
@@ -154,7 +168,10 @@ public class HhCargaService : IHhCargaService
     private record LineaRaw(int Anio, int SemanaNum, string Trabajador, string? Ocupacion, string? PartidaControl,
         decimal HorasLaboradas, decimal? CostoHhNormal, decimal? Parcial);
 
-    private static (List<LineaRaw> Lineas, List<string> ProyectosDistintos) ParsearHh(byte[] bytes, string nombreArchivo)
+    private const string RECURSO_EXCLUIDO = "EMPLEADO";
+
+    private static (List<LineaRaw> Lineas, List<string> ProyectosDistintos, int Descartadas, int TotalFilasLeidas, int? AnioMin, int? AnioMax, int? SemanaMin, int? SemanaMax)
+        ParsearHh(byte[] bytes, string nombreArchivo)
     {
         using var stream = new MemoryStream(bytes);
         using var wb = new XLWorkbook(stream);
@@ -169,6 +186,9 @@ public class HhCargaService : IHhCargaService
 
         var lineas = new List<LineaRaw>();
         var proyectos = new HashSet<string>();
+        var descartadas = 0;
+        var totalFilasLeidas = 0;
+        int? anioMin = null, anioMax = null, semanaMin = null, semanaMax = null;
         int lastRow = ws.LastRowUsed()?.RowNumber() ?? headerRow;
 
         for (int r = headerRow + 1; r <= lastRow; r++)
@@ -192,10 +212,29 @@ public class HhCargaService : IHhCargaService
 
             if (!TryLeerDecimal(ws.Cell(r, cols["horas"]), out var horas)) continue;
 
+            // Cuenta y rango de período sobre TODAS las filas con datos válidos, antes de
+            // descartar por Recurso Equivalente — así una carga que filtra a 0 filas igual
+            // conserva el período real del archivo y no se confunde con un archivo vacío/roto.
+            totalFilasLeidas++;
+            anioMin = anioMin is null ? anio : Math.Min(anioMin.Value, anio);
+            anioMax = anioMax is null ? anio : Math.Max(anioMax.Value, anio);
+            if (anioMin == anio) semanaMin = semanaMin is null ? semana : Math.Min(semanaMin.Value, semana);
+            if (anioMax == anio) semanaMax = semanaMax is null ? semana : Math.Max(semanaMax.Value, semana);
+
             decimal? costoHh = cols.TryGetValue("costohh", out var chCol) && TryLeerDecimal(ws.Cell(r, chCol), out var ch) ? ch : null;
             decimal? parcial = cols.TryGetValue("parcial", out var paCol) && TryLeerDecimal(ws.Cell(r, paCol), out var pa) ? pa : null;
             var ocupacion = cols.TryGetValue("ocupacion", out var oCol) ? ws.Cell(r, oCol).GetString().Trim() : null;
             var partida = cols.TryGetValue("partida", out var prCol) ? ws.Cell(r, prCol).GetString().Trim() : null;
+            var recurso = cols.TryGetValue("recurso", out var rCol) ? ws.Cell(r, rCol).GetString().Trim() : null;
+
+            // Se importan todas las partidas (SSOMA y no-SSOMA); solo se descarta personal
+            // EMPLEADO (staff, no obrero). "Contains" y no "==" porque el valor de Recurso
+            // Equivalente trae código + nombre (ej. "0101010005 PEON"), no el texto solo.
+            if (!string.IsNullOrWhiteSpace(recurso) && NormalizarTexto(recurso).Contains(RECURSO_EXCLUIDO))
+            {
+                descartadas++;
+                continue;
+            }
 
             lineas.Add(new LineaRaw(anio, semana, trabajador,
                 string.IsNullOrWhiteSpace(ocupacion) ? null : ocupacion,
@@ -203,7 +242,7 @@ public class HhCargaService : IHhCargaService
                 horas, costoHh, parcial));
         }
 
-        return (lineas, proyectos.ToList());
+        return (lineas, proyectos.ToList(), descartadas, totalFilasLeidas, anioMin, anioMax, semanaMin, semanaMax);
     }
 
     private static int EncontrarFilaEncabezado(IXLWorksheet ws)
@@ -242,6 +281,8 @@ public class HhCargaService : IHhCargaService
                 map["ocupacion"] = c;
             else if (val.Contains("PARTIDA") && !map.ContainsKey("partida"))
                 map["partida"] = c;
+            else if (val.Contains("RECURSO") && !map.ContainsKey("recurso"))
+                map["recurso"] = c;
             else if (val.Contains("COSTO") && val.Contains("HH") && !map.ContainsKey("costohh"))
                 map["costohh"] = c;
             else if (val == "PARCIAL" && !map.ContainsKey("parcial"))
@@ -254,10 +295,16 @@ public class HhCargaService : IHhCargaService
 
     private static void ValidarColumnasRequeridas(Dictionary<string, int> cols, string archivo)
     {
-        var requeridas = new[] { "anio", "semana", "trabajador", "horas" };
+        // "recurso" es obligatoria porque es la única forma de excluir EMPLEADO — sin ella no se
+        // puede garantizar que el HH importado sea el correcto, así que se rechaza el archivo en
+        // vez de importar todo. "partida" no es obligatoria para importar (ya no se filtra por
+        // ella acá), pero se guarda si está presente para el futuro filtro de consumo por hitos.
+        var requeridas = new[] { "anio", "semana", "trabajador", "horas", "recurso" };
         var faltantes = requeridas.Where(r => !cols.ContainsKey(r)).ToList();
         if (faltantes.Count > 0)
-            throw new AbrilException($"Archivo '{archivo}': no se encontraron columnas {string.Join(", ", faltantes)}. Se requiere Año, Periodo Semanal, Apellidos y Nombres y Horas laboradas.", 400);
+            throw new AbrilException(
+                $"Archivo '{archivo}': no se encontraron columnas {string.Join(", ", faltantes)}. " +
+                "Se requiere Año, Periodo Semanal, Apellidos y Nombres, Horas laboradas y Recurso Equivalente.", 400);
     }
 
     private static string NormalizarTexto(string s) =>

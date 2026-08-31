@@ -77,10 +77,20 @@ public class EstandarizacionRepository : IEstandarizacionRepository
     public async Task CrearAliasAsync(string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal confianza)
     {
         using var conn = Conn();
+        // DO UPDATE (no DO NOTHING): esta función solo se llama cuando el matcher NO encontró
+        // un alias activo para este texto (ver EstandarizacionService/RevisionMaterialesService) —
+        // si ya existía una fila con este texto_crudo_norm, es porque estaba apuntando a un ítem
+        // descontinuado (no_usar/inactivo) y por eso era invisible para el match. Con DO NOTHING
+        // esa fila vieja bloqueaba para siempre la corrección (bug real: "BARRA RETRACTILES"
+        // quedó años apuntando a un ítem no_usar del SEED inicial sin que nada lo corrigiera).
         const string sql = """
             INSERT INTO ss_material_alias (texto_crudo, texto_crudo_norm, item_id, origen, confianza, creado_en)
             VALUES (@textoCrudo, @textoCrudoNorm, @itemId, @origen, @confianza, now())
-            ON CONFLICT (texto_crudo_norm) DO NOTHING
+            ON CONFLICT (texto_crudo_norm) DO UPDATE SET
+                item_id = EXCLUDED.item_id,
+                origen = EXCLUDED.origen,
+                confianza = EXCLUDED.confianza,
+                creado_en = now()
             """;
         await conn.ExecuteAsync(sql, new { textoCrudo, textoCrudoNorm, itemId, origen, confianza = (double)confianza });
     }

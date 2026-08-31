@@ -36,7 +36,7 @@ public class PetsImportService : IPetsImportService
         ("DEFINICIONES", "definiciones", null),
         ("RESPONSABILIDADES", null, "responsabilidades"),
         ("GESTION DE PERSONAL", null, null),
-        ("PROCEDIMIENTO DE TRABAJO", null, "procedimiento"),
+        ("PROCEDIMIENTO", null, "procedimiento"),
         ("RESTRICCIONES", "restricciones", null),
         ("ANEXOS", null, null),
     ];
@@ -73,7 +73,9 @@ public class PetsImportService : IPetsImportService
         {
             for (var i = 0; i < paragraphs.Count; i++)
             {
-                if (EsTituloDeSeccion(GetParagraphText(paragraphs[i]), m.Marcador))
+                var styleId = paragraphs[i].ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+                var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
+                if (EsTituloDeSeccion(GetParagraphText(paragraphs[i]), styleName, m.Marcador))
                 {
                     limites.Add((i, m.SeccionTexto, m.SeccionArbol));
                     break;
@@ -266,10 +268,31 @@ public class PetsImportService : IPetsImportService
     // instrucciones de la plantilla, que explican qué hace este marcador). Por eso
     // se exige igualdad después de quitar un posible número/punto inicial, en vez de
     // un simple "contains".
-    private static bool EsTituloDeSeccion(string texto, string marcador)
+    //
+    // Los PETS reales no siempre usan el texto exacto de la plantilla (ej.
+    // "Procedimiento (Paso a paso)" en vez de "Procedimiento de Trabajo"), así que
+    // si no hay igualdad exacta se acepta una coincidencia flexible: el párrafo debe
+    // tener estilo de encabezado (Heading/Título), ser corto (no un párrafo de
+    // cuerpo) y EMPEZAR con el marcador seguido de un separador no alfanumérico
+    // (espacio, paréntesis, coma...). Eso evita falsos positivos como "Procedimientos
+    // internos..." (texto de cuerpo que empieza con la misma palabra en plural).
+    private static bool EsTituloDeSeccion(string texto, string? styleName, string marcador)
     {
         var limpio = Regex.Replace(texto.Trim(), @"^\d+[\.\)]?\s*-?\s*", "").TrimEnd('.', ':', ' ');
-        return Normalizar(limpio) == Normalizar(marcador);
+        var limpioNorm = Normalizar(limpio);
+        var marcadorNorm = Normalizar(marcador);
+
+        if (limpioNorm == marcadorNorm) return true;
+
+        // "tulo" (no "t[ií]tulo") a propósito: algunos documentos exportados desde
+        // LibreOffice pierden la tilde del nombre de estilo ("Título1" -> "Ttulo1"),
+        // así que exigir la í rompía la detección. "tulo" sigue siendo específico
+        // (no aparece en otros nombres de estilo) y cubre Título/Titulo/Ttulo/Subtítulo.
+        var esEncabezado = styleName != null && Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase);
+        if (!esEncabezado || limpio.Length > 60 || !limpioNorm.StartsWith(marcadorNorm)) return false;
+
+        var siguiente = limpioNorm.Length > marcadorNorm.Length ? limpioNorm[marcadorNorm.Length] : ' ';
+        return !char.IsLetterOrDigit(siguiente);
     }
 
     private static Dictionary<string, string> LoadStyleNames(MainDocumentPart mainPart)

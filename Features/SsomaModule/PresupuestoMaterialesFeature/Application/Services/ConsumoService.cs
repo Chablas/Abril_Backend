@@ -131,6 +131,8 @@ public class ConsumoService : IConsumoService
         var advertencias = new List<string>();
         if (idsDarDeBaja.Count > 0)
             advertencias.Add($"{idsDarDeBaja.Count} línea(s) ya cargadas no aparecen en este archivo y se dieron de baja (posible regularización/anulación en el ERP). Revísalas en el historial de cargas.");
+        if (resultadoEstand.ConError > 0)
+            advertencias.Add($"{resultadoEstand.ConError} línea(s) no se pudieron procesar por un error puntual (ej. corte breve de conexión). Usa el botón \"Re-estandarizar\" de esta carga para reintentarlas.");
 
         return new ImportConsumoResultDto
         {
@@ -196,11 +198,10 @@ public class ConsumoService : IConsumoService
             if (!NormalizarTexto(partida).Contains(PartidaSsoma)) continue; // solo partida SSOMA
 
             var nroGuia = ws.Cell(r, cols["guia"]).GetString().Trim();
-            var fechaStr = ws.Cell(r, cols["fecha"]).GetString().Trim();
 
             if (!TryLeerDecimal(ws.Cell(r, cols["cantidad"]), out var cantidadRaw)) continue;
             if (!TryLeerDecimal(ws.Cell(r, cols["precio"]), out var precio)) continue;
-            if (!ParseFecha(fechaStr, out var fecha)) continue;
+            if (!TryLeerFecha(ws.Cell(r, cols["fecha"]), out var fecha)) continue;
 
             var cantidad = Math.Abs(cantidadRaw); // los egresos vienen en negativo en el Kardex
             decimal precioTotal;
@@ -305,6 +306,33 @@ public class ConsumoService : IConsumoService
         s = s.Replace(".", "").Replace(",", ".");
         return decimal.TryParse(s, System.Globalization.NumberStyles.Any,
             System.Globalization.CultureInfo.InvariantCulture, out result);
+    }
+
+    /// <summary>
+    /// Lee la fecha desde el valor nativo de la celda cuando es posible, en vez de confiar en el
+    /// texto formateado (GetString): un Kardex con la columna Fecha Guía como celda de fecha real
+    /// pero con un formato numérico regional que ClosedXML no renderiza como "dd/MM/yyyy" (ni como
+    /// número puro) hacía fallar el parseo de TODAS las filas en silencio — quedaba "sin cambio" en
+    /// realidad "sin ninguna fila válida", con 0 líneas y el error genérico de "no se encontraron
+    /// egresos" aunque Movimiento y Partida estuvieran perfectos.
+    /// </summary>
+    private static bool TryLeerFecha(IXLCell cell, out DateOnly result)
+    {
+        if (cell.DataType == XLDataType.DateTime)
+        {
+            result = DateOnly.FromDateTime(cell.GetDateTime());
+            return true;
+        }
+        if (cell.DataType == XLDataType.Number)
+        {
+            var serial = cell.GetValue<double>();
+            if (serial > 1000)
+            {
+                try { result = DateOnly.FromDateTime(DateTime.FromOADate(serial)); return true; }
+                catch { /* cae al parseo de texto */ }
+            }
+        }
+        return ParseFecha(cell.GetString().Trim(), out result);
     }
 
     private static bool ParseFecha(string s, out DateOnly result)

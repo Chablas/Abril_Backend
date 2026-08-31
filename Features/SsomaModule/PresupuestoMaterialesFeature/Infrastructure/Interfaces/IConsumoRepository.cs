@@ -3,6 +3,12 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastruc
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 
+/// <summary>Resultado ya decidido para una línea, pendiente de persistir — junto a otros miles en
+/// AplicarResultadosEstandarizacionAsync, una sola vez, en vez de un SaveChanges por línea.</summary>
+public record ResultadoLineaParaGuardar(
+    long LineaId, bool Estandarizado, int? ItemId, bool PerteneceSsoma,
+    string? MetodoMatch, decimal? ScoreMatch, string? EstadoRevision, decimal FactorConversion);
+
 public interface IConsumoRepository
 {
     Task<SsConsumoCarga> CrearCargaAsync(SsConsumoCarga carga);
@@ -24,6 +30,9 @@ public interface IConsumoRepository
     Task MarcarSinMatchAsync(long lineaId);
     /// <summary>Ya se sabe (alias de rechazo) que este texto no es SSOMA: rechaza directo, sin pasar por Revisión.</summary>
     Task MarcarRechazadoAutomaticoAsync(long lineaId);
+    /// <summary>Persiste en una sola operación el resultado ya decidido de un lote entero de líneas
+    /// (usado por EstandarizarCargaAsync) — evita un SaveChanges por línea en lotes grandes.</summary>
+    Task AplicarResultadosEstandarizacionAsync(List<ResultadoLineaParaGuardar> resultados);
     Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes);
     Task ActualizarResumenCargaAsync(int cargaId, int totalLineas, int nuevas, int actualizadas, int eliminadas);
     Task<List<ConsumoCargaResumenDto>> ObtenerCargasPorProyectoAsync(int projectId);

@@ -116,6 +116,31 @@ public class ConsumoRepository : IConsumoRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task AplicarResultadosEstandarizacionAsync(List<ResultadoLineaParaGuardar> resultados)
+    {
+        if (resultados.Count == 0) return;
+        using var ctx = _factory.CreateDbContext();
+        var ids = resultados.Select(r => r.LineaId).ToList();
+        var lineasPorId = await ctx.SsConsumoLinea.Where(l => ids.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+
+        foreach (var r in resultados)
+        {
+            if (!lineasPorId.TryGetValue(r.LineaId, out var linea)) continue;
+            linea.Estandarizado = r.Estandarizado;
+            linea.ItemId = r.ItemId;
+            linea.PerteneceSsoma = r.PerteneceSsoma;
+            linea.MetodoMatch = r.MetodoMatch;
+            linea.ScoreMatch = r.ScoreMatch;
+            linea.EstadoRevision = r.EstadoRevision;
+            if (r.Estandarizado)
+            {
+                linea.CantidadReal = linea.Cantidad * r.FactorConversion;
+                linea.PrecioUnitarioReal = linea.CantidadReal > 0 ? linea.PrecioTotal / linea.CantidadReal : 0;
+            }
+        }
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes)
     {
         using var ctx = _factory.CreateDbContext();

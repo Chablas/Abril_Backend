@@ -62,6 +62,19 @@ public class RatioMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al calcular ratios." }); }
     }
 
+    /// <summary>Calcula ratios de TODOS los proyectos con consumo SSOMA estandarizado de una sola vez
+    /// (en vez de entrar proyecto por proyecto) — útil tras estandarizar varios históricos seguidos.</summary>
+    [HttpPost("proyectos/calcular-todos")]
+    public async Task<IActionResult> CalcularTodos()
+    {
+        try
+        {
+            var resultado = await _ratioService.CalcularRatiosTodosLosProyectosAsync();
+            return Ok(resultado);
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al calcular ratios de todos los proyectos." }); }
+    }
+
     /// <summary>Obtiene los ratios calculados de un proyecto.</summary>
     [HttpGet("proyectos/{projectId}")]
     public async Task<IActionResult> ObtenerPorProyecto(int projectId)

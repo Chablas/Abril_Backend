@@ -77,6 +77,9 @@ public class RevisionResultDto
     public int Autorizados { get; set; }
     public int Rechazados { get; set; }
     public int NotificacionesEnviadas { get; set; }
+    /// <summary>Otras líneas pendientes (cualquier proyecto) con el mismo texto crudo exacto que se
+    /// resolvieron solas al aplicar la misma decisión que el usuario ya confirmó para ese texto.</summary>
+    public int AplicadosRetroactivamente { get; set; }
     public List<string> Errores { get; set; } = [];
 }
 

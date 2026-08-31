@@ -100,6 +100,16 @@ public class ConsumoMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error en el proceso de estandarización." }); }
     }
 
+    /// <summary>Progreso en vivo de la estandarización de una carga, para pantallas que la disparan
+    /// y quieren mostrar "línea X de Y" mientras corre (puede tardar minutos en lotes grandes).</summary>
+    [HttpGet("cargas/{cargaId}/progreso")]
+    public IActionResult ObtenerProgreso(int cargaId)
+    {
+        var progreso = _estandarizacionService.ObtenerProgreso(cargaId);
+        if (progreso == null) return Ok(new { enProceso = false });
+        return Ok(new { enProceso = true, procesadas = progreso.Value.Procesadas, total = progreso.Value.Total });
+    }
+
     // ─── Revisión de materiales ───────────────────────────────────────────────
 
     /// <summary>Lista materiales pendientes de revisión SSOMA en un proyecto.</summary>

@@ -11,6 +11,22 @@ public class RatioRepository : IRatioRepository
     public RatioRepository(IConfiguration config) => _config = config;
     private NpgsqlConnection Conn() => new(_config["Database:PostgreSQL"]!);
 
+    private record ProyectoConConsumoRow(int ProjectId, string ProjectDescription);
+
+    public async Task<List<(int ProjectId, string ProjectDescription)>> ObtenerProyectosConConsumoEstandarizadoAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT DISTINCT p.project_id AS ProjectId, p.project_description AS ProjectDescription
+            FROM ss_consumo_linea l
+            JOIN project p ON p.project_id = l.project_id
+            WHERE l.activo = true AND l.estandarizado = true AND l.pertenece_ssoma = true
+            ORDER BY p.project_description
+            """;
+        var filas = await conn.QueryAsync<ProyectoConConsumoRow>(sql);
+        return filas.Select(f => (f.ProjectId, f.ProjectDescription)).ToList();
+    }
+
     public async Task<List<RatioRawData>> ObtenerConsumosPorProyectoAsync(int projectId)
     {
         using var conn = Conn();

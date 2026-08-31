@@ -246,42 +246,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             List<(int? plantillaId, string criterio, int puntaje)> detalles, decimal nota)
         {
             using var ctx = _factory.CreateDbContext();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-            try
-            {
-                ctx.EvEvaluacionesGestionSsoma.Add(new EvEvaluacionGestionSsoma
-                {
-                    PeriodoId = periodoId,
-                    EvaluadorUserId = null,
-                    EvaluadorRol = Roles.Prevencionista,
-                    EvaluadoUserId = evaluadoUserId,
-                    EvaluadoRol = Roles.CoordinadorSsoma,
-                    ProyectoId = proyectoId,
-                    Nota = nota,
-                    Fortalezas = fortalezas,
-                    OportunidadesMejora = oportunidadesMejora,
-                    Detalles = detalles.Select(d => new EvEvaluacionGestionSsomaDetalle
-                    {
-                        PlantillaId = d.plantillaId,
-                        Criterio = d.criterio,
-                        Puntaje = d.puntaje
-                    }).ToList()
-                });
 
-                ctx.EvEvaluacionesGestionSsomaCumplimiento.Add(new EvEvaluacionGestionSsomaCumplimiento
-                {
-                    PeriodoId = periodoId,
-                    EvaluadorUserId = evaluadorUserId
-                });
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-            }
-            catch
+            // Sin transacción manual — mismo motivo que EvJefeSsomaRepository.RegistrarAsync:
+            // Program.cs tiene EnableRetryOnFailure para Npgsql, incompatible con
+            // BeginTransactionAsync() manual (EF Core lo rechaza en tiempo de ejecución).
+            // Los dos Add() ya se guardan atómicamente en un solo SaveChangesAsync().
+            ctx.EvEvaluacionesGestionSsoma.Add(new EvEvaluacionGestionSsoma
             {
-                await tx.RollbackAsync();
-                throw;
-            }
+                PeriodoId = periodoId,
+                EvaluadorUserId = null,
+                EvaluadorRol = Roles.Prevencionista,
+                EvaluadoUserId = evaluadoUserId,
+                EvaluadoRol = Roles.CoordinadorSsoma,
+                ProyectoId = proyectoId,
+                Nota = nota,
+                Fortalezas = fortalezas,
+                OportunidadesMejora = oportunidadesMejora,
+                Detalles = detalles.Select(d => new EvEvaluacionGestionSsomaDetalle
+                {
+                    PlantillaId = d.plantillaId,
+                    Criterio = d.criterio,
+                    Puntaje = d.puntaje
+                }).ToList()
+            });
+
+            ctx.EvEvaluacionesGestionSsomaCumplimiento.Add(new EvEvaluacionGestionSsomaCumplimiento
+            {
+                PeriodoId = periodoId,
+                EvaluadorUserId = evaluadorUserId
+            });
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<bool> ExisteAsync(int periodoId, int evaluadorUserId, int evaluadoUserId)

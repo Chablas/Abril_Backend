@@ -7,6 +7,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         Task<List<ProjectOptionDto>> GetProyectos();
         Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId);
+
+        /// <summary>Plantilla combinada de todos los proyectos (o los indicados), para la vista "todos" de Plantilla.</summary>
+        Task<VecinoLicenciaPlantillaResponseDto> GetPlantillaTodos(List<int>? projectIds);
         Task<VecinoLicenciaTipoDto> AddTipo(int projectId, VecinoLicenciaTipoCreateDto dto, int userId);
         Task UploadLicencia(int projectId, int tipoId, VecinoLicenciaUploadDto dto, IFormFile file, int userId);
         Task<VecinoLicenciaRecordatorioDto> AddRecordatorio(int projectId, int tipoId, VecinoLicenciaRecordatorioCreateDto dto, int userId);
@@ -23,6 +26,15 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         Task<VecinoLicenciaDestinatariosResponseDto> GetDestinatarios(int projectId);
         Task<VecinoLicenciaDestinatarioDto> AddDestinatario(int projectId, VecinoLicenciaDestinatarioUpsertDto dto, int userId);
         Task DeleteDestinatario(int destinatarioId, int userId);
+
+        /// <summary>Agrega una fecha de visita al Anexo H de la licencia vigente de un tipo. Recordatorio fijo: 2 días antes.</summary>
+        Task<VecinoLicenciaVisitaDto> AddVisita(int projectId, int tipoId, VecinoLicenciaVisitaCreateDto dto, int userId);
+        Task DeleteVisita(int visitaId, int userId);
+
+        Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId);
+
+        /// <summary>Dashboard gerencial: todos los proyectos (o los indicados), ordenado de más a menos crítico.</summary>
+        Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds);
 
         /// <summary>Cron: envía los recordatorios de licencias cuya fecha de recordatorio ya llegó, en todos los proyectos.</summary>
         Task<RecordatoriosResultDto> ProcesarRecordatorios();

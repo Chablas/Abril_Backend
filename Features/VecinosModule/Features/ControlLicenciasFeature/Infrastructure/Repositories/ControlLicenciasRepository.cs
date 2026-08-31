@@ -72,6 +72,21 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     Enviado = r.EnviadoDateTime != null,
                 }).ToList());
 
+            var visitas = await ctx.VecinoLicenciaControlVisita
+                .Where(v => v.State && v.Active && rowIds.Contains(v.VecinoLicenciaControlId))
+                .OrderBy(v => v.FechaVisita)
+                .ToListAsync();
+            var visitasPorLicencia = visitas
+                .GroupBy(v => v.VecinoLicenciaControlId)
+                .ToDictionary(g => g.Key, g => g.Select(v => new VecinoLicenciaVisitaDto
+                {
+                    VecinoLicenciaControlVisitaId = v.VecinoLicenciaControlVisitaId,
+                    FechaVisita = v.FechaVisita,
+                    Observacion = v.Observacion,
+                    FechaRecordatorio = v.FechaRecordatorio,
+                    Enviado = v.RecordatorioEnviadoDateTime != null,
+                }).ToList());
+
             var items = tipos.Select(t =>
             {
                 var row = rows.FirstOrDefault(r => r.VecinoLicenciaControlTipoId == t.VecinoLicenciaControlTipoId);
@@ -104,14 +119,167 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     OriginalFileName = row?.OriginalFileName,
                     FechaVencimiento = row?.FechaVencimiento,
                     DiasAntesDefault = t.DiasAntesDefault,
+                    FechaInscripcion = row?.FechaInscripcion,
+                    FechaInscripcionEstado = row?.FechaInscripcionEstado,
+                    FechaInicio = row?.FechaInicio,
+                    FechaInicioEstado = row?.FechaInicioEstado,
+                    FechaVencimientoEstado = row?.FechaVencimientoEstado,
+                    FechaRenovacion = row?.FechaRenovacion,
+                    FechaRenovacionEstado = row?.FechaRenovacionEstado,
+                    MesActivo = row?.MesActivo ?? true,
                     Recordatorios = recordatoriosDeEsta,
                     VersionesHistorial = row != null && historialCounts.TryGetValue(row.VecinoLicenciaControlId, out var c) ? c : 0,
+                    Visitas = row != null && visitasPorLicencia.TryGetValue(row.VecinoLicenciaControlId, out var vs) ? vs : new List<VecinoLicenciaVisitaDto>(),
                 };
             }).ToList();
 
             return new VecinoLicenciaPlantillaResponseDto
             {
                 Items = items,
+                Estados = estados.Select(e => new CatalogOptionDto { Id = e.VecinoLicenciaControlEstadoId, Descripcion = e.Descripcion }).ToList(),
+            };
+        }
+
+        public async Task<VecinoLicenciaPlantillaResponseDto> GetPlantillaTodos(List<int>? projectIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = Hoy();
+
+            var proyectosQuery = ctx.Project.Where(p => p.State && p.Active
+                && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId
+                    && f.FuncionalidadId == ProyectoFiltroFuncionalidades.ControlLicencias && !f.Active));
+            if (projectIds is { Count: > 0 })
+                proyectosQuery = proyectosQuery.Where(p => projectIds.Contains(p.ProjectId));
+
+            var proyectos = await proyectosQuery
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new { p.ProjectId, p.ProjectDescription })
+                .ToListAsync();
+            var proyectoIds = proyectos.Select(p => p.ProjectId).ToList();
+
+            // Todo lo demás en bloque (una consulta por tabla para TODOS los proyectos), en vez de
+            // repetir por proyecto: con muchos proyectos ese N+1 volvía la carga insoportablemente lenta.
+            var tipos = await ctx.VecinoLicenciaControlTipo
+                .Where(t => t.State && t.Active && (t.ProjectId == null || proyectoIds.Contains(t.ProjectId.Value)))
+                .OrderBy(t => t.Orden)
+                .ToListAsync();
+
+            var estados = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.State && e.Active)
+                .OrderBy(e => e.VecinoLicenciaControlEstadoId)
+                .ToListAsync();
+            var estadoDesc = estados.ToDictionary(e => e.VecinoLicenciaControlEstadoId, e => e.Descripcion);
+            int pendienteId = estados.FirstOrDefault(e => e.Descripcion == "Pendiente")?.VecinoLicenciaControlEstadoId ?? 0;
+
+            var rows = await ctx.VecinoLicenciaControl
+                .Where(r => proyectoIds.Contains(r.ProjectId) && r.State)
+                .ToListAsync();
+            var rowIds = rows.Select(r => r.VecinoLicenciaControlId).ToList();
+
+            var historialCounts = await ctx.VecinoLicenciaControlHistorial
+                .Where(h => h.State && rowIds.Contains(h.VecinoLicenciaControlId))
+                .GroupBy(h => h.VecinoLicenciaControlId)
+                .Select(g => new { VecinoLicenciaControlId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.VecinoLicenciaControlId, g => g.Count);
+
+            var recordatorios = await ctx.VecinoLicenciaControlRecordatorio
+                .Where(r => r.State && r.Active && rowIds.Contains(r.VecinoLicenciaControlId))
+                .OrderBy(r => r.DiasAntes)
+                .ToListAsync();
+            var recordatoriosPorLicencia = recordatorios
+                .GroupBy(r => r.VecinoLicenciaControlId)
+                .ToDictionary(g => g.Key, g => g.Select(r => new VecinoLicenciaRecordatorioDto
+                {
+                    VecinoLicenciaControlRecordatorioId = r.VecinoLicenciaControlRecordatorioId,
+                    DiasAntes = r.DiasAntes,
+                    FechaRecordatorio = r.FechaRecordatorio,
+                    Enviado = r.EnviadoDateTime != null,
+                }).ToList());
+
+            var visitas = await ctx.VecinoLicenciaControlVisita
+                .Where(v => v.State && v.Active && rowIds.Contains(v.VecinoLicenciaControlId))
+                .OrderBy(v => v.FechaVisita)
+                .ToListAsync();
+            var visitasPorLicencia = visitas
+                .GroupBy(v => v.VecinoLicenciaControlId)
+                .ToDictionary(g => g.Key, g => g.Select(v => new VecinoLicenciaVisitaDto
+                {
+                    VecinoLicenciaControlVisitaId = v.VecinoLicenciaControlVisitaId,
+                    FechaVisita = v.FechaVisita,
+                    Observacion = v.Observacion,
+                    FechaRecordatorio = v.FechaRecordatorio,
+                    Enviado = v.RecordatorioEnviadoDateTime != null,
+                }).ToList());
+
+            var allItems = new List<VecinoLicenciaItemDto>();
+
+            foreach (var proyecto in proyectos)
+            {
+                var tiposDeProyecto = tipos.Where(t => t.ProjectId == null || t.ProjectId == proyecto.ProjectId);
+
+                foreach (var t in tiposDeProyecto)
+                {
+                    var row = rows.FirstOrDefault(r => r.ProjectId == proyecto.ProjectId && r.VecinoLicenciaControlTipoId == t.VecinoLicenciaControlTipoId);
+                    var estadoId = row?.VecinoLicenciaControlEstadoId ?? pendienteId;
+                    var descripcion = row != null
+                        ? (estadoDesc.TryGetValue(estadoId, out var desc) ? desc : "Pendiente")
+                        : "Pendiente";
+                    var recordatoriosDeEsta = row != null && recordatoriosPorLicencia.TryGetValue(row.VecinoLicenciaControlId, out var rs)
+                        ? rs : new List<VecinoLicenciaRecordatorioDto>();
+
+                    if (descripcion == "Cargado" && row?.FechaVencimiento != null)
+                    {
+                        if (row.FechaVencimiento < hoy)
+                            descripcion = "Vencido";
+                        else if (recordatoriosDeEsta.Any(r => FechaEfectivaEnvio(r.FechaRecordatorio) <= hoy))
+                            descripcion = "Por vencer";
+                    }
+
+                    allItems.Add(new VecinoLicenciaItemDto
+                    {
+                        ProjectId = proyecto.ProjectId,
+                        ProjectDescription = proyecto.ProjectDescription,
+                        VecinoLicenciaControlId = row?.VecinoLicenciaControlId,
+                        VecinoLicenciaControlTipoId = t.VecinoLicenciaControlTipoId,
+                        TipoDescripcion = t.Descripcion,
+                        Orden = t.Orden,
+                        EsBase = t.ProjectId == null,
+                        VecinoLicenciaControlEstadoId = estadoId,
+                        EstadoDescripcion = descripcion,
+                        ArchivoUrl = row?.ArchivoUrl,
+                        OriginalFileName = row?.OriginalFileName,
+                        FechaVencimiento = row?.FechaVencimiento,
+                        DiasAntesDefault = t.DiasAntesDefault,
+                        FechaInscripcion = row?.FechaInscripcion,
+                        FechaInscripcionEstado = row?.FechaInscripcionEstado,
+                        FechaInicio = row?.FechaInicio,
+                        FechaInicioEstado = row?.FechaInicioEstado,
+                        FechaVencimientoEstado = row?.FechaVencimientoEstado,
+                        FechaRenovacion = row?.FechaRenovacion,
+                        FechaRenovacionEstado = row?.FechaRenovacionEstado,
+                        MesActivo = row?.MesActivo ?? true,
+                        Recordatorios = recordatoriosDeEsta,
+                        VersionesHistorial = row != null && historialCounts.TryGetValue(row.VecinoLicenciaControlId, out var c) ? c : 0,
+                        Visitas = row != null && visitasPorLicencia.TryGetValue(row.VecinoLicenciaControlId, out var vs) ? vs : new List<VecinoLicenciaVisitaDto>(),
+                    });
+                }
+            }
+
+            // Ordenar por criticidad de vencimiento (igual criterio que el Dashboard): vencido/rojo primero,
+            // luego amarillo, verde, y al final lo que no tiene fecha (pendiente/no aplica/sin archivo).
+            var ordenSemaforo = new Dictionary<string, int> { ["rojo"] = 0, ["amarillo"] = 1, ["verde"] = 2, ["gris"] = 3 };
+            allItems = allItems
+                .Select(item => (item, calc: CalcularSemaforo(item.EstadoDescripcion, item.FechaVencimiento, hoy)))
+                .OrderBy(x => ordenSemaforo[x.calc.semaforo])
+                .ThenBy(x => x.calc.dias ?? int.MaxValue)
+                .ThenBy(x => x.item.ProjectDescription)
+                .ThenBy(x => x.item.Orden)
+                .Select(x => x.item)
+                .ToList();
+
+            return new VecinoLicenciaPlantillaResponseDto
+            {
+                Items = allItems,
                 Estados = estados.Select(e => new CatalogOptionDto { Id = e.VecinoLicenciaControlEstadoId, Descripcion = e.Descripcion }).ToList(),
             };
         }
@@ -579,6 +747,227 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             if (recordatorio is null) return;
             recordatorio.EnviadoDateTime = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        private const int DiasAntesVisita = 2;
+
+        public async Task<VecinoLicenciaVisitaDto> AddVisita(int projectId, int tipoId, DateOnly fechaVisita, string? observacion, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await ctx.VecinoLicenciaControl
+                .FirstOrDefaultAsync(r => r.ProjectId == projectId && r.VecinoLicenciaControlTipoId == tipoId && r.State);
+            if (row is null)
+                throw new InvalidOperationException("Primero sube el documento del Anexo H.");
+
+            var visita = new VecinoLicenciaControlVisita
+            {
+                VecinoLicenciaControlId = row.VecinoLicenciaControlId,
+                FechaVisita = fechaVisita,
+                Observacion = observacion,
+                FechaRecordatorio = fechaVisita.AddDays(-DiasAntesVisita),
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+            ctx.VecinoLicenciaControlVisita.Add(visita);
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLicenciaVisitaDto
+            {
+                VecinoLicenciaControlVisitaId = visita.VecinoLicenciaControlVisitaId,
+                FechaVisita = visita.FechaVisita,
+                Observacion = visita.Observacion,
+                FechaRecordatorio = visita.FechaRecordatorio,
+                Enviado = false,
+            };
+        }
+
+        public async Task DeleteVisita(int visitaId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var visita = await ctx.VecinoLicenciaControlVisita
+                .FirstOrDefaultAsync(v => v.VecinoLicenciaControlVisitaId == visitaId);
+            if (visita is null) return;
+
+            visita.State = false;
+            visita.UpdatedDateTime = DateTime.UtcNow;
+            visita.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<VecinoLicenciaVisitaPendienteDto>> GetPendientesVisita(DateOnly hoy)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Mismo criterio de fin de semana que los recordatorios de vencimiento.
+            var candidatos = await (
+                from vis in ctx.VecinoLicenciaControlVisita
+                where vis.State && vis.Active && vis.RecordatorioEnviadoDateTime == null
+                    && vis.FechaRecordatorio <= hoy.AddDays(2)
+                join lic in ctx.VecinoLicenciaControl on vis.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
+                where lic.State && lic.Active
+                join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
+                select new
+                {
+                    vis.VecinoLicenciaControlVisitaId,
+                    vis.FechaRecordatorio,
+                    vis.FechaVisita,
+                    lic.ProjectId,
+                    t.Descripcion,
+                })
+                .ToListAsync();
+
+            return candidatos
+                .Where(p => FechaEfectivaEnvio(p.FechaRecordatorio) <= hoy)
+                .Select(p => new VecinoLicenciaVisitaPendienteDto
+                {
+                    VecinoLicenciaControlVisitaId = p.VecinoLicenciaControlVisitaId,
+                    ProjectId = p.ProjectId,
+                    TipoDescripcion = p.Descripcion,
+                    FechaVisita = p.FechaVisita,
+                })
+                .ToList();
+        }
+
+        public async Task MarcarVisitaRecordatorioEnviado(int visitaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var visita = await ctx.VecinoLicenciaControlVisita
+                .FirstOrDefaultAsync(v => v.VecinoLicenciaControlVisitaId == visitaId);
+            if (visita is null) return;
+            visita.RecordatorioEnviadoDateTime = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Residente y Administración del proyecto, resueltos del mismo modo que <see cref="ResolverAutomaticos"/>
+        /// (Residente vía project.residente_workers_id → workers.email_corporativo; Administración vía
+        /// project.email_coord_admin) — sin destinatarios a mano ni Coordinador SSOMA.
+        /// </summary>
+        public async Task<List<string>> ResolverDestinatariosVisita(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var automaticos = await ResolverAutomaticos(ctx, projectId);
+
+            return automaticos
+                .Where(a => (a.Rol == "Residente" || a.Rol == "Administración") && !string.IsNullOrWhiteSpace(a.Email))
+                .Select(a => a.Email!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public async Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var pendienteId = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.Descripcion == "Pendiente" && e.State)
+                .Select(e => e.VecinoLicenciaControlEstadoId)
+                .FirstOrDefaultAsync();
+
+            var row = await GetOrCreateRow(ctx, projectId, tipoId, userId, pendienteId);
+            // Cada fecha y su estado son mutuamente excluyentes: si viene fecha, se limpia el estado y viceversa.
+            row.FechaInscripcion = dto.FechaInscripcion;
+            row.FechaInscripcionEstado = dto.FechaInscripcion == null ? dto.FechaInscripcionEstado : null;
+            row.FechaInicio = dto.FechaInicio;
+            row.FechaInicioEstado = dto.FechaInicio == null ? dto.FechaInicioEstado : null;
+            row.FechaVencimientoEstado = row.FechaVencimiento == null ? dto.FechaVencimientoEstado : null;
+            row.FechaRenovacion = dto.FechaRenovacion;
+            row.FechaRenovacionEstado = dto.FechaRenovacion == null ? dto.FechaRenovacionEstado : null;
+            row.MesActivo = dto.MesActivo;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// rojo: vencido o &lt;30 días. amarillo: 31-60 días. verde: &gt;60 días.
+        /// gris: No aplica o sin fecha de vencimiento (Pendiente sin documento).
+        /// </summary>
+        private static (int? dias, string semaforo) CalcularSemaforo(string estadoDescripcion, DateOnly? fechaVencimiento, DateOnly hoy)
+        {
+            if (estadoDescripcion == "No aplica" || fechaVencimiento == null)
+                return (null, "gris");
+
+            var dias = fechaVencimiento.Value.DayNumber - hoy.DayNumber;
+            var semaforo = dias < 30 ? "rojo" : dias <= 60 ? "amarillo" : "verde";
+            return (dias, semaforo);
+        }
+
+        public async Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds)
+        {
+            var hoy = Hoy();
+            var plantilla = await GetPlantillaTodos(projectIds);
+
+            var proyectosEnResultado = plantilla.Items.Select(i => i.ProjectId!.Value).Distinct().ToList();
+            Dictionary<int, (string? RazonSocial, string? Ruc)> contributorPorProyecto;
+            using (var ctx = _factory.CreateDbContext())
+            {
+                contributorPorProyecto = await (
+                    from p in ctx.Project.AsNoTracking()
+                    where proyectosEnResultado.Contains(p.ProjectId)
+                    join c in ctx.Contributor.AsNoTracking() on p.ContributorId equals c.ContributorId into cj
+                    from c in cj.DefaultIfEmpty()
+                    select new { p.ProjectId, RazonSocial = c != null ? c.ContributorName : null, Ruc = c != null ? c.ContributorRuc : null }
+                ).ToDictionaryAsync(x => x.ProjectId, x => (x.RazonSocial, x.Ruc));
+            }
+
+            var items = new List<VecinoLicenciaDashboardItemDto>();
+            var resumen = new VecinoLicenciaDashboardResumenDto();
+
+            foreach (var item in plantilla.Items)
+            {
+                var (dias, semaforo) = CalcularSemaforo(item.EstadoDescripcion, item.FechaVencimiento, hoy);
+                var contributor = contributorPorProyecto.TryGetValue(item.ProjectId!.Value, out var c2) ? c2 : (null, null);
+
+                items.Add(new VecinoLicenciaDashboardItemDto
+                {
+                    ProjectId = item.ProjectId!.Value,
+                    ProjectDescription = item.ProjectDescription!,
+                    RazonSocial = contributor.Item1,
+                    Ruc = contributor.Item2,
+                    TipoDescripcion = item.TipoDescripcion,
+                    EstadoDescripcion = item.EstadoDescripcion,
+                    FechaInscripcion = item.FechaInscripcion,
+                    FechaInscripcionEstado = item.FechaInscripcionEstado,
+                    FechaInicio = item.FechaInicio,
+                    FechaInicioEstado = item.FechaInicioEstado,
+                    FechaVencimiento = item.FechaVencimiento,
+                    FechaVencimientoEstado = item.FechaVencimientoEstado,
+                    FechaRenovacion = item.FechaRenovacion,
+                    FechaRenovacionEstado = item.FechaRenovacionEstado,
+                    MesActivo = item.MesActivo,
+                    DiasParaVencer = dias,
+                    Semaforo = semaforo,
+                });
+
+                resumen.Documentos++;
+                switch (item.EstadoDescripcion)
+                {
+                    case "Cargado":
+                    case "Por vencer":
+                        resumen.Activos++;
+                        break;
+                    case "Pendiente":
+                        resumen.Pendientes++;
+                        break;
+                    case "No aplica":
+                        resumen.NoAplica++;
+                        break;
+                    case "Vencido":
+                        resumen.NoTiene++;
+                        break;
+                }
+            }
+
+            // Más crítico primero: rojo < amarillo < verde < gris; dentro de cada color, menos días primero.
+            var ordenSemaforo = new Dictionary<string, int> { ["rojo"] = 0, ["amarillo"] = 1, ["verde"] = 2, ["gris"] = 3 };
+            items = items
+                .OrderBy(i => ordenSemaforo[i.Semaforo])
+                .ThenBy(i => i.DiasParaVencer ?? int.MaxValue)
+                .ThenBy(i => i.ProjectDescription)
+                .ToList();
+
+            return new VecinoLicenciaDashboardResponseDto { Items = items, Resumen = resumen };
         }
     }
 }

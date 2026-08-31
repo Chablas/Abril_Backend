@@ -5969,3 +5969,29 @@ Al guardar Configuración con un sector nuevo asignado a un nivel específico, e
 - **Bug nuevo sin resolver, investigación cortada a mitad**: reporte de que un sector creado desde el frontend en el panel "exclusivos de este nivel" termina clasificado como compartido tras guardar y recargar. No se pudo confirmar la causa — no hay logging de request body (se agregó temporalmente y se revirtió sin llegar a reproducir), y el estado real en BD (proyecto 12, BOSQUE REAL, zona "EDIFICIO PRINCIPAL" id=6, niveles "Sotano 1"/"Piso 1") no tiene ningún sector asociado (ni compartido ni de nivel) — no coincide con el síntoma reportado. Hipótesis del usuario (no confirmada): la zona/niveles se crearon con el bug #2 todavía activo, el intento de agregar sectores falló con 409 y nunca se persistieron; un guardado posterior sin esos sectores en el payload los habría "borrado" correctamente (comportamiento esperado del diff-by-Id, no un bug). **No se tocó el proyecto 12 (datos reales).**
 - Deploy a `master` sigue pendiente — falta confirmación de que el frontend terminó su parte, ya que esto rompe contrato JSON (`CargaDiariaDto.BloqueosActivos`→`RestriccionesActivas`, `ZonaDto.Sectores` cambió de forma a `NivelDto.Sectores`).
 - Confirmar con el usuario si retoma la investigación del bug de clasificación de sectores (con logging de payload) antes o después del deploy a `master`.
+
+## Sesión 2026-08-30 — Módulo PETS: estructura completa, Firmas, exportación PDF + Presupuesto Materiales: progreso de estandarización y ratios masivo
+
+### 1) PETS — resto de la estructura del documento
+Sobre el árbol de pasos (`ssoma_pet_paso`, ya en producción) se agregó:
+- **Secciones narrativas** (Introducción, Alcance, Objetivo, Definiciones, Restricciones) como un bloque de texto único por sección — tabla nueva `ssoma_pet_seccion_texto` (`pet_id`, `seccion`, `contenido`). Pivote de diseño: al principio se reusó el árbol de `ssoma_pet_paso` para estas secciones también (columna `seccion` agregada), pero al probarlo el usuario notó que fragmentar cada oración importada en una fila con su propio tipo/controles no tenía sentido para prosa — se migró a texto único. Procedimiento y Responsabilidades sí se quedaron en árbol (tienen estructura real).
+- **Catálogo global reusable** para Marco Legal / EPP (básico|específico|emergencia) / Recursos (equipo|herramienta|material): `ssoma_catalogo_item` (catálogo compartido) + `ssoma_pet_item_seleccionado` (selección por PETS, puede venir del catálogo o ser propia de un solo PETS). "Eliminar" desactiva, nunca borra — no rompe selecciones históricas.
+- **Anexos** (`ssoma_pet_anexo`) y **Firmas** (`ssoma_pet_firma`: Elaborado/Revisado/Aprobado por, cada uno con nombre/cargo/fecha/firma opcional como imagen — `Fecha` es `DateOnly` a propósito para que el `<input type="date">` del frontend no necesite parseo).
+- **Importador de Word reescrito para multi-sección**: antes solo buscaba "PROCEDIMIENTO DE TRABAJO"; ahora detecta los 10 títulos de sección conocidos (Introducción/Alcance/Objetivo/Marco Legal/Definiciones/Responsabilidades/Gestión de personal/Procedimiento/Restricciones/Anexos) y reparte cada tramo a su sección — árbol para Procedimiento/Responsabilidades, texto concatenado para las narrativas. Marco Legal/Gestión de personal/Anexos solo delimitan (no se auto-importan, son catálogo/archivos, no párrafos). El respaldo manual (cuando no se detecta nada) sigue existiendo, solo carga a Procedimiento.
+- **Exportación a PDF** (`PetsPdfService.cs`, patrón QuestPDF ya usado en RAC/Inspección/Accidentes): botón "Vista previa PDF" en Datos generales, abre inline en pestaña nueva (no descarga — `File()` sin `fileDownloadName` en el backend + `window.open` con `location.href` diferido en el frontend). Se descartó generar `.docx` real con OpenXml.Wordprocessing por no poder compilar para verificarlo y no existir precedente de generación (solo de lectura) en el repo.
+
+Bug real encontrado y corregido: `GetDetalleAsync` hacía `.Select(x => MapSeleccion(x))` DENTRO de la query EF (antes de `ToListAsync`) — EF no traduce un método C# arbitrario a SQL, tiraba 500 al abrir cualquier PETS con al menos una selección de catálogo. Se corrigió materializando primero y mapeando en memoria.
+
+### 2) Presupuesto Materiales — progreso en vivo + ratios masivo
+- `EstandarizacionProgreso.cs` (estático, en memoria vía `ConcurrentDictionary`): progreso de una estandarización de carga en curso, expuesto via `GET cargas/{cargaId}/progreso`, para pantallas que disparan lotes grandes (Kardex histórico de miles de líneas) y quieren mostrar "línea X de Y".
+- Nuevo endpoint `POST proyectos/calcular-todos` en `RatioMaterialesController`: calcula ratios de todos los proyectos con consumo estandarizado de una sola vez, en vez de entrar proyecto por proyecto.
+
+### Verificado
+- `dotnet build` → 0 errores (solo warnings preexistentes sin cambios, ninguno en los archivos tocados).
+- No se corrió `npm run build` (regla del proyecto: no compilar salvo pedido explícito; el build de este skill solo cubre el repo backend).
+
+### Pendiente
+- Frontend de PETS: probar en el navegador el fix de "PDF inline" recién aplicado (antes forzaba descarga).
+- 7 mejoras de usabilidad de PETS identificadas y sin construir (la más urgente: el botón "Importar desde Word" vive solo en la pestaña Procedimiento pero ahora importa TODAS las secciones).
+- Poblar el catálogo global de Marco Legal/EPP/Recursos — sigue vacío.
+- Estándares e IPERC: cero código, reusar el mismo patrón (catálogo + árbol) que PETS.

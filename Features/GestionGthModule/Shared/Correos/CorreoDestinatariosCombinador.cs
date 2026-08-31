@@ -1,6 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
-
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared
+namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
 {
     /// <summary>
     /// Arma las listas Para/CC de los correos de Reclutamiento cuyo destinatario principal es fijo

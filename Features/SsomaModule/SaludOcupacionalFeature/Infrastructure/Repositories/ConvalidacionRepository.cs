@@ -107,21 +107,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlResultado = x.e.UrlResultado,
                     UrlAptitud = x.e.UrlAptitud,
                     UrlEmoCompleto = x.e.UrlEmoCompleto,
-                    InterconsultaEstado = ctx.SsInterconsulta
-                        .Where(i => i.EmoId == x.e.Id)
-                        .OrderByDescending(i => i.FechaDerivacion)
-                        .Select(i => (string?)i.Estado)
-                        .FirstOrDefault(),
-                    InterconsultaEspecialidad = ctx.SsInterconsulta
-                        .Where(i => i.EmoId == x.e.Id)
-                        .OrderByDescending(i => i.FechaDerivacion)
-                        .Select(i => (string?)i.Especialidad)
-                        .FirstOrDefault(),
-                    InterconsultaUrlInforme = ctx.SsInterconsulta
-                        .Where(i => i.EmoId == x.e.Id)
-                        .OrderByDescending(i => i.FechaDerivacion)
-                        .Select(i => (string?)i.UrlInforme)
-                        .FirstOrDefault(),
                     PuestoOrigen = x.cv.PuestoOrigen ?? (x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre),
                     PuestoDestino = x.cv.PuestoDestino,
                     CategoriaOrigen = x.cv.CategoriaOrigen ?? (x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre),
@@ -135,12 +120,47 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 })
                 .ToListAsync();
 
+            // Las interconsultas se buscan por trabajador y no por el EmoId de la convalidación:
+            // cuando un EMO de seguimiento reemplaza al original, la interconsulta sigue colgando
+            // del EMO viejo y filtrar por EmoId la dejaba invisible (mismo criterio que EmoRepository).
+            // Se traen todas de una sola vez para los trabajadores de la página, para no caer en N+1.
+            var workerIds = items.Select(i => i.WorkerId).Distinct().ToList();
+            var interconsultas = await ctx.SsInterconsulta
+                .Where(i => workerIds.Contains(i.WorkerId))
+                .OrderByDescending(i => i.FechaDerivacion)
+                .ThenByDescending(i => i.Id)
+                .Select(i => new
+                {
+                    i.WorkerId,
+                    i.Id,
+                    i.Especialidad,
+                    i.Estado,
+                    i.FechaDerivacion,
+                    i.FechaAtencion,
+                    i.UrlInforme
+                })
+                .ToListAsync();
+
             foreach (var it in items)
             {
                 if (it.FechaVencimiento.HasValue)
                     it.DiasParaVencer = it.FechaVencimiento.Value.DayNumber - hoy.DayNumber;
                 it.RiesgoOrigen = ObraOficinaStaffIds.RiesgoEmo(it.ObraOficinaStaffOrigenId);
                 it.RiesgoDestino = ObraOficinaStaffIds.RiesgoEmo(it.ObraOficinaStaffDestinoId);
+                // Un mismo trabajador puede tener varias convalidaciones en la página, así que
+                // cada fila arma sus propios DTOs en vez de compartir instancias.
+                it.Interconsultas = interconsultas
+                    .Where(i => i.WorkerId == it.WorkerId)
+                    .Select(i => new ConvalidacionInterconsultaDto
+                    {
+                        Id = i.Id,
+                        Especialidad = i.Especialidad,
+                        Estado = i.Estado,
+                        FechaDerivacion = i.FechaDerivacion,
+                        FechaAtencion = i.FechaAtencion,
+                        UrlInforme = i.UrlInforme
+                    })
+                    .ToList();
             }
 
             return new PagedResponseDto<ConvalidacionListDto>

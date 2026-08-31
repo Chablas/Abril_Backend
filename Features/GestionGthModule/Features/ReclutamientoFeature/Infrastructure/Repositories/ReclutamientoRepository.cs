@@ -5,6 +5,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;

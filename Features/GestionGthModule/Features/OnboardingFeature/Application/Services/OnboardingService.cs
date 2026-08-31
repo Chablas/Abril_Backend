@@ -4,9 +4,12 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Email.Configuration;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Layout = Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Shared.OnboardingEmailLayout;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Services
 {
@@ -15,6 +18,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         private readonly IOnboardingRepository _repo;
         private readonly IFileDigitalColaboradorService _fileDigital;
         private readonly IEmailService _email;
+        private readonly ICorreoDestinatariosResolver _destinatarios;
         private readonly IConfiguration _configuration;
         private readonly ILogger<OnboardingService> _logger;
 
@@ -22,12 +26,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             IOnboardingRepository repo,
             IFileDigitalColaboradorService fileDigital,
             IEmailService email,
+            ICorreoDestinatariosResolver destinatarios,
             IConfiguration configuration,
             ILogger<OnboardingService> logger)
         {
             _repo          = repo;
             _fileDigital   = fileDigital;
             _email         = email;
+            _destinatarios = destinatarios;
             _configuration = configuration;
             _logger        = logger;
         }
@@ -109,6 +115,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             {
                 await EnviarCorreoEnlaceAsync(ctx);
             }
+            catch (AbrilException ex)
+            {
+                // El correo quedó sin destinatarios: es una decisión de Configuración, no una falla
+                // del proveedor, así que se pasa el motivo tal cual en vez de esconderlo detrás de
+                // un 502 genérico que invitaría a reintentar.
+                _logger.LogWarning(ex,
+                    "La carta oferta del onboarding {OnboardingId} no se envió por configuración de correos",
+                    colaborador.OnboardingId);
+                throw new AbrilException(
+                    "El onboarding quedó abierto y la carta oferta guardada, pero el correo no se envió. "
+                    + ex.Message + " Después reenvía el enlace desde el detalle del colaborador.",
+                    ex.StatusCode);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
@@ -156,14 +175,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// Lo usan el alta del onboarding y el reenvío, así que el correo que recibe el colaborador es
         /// el mismo en los dos casos. Las excepciones se dejan salir: cada quien decide qué hacer con
         /// un correo que no salió (el alta ya tiene la fila creada, el reenvío no escribió nada).
+        ///
+        /// El destinatario principal es SIEMPRE el colaborador; la pantalla de Configuración
+        /// (<c>/gestion-gth/onboarding/configuracion</c>) solo aporta principales adicionales y
+        /// copias, y puede apagarlo a él con su propio interruptor o al correo entero con el
+        /// maestro. Si no queda nadie, no hay nada que reintentar: es una decisión de Configuración
+        /// y se dice tal cual en vez de fallar como si fuera el proveedor de correo.
         /// </summary>
         private async Task EnviarCorreoEnlaceAsync(OnboardingContextoDto ctx)
         {
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.CartaOferta);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
+
+            if (principales.Count == 0)
+                throw new AbrilException(
+                    "No hay a quién enviarle la carta oferta: revisa la sección «Carta oferta al "
+                    + "colaborador» en Configuración de correos de Onboarding.", 409);
+
             await _email.SendAsync(
-                to:      new List<string> { ctx.Correo },
+                to:      principales,
                 subject: $"Carta oferta — {ctx.Puesto} · Abril Grupo Inmobiliario",
                 body:    ConstruirCuerpoEnlaceCartaOferta(ctx, ConstruirLinkFirma(ctx.Token)),
-                isHtml:  true);
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                sender:  EmailSenders.Gth);
         }
 
         /// <summary>Token del enlace público (hex, url-safe). Mismo formato que el del formulario del postulante.</summary>
@@ -234,68 +269,52 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         }
 
         /// <summary>
-        /// Correo genérico con el enlace a la carta oferta. La carta NO va adjunta: el colaborador
-        /// entra al enlace, la lee ahí, registra su firma y la firma en la misma página. El cuerpo
-        /// resume la posición para que reconozca de qué proceso se trata sin abrir nada, pero las
-        /// condiciones de la propuesta solo se ven dentro de la intranet.
+        /// Correo con el enlace a la carta oferta, en el chrome de marca de Abril One (ver
+        /// <see cref="Layout"/>). La carta NO va adjunta: el colaborador entra al enlace, la lee
+        /// ahí, registra su firma y la firma en la misma página. La tarjeta resume la posición para
+        /// que reconozca de qué proceso se trata sin abrir nada, pero las condiciones de la
+        /// propuesta solo se ven dentro del enlace, que es personal.
+        ///
+        /// Las filas en blanco se omiten: el onboarding se puede abrir con la ficha a medio llenar
+        /// (sin proyecto asignado, sin jefe directo) y una etiqueta con el valor vacío se lee como
+        /// un error nuestro.
         /// </summary>
-        private static string ConstruirCuerpoEnlaceCartaOferta(OnboardingContextoDto ctx, string link)
+        private string ConstruirCuerpoEnlaceCartaOferta(OnboardingContextoDto ctx, string link)
         {
-            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
-            static string Fila(string etiqueta, string? valor) =>
-                string.IsNullOrWhiteSpace(valor)
-                    ? string.Empty
-                    : $"""
-                        <tr>
-                          <td style="padding:6px 10px;font-size:12px;color:#6b7280;white-space:nowrap">{Esc(etiqueta)}</td>
-                          <td style="padding:6px 10px;font-size:13px;color:#1f2937"><b>{Esc(valor)}</b></td>
-                        </tr>
-                        """;
+            var l = Layout.Desde(_configuration);
 
-            var nombre = string.IsNullOrWhiteSpace(ctx.Nombre) ? "colaborador(a)" : Esc(ctx.Nombre);
+            var datos = new List<Layout.Fila>();
+            void Fila(string icono, string etiqueta, string? valor)
+            {
+                if (!string.IsNullOrWhiteSpace(valor))
+                    datos.Add(new(icono, etiqueta, Layout.Esc(valor)));
+            }
 
-            return $"""
-                <div style="font-family:Arial,sans-serif;max-width:640px">
-                  <div style="background:#005D9D;padding:14px 18px">
-                    <h2 style="color:#fff;margin:0;font-size:18px">¡Bienvenido(a) a Abril Grupo Inmobiliario!</h2>
-                  </div>
-                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
-                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
-                    <p style="font-size:13px">
-                      Nos complace informarte que fuiste seleccionado(a) para la posición de
-                      <b>{Esc(ctx.Puesto)}</b> en <b>Abril Grupo Inmobiliario</b>. Ya tienes disponible
-                      tu <b>carta oferta</b> con las condiciones de la propuesta.
-                    </p>
-                    <table style="border-collapse:collapse;margin:14px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
-                      {Fila("Puesto", ctx.Puesto)}
-                      {Fila("Área", ctx.Area)}
-                      {Fila("Proyecto / obra", ctx.ProyectoObra)}
-                      {Fila("Empresa", ctx.Empresa)}
-                      {Fila("Jefe directo", ctx.JefeDirecto)}
-                      {Fila("Fecha de ingreso", ctx.FechaIngreso?.ToString("dd/MM/yyyy"))}
-                    </table>
-                    <p style="font-size:13px">
-                      Ingresa al siguiente enlace para <b>leer tu carta oferta, registrar tu firma y
-                      firmarla en línea</b>. No necesitas imprimir ni escanear nada.
-                    </p>
-                    <p style="margin:18px 0">
-                      <a href="{Esc(link)}"
-                         style="background:#005D9D;color:#fff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:13px;font-weight:bold;display:inline-block">
-                        Ver y firmar mi carta oferta
-                      </a>
-                    </p>
-                    <p style="font-size:11.5px;color:#888;word-break:break-all">
-                      Si el botón no funciona, copia y pega este enlace en tu navegador:<br>{Esc(link)}
-                    </p>
-                    <p style="font-size:12.5px;color:#555">
-                      Este enlace es personal: no lo compartas. Si tienes alguna consulta sobre la
-                      propuesta, respóndenos este correo y el equipo de Gestión de Talento Humano te
-                      apoyará.
-                    </p>
-                    <p style="font-size:11px;color:#888;margin-top:18px">Correo automático de Abril One · Gestión GTH · Onboarding.</p>
-                  </div>
-                </div>
-                """;
+            Fila("req-puesto",      "Puesto",          ctx.Puesto);
+            Fila("req-area",        "Área",            ctx.Area);
+            Fila("req-proyecto",    "Proyecto / obra", ctx.ProyectoObra);
+            Fila("onb-empresa",     "Empresa",         ctx.Empresa);
+            Fila("req-solicitante", "Jefe directo",    ctx.JefeDirecto);
+            Fila("req-fecha",       "Fecha de ingreso", ctx.FechaIngreso?.ToString("dd/MM/yyyy"));
+
+            var nombre = string.IsNullOrWhiteSpace(ctx.Nombre) ? "colaborador(a)" : ctx.Nombre;
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "onb-carta", "¡Bienvenido(a) a Abril!",
+                    $"Estimado(a) {Layout.Esc(nombre)}: fuiste seleccionado(a) para la posición de "
+                    + $"<b>{Layout.Esc(ctx.Puesto)}</b> en Abril Grupo Inmobiliario."),
+                l.Tarjeta(datos),
+                l.Franja("req-aviso", Layout.Tono.Info,
+                    "Ya tienes disponible tu <b>carta oferta</b> con las condiciones de la propuesta: "
+                    + "puedes leerla, registrar tu firma y firmarla en línea. No necesitas imprimir "
+                    + "ni escanear nada."),
+                l.Boton("Ver y firmar mi carta oferta", link),
+                l.EnlaceDirecto(link),
+                l.Parrafo(
+                    "El enlace es personal: no lo compartas. Si tienes alguna consulta sobre la "
+                    + "propuesta, respóndenos este correo y con gusto te ayudamos."),
+                l.Parrafo("Atentamente,<br /><b>Equipo de Gestión del Talento Humano</b>"));
         }
 
     }

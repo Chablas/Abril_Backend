@@ -251,9 +251,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         /// CERRADO, y que todavía no tienen un onboarding abierto.
         ///
         /// El correo destino de la carta oferta se resuelve acá, en la base de datos, y no se le pide
-        /// a nadie: sale de <c>person.email</c> — el correo personal que GTH validó al aprobar el
-        /// formulario del postulante — y, si esa ficha aún no existe, del correo que el postulante
-        /// declaró (o, en última instancia, del que GTH usó para enviarle el formulario).
+        /// a nadie: sale siempre de <c>person.email</c> — el correo personal de su ficha de la base
+        /// maestra —, igual para un ingreso normal que para un ingreso directo FFT. Lo único que
+        /// cambia entre los dos es por dónde se llega a esa ficha (ver <c>personId</c> más abajo).
         /// </summary>
         private static async Task<List<CandidatoAptoDto>> QueryCandidatosAptos(AppDbContext ctx) =>
             await (
@@ -280,12 +280,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 from fo in foJoin.DefaultIfEmpty()
                 join w in ctx.Worker on s.SolicitanteWorkerId equals (int?)w.Id into wJoin
                 from w in wJoin.DefaultIfEmpty()
+                // Enlace a la ficha del candidato en la base maestra. Son DOS columnas y hay que mirar
+                // las dos, porque cada flujo escribe el enlace en un sitio distinto:
+                //   - `gth_postulante_formulario.person_id`: lo deja la aprobación del formulario del
+                //     postulante (flujo normal).
+                //   - `gth_requerimiento.fft_person_id`: el ingreso directo FFT no pide formulario, así
+                //     que su ficha la abre la propia solicitud y el enlace queda en el requerimiento.
+                // Mirar solo la primera —que es lo que se hacía— dejaba a todo ingreso directo sin
+                // correo y sin ficha, aunque su fila de `person` existiera desde el primer día.
+                let personId = fo.PersonId ?? r.FftPersonId
+                // Sin ninguno de los dos enlaces queda buscar la ficha por documento, que es la llave
+                // con la que el candidato entró a `person` en los dos flujos: el número que declaró en
+                // su formulario o, en el ingreso directo, el que declaró quien pidió la vacante. Cubre
+                // tanto a quien ya estaba en la base maestra de antes como a los FFT registrados antes
+                // de que se empezara a guardar `fft_person_id`.
+                let documento = fo.NumeroDocumento ?? r.FftCandidatoDocumento
+                // Va como bandera y no dentro del `personId` para no meter una subconsulta adentro del
+                // COALESCE: cada campo la resuelve con este mismo predicado, y el `personId == null`
+                // mantiene las dos ramas excluyentes (el documento es único en `person`, así que la
+                // fila que sale es una sola).
+                let porDocumento = personId == null && documento != null
                 orderby r.Codigo descending
                 select new CandidatoAptoDto
                 {
                     CandidatoId     = c.GthCandidatoId,
                     RequerimientoId = r.GthRequerimientoId,
-                    PersonId        = fo == null ? null : fo.PersonId,
+                    PersonId        = personId,
                     // El nombre declarado por el propio postulante manda sobre el que registró GTH.
                     Nombre          = fo != null && fo.NombresCompletos != null ? fo.NombresCompletos : c.Nombre,
                     Codigo          = r.Codigo,
@@ -293,36 +313,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     Area            = s.AreaNombre,
                     Empresa         = co == null ? null : co.ContributorName,
                     ProyectoObra    = pr.ProjectDescription,
-                    // El correo de la base maestra manda; si esa ficha aún no existe (formulario sin
-                    // aprobar), se cae al que declaró el postulante y, en última instancia, al que
-                    // GTH usó para enviarle el formulario. Va como subconsulta y no como left join
-                    // porque `person_id` cuelga de `fo`, que ya es un left join: encadenarlos deja la
-                    // consulta a merced de cómo EF traduzca un DefaultIfEmpty sobre otro.
+                    // El correo sale SIEMPRE de la ficha de la base maestra, sea el ingreso normal o
+                    // el directo: es el único correo que alguien de GTH revisó. Antes caía al que
+                    // declaró el postulante en su formulario, lo que además de duplicar la fuente de
+                    // verdad dejaba en blanco al ingreso directo, que no tiene formulario del que
+                    // caerse. Va como subconsulta y no como left join porque `personId` cuelga en
+                    // parte de `fo`, que ya es un left join: encadenarlos deja la consulta a merced
+                    // de cómo EF traduzca un DefaultIfEmpty sobre otro.
                     Correo = ctx.Person
-                                .Where(x => x.PersonId == fo.PersonId)
+                                .Where(x => x.PersonId == personId
+                                         || (porDocumento && x.DocumentIdentityCode == documento))
                                 .Select(x => x.Email)
-                                .FirstOrDefault()
-                             ?? fo.CorreoElectronico
-                             ?? fo.CorreoEnvio,
+                                .FirstOrDefault(),
                     // Mismo criterio y misma forma que el correo: manda el documento de la base
-                    // maestra y, si esa ficha todavía no existe, el que declaró el postulante. Es
-                    // lo que nombra su carpeta en el file de colaboradores.
+                    // maestra y, si esa ficha todavía no existe, el declarado (por el postulante en
+                    // su formulario o por quien pidió la vacante en el ingreso directo). Es lo que
+                    // nombra su carpeta en el file de colaboradores.
                     Dni = ctx.Person
-                             .Where(x => x.PersonId == fo.PersonId)
+                             .Where(x => x.PersonId == personId
+                                      || (porDocumento && x.DocumentIdentityCode == documento))
                              .Select(x => x.DocumentIdentityCode)
                              .FirstOrDefault()
-                          ?? fo.NumeroDocumento,
+                          ?? documento,
                     JefeDirecto = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
-                    // La firma que el postulante dibuja en el enlace público se guarda en su ficha de
-                    // la base maestra, así que sin ficha el envío no puede salir. Se busca igual que
-                    // el correo y el documento: primero el enlace que dejó su formulario aprobado y,
-                    // si no existe, por coincidencia de documento (person.document_identity_code es
-                    // único), que cubre a quien ya estaba en la base maestra de antes. Va como un solo
-                    // Any con el OR adentro —y no como dos Any unidos por ||— para que sea un único
-                    // EXISTS en la consulta.
+                    // La firma que el candidato dibuja en el enlace público se guarda en su ficha de
+                    // la base maestra, así que sin ficha el envío no puede salir. Es el mismo
+                    // predicado que el correo y el documento, para que los tres no puedan discrepar.
+                    // Va como un solo Any con el OR adentro —y no como dos Any unidos por ||— para
+                    // que sea un único EXISTS en la consulta.
                     TieneFichaMaestra = ctx.Person.Any(x =>
-                        x.PersonId == fo.PersonId
-                        || (fo.NumeroDocumento != null && x.DocumentIdentityCode == fo.NumeroDocumento)),
+                        x.PersonId == personId
+                        || (porDocumento && x.DocumentIdentityCode == documento)),
                 }).ToListAsync();
 
         public async Task<OnboardingContextoDto> PrepararInicio(int candidatoId, DateOnly? fechaIngreso, string? correo)
@@ -337,10 +358,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     "Este candidato no puede pasar a onboarding: debe estar seleccionado en un proceso ya cerrado y no tener otro onboarding abierto.",
                     409);
 
+            // El correo de `apto` es el de `person.email`: la corrección manual de GTH es lo único
+            // que puede reemplazarlo.
             var destino = Trim(correo) ?? Trim(apto.Correo);
             if (string.IsNullOrWhiteSpace(destino))
                 throw new AbrilException(
-                    "El colaborador no tiene un correo personal registrado. Aprueba su formulario de postulante en Reclutamiento para que quede en la base maestra, o indica el correo a mano.",
+                    "El colaborador no tiene correo personal en su ficha de la base maestra. Regístralo ahí o indica el correo a mano.",
                     409);
 
             // Sin documento no hay carpeta: el file del colaborador se llama «{DNI} - {NOMBRE}» y de
@@ -349,14 +372,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             var dni = Trim(apto.Dni);
             if (string.IsNullOrWhiteSpace(dni))
                 throw new AbrilException(
-                    "El colaborador no tiene documento de identidad registrado. Aprueba su formulario de postulante en Reclutamiento para que quede en la base maestra.",
+                    "El colaborador no tiene documento de identidad en su ficha de la base maestra.",
                     409);
 
-            // La ficha de la base maestra es obligatoria en este flujo: la firma que el postulante
+            // La ficha de la base maestra es obligatoria en este flujo: la firma que el colaborador
             // dibuja en el enlace público se guarda en `person`, así que sin ficha no habría dónde
             // ponerla y el enlace llegaría a una página que no puede terminar. Se corta acá, antes de
-            // enviar nada. Mismo orden de búsqueda que el correo y el documento: el enlace del
-            // formulario aprobado y, si falta, la coincidencia por documento.
+            // enviar nada. Mismo orden de búsqueda que el correo y el documento: el enlace que dejó
+            // su flujo —el formulario aprobado o el ingreso directo— y, si no hay ninguno, la
+            // coincidencia por documento.
             var personId = apto.PersonId
                 ?? await ctx.Person
                     .Where(x => x.DocumentIdentityCode == dni)
@@ -365,7 +389,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
 
             if (personId == null)
                 throw new AbrilException(
-                    "El colaborador no tiene ficha en la base maestra y su firma se guarda ahí. Aprueba su formulario de postulante en Reclutamiento para crearla y vuelve a intentarlo.",
+                    "El colaborador no tiene ficha en la base maestra y su firma se guarda ahí.",
                     409);
 
             return new OnboardingContextoDto

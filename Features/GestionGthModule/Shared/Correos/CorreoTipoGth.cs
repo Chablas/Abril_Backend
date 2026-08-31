@@ -1,10 +1,15 @@
-﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application
+﻿namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
 {
     /// <summary>
-    /// Códigos estables de los tipos de correo configurables del módulo de Reclutamiento
-    /// (espejo de <c>gth_correo_tipo.codigo</c>). Se usan para scopear los destinatarios.
+    /// Códigos estables de los tipos de correo configurables de Gestión GTH (espejo de
+    /// <c>gth_correo_tipo.codigo</c>). Se usan para scopear los destinatarios.
+    ///
+    /// Vive en el <c>Shared/</c> del módulo y no dentro de una feature porque lo usan dos:
+    /// Reclutamiento (todo el flujo de la vacante, desde la solicitud hasta el cierre) y
+    /// Onboarding (la carta oferta al colaborador que ya fue elegido). La tabla que refleja es
+    /// una sola para el módulo y las cuatro pantallas de Configuración se reparten sus filas.
     /// </summary>
-    public static class CorreoTipoReclutamiento
+    public static class CorreoTipoGth
     {
         /// <summary>
         /// Correo de "vacantes NUEVAS por aprobar" (va al Gerente General). Es el primer correo del
@@ -197,6 +202,20 @@
         public const string Agradecimiento = "AGRADECIMIENTO";
 
         /// <summary>
+        /// Correo de la <b>carta oferta</b> (va al colaborador que entra a Onboarding). Es el
+        /// primer correo que recibe de la empresa ya como contratado: le da la bienvenida, le
+        /// resume la posición y lo lleva al enlace público donde lee la carta, registra su firma y
+        /// la firma en línea. Lo disparan tanto el alta del onboarding como el reenvío del enlace,
+        /// con el mismo cuerpo.
+        ///
+        /// Es el único correo de la feature de Onboarding, así que su pantalla de Configuración
+        /// (<c>/gestion-gth/onboarding/configuracion</c>) administra solo este. El destinatario
+        /// principal es SIEMPRE el colaborador; la configuración aporta principales adicionales y
+        /// copias.
+        /// </summary>
+        public const string CartaOferta = "CARTA_OFERTA";
+
+        /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>aprobacion-reemplazo</c> /
         /// <c>aprobacion-reemplazo-gth</c> / <c>aviso-gerente-area</c> / <c>solicitud</c> /
         /// <c>reemplazo-aprobado</c> / <c>ti-vacantes</c> /
@@ -205,8 +224,8 @@
         /// <c>formulario-envio</c> / <c>formulario-completado</c> / <c>formulario-correccion</c> /
         /// <c>entrevista</c> / <c>entrevista-respuesta</c> /
         /// <c>entrevista-confirmada-solicitante</c> / <c>candidato-retomado</c> /
-        /// <c>agradecimiento</c>) al código estable. Devuelve null si el slug no corresponde a un
-        /// tipo conocido.
+        /// <c>agradecimiento</c> / <c>carta-oferta</c>) al código estable. Devuelve null si el slug
+        /// no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
@@ -232,6 +251,7 @@
             "entrevista-confirmada-solicitante" => EntrevistaConfirmadaSolicitante,
             "candidato-retomado"     => CandidatoRetomado,
             "agradecimiento"         => Agradecimiento,
+            "carta-oferta"           => CartaOferta,
             _ => null,
         };
     }

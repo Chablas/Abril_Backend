@@ -175,6 +175,14 @@
     {
         public int CandidatoId { get; set; }
         public int RequerimientoId { get; set; }
+
+        /// <summary>
+        /// Ficha del candidato en la base maestra según el enlace que dejó su flujo: el
+        /// <c>person_id</c> del formulario del postulante aprobado o el <c>fft_person_id</c> del
+        /// requerimiento (el ingreso directo no pide formulario). De esa ficha salen el correo y el
+        /// documento. Null = ninguno de los dos enlaces existe todavía; puede seguir habiendo ficha
+        /// por coincidencia de documento (ver <see cref="TieneFichaMaestra"/>).
+        /// </summary>
         public int? PersonId { get; set; }
 
         /// <summary>Nombre + código del requerimiento: es lo que se lee en el desplegable.</summary>
@@ -187,9 +195,9 @@
         public string? ProyectoObra { get; set; }
 
         /// <summary>
-        /// Correo personal al que iría la carta oferta. Sale de <c>person.email</c> (lo que GTH
-        /// validó al aprobar el formulario) y, si esa ficha no existe todavía, del correo que el
-        /// postulante declaró en su formulario. Null = no hay a dónde enviar y el modal lo bloquea.
+        /// Correo personal al que iría la carta oferta. Sale siempre de <c>person.email</c>, sea el
+        /// ingreso normal o el directo FFT: es el único correo que alguien de GTH revisó. Null = su
+        /// ficha no tiene correo, no hay a dónde enviar y el modal lo bloquea.
         /// </summary>
         public string? Correo { get; set; }
 
@@ -206,10 +214,10 @@
         public string? JefeDirecto { get; set; }
 
         /// <summary>
-        /// true si el candidato ya tiene ficha en <c>person</c> (la crea la aprobación de su
-        /// formulario de postulante). Sin ficha no hay dónde guardar la firma que va a dibujar en el
-        /// enlace público, así que el modal bloquea el envío. Se resuelve por <c>person_id</c> del
-        /// formulario y, si falta, por coincidencia de documento contra la base maestra.
+        /// true si el candidato ya tiene ficha en <c>person</c>. Sin ficha no hay dónde guardar la
+        /// firma que va a dibujar en el enlace público, así que el modal bloquea el envío. Se busca
+        /// con el mismo criterio que el correo: el <see cref="PersonId"/> de su flujo y, si no hay
+        /// ninguno, por coincidencia de documento contra la base maestra.
         /// </summary>
         public bool TieneFichaMaestra { get; set; }
     }

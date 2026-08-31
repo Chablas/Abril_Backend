@@ -1,6 +1,4 @@
-using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
-
-namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces
+namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
 {
     /// <summary>
     /// Única fuente de verdad de a quién le llega cada correo de Reclutamiento. Lee la
@@ -16,7 +14,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Destinatarios efectivos de un correo. Devuelve las listas vacías si el correo está
         /// apagado con su interruptor maestro.
         /// </summary>
-        /// <param name="tipoCodigo">Código estable del correo (<see cref="CorreoTipoReclutamiento"/>).</param>
+        /// <param name="tipoCodigo">Código estable del correo (<see cref="CorreoTipoGth"/>).</param>
         /// <param name="areaScopeId">
         /// <c>workers.area_scope_id</c> del solicitante, necesario para resolver al gerente de su
         /// área. Si es null (o su área no cuelga de ninguna gerencia con gerente registrado) esa

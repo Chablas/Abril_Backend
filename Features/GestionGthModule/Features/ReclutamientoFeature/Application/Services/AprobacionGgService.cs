@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using System.Globalization;
 using System.Security.Cryptography;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
@@ -204,10 +205,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (ctx.VacantesGg.Count > 0 && (!esReenvio || ctx.PendienteGg))
             {
-                rutas.Add(new RutaCorreo(CorreoTipoReclutamiento.AprobacionGg, ctx.VacantesGg));
+                rutas.Add(new RutaCorreo(CorreoTipoGth.AprobacionGg, ctx.VacantesGg));
                 if (!esReenvio)
                     rutas.Add(new RutaCorreo(
-                        CorreoTipoReclutamiento.AvisoGerenteArea, ctx.VacantesGg,
+                        CorreoTipoGth.AvisoGerenteArea, ctx.VacantesGg,
                         CuentaParaElResultado: false));
             }
 
@@ -217,11 +218,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 case AprobacionNivel.GerenteArea:
                     rutas.Add(new RutaCorreo(
-                        CorreoTipoReclutamiento.AprobacionReemplazo, ctx.VacantesReemplazo));
+                        CorreoTipoGth.AprobacionReemplazo, ctx.VacantesReemplazo));
                     break;
                 case AprobacionNivel.Gth:
                     rutas.Add(new RutaCorreo(
-                        CorreoTipoReclutamiento.AprobacionReemplazoGth, ctx.VacantesReemplazoParaGth));
+                        CorreoTipoGth.AprobacionReemplazoGth, ctx.VacantesReemplazoParaGth));
                     break;
             }
 
@@ -252,7 +253,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return false;
                 }
 
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FftSolicitudGg);
                 if (dest.Para.Count == 0)
                 {
                     // También entra acá cuando el correo está apagado con su interruptor maestro: en
@@ -367,7 +368,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             bool esReenvio)
         {
             var vacantes = ruta.Vacantes;
-            var esAviso  = ruta.TipoCorreo == CorreoTipoReclutamiento.AvisoGerenteArea;
+            var esAviso  = ruta.TipoCorreo == CorreoTipoGth.AvisoGerenteArea;
 
             // El informativo no dice "Aprobación": nadie tiene que aprobar nada al recibirlo.
             var asunto = esAviso
@@ -766,23 +767,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     var fuentes = new List<SolicitudDestinatariosDto>();
                     if (dto.Nivel == AprobacionNivel.GerenteGeneral)
                     {
-                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Solicitud));
-                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoGth.Solicitud));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoGth.Ti));
                         // Con vacantes FFT sale además su propio aviso a GTH, así que sus
                         // destinatarios entran en la misma lista: el gerente tiene que ver a quién
                         // le llega TODO lo que dispara su decisión, no una parte.
                         if (dto.Vacantes.Any(v => v.EsFft))
-                            fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg));
+                            fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoGth.FftAprobacionGg));
                     }
                     else if (dto.Nivel == AprobacionNivel.GerenteArea)
                     {
                         fuentes.Add(await _destinatarios.ResolverAsync(
-                            CorreoTipoReclutamiento.AprobacionReemplazoGth));
+                            CorreoTipoGth.AprobacionReemplazoGth));
                     }
                     else
                     {
-                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.ReemplazoAprobado));
-                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoGth.ReemplazoAprobado));
+                        fuentes.Add(await _destinatarios.ResolverAsync(CorreoTipoGth.Ti));
                     }
 
                     dto.Destinatarios = Fusionar(fuentes.ToArray());
@@ -879,7 +880,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 if (ctx.Aprobadas.Count > 0)
                 {
-                    await NotificarAGthAsync(ctx, userId, tipoCorreo: CorreoTipoReclutamiento.ReemplazoAprobado);
+                    await NotificarAGthAsync(ctx, userId, tipoCorreo: CorreoTipoGth.ReemplazoAprobado);
                     await NotificarATiAsync(ctx);
                 }
 
@@ -964,7 +965,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (conEsperando.Count > 0)
             {
                 var destFirma = await ResolverDestinatariosDelLote(
-                    CorreoTipoReclutamiento.AprobacionReemplazoGth);
+                    CorreoTipoGth.AprobacionReemplazoGth);
                 if (destFirma != null)
                     foreach (var c in conEsperando)
                         await PedirFirmaDeGthAsync(c, userId, destFirma);
@@ -975,12 +976,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 if (ctx.Nivel == AprobacionNivel.GerenteGeneral)
                 {
-                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Solicitud);
-                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
+                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoGth.Solicitud);
+                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoGth.Ti);
                     // Los destinatarios del aviso FFT solo se resuelven si el lote trae alguna
                     // vacante FFT: en un lote sin FFT sería un roundtrip para nada.
                     var destFft = conAprobadas.Any(c => c.Aprobadas.Any(v => v.EsFft))
-                        ? await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.FftAprobacionGg)
+                        ? await ResolverDestinatariosDelLote(CorreoTipoGth.FftAprobacionGg)
                         : null;
 
                     // Best-effort, como en la decisión de una: la decisión ya quedó registrada y no
@@ -996,14 +997,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     // Un lote de reemplazos no puede traer vacantes FFT: siempre van por la ruta de
                     // Gerencia General. El aviso a TI sí sale, igual que en esa ruta.
-                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.ReemplazoAprobado);
-                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoReclutamiento.Ti);
+                    var destGth = await ResolverDestinatariosDelLote(CorreoTipoGth.ReemplazoAprobado);
+                    var destTi  = await ResolverDestinatariosDelLote(CorreoTipoGth.Ti);
 
                     foreach (var c in conAprobadas)
                     {
                         if (destGth != null)
                             await NotificarAGthAsync(
-                                c, userId, destGth, CorreoTipoReclutamiento.ReemplazoAprobado);
+                                c, userId, destGth, CorreoTipoGth.ReemplazoAprobado);
                         if (destTi != null) await NotificarATiAsync(c, destTi);
                     }
                 }
@@ -1074,14 +1075,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// trabajo del otro lado es el mismo (reclutar), pero lo dispara otra decisión y cada uno
         /// tiene su propia configuración de destinatarios.
         /// <list type="bullet">
-        ///   <item><see cref="CorreoTipoReclutamiento.Solicitud"/> — lo aprobado por Gerencia General.</item>
-        ///   <item><see cref="CorreoTipoReclutamiento.ReemplazoAprobado"/> — los reemplazos que
+        ///   <item><see cref="CorreoTipoGth.Solicitud"/> — lo aprobado por Gerencia General.</item>
+        ///   <item><see cref="CorreoTipoGth.ReemplazoAprobado"/> — los reemplazos que
         ///   juntaron las firmas del gerente del área y de GTH.</item>
         /// </list>
         /// </param>
         private async Task NotificarAGthAsync(
             AprobacionGgDecisionContextoDto ctx, int? userId, SolicitudDestinatariosDto? destinatarios = null,
-            string tipoCorreo = CorreoTipoReclutamiento.Solicitud)
+            string tipoCorreo = CorreoTipoGth.Solicitud)
         {
             // Las vacantes FFT tienen su propio correo (NotificarFftAprobadoAGthAsync): este es el
             // de las que sí hay que publicar y reclutar. Una solicitud puede traer solo FFT, y
@@ -1090,7 +1091,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var vacantes = ctx.Aprobadas.Where(v => !v.EsFft).ToList();
             if (vacantes.Count == 0) return;
 
-            var esReemplazo = tipoCorreo == CorreoTipoReclutamiento.ReemplazoAprobado;
+            var esReemplazo = tipoCorreo == CorreoTipoGth.ReemplazoAprobado;
 
             // En la decisión de UNA solicitud los destinatarios se resuelven acá. En la decisión en
             // bloque llegan ya resueltos, una sola vez para todo el lote: no dependen de la
@@ -1191,7 +1192,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             try
             {
                 dest = destinatarios
-                    ?? await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.AprobacionReemplazoGth);
+                    ?? await _destinatarios.ResolverAsync(CorreoTipoGth.AprobacionReemplazoGth);
             }
             catch (Exception ex)
             {
@@ -1321,7 +1322,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             SolicitudDestinatariosDto dest;
             try
             {
-                dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftAprobacionGg);
+                dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoGth.FftAprobacionGg);
             }
             catch (Exception ex)
             {
@@ -1370,7 +1371,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             try
             {
                 // Igual que en el correo a GTH: en bloque llegan ya resueltos para todo el lote.
-                var dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Ti);
+                var dest = destinatarios ?? await _destinatarios.ResolverAsync(CorreoTipoGth.Ti);
                 if (dest.Para.Count == 0)
                 {
                     // También entra acá cuando el correo está apagado con su interruptor maestro:

@@ -132,7 +132,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var proyectoIds = raw.Where(x => x.ProyectoId.HasValue).Select(x => x.ProyectoId!.Value).Distinct().ToList();
             var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
 
+            // El coordinador administrativo es una FK a workers: su correo se lee de la
+            // ficha, por eso el Include (en el mismo roundtrip, sin N+1).
             var proyectoMap = await ctx.Project
+                .Include(p => p.CoordAdmin)
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId, p => p);
             var empresaMap = await ctx.Contributor
@@ -173,7 +176,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Categoria = x.Categoria,
                     Puesto = x.Puesto,
                     WorkerEmail = x.WorkerEmail,
-                    AdministradorEmail = proyecto?.EmailCoordAdmin ?? empresa?.EmailAdministrador,
+                    AdministradorEmail = proyecto?.CoordAdmin?.EmailCorporativo ?? empresa?.EmailAdministrador,
                     Jefatura = jefaturaNombre,
                     JefaturaEmail = jefaturaEmail,
                     Especialidad = x.Especialidad,
@@ -243,7 +246,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
                 .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
 
+            // El coordinador administrativo es una FK a workers: su correo se lee de la
+            // ficha, por eso el Include (en el mismo roundtrip, sin N+1).
             var proyectoMap = await ctx.Project
+                .Include(p => p.CoordAdmin)
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId, p => p);
             var empresaMap = await ctx.Contributor
@@ -283,7 +289,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     JefaturaEmail = jefaturaEmail,
                     ProyectoId = proyectoId,
                     ProyectoNombre = esOficinaCentral ? "Oficina Central" : proyecto?.ProjectDescription,
-                    ProyectoEmailCoordAdmin = proyecto?.EmailCoordAdmin,
+                    ProyectoEmailCoordAdmin = proyecto?.CoordAdmin?.EmailCorporativo,
                     ProyectoEmailResidente = proyecto?.EmailResidente,
                     ProyectoEmailResponsable = proyecto?.EmailResponsable,
                     ProyectoEmailRrhh = proyecto?.EmailRrhh,

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
+﻿using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Interfaces
 {
@@ -87,7 +87,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         Task MarcarVisitaRecordatorioEnviado(int visitaId);
 
-        /// <summary>Residente y Administrador del proyecto (project.email_residente / project.email_coord_admin), para el recordatorio de visita.</summary>
+        /// <summary>Residente y Administrador del proyecto (project.residente_workers_id / project.workers_coord_admin_id), para el recordatorio de visita.</summary>
         Task<List<string>> ResolverDestinatariosVisita(int projectId);
 
         /// <summary>Edita las fechas ampliadas del dashboard (inscripción/inicio/renovación) y Mes Activo.</summary>

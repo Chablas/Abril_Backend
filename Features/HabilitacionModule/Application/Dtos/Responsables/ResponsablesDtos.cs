@@ -26,9 +26,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables
     }
 
     /// <summary>
-    /// Un proyecto con sus correos de notificación (correos de EMOs/interconsultas —
-    /// ver EmoAlertaService.BuildDestinatarios). Los 4 campos se suman todos al "to": no hay
-    /// jerarquía entre ellos, cualquiera con correo cargado recibe el aviso.
+    /// Un proyecto con sus responsables de notificación (correos de EMOs/interconsultas —
+    /// ver EmoAlertaService.BuildDestinatarios). Todos se suman al "to": no hay jerarquía
+    /// entre ellos, cualquiera con correo cargado recibe el aviso.
+    ///
+    /// Residente y Coordinador Administrativo son FKs a Worker; Responsable, RR.HH. y
+    /// Coord. SSOMA siguen siendo correos de texto.
     /// </summary>
     public class ResponsableProyectoDto
     {
@@ -38,19 +41,22 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Responsables
         public int? ResidenteWorkersId { get; set; }
         public string? ResidenteNombre { get; set; }
         public string? ResidenteEmail { get; set; }
+        /// <summary>FK a Worker (project.workers_coord_admin_id); el correo se resuelve en vivo, no se guarda copia.</summary>
+        public int? WorkersCoordAdminId { get; set; }
+        public string? CoordAdminNombre { get; set; }
+        public string? CoordAdminEmail { get; set; }
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }
-        public string? EmailCoordAdmin { get; set; }
     }
 
     public class ResponsableProyectoUpdateDto
     {
         public int? ResidenteWorkersId { get; set; }
+        public int? WorkersCoordAdminId { get; set; }
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }
-        public string? EmailCoordAdmin { get; set; }
     }
 
     /// <summary>Payload único de la pantalla "Gestión de Responsables": todo en una petición.</summary>

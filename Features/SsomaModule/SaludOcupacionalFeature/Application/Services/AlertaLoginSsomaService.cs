@@ -29,11 +29,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var emailNorm = email.Trim().ToLower();
 
             // Proyectos donde el usuario logueado es Administrador o Coordinador SSOMA —
-            // mismos campos que usa Gestión de Responsables (EmailCoordAdmin/EmailCoordSsoma),
-            // no hay tabla de roles por proyecto: la responsabilidad se define por ese correo.
+            // mismos campos que usa Gestión de Responsables, no hay tabla de roles por
+            // proyecto: la responsabilidad se define por esa persona. El coordinador
+            // administrativo es una FK a workers (project.workers_coord_admin_id), así que
+            // se compara contra el correo corporativo de su ficha; el Coordinador SSOMA
+            // sigue siendo un correo de texto.
             var proyectos = await ctx.Project
                 .Where(p => p.State &&
-                    ((p.EmailCoordAdmin != null && p.EmailCoordAdmin.ToLower() == emailNorm) ||
+                    ((p.CoordAdmin != null && p.CoordAdmin.EmailCorporativo != null &&
+                      p.CoordAdmin.EmailCorporativo.ToLower() == emailNorm) ||
                      (p.EmailCoordSsoma != null && p.EmailCoordSsoma.ToLower() == emailNorm)))
                 .Select(p => new { p.ProjectId, p.ProjectDescription })
                 .ToListAsync();

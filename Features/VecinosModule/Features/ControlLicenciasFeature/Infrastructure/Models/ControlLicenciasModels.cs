@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models
 {
     /// <summary>Catálogo de tipos de licencia: plantilla base (ProjectId null) o tipo propio de un proyecto.</summary>
     public class VecinoLicenciaControlTipo
@@ -91,7 +91,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     /// <summary>
     /// Una fecha de visita de la municipalidad registrada en el Anexo H de una licencia.
     /// El recordatorio es fijo: 2 días antes de la fecha de visita, enviado a Residente y
-    /// Administrador del proyecto (project.email_residente / project.email_coord_admin).
+    /// Administrador del proyecto (project.residente_workers_id / project.workers_coord_admin_id).
     /// </summary>
     public class VecinoLicenciaControlVisita
     {

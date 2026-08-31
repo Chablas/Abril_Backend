@@ -27,6 +27,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? ResponsableUdp { get; set; }
         public int? ResponsableUdpId { get; set; }
 
+        /// <summary>
+        /// Trabajador que es coordinador administrativo del proyecto (FK a workers). Su
+        /// correo se resuelve en vivo desde la ficha; no se guarda copia del texto.
+        /// </summary>
+        public int? WorkersCoordAdminId { get; set; }
+
         // Fechas
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }

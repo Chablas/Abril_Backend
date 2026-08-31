@@ -785,6 +785,15 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(p => p.ContributorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Coordinador administrativo del proyecto. Se declara explícita (y no por
+            // convención) porque Worker no tiene navegación de vuelta hacia Project: sin
+            // esto EF podría inventarse una FK sombra en vez de usar workers_coord_admin_id.
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.CoordAdmin)
+                .WithMany()
+                .HasForeignKey(p => p.WorkersCoordAdminId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<ProjectSubContractor>()
                 .HasOne(s => s.Contract)
                 .WithMany()

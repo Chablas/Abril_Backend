@@ -957,7 +957,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Se resuelve acá (antes de calcular la clasificación) porque el proyecto destino
             // "Oficina Central" determina la clasificación automáticamente — ver más abajo.
             var proyectoDestino = esCambioProyecto
-                ? await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId)
+                ? await ctx.Project.Include(p => p.CoordAdmin)
+                    .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId)
                 : null;
 
             var currentObraOficinaStaffId = worker.ObraOficinaStaffId;
@@ -1036,6 +1037,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var pidParaEmail = (int?)dto.NuevoProyectoId ?? currentProyectoId;
                     if (pidParaEmail.HasValue)
                         proyectoDestino = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
                 }
 
@@ -1044,7 +1046,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (esCambioEmpresa)
                 {
-                    var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                    var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                     if (!string.IsNullOrWhiteSpace(emailSctr))
                         pendingEmails.Add((
                             [emailSctr!],
@@ -1052,7 +1054,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                         ));
 
-                    var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                    var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                     if (!string.IsNullOrWhiteSpace(emailVidaLey))
                         pendingEmails.Add((
                             [emailVidaLey!],
@@ -1438,6 +1440,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (esCambioProyecto)
             {
                 proyectoDestino = await ctx.Project
+                    .Include(p => p.CoordAdmin)
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
 
                 itemsToReset.Add(HabItemIds.InduccionObra);
@@ -1463,13 +1466,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var pidParaEmail = dto.NuevoProyectoId ?? currentProyectoId;
                     if (pidParaEmail.HasValue)
                         proyectoDestino = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
                 }
 
                 var esOficinaOStaff =
                     ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
 
-                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
@@ -1477,7 +1481,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
-                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
@@ -2103,11 +2107,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     if (proyectoActualId.HasValue)
                     {
                         var proyectoActual = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == proyectoActualId.Value);
-                        if (!string.IsNullOrWhiteSpace(proyectoActual?.EmailCoordAdmin))
+                        if (!string.IsNullOrWhiteSpace(proyectoActual?.CoordAdmin?.EmailCorporativo))
                         {
                             cambioObraOficinaDestino = "Staff";
-                            cambioObraOficinaEmail = proyectoActual.EmailCoordAdmin;
+                            cambioObraOficinaEmail = proyectoActual.CoordAdmin!.EmailCorporativo;
                         }
                     }
                 }

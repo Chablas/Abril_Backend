@@ -49,10 +49,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ResidenteWorkersId = p.ResidenteWorkersId,
                     ResidenteNombre = residente != null ? (residente.Person != null ? residente.Person.FullName : null) : null,
                     ResidenteEmail = residente != null ? residente.EmailCorporativo : null,
+                    WorkersCoordAdminId = p.WorkersCoordAdminId,
+                    CoordAdminNombre = p.CoordAdmin != null && p.CoordAdmin.Person != null ? p.CoordAdmin.Person.FullName : null,
+                    CoordAdminEmail = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
                     EmailResponsable = p.EmailResponsable,
                     EmailRrhh = p.EmailRrhh,
-                    EmailCoordSsoma = p.EmailCoordSsoma,
-                    EmailCoordAdmin = p.EmailCoordAdmin
+                    EmailCoordSsoma = p.EmailCoordSsoma
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -105,6 +107,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("El proyecto no existe.", 404);
 
             project.ResidenteWorkersId = dto.ResidenteWorkersId;
+            project.WorkersCoordAdminId = dto.WorkersCoordAdminId;
             project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable)
                 ? null
                 : dto.EmailResponsable.Trim();
@@ -114,9 +117,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             project.EmailCoordSsoma = string.IsNullOrWhiteSpace(dto.EmailCoordSsoma)
                 ? null
                 : dto.EmailCoordSsoma.Trim();
-            project.EmailCoordAdmin = string.IsNullOrWhiteSpace(dto.EmailCoordAdmin)
-                ? null
-                : dto.EmailCoordAdmin.Trim();
             project.UpdatedDateTime = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();

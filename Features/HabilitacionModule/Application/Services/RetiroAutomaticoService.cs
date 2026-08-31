@@ -399,7 +399,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (proyectoIds.Count > 0)
             {
                 using var pCtx = _factory.CreateDbContext();
+                // El correo del coordinador administrativo sale de su ficha de trabajador
+                // (project.workers_coord_admin_id -> workers.email_corporativo).
                 proyectosDict = await pCtx.Project
+                    .Include(p => p.CoordAdmin)
                     .Where(p => proyectoIds.Contains(p.ProjectId))
                     .ToDictionaryAsync(p => p.ProjectId);
             }
@@ -445,7 +448,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
                         emails = new List<string?> {
                             proyecto?.EmailCoordSsoma,
-                            proyecto?.EmailCoordAdmin,
+                            proyecto?.CoordAdmin?.EmailCorporativo,
                             proyecto?.EmailRrhh
                         }
                         .Where(e => !string.IsNullOrWhiteSpace(e))

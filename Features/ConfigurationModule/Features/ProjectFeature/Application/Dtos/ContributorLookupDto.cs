@@ -16,5 +16,28 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
     {
         public int Id { get; set; }
         public string ApellidoNombre { get; set; } = string.Empty;
+        /// <summary>
+        /// Correo corporativo, solo para mostrarlo bajo el desplegable. El que se guarda
+        /// es el id: el correo se vuelve a leer de la ficha del trabajador al enviar.
+        /// </summary>
+        public string? Email { get; set; }
+    }
+
+    /// <summary>
+    /// Todos los desplegables del modal crear/editar proyecto en una sola respuesta —
+    /// antes eran dos peticiones (una por tipo de responsable) y el coordinador
+    /// administrativo habría sido una tercera.
+    /// </summary>
+    public class ProjectLookupsDto
+    {
+        /// <summary>Trabajadores activos de la subárea Arquitectura Comercial.</summary>
+        public List<ResponsableLookupDto> ArqCom { get; set; } = new();
+        /// <summary>Trabajadores activos de la subárea Unidad de Proyectos.</summary>
+        public List<ResponsableLookupDto> Udp { get; set; } = new();
+        /// <summary>
+        /// Elegibles como coordinador administrativo: personal Casa no retirado con correo
+        /// corporativo — mismo criterio que Gestión de Responsables.
+        /// </summary>
+        public List<ResponsableLookupDto> CoordAdmins { get; set; } = new();
     }
 }

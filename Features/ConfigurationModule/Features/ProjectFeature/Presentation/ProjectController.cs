@@ -167,13 +167,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>
+        /// Los desplegables del modal crear/editar proyecto (responsables Arq. Comercial y
+        /// UDP + elegibles como coordinador administrativo) en una sola petición.
+        /// </summary>
         [Authorize]
-        [HttpGet("responsables")]
-        public async Task<IActionResult> GetResponsables([FromQuery] string tipo)
+        [HttpGet("lookups")]
+        public async Task<IActionResult> GetLookups()
         {
             try
             {
-                var result = await _service.GetResponsables(tipo);
+                var result = await _service.GetLookups();
                 return Ok(result);
             }
             catch (AbrilException ex)

@@ -290,10 +290,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         /// <summary>
         /// Emails de un proyecto para efectos de destinatarios de alertas SSOMA. El
-        /// residente sale de su ficha de trabajador (project.residente_workers_id →
-        /// workers.email_corporativo), igual que EmoDestinatariosResolver, en vez de la
-        /// columna Project.EmailResidente (deprecada, se desactualiza cuando cambia el
-        /// residente).
+        /// residente y el coordinador administrativo salen de su ficha de trabajador
+        /// (project.residente_workers_id y project.workers_coord_admin_id →
+        /// workers.email_corporativo), igual que EmoDestinatariosResolver, en vez de
+        /// columnas de texto que se desactualizan cuando la persona cambia de correo.
         /// </summary>
         private sealed class ProyectoDestinatarios
         {
@@ -322,7 +322,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     EmailResponsable = p.EmailResponsable,
                     EmailRrhh        = p.EmailRrhh,
                     EmailCoordSsoma  = p.EmailCoordSsoma,
-                    EmailCoordAdmin  = p.EmailCoordAdmin,
+                    EmailCoordAdmin  = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
                 }
             ).ToDictionaryAsync(p => p.ProjectId);
         }

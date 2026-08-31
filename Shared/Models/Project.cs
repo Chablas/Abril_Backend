@@ -38,6 +38,24 @@ namespace Abril_Backend.Shared.Models {
         // workers.email_corporativo al enviar, así sigue siempre al dato maestro.
         public int? ResidenteWorkersId {get; set;}
 
+        /// <summary>
+        /// Coordinador administrativo del proyecto: referencia al trabajador, igual que
+        /// <see cref="ResidenteWorkersId"/>. Su correo se lee de
+        /// <c>workers.email_corporativo</c> al enviar — no hay copia del texto que se
+        /// desactualice cuando la persona cambia de correo o se retira.
+        ///
+        /// Reemplazó a la columna <c>email_coord_admin</c> (texto suelto), eliminada.
+        /// Para leer el correo usar la navegación <see cref="CoordAdmin"/>.
+        /// </summary>
+        public int? WorkersCoordAdminId {get; set;}
+
+        /// <summary>
+        /// Ficha del coordinador administrativo. Es la fuente del correo:
+        /// <c>CoordAdmin?.EmailCorporativo</c>. Traerla en la misma consulta
+        /// (proyección o <c>Include</c>) para no caer en N+1.
+        /// </summary>
+        public Worker? CoordAdmin {get; set;}
+
         // Emails del proyecto
         /// <summary>
         /// DEPRECADO — reemplazado por <see cref="ResidenteWorkersId"/>. Se conserva
@@ -48,7 +66,6 @@ namespace Abril_Backend.Shared.Models {
         public string? EmailResponsable {get; set;}
         public string? EmailRrhh {get; set;}
         public string? EmailCoordSsoma {get; set;}
-        public string? EmailCoordAdmin {get; set;}
         public string? StaffEmail {get; set;}
 
         // Fechas del proyecto

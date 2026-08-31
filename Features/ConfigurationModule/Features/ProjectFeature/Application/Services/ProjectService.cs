@@ -1,4 +1,4 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Interfaces;
@@ -120,9 +120,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             return await _repository.ToggleArquitecturaComercial(projectId);
         }
 
-        public async Task<List<ResponsableLookupDto>> GetResponsables(string tipo)
+        public async Task<ProjectLookupsDto> GetLookups()
         {
-            return await _repository.GetResponsables(tipo);
+            return await _repository.GetLookups();
         }
 
         public async Task<List<int>> GetMyProjectIds(int userId)

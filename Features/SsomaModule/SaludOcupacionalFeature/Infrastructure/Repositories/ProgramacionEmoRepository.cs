@@ -1120,7 +1120,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var empresaIds = raw.Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
                 .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
 
+            // Include del coordinador administrativo: su correo sale de workers, no de
+            // una columna de project.
             var proyectoMap = await ctx.Project
+                .Include(pr => pr.CoordAdmin)
                 .Where(pr => proyectoIds.Contains(pr.ProjectId))
                 .ToDictionaryAsync(pr => pr.ProjectId, pr => pr);
             var empresaMap = await ctx.Contributor
@@ -1151,7 +1154,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 var destinatariosRaw = new List<string?>
                 {
-                    item.WorkerEmail, proyecto?.EmailCoordAdmin, empresa?.EmailAdministrador
+                    item.WorkerEmail, proyecto?.CoordAdmin?.EmailCorporativo, empresa?.EmailAdministrador
                 };
                 var destinatarios = destinatariosRaw
                     .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -1170,7 +1173,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     item.WorkerNombre, item.WorkerDni,
                     TipoDisplay(item.ContrataCasa, item.ObraOficinaStaffId),
                     empresa?.ContributorName, proyecto?.ProjectDescription,
-                    proyecto?.EmailCoordAdmin ?? empresa?.EmailAdministrador,
+                    proyecto?.CoordAdmin?.EmailCorporativo ?? empresa?.EmailAdministrador,
                     item.Categoria, item.Ocupacion);
 
                 try
@@ -1195,7 +1198,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var grupos = sinCorreoPropio.GroupBy(x => new
             {
                 ProyectoId = x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId,
-                Admin = (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId) is int pid && proyectoMap.TryGetValue(pid, out var pr) ? pr.EmailCoordAdmin : null
+                Admin = (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId) is int pid && proyectoMap.TryGetValue(pid, out var pr) ? pr.CoordAdmin?.EmailCorporativo : null
             });
 
             foreach (var grupo in grupos)

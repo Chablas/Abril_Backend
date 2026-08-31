@@ -1,4 +1,4 @@
-using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
+﻿using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -585,8 +585,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         /// <summary>
         /// Residente, Coordinador SSOMA y Administración de un proyecto, resueltos desde su
-        /// propia ficha (project.residente_workers_id → workers.email_corporativo,
-        /// project.email_coord_ssoma, project.email_coord_admin) — mismo criterio que EMOs:
+        /// propia ficha (project.residente_workers_id y project.workers_coord_admin_id →
+        /// workers.email_corporativo, project.email_coord_ssoma) — mismo criterio que EMOs:
         /// nunca un correo escrito a mano, siempre el dato maestro del proyecto.
         /// </summary>
         private async Task<List<VecinoLicenciaDestinatarioAutomaticoDto>> ResolverAutomaticos(AppDbContext ctx, int projectId)
@@ -600,7 +600,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 {
                     EmailResidente = residente != null ? residente.EmailCorporativo : null,
                     p.EmailCoordSsoma,
-                    p.EmailCoordAdmin,
+                    EmailCoordAdmin = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
                 })
                 .FirstOrDefaultAsync();
 
@@ -844,7 +844,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>
         /// Residente y Administración del proyecto, resueltos del mismo modo que <see cref="ResolverAutomaticos"/>
         /// (Residente vía project.residente_workers_id → workers.email_corporativo; Administración vía
-        /// project.email_coord_admin) — sin destinatarios a mano ni Coordinador SSOMA.
+        /// project.workers_coord_admin_id) — sin destinatarios a mano ni Coordinador SSOMA.
         /// </summary>
         public async Task<List<string>> ResolverDestinatariosVisita(int projectId)
         {

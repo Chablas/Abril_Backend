@@ -108,9 +108,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 var proyectoIds = proyectoPorWorker.Values
                     .Where(p => p.HasValue).Select(p => p!.Value).Distinct().ToList();
 
-                // El correo del residente sale de su ficha de trabajador
-                // (project.residente_workers_id → workers.email_corporativo), no de una
-                // copia guardada en el proyecto: así sigue al dato maestro si cambia.
+                // Los correos del residente y del coordinador administrativo salen de su
+                // ficha de trabajador (project.residente_workers_id y
+                // project.workers_coord_admin_id → workers.email_corporativo), no de una
+                // copia guardada en el proyecto: así siguen al dato maestro si cambian.
                 var proyectos = proyectoIds.Count == 0
                     ? new Dictionary<int, ProyectoContexto>()
                     : await (
@@ -123,7 +124,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                             ProjectId       = p.ProjectId,
                             Nombre          = p.ProjectDescription,
                             EmailResidente  = residente != null ? residente.EmailCorporativo : null,
-                            EmailCoordAdmin = p.EmailCoordAdmin,
+                            EmailCoordAdmin = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
                             EmailCoordSsoma = p.EmailCoordSsoma,
                             TieneArqCom     = p.TieneArquitecturaComercial,
                         })
@@ -512,7 +513,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         {
             public int ProjectId { get; set; }
             public string? Nombre { get; set; }
+            /// <summary>Resuelto desde project.residente_workers_id → workers.email_corporativo.</summary>
             public string? EmailResidente { get; set; }
+            /// <summary>Resuelto desde project.workers_coord_admin_id → workers.email_corporativo.</summary>
             public string? EmailCoordAdmin { get; set; }
             public string? EmailCoordSsoma { get; set; }
             public bool? TieneArqCom { get; set; }

@@ -14,6 +14,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public int? ProyectoId { get; set; }
         public int? EmpresaId { get; set; }
         public int? AprobadoPorUserId { get; set; }
+        public string? AprobadoPorNombre { get; set; }
         public string? MotivoRechazo { get; set; }
         public DateTime? CreatedAt { get; set; }
     }

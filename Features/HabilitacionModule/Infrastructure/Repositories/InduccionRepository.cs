@@ -275,12 +275,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(wp => wp.WorkerId)
                 .ToListAsync()).ToHashSet();
 
+            // Empresa con la que el worker está asignado a ESTE proyecto (multi-proyecto Casa).
+            // Sin esto, un worker asignado aquí con una empresa distinta a la de su vinculación
+            // principal (en otro proyecto) mostraba la empresa equivocada.
+            var empresaPorProyectoMap = await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId && workerIds.Contains(wp.WorkerId) && wp.EmpresaId.HasValue)
+                .ToDictionaryAsync(wp => wp.WorkerId, wp => wp.EmpresaId!.Value);
+
             return workerIds
                 .Where(workers.ContainsKey)
                 .Select(wId =>
                 {
                     var w = workers[wId];
-                    var empId = ultimaVinculacion.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
+                    var empId = empresaPorProyectoMap.TryGetValue(wId, out var empProyecto)
+                        ? empProyecto
+                        : ultimaVinculacion.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
                     empresaMap.TryGetValue(empId ?? 0, out var empNombre);
                     return new InduccionTrabajadorDto
                     {

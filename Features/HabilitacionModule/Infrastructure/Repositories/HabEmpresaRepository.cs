@@ -171,7 +171,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
-            if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
+            var estadoAnterior = entregable.Estado;
+
+            var esArchivoNuevo = !string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl;
+            var esAprobacion = string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
+            var esRechazo = string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase);
+
+            // Antes solo se creaba versión cuando cambiaba el archivo — una aprobación/rechazo sin
+            // volver a subir nada (el caso normal: Abril revisa el archivo ya enviado) no dejaba
+            // NINGÚN registro de quién lo aprobó. Igual que HabTrabajadorRepository.UpdateEntregableAsync.
+            if (esArchivoNuevo || esAprobacion || esRechazo)
             {
                 int? ssEmpresaId = empresaId;
 
@@ -182,10 +191,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     HabEmpresaId = id,
                     Version = versionActual + 1,
-                    ArchivoUrl = dto.ArchivoUrl,
+                    ArchivoUrl = (esArchivoNuevo ? dto.ArchivoUrl : entregable.ArchivoUrl) ?? string.Empty,
                     SubidoPorUserId = userId,
                     SubidoPorEmpresaId = ssEmpresaId,
                     EstadoAlSubir = dto.Estado,
+                    EstadoAnterior = estadoAnterior,
+                    AprobadoPorUserId = esAprobacion ? userId : null,
+                    MotivoRechazo = esRechazo ? dto.MotivoRechazo : null,
                     CreatedAt = DateTime.UtcNow
                 });
             }
@@ -247,6 +259,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var userIds = versiones
                 .Where(v => v.SubidoPorUserId.HasValue)
                 .Select(v => v.SubidoPorUserId!.Value)
+                .Concat(versiones.Where(v => v.AprobadoPorUserId.HasValue).Select(v => v.AprobadoPorUserId!.Value))
                 .Distinct()
                 .ToList();
 
@@ -280,6 +293,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ProyectoId = v.ProyectoId,
                 EmpresaId = v.EmpresaId,
                 AprobadoPorUserId = v.AprobadoPorUserId,
+                AprobadoPorNombre = v.AprobadoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.AprobadoPorUserId.Value, out var aprobadoNombre)
+                    ? aprobadoNombre
+                    : null,
                 MotivoRechazo = v.MotivoRechazo,
                 CreatedAt = v.CreatedAt
             }).ToList();
@@ -435,6 +451,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ctx.SaveChangesAsync();
             }
 
+            var estadoAnterior = entregable.Estado;
+            var esArchivoNuevo = dto.ArchivoUrl is not null && dto.ArchivoUrl != entregable.ArchivoUrl;
+            var esAprobacion = string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
+            var esRechazo = string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase);
+
             if (!string.IsNullOrEmpty(dto.Estado)) entregable.Estado = dto.Estado;
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
@@ -444,7 +465,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaEmpresa(
                 entregable.ItemId, entregable.Estado, dto.Vigencia ?? entregable.Vigencia);
 
-            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+            if (esAprobacion)
             {
                 entregable.AprobadoPor = userId;
                 entregable.FechaAprobacion = DateTime.UtcNow;
@@ -452,7 +473,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             entregable.UpdatedAt = DateTime.UtcNow;
 
-            if (dto.ArchivoUrl is not null && dto.ArchivoUrl != entregable.ArchivoUrl)
+            // esArchivoNuevo se calcula ANTES de sobreescribir entregable.ArchivoUrl arriba —
+            // comparar después de esa asignación siempre daba false (dto.ArchivoUrl contra sí
+            // mismo) y nunca se creaba versión al subir archivo. Mismo fix que
+            // UpdateEntregableEmpresaAsync: también se registra la aprobación/rechazo sin
+            // archivo nuevo, para que el historial muestre quién aprobó.
+            if (esArchivoNuevo || esAprobacion || esRechazo)
             {
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEmpresaId == entregable.Id);
@@ -460,10 +486,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     HabEmpresaId = entregable.Id,
                     Version = versionActual + 1,
-                    ArchivoUrl = dto.ArchivoUrl,
+                    ArchivoUrl = entregable.ArchivoUrl ?? string.Empty,
                     SubidoPorUserId = userId,
                     SubidoPorEmpresaId = empresaContId,
                     EstadoAlSubir = dto.Estado,
+                    EstadoAnterior = estadoAnterior,
+                    AprobadoPorUserId = esAprobacion ? userId : null,
+                    MotivoRechazo = esRechazo ? dto.MotivoRechazo : null,
                     CreatedAt = DateTime.UtcNow
                 });
             }

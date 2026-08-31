@@ -66,7 +66,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var esOficinaCentral = proyectoId.HasValue && proyectoId.Value == oficinaId;
 
             var workers = await query.Take(100).ToListAsync();
-            return await BuildDtosAsync(ctx, workers, esOficinaCentral);
+            return await BuildDtosAsync(ctx, workers, esOficinaCentral, proyectoId);
         }
 
         public async Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId, string? estadoHabilitacion)
@@ -85,13 +85,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workerIds = idsVinc.Union(idsProyecto).Distinct().ToList();
 
-            var ahora = DateTime.UtcNow;
+            // Comparación por día calendario, no por instante: Vigencia guarda el ÚLTIMO día
+            // válido del documento (medianoche UTC). Comparar contra DateTime.UtcNow con "<="
+            // marcaba un documento vigente "hasta el 31" como vencido desde las 19:00 hora Lima
+            // del día 30 (mismo bug que en el frontend, ver estaVencido() en trabajadores.ts) —
+            // seguía "No Autorizado" durante todo el día 31 en vez de recién el 1. Con "<" contra
+            // el día de hoy sigue vigente durante todo su último día.
+            var hoy = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
 
             var noAutorizadosIds = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
-                             (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
+                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                             (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))))
                 .Select(h => h.WorkerId)
                 .Distinct()
                 .ToListAsync();
@@ -112,7 +118,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(w => filteredIds.Contains(w.Id))
                 .ToListAsync();
 
-            return await BuildDtosAsync(ctx, workers);
+            return await BuildDtosAsync(ctx, workers, proyectoId: proyectoId);
         }
 
         public async Task<List<ControlAccesoWorkerDto>> GetOficinaCentralAsync(int? proyectoId)
@@ -143,12 +149,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var candidatos = await query.Select(w => w.Id).ToListAsync();
 
-            var ahora = DateTime.UtcNow;
+            var hoy = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
             var conSctrIds = await ctx.SsHabTrabajador
                 .Where(h => candidatos.Contains(h.WorkerId) &&
                             h.ItemId == ItemSctr &&
                             h.Estado == "Aprobado" &&
-                            h.Vigencia > ahora)
+                            h.Vigencia >= hoy)
                 .Select(h => h.WorkerId)
                 .Distinct()
                 .ToListAsync();
@@ -158,7 +164,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(w => conSctrIds.Contains(w.Id))
                 .ToListAsync();
 
-            return await BuildDtosAsync(ctx, workers);
+            return await BuildDtosAsync(ctx, workers, proyectoId: proyectoId);
         }
 
         public async Task<List<InduccionHoyDto>> GetInduccionesHoyAsync()
@@ -399,7 +405,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         };
 
         private async Task<List<ControlAccesoWorkerDto>> BuildDtosAsync(
-            AppDbContext ctx, List<Worker> workers, bool esOficinaCentral = false)
+            AppDbContext ctx, List<Worker> workers, bool esOficinaCentral = false, int? proyectoId = null)
         {
             if (workers.Count == 0) return [];
 
@@ -421,9 +427,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id)
                 .ToListAsync();
 
+            // Si hay filtro de proyecto, mostrar la vinculación de ESE proyecto cuando exista
+            // (el trabajador puede tener otra vinculación más reciente en otro proyecto vía
+            // WorkerProyecto/multi-proyecto Casa, y no debe mostrarse ese otro proyecto).
             var vincByWorker = allVincs
                 .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First());
+                .ToDictionary(
+                    g => g.Key,
+                    g => proyectoId.HasValue
+                        ? (g.FirstOrDefault(v => v.ProyectoId == proyectoId.Value) ?? g.First())
+                        : g.First());
 
             var empresaIds = vincByWorker.Values
                 .Where(v => v.EmpresaId.HasValue)
@@ -475,6 +488,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var ahora = DateTime.UtcNow;
             var en7dias = ahora.AddDays(7);
+            // Día calendario (no instante) para los chequeos de "ya venció" — ver mismo fix en
+            // GetNoAutorizadosAsync más arriba: con "<= ahora" un documento vigente "hasta hoy"
+            // ya salía vencido desde la noche anterior en hora Lima.
+            var hoy = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
             const int sctrItemId = ItemSctr;
             const string itemEmoNombre = "Certificado de Aptitud (EMO)";
 
@@ -532,7 +549,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var sctr = items.FirstOrDefault(h => h.ItemId == sctrItemId);
                     var sctrOk = sctr != null &&
                                  string.Equals(sctr.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) &&
-                                 sctr.Vigencia.HasValue && sctr.Vigencia.Value > ahora;
+                                 sctr.Vigencia.HasValue && sctr.Vigencia.Value >= hoy;
                     hasPendientes = !sctrOk;
                     faltantes = sctrOk ? [] : ["SCTR"];
                     porVencer = [];
@@ -549,14 +566,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     hasPendientes = itemsGenerico.Any(h =>
                         h.ItemId != HabItemIds.LecturaEmo &&
                         (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
-                        (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))));
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                        (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))));
 
                     faltantes = itemsGenerico
                         .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
                                     (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Enviado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
-                                    (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                                    (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();
@@ -609,7 +626,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         });
 
                         var emoEsFaltante = emoEstado == "Falta" ||
-                                            (emoEstado == "Aprobado" && emoVigencia.HasValue && emoVigencia.Value <= ahora);
+                                            (emoEstado == "Aprobado" && emoVigencia.HasValue && emoVigencia.Value < hoy);
                         if (emoEsFaltante)
                         {
                             hasPendientes = true;

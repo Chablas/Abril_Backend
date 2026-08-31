@@ -1171,6 +1171,29 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
 
+            // Mismo problema que arriba (Revisiones): las tablas nuevas de Evaluaciones
+            // (2026-08-20_evaluaciones_ssoma_supervisores_jefe_prevencionistas.sql) se crearon
+            // con columnas "timestamp" (sin zona) pero los modelos inicializan con
+            // DateTime.UtcNow (Kind=Utc) — cualquier INSERT/UPDATE tira 500 aunque las
+            // lecturas funcionen. Se aplica el mismo conversor a las 3 evaluaciones nuevas.
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionJefeSsoma>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionJefeSsomaCumplimiento>(entity =>
+            {
+                entity.Property(e => e.CompletadoAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionSupervisorContratista>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionPrevencionista>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+
             modelBuilder.Entity<ProjectSubContractor>(entity =>
             {
                 // La convención snake_case produce "step6signed_*" (no inserta guion después

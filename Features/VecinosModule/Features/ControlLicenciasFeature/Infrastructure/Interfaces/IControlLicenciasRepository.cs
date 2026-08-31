@@ -10,6 +10,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>Plantilla completa (tipos base + propios del proyecto) con el estado vigente de cada uno.</summary>
         Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId);
 
+        /// <summary>
+        /// Plantilla combinada de los proyectos indicados (o todos si <paramref name="projectIds"/> es null/vacío),
+        /// con cada item marcado con su ProjectId/ProjectDescription. Para la vista "todos los proyectos" de Plantilla.
+        /// </summary>
+        Task<VecinoLicenciaPlantillaResponseDto> GetPlantillaTodos(List<int>? projectIds);
+
         /// <summary>true si el tipo es base o pertenece a este proyecto (evita subir a un tipo de otro proyecto).</summary>
         Task<bool> TipoAplicaAProyecto(int projectId, int tipoId);
 
@@ -69,5 +75,28 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         Task<List<VecinoLicenciaRecordatorioPendienteDto>> GetPendientesRecordatorio(DateOnly hoy);
 
         Task MarcarRecordatorioEnviado(int recordatorioId);
+
+        /// <summary>Agrega una fecha de visita de Anexo H a la licencia vigente de un tipo. Recordatorio fijo: 2 días antes.</summary>
+        Task<VecinoLicenciaVisitaDto> AddVisita(int projectId, int tipoId, DateOnly fechaVisita, string? observacion, int userId);
+
+        /// <summary>Elimina (soft delete) una visita puntual.</summary>
+        Task DeleteVisita(int visitaId, int userId);
+
+        /// <summary>Visitas de Anexo H con recordatorio (2 días antes) cuya fecha ya llegó y no se han avisado, de todos los proyectos.</summary>
+        Task<List<VecinoLicenciaVisitaPendienteDto>> GetPendientesVisita(DateOnly hoy);
+
+        Task MarcarVisitaRecordatorioEnviado(int visitaId);
+
+        /// <summary>Residente y Administrador del proyecto (project.email_residente / project.email_coord_admin), para el recordatorio de visita.</summary>
+        Task<List<string>> ResolverDestinatariosVisita(int projectId);
+
+        /// <summary>Edita las fechas ampliadas del dashboard (inscripción/inicio/renovación) y Mes Activo.</summary>
+        Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId);
+
+        /// <summary>
+        /// Dashboard gerencial: un renglón por (proyecto, tipo) de los proyectos indicados (o todos si
+        /// <paramref name="projectIds"/> es null/vacío), con semáforo de criticidad ya calculado.
+        /// </summary>
+        Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds);
     }
 }

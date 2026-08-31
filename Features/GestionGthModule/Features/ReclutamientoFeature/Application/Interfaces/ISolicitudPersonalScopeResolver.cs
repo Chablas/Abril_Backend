@@ -21,19 +21,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// área (entonces solo ve lo suyo).
     /// </param>
     /// <param name="PuedeGestionar">
-    /// true solo para JEFE, GERENTE y GERENTE GENERAL: son las categorías que registran solicitudes
-    /// y avanzan el proceso (decidir la long list, decidir al finalista, reenviar la aprobación).
-    /// El resto del área entra a la pantalla y hace seguimiento, pero no mueve nada.
+    /// true para JEFE, GERENTE y GERENTE GENERAL —las categorías que registran solicitudes y
+    /// avanzan el proceso (decidir la long list, decidir al finalista, reenviar la aprobación)— y
+    /// para cualquiera de GTH sin mirar su categoría (ver <paramref name="EsGth"/>). El resto del
+    /// área entra a la pantalla y hace seguimiento, pero no mueve nada.
+    /// </param>
+    /// <param name="EsGth">
+    /// true cuando alguna ficha vigente del usuario está en el área de Gestión del Talento Humano.
+    /// GTH es el área dueña del proceso, así que su gente pide y mueve requerimientos sin importar
+    /// su categoría —un asistente de GTH registra solicitudes igual que un jefe de otra área— y es
+    /// la única que puede pedir un ingreso directo <b>FFT</b>.
     /// </param>
     public record SolicitudPersonalScope(
-        int UserId, bool VeTodo, HashSet<int> AreaScopeIds, bool PuedeGestionar)
+        int UserId, bool VeTodo, HashSet<int> AreaScopeIds, bool PuedeGestionar, bool EsGth)
     {
         /// <summary>
         /// Alcance de quien no tiene ficha de trabajador vigente: solo lo que él mismo registró, y
         /// sin poder moverlo. Sin ficha no hay área ni categoría de la cual deducir nada.
         /// </summary>
         public static SolicitudPersonalScope SoloLoSuyo(int userId) =>
-            new(userId, false, new HashSet<int>(), false);
+            new(userId, false, new HashSet<int>(), false, false);
     }
 
     /// <summary>

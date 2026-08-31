@@ -535,11 +535,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             Archivos                = x.Archivos,
         };
 
-        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
+        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId, bool esGth)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var dto = new ReclutamientoFormDataDto { MaxVacantes = 10 };
+            var dto = new ReclutamientoFormDataDto
+            {
+                MaxVacantes = 10,
+                // El ingreso directo es de GTH y de nadie más (ver PuedePedirIngresoDirecto).
+                PuedePedirIngresoDirecto = esGth,
+            };
 
             if (userId.HasValue)
             {
@@ -550,7 +555,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 dto.CategoriaNombre = ficha.CategoriaNombre;
             }
 
-            dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId);
+            dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId, esGth);
 
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
                 .Where(t => t.State && t.Active)
@@ -572,11 +577,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Tipos de documento del candidato de un ingreso directo FFT. Mismo catálogo que el
             // formulario del postulante: es la misma persona y termina en la misma columna de
             // `person`, así que ofrecer dos listas distintas dejaría documentos incomparables.
-            dto.TiposDocumento = await QueryTiposDocumento(ctx);
+            // Solo para quien puede pedir un ingreso directo: al resto el formulario ni le muestra
+            // el bloque, así que sería un roundtrip para una lista que nadie va a ver.
+            if (esGth) dto.TiposDocumento = await QueryTiposDocumento(ctx);
 
             // Candidatos a "trabajador reemplazado" del tipo Reemplazo. Sin área del solicitante no
             // hay subárbol que recorrer, así que la lista queda vacía y el campo deja de exigirse.
-            dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId);
+            // A GTH no se le recorta por área: pide puestos de toda la empresa, no de la suya.
+            dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId, esGth);
 
             return dto;
         }
@@ -622,12 +630,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Sin área del solicitante se cae al catálogo COMPLETO en vez de a una lista vacía: un
         /// usuario recién creado al que todavía no le asignaron área podría necesitar pedir
         /// personal, y dejarlo sin ningún puesto lo bloquearía del todo.
+        ///
+        /// <paramref name="esGth"/> = true (el área dueña del proceso) también abre el catálogo
+        /// completo, pero solo los puestos que TIENEN destino: GTH pide para toda la empresa, no
+        /// para su propia área, así que filtrar por "lo pide GTH" le dejaría a la vista un puñado
+        /// de puestos. Los que no dicen a dónde entra el contratado quedan fuera porque nadie
+        /// sabría de qué área es la vacante — al solicitante normal se le cae al área suya, pero
+        /// GTH no pide para sí. Es el mismo par de condiciones que la pantalla de puestos muestra
+        /// en «Estado» y «Va a»: lo que ahí no está activo o no tiene destino, acá no aparece.
         /// </summary>
-        private static async Task<List<PuestoOpcionDto>> QueryPuestosDelArea(AppDbContext ctx, int? areaScopeId)
+        private static async Task<List<PuestoOpcionDto>> QueryPuestosDelArea(
+            AppDbContext ctx, int? areaScopeId, bool esGth)
         {
             var puestos = ctx.Puesto.Where(p => p.State && p.Active);
 
-            if (areaScopeId.HasValue)
+            if (esGth)
+            {
+                // El mismo destino que se proyecta más abajo como AreaDestino: un puesto entra a la
+                // lista solo si su «Va a» se puede nombrar. Si el nodo o su área están dados de
+                // baja, el puesto no dice a dónde entra el contratado y no sirve para pedir.
+                puestos = puestos.Where(p => p.AreaDestinoScope != null && p.AreaDestinoScope.State
+                                          && p.AreaDestinoScope.AreaItem != null
+                                          && p.AreaDestinoScope.AreaItem.State);
+            }
+            else if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
                 puestos = puestos.Where(p => p.AreaSolicitanteScopeId != null
@@ -701,18 +727,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Incluye al solicitante: pedir el reemplazo de uno mismo por renuncia o promoción es un
         /// caso real. Una persona con varias fichas por reingreso aparece una sola vez, con la
         /// vigente — ver <c>workers</c> duplicadas por reingreso.
+        ///
+        /// <paramref name="esGth"/> = true no recorta por área: GTH pide puestos de toda la empresa
+        /// (ver <see cref="QueryPuestosDelArea"/>), así que el reemplazado tampoco puede salir de su
+        /// propia área — sería pedir el reemplazo de un residente eligiendo entre la gente de GTH.
+        /// Lo que SÍ se sigue exigiendo es tener área: los puestos que GTH puede pedir son todos de
+        /// oficina (son los únicos con destino), y sin <c>area_scope_id</c> se colarían las ~2 100
+        /// fichas de obra del padrón, que no reemplazan a nadie en un puesto de oficina.
         /// </summary>
-        private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(AppDbContext ctx, int? areaScopeId)
+        private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(
+            AppDbContext ctx, int? areaScopeId, bool esGth)
         {
-            if (!areaScopeId.HasValue) return new List<OpcionDto>();
+            if (!esGth && !areaScopeId.HasValue) return new List<OpcionDto>();
 
-            var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-
-            var raw = await ctx.Worker
-                // El estado se filtra por id y no con un join a workers_estado: la consulta no
-                // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
+            // El estado se filtra por id y no con un join a workers_estado: la consulta no
+            // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
+            var query = ctx.Worker
                 .Where(w => WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
-                         && w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))
+                         && w.AreaScopeId != null);
+
+            if (!esGth)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId!.Value);
+                query = query.Where(w => idsArea.Contains(w.AreaScopeId!.Value));
+            }
+
+            var raw = await query
                 .Select(w => new
                 {
                     w.Id,
@@ -3948,7 +3988,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<SolicitudPersonalCreateResultDto> Create(
-            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId)
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId, bool esGth)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -3987,12 +4027,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var projectIds = vacantes.Select(v => v.ProjectId).Distinct().ToList();
 
             // Se revalida contra la MISMA lista que ofrece el formulario (los puestos del área del
-            // solicitante y de sus áreas hijas): lo que no se ofrece tampoco se acepta.
-            var puestosDelArea = await QueryPuestosDelArea(ctx, solicitud.AreaScopeId);
+            // solicitante y de sus áreas hijas, o el catálogo completo con destino si es GTH): lo
+            // que no se ofrece tampoco se acepta.
+            var puestosDelArea = await QueryPuestosDelArea(ctx, solicitud.AreaScopeId, esGth);
             var puestosOk = puestosDelArea.Select(p => p.Id).ToHashSet();
             if (puestoIds.Any(id => !puestosOk.Contains(id)))
                 throw new AbrilException(
-                    "Uno o más puestos seleccionados no son válidos para tu área.", 400);
+                    esGth
+                        ? "Uno o más puestos seleccionados no están activos o no tienen área de destino."
+                        : "Uno o más puestos seleccionados no son válidos para tu área.", 400);
 
             // Nombre del puesto por id: es el snapshot que lleva la ficha del candidato FFT. Sale de
             // la lista que ya se trajo para validar, así que no cuesta un roundtrip nuevo.
@@ -4037,11 +4080,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (vacantes.Any(v => tiposReemplazo.Contains(v.TipoRequerimientoId)))
             {
                 // Se revalida contra la MISMA lista que ofrece el formulario (área del solicitante
-                // y áreas hijas, y solo quienes están adentro hoy): lo que no se ofrece tampoco se
-                // acepta. Si el solicitante no tiene area_scope la lista queda vacía y el campo no
-                // se exige — exigir algo que el formulario no puede ofrecer dejaría bloqueado el
-                // registro de la solicitud.
-                var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId))
+                // y áreas hijas, o toda la empresa si es GTH, y solo quienes están adentro hoy): lo
+                // que no se ofrece tampoco se acepta. Si el solicitante no tiene area_scope la
+                // lista queda vacía y el campo no se exige — exigir algo que el formulario no puede
+                // ofrecer dejaría bloqueado el registro de la solicitud.
+                var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId, esGth))
                     .Select(t => t.Id).ToHashSet();
 
                 for (int i = 0; i < vacantes.Count; i++)
@@ -4059,7 +4102,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // adentro (retirado, o una ficha de pre-ingreso): el mensaje cubre los dos.
                     if (!workerIdsArea.Contains(v.ReemplazaWorkerId.Value))
                         throw new AbrilException(
-                            $"Vacante {i + 1}: el trabajador al que reemplaza debe ser alguien de tu área (o de un área hija) que trabaje actualmente en Abril.", 400);
+                            esGth
+                                ? $"Vacante {i + 1}: el trabajador al que reemplaza debe trabajar actualmente en Abril."
+                                : $"Vacante {i + 1}: el trabajador al que reemplaza debe ser alguien de tu área (o de un área hija) que trabaje actualmente en Abril.", 400);
                 }
             }
 

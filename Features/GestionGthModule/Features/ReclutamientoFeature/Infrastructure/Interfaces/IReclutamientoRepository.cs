@@ -6,7 +6,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     public interface IReclutamientoRepository
     {
-        Task<ReclutamientoFormDataDto> GetFormData(int? userId);
+        /// <summary>
+        /// Catálogos y ficha del solicitante que necesita el formulario «Nueva solicitud de
+        /// personal», en una sola petición.
+        /// </summary>
+        /// <param name="esGth">
+        /// ¿El solicitante es de GTH (<see cref="SolicitudPersonalScope.EsGth"/>)? Le abre el
+        /// catálogo completo de puestos —solo los activos y con área de destino— y la casilla de
+        /// ingreso directo FFT, que es exclusiva del área dueña del proceso.
+        /// </param>
+        Task<ReclutamientoFormDataDto> GetFormData(int? userId, bool esGth);
 
         /// <summary>
         /// Catálogo de tipos de documento (DNI / CE) con su código estable. Lo necesita la
@@ -38,8 +47,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// pre-ingreso abierta— porque no las aprueba nadie. Lo decide la vacante y no la solicitud:
         /// una misma solicitud puede traer de las dos.
         /// </summary>
+        /// <param name="esGth">
+        /// El mismo de <see cref="GetFormData"/>: decide contra qué lista de puestos y de
+        /// trabajadores se revalida lo que llegó, porque es la que el formulario ofreció.
+        /// </param>
         Task<SolicitudPersonalCreateResultDto> Create(
-            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId, bool esGth);
 
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de

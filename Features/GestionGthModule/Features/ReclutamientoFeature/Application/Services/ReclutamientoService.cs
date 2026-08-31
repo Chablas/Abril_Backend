@@ -96,7 +96,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
         {
-            var dto = await _repo.GetFormData(userId);
+            // Abrir el formulario ya es "gestionar": la pantalla solo ofrece el botón a quien puede
+            // registrar. El alcance se resuelve igual para saber si es GTH, que es lo que decide qué
+            // puestos se le ofrecen y si puede pedir un ingreso directo.
+            var scope = await ResolverScope(userId, paraGestionar: true);
+
+            var dto = await _repo.GetFormData(userId, scope.EsGth);
 
             // Aviso "a quién le llegará esta solicitud" del modal. Va en la misma petición que los
             // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
@@ -105,9 +110,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
 
             // Una vacante de ingreso directo no la aprueba nadie: su aviso va derecho a GTH y con
-            // otros destinatarios. Se resuelve siempre —cualquiera puede marcar la casilla FFT— para
-            // que el formulario pueda decir a quién le llegará cada cosa en cuanto la marquen.
-            dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+            // otros destinatarios. Solo para quien puede marcar la casilla —GTH— porque al resto el
+            // formulario ni le muestra el bloque y sería un roundtrip por un aviso que no se ve.
+            if (dto.PuedePedirIngresoDirecto)
+                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
 
             return dto;
         }
@@ -1647,12 +1653,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento)
         {
             // Pedir personal es de la jefatura del área: misma regla que para avanzar el proceso.
-            await ResolverScope(userId, paraGestionar: true);
+            var scope = await ResolverScope(userId, paraGestionar: true);
 
             if (dto?.Vacantes == null || dto.Vacantes.Count == 0)
                 throw new AbrilException("Debe registrar al menos una vacante.", 400);
             if (dto.Vacantes.Count > 10)
                 throw new AbrilException("Una solicitud permite un máximo de 10 vacantes.", 400);
+
+            // El ingreso directo FFT es de GTH y de nadie más: se salta el proceso completo (nadie
+            // lo aprueba, la vacante no se publica y el candidato nace seleccionado con su ficha de
+            // pre-ingreso abierta), así que solo el área dueña del proceso puede pedirlo. El
+            // formulario ni le muestra la casilla al resto; esto es lo que la hace regla.
+            if (!scope.EsGth && dto.Vacantes.Any(v => v.EsFft))
+                throw new AbrilException(
+                    "Solo Gestión del Talento Humano puede registrar un ingreso directo (FFT).", 403);
 
             // La justificación es el sustento que leen el gerente del área y Gerencia General para
             // aprobar, así que sin ella la solicitud no se registra.
@@ -1777,7 +1791,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var hayFft        = dto.Vacantes.Any(v => v.EsFft);
             var hayAprobables = dto.Vacantes.Any(v => !v.EsFft);
 
-            var result = await _repo.Create(solicitud, dto.Vacantes, userId);
+            var result = await _repo.Create(solicitud, dto.Vacantes, userId, scope.EsGth);
             result.AprobacionGgOmitida = !hayAprobables;
             result.HayIngresoDirecto   = hayFft;
 

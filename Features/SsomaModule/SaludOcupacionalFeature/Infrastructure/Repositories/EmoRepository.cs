@@ -779,18 +779,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
-            if (dto.FechaLectura.HasValue)
-            {
-                var lecturaEmo = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.LecturaEmo);
-                lecturaEmo.Estado = "Aprobado";
-                // Vigencia = vencimiento del EMO (no la fecha de lectura, que es hoy y lo marcaría
-                // como vencido de inmediato). Ver mismo criterio en Update().
-                var fechaVencLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                lecturaEmo.Vigencia = fechaVencLectura.HasValue
-                    ? HabilitacionDateHelper.AsUtc(fechaVencLectura.Value.ToDateTime(TimeOnly.MinValue))
-                    : HabilitacionDateHelper.AsUtc(dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
-                lecturaEmo.UpdatedAt = DateTime.UtcNow;
-            }
+            // Acá se copiaba la lectura al ítem 25 de ss_hab_trabajador cuando venía dto.FechaLectura.
+            // Ya no: el checklist de Trabajadores deriva ese ítem de worker_emos.url_resultado
+            // (ver HabTrabajadorRepository.GetEntregablesWorkerAsync). Mantener la copia era la
+            // causa del desfase — este camino y el de SincronizarEntregableEmoAsync ni siquiera
+            // usaban el mismo criterio (fecha_lectura acá, url_resultado allá), y los otros tres
+            // caminos que registran una lectura (portal de clínicas, convalidación, importación)
+            // no escribían nada.
 
             // Cierre (o reapertura) del proceso de Reclutamiento del que viene esta persona. Va
             // antes del SaveChanges final para que el requerimiento y el EMO se guarden juntos: un
@@ -1079,17 +1074,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             hab.UpdatedAt = DateTime.UtcNow;
 
-            if (emo.UrlResultado != null &&
-                (emo.Aptitud == "Apto" || emo.Aptitud == "Apto con Restricciones"))
-            {
-                var habLectura = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.LecturaEmo);
-                habLectura.Estado = "Aprobado";
-                var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                if (fvLectura.HasValue)
-                    habLectura.Vigencia = DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-                habLectura.ArchivoUrl = emo.UrlResultado;
-                habLectura.UpdatedAt = DateTime.UtcNow;
-            }
+            // El ítem 25 ("Lectura de EMO") ya no se copia acá: se deriva de worker_emos.url_resultado
+            // al leer el checklist. Ver el comentario del bloque equivalente en Create().
         }
     }
 }

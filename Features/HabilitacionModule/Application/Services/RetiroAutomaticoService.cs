@@ -45,9 +45,15 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             // ── Sección 1: workers con docs vencidos → clasificar y retirar ──
 
+            // El ítem 25 ("Lectura de EMO") no retira a nadie: su fila en ss_hab_trabajador es una
+            // copia congelada que ya no se escribe (el checklist lo deriva de worker_emos), y un
+            // EMO realmente vencido llega igual acá por el ítem 4 (Certificado de Aptitud), que sí
+            // se mantiene y comparte la misma vigencia. Sin esta exclusión, 45 trabajadores activos
+            // con la lectura ya cargada quedaban en la lista de retiro por una fila desactualizada.
             var habVencidos = await ctx.SsHabTrabajador
                 .Where(h => (h.Estado == "Vencido" || h.Estado == "Falta") &&
-                            h.Vigencia != null && h.Vigencia.Value < hoyDt)
+                            h.Vigencia != null && h.Vigencia.Value < hoyDt &&
+                            h.ItemId != HabItemIds.LecturaEmo)
                 .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
                       h => h.ItemId, i => i.Id,
                       (h, i) => new { h.WorkerId, h.Vigencia, i.Nombre })

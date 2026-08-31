@@ -20,8 +20,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             using var ctx = _factory.CreateDbContext();
             var hoy = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Utc);
 
+            // El ítem 25 ("Lectura de EMO") queda fuera: su estado y su vigencia ya no salen de
+            // ss_hab_trabajador sino del propio EMO (worker_emos), así que vencer la fila vieja
+            // solo mueve data que nadie lee. Ver HabTrabajadorRepository.GetEntregablesWorkerAsync.
             var trabajadores = await ctx.SsHabTrabajador
-                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo" || h.Estado == "En revision") && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo" || h.Estado == "En revision")
+                         && h.Vigencia < hoy
+                         && h.ItemId != HabItemIds.LecturaEmo)
                 .ToListAsync();
 
             foreach (var h in trabajadores)

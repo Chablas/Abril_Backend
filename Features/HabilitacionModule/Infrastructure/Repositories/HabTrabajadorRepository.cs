@@ -472,8 +472,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, categoriaWorker))
                 .ToList();
 
+            // "Lectura de EMO" (ítem 25) entra acá igual que el Certificado de Aptitud: su estado
+            // se DERIVA de worker_emos, no de la copia en ss_hab_trabajador. Esa copia solo la
+            // escribían Create()/Update() del EMO, así que subir la lectura por el portal de
+            // clínicas (POST emos/{id}/documentos) o convalidar un EMO la dejaban en "Falta" para
+            // siempre — 94 trabajadores Casa con el PDF de lectura ya cargado la mostraban
+            // pendiente, contradiciendo al filtro "Sin Lectura EMO (evidencia)" de esta misma
+            // pantalla, que siempre leyó worker_emos.
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
-                                          && i.Id != HabItemIds.LecturaEmo
                                           && esCasa).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
@@ -526,6 +532,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         vigenciaEmo = fechaVenc.Value.ToDateTime(TimeOnly.MinValue);
                 }
 
+                // Vencimiento del EMO al margen de "vigente": lo usa el ítem "Lectura de EMO", que
+                // solo depende de que exista el archivo y de que el EMO no esté vencido. Que la
+                // aptitud esté "Pendiente" de convalidar o con una interconsulta abierta es asunto
+                // del Certificado de Aptitud — el informe leído sigue existiendo igual (caso Patala
+                // Román: EMO "Pendiente" por cambio de puesto, con su PDF de lectura ya cargado).
+                var fechaVencEmo = ultimoEmo?.FechaVencimientoCalculada ?? ultimoEmo?.FechaVencimiento;
+                var hoyEmo = DateOnly.FromDateTime(DateTime.Today);
+
                 // El ítem CertAptitud es el que Cambiar obra/puesto/razón social pone en
                 // "Pendiente" o "Falta" (ver CambiarObraAsync) cuando hay que revisar el EMO —
                 // ese estado vive en ss_hab_trabajador, no se puede seguir derivando solo de
@@ -547,6 +561,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             Vigencia = habCertAptitud.Vigencia,
                             ArchivoUrl = habCertAptitud.ArchivoUrl,
                             ObsAbril = "Gestionado por módulo SSOMA",
+                            ObsContratista = null,
+                            RequiereVigencia = item.RequiereVigencia,
+                            EsSctrVidaley = item.EsSctrVidaley,
+                            Responsable = item.Responsable
+                        });
+                        continue;
+                    }
+
+                    // La lectura se da por hecha cuando existe su ARCHIVO (worker_emos.url_resultado):
+                    // el PDF firmado es la evidencia, y es el mismo criterio que ya usan el filtro
+                    // "Sin Lectura EMO (evidencia)" de esta pantalla y el modal de convalidación.
+                    // La fecha_lectura sola no basta — hay EMOs importados con fecha y sin ningún
+                    // documento que la respalde.
+                    if (item.Id == HabItemIds.LecturaEmo)
+                    {
+                        var tieneLectura = !string.IsNullOrWhiteSpace(ultimoEmo?.UrlResultado)
+                                        && (!fechaVencEmo.HasValue || fechaVencEmo.Value >= hoyEmo);
+                        entregables.Add(new WorkerEntregableDto
+                        {
+                            Id = 0,
+                            ItemId = item.Id,
+                            NombreItem = item.Nombre,
+                            Estado = tieneLectura ? "Aprobado" : "Falta",
+                            Vigencia = tieneLectura && fechaVencEmo.HasValue
+                                ? fechaVencEmo.Value.ToDateTime(TimeOnly.MinValue)
+                                : null,
+                            ArchivoUrl = tieneLectura ? ultimoEmo!.UrlResultado : null,
+                            // ObsAbril se deja en null a propósito: el panel ya sale de solo lectura
+                            // por esEmo() + workerEsCasa(), y poner el texto "Gestionado por módulo
+                            // SSOMA" haría que se apilen dos avisos donde hoy hay uno.
+                            ObsAbril = null,
                             ObsContratista = null,
                             RequiereVigencia = item.RequiereVigencia,
                             EsSctrVidaley = item.EsSctrVidaley,

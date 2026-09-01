@@ -193,6 +193,7 @@ public class InspeccionHallazgoDto
     public decimal? Latitud { get; set; }
     public decimal? Longitud { get; set; }
     public string? CreadoPorNombre { get; set; }
+    public int? CreadoPorWorkerId { get; set; }
     public List<InspeccionHallazgoFotoDto> Fotos { get; set; } = [];
 }
 

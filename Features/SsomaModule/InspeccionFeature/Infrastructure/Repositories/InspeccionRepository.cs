@@ -534,6 +534,7 @@ public class InspeccionRepository : IInspeccionRepository
                     Latitud = h.Latitud,
                     Longitud = h.Longitud,
                     CreadoPorNombre = h.CreadoPorNombre,
+                    CreadoPorWorkerId = h.CreadoPorWorkerId,
                     Fotos = h.Fotos.OrderBy(f => f.Orden)
                         .Select(f => new InspeccionHallazgoFotoDto
                         {

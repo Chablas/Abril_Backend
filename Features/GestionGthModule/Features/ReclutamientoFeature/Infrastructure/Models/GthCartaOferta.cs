@@ -5,10 +5,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// proceso de Reclutamiento, el que lo cierra.
     ///
     /// Se abre cuando el EMO de ingreso del seleccionado sale Apto (o Apto con Restricciones): GTH
-    /// carga la carta en PDF, se guarda en el file del colaborador en SharePoint y al candidato le
-    /// llega un correo con un enlace por token donde la lee, registra su firma y la firma en línea.
-    /// La carta NO viaja adjunta. Cuando GTH aprueba el documento firmado, el requerimiento pasa a
-    /// CERRADO y recién ahí el colaborador puede entrar a Onboarding.
+    /// consigue la carta —la genera acá desde la plantilla Word o la adjunta ya armada en PDF—, se
+    /// guarda en el file del colaborador en SharePoint y al candidato le llega un correo con un
+    /// enlace por token donde la lee, registra su firma y la firma en línea. La carta NO viaja
+    /// adjunta. Cuando GTH aprueba el documento firmado, el requerimiento pasa a CERRADO y recién
+    /// ahí el colaborador puede entrar a Onboarding.
+    ///
+    /// La fila puede existir ANTES del envío: generar el documento crea un BORRADOR
+    /// (<see cref="GeneradaUrl"/> llena, <see cref="EnviadaDateTime"/> en null) para que GTH lo
+    /// revise. Lo que distingue una carta enviada de un borrador es siempre
+    /// <see cref="EnviadaDateTime"/>, nunca la mera existencia de la fila. Generar no mueve la fase
+    /// del requerimiento; enviarla sí.
     ///
     /// Vivía en <c>gth_onboarding</c> mientras la carta oferta era el primer paso del onboarding; al
     /// pasar a ser el último de reclutamiento se mudó acá, que es la feature dueña del proceso. El
@@ -40,6 +47,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// la propuesta y viaja en el correo. El onboarding la hereda de acá.
         /// </summary>
         public DateOnly? FechaIngreso { get; set; }
+
+        /// <summary>
+        /// Sueldo básico bruto mensual ofrecido, en soles. Lo pone GTH al generar la carta desde la
+        /// plantilla —es el <c>{{SUELDO}}</c> del documento— y NO es el sueldo referencial que puso
+        /// el solicitante en el requerimiento: por regla de negocio la propuesta la define GTH.
+        /// Null en las cartas que se adjuntaron ya armadas.
+        /// </summary>
+        public decimal? Sueldo { get; set; }
+
+        /// <summary>
+        /// Hasta cuándo el candidato puede aceptar la propuesta (<c>{{FECHA_LIMITE_ACEPTACION}}</c>).
+        /// Por defecto el día siguiente al de la generación. Null en las cartas adjuntadas ya armadas.
+        /// </summary>
+        public DateOnly? FechaLimiteAceptacion { get; set; }
+
+        // ── Carta oferta GENERADA desde la plantilla (.docx, borrador) ────────
+        // El documento de trabajo: se genera rellenando la plantilla Word, queda en el file del
+        // colaborador y GTH lo revisa —y lo corrige en Word si hace falta— antes de mandarlo. Va
+        // aparte de los Carta* porque son dos archivos distintos del mismo expediente: este es el
+        // Word editable y aquel el PDF que se le envió al candidato. Al enviar, el PDF sale de
+        // convertir ESTE archivo tal como esté en SharePoint, no los bytes del momento de generarlo.
+        public string? GeneradaNombre { get; set; }
+        public string? GeneradaUrl { get; set; }
+        public string? GeneradaItemId { get; set; }
+        public string? GeneradaDriveId { get; set; }
+
+        /// <summary>
+        /// Última generación del .docx. Con valor y <see cref="EnviadaDateTime"/> en null la carta es
+        /// un BORRADOR: el documento existe pero al candidato todavía no se le mandó nada.
+        /// </summary>
+        public DateTimeOffset? GeneradaDateTime { get; set; }
+        public int? GeneradaUserId { get; set; }
 
         // ── Carta oferta (archivo en SharePoint + trazabilidad del envío) ─────
         public string? CartaNombre { get; set; }

@@ -135,6 +135,33 @@ namespace Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Services
         public string NombreArchivo(string prefijo, string codigo, string extension) =>
             $"{prefijo}_{SanitizeFilename(codigo)}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{extension}";
 
+        public async Task<byte[]> DescargarComoPdfAsync(string driveId, string itemId, string queEs)
+        {
+            if (string.IsNullOrWhiteSpace(driveId) || string.IsNullOrWhiteSpace(itemId))
+                throw new AbrilException($"No se encontró en SharePoint {queEs} que hay que convertir a PDF.", 409);
+
+            try
+            {
+                // La conversión la hace Graph (?format=pdf). Va por la ruta de batch porque es la
+                // única que expone el servicio compartido; con un solo item el batch es un request.
+                var pdfs = await _sharePoint.DownloadMultipleAsPdfFromOneDriveAsync(
+                    driveId, new[] { (ItemId: itemId, AlreadyPdf: false) });
+
+                if (!pdfs.TryGetValue(itemId, out var bytes) || bytes.Length == 0)
+                    throw new AbrilException($"SharePoint no devolvió el PDF de {queEs}. Reintenta en unos minutos.", 502);
+
+                return bytes;
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló la conversión a PDF de {QueEs} ({ItemId})", queEs, itemId);
+                throw new AbrilException(
+                    $"No se pudo convertir {queEs} a PDF. Revisa que el documento siga en el file del colaborador y no esté abierto en Word.",
+                    502);
+            }
+        }
+
         /// <summary>
         /// Devuelve la subcarpeta <paramref name="nombre"/> dentro del file del colaborador, creándola
         /// si es la primera vez. Se resuelve al subir y no se persiste: la fila guarda el file (la

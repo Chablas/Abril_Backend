@@ -1,8 +1,8 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
+namespace Abril_Backend.Shared.Helpers;
 
 /// <summary>
 /// Rellena un template Word (.docx) reemplazando placeholders del tipo {{CLAVE}}.

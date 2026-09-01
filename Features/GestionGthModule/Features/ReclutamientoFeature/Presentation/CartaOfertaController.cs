@@ -33,12 +33,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Arma la carta oferta en el sistema a partir de la plantilla Word y la deja en el file del
+        /// colaborador para que GTH la revise. No envía nada ni mueve la fase del requerimiento: es
+        /// un borrador que se puede regenerar mientras la carta no se haya mandado.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("generar")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> Generar(int id, [FromBody] CartaOfertaGenerarDto? dto)
+        {
+            try
+            {
+                if (dto == null)
+                    return BadRequest(new { message = "No llegaron las condiciones de la carta oferta." });
+
+                return Ok(await _service.Generar(id, dto, UserId()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en CartaOfertaController.Generar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Envía la carta oferta al seleccionado. Multipart: <c>data</c> = JSON de
         /// <see cref="CartaOfertaEnviarDto"/>; <c>carta</c> = el archivo (PDF), que se guarda en el
-        /// file del colaborador en SharePoint. Al candidato se le envía un correo con el <b>enlace</b>
-        /// para leerla y firmarla en línea, no la carta adjunta. El correo destino lo resuelve el
-        /// backend desde la base de datos (<c>person.email</c>) salvo que GTH lo haya corregido a
-        /// mano. Solo se acepta con el requerimiento en EMO_APTO o EMO_APTO_RESTRICCIONES.
+        /// file del colaborador en SharePoint. <b>Sin</b> <c>carta</c> se manda la que se generó acá,
+        /// convertida a PDF. Al candidato se le envía un correo con el <b>enlace</b> para leerla y
+        /// firmarla en línea, no la carta adjunta. El correo destino lo resuelve el backend desde la
+        /// base de datos (<c>person.email</c>) salvo que GTH lo haya corregido a mano. Solo se acepta
+        /// con el requerimiento en EMO_APTO o EMO_APTO_RESTRICCIONES.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPost]
@@ -62,14 +91,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (dto == null)
                     return BadRequest(new { message = "Datos de la carta oferta no recibidos." });
 
-                if (carta == null || carta.Length == 0)
-                    return BadRequest(new { message = "Adjunta la carta oferta para poder enviarla." });
-
-                using var ms = new MemoryStream();
-                await carta.CopyToAsync(ms);
+                // Sin archivo el servicio manda la carta generada en el sistema; si tampoco la hay,
+                // es él quien lo dice (acá no se sabe todavía).
+                byte[]? contenido = null;
+                if (carta != null && carta.Length > 0)
+                {
+                    using var ms = new MemoryStream();
+                    await carta.CopyToAsync(ms);
+                    contenido = ms.ToArray();
+                }
 
                 return Ok(await _service.Enviar(
-                    id, dto, carta.FileName, carta.ContentType ?? "application/octet-stream", ms.ToArray(), UserId()));
+                    id, dto, carta?.FileName, carta?.ContentType ?? "application/octet-stream", contenido, UserId()));
             }
             catch (AbrilException ex)
             {

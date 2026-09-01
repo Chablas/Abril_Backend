@@ -38,13 +38,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public bool TieneFichaMaestra { get; set; }
 
-        // ── Envío (todo null mientras la carta no se haya enviado) ────────────
+        // ── La carta (existe desde que se genera el borrador) ─────────────────
 
-        /// <summary>Null = la carta oferta todavía no se envió.</summary>
+        /// <summary>
+        /// Null = no hay carta ni borrador. Que tenga valor NO quiere decir que se haya enviado:
+        /// para eso está <see cref="EnviadaEn"/>.
+        /// </summary>
         public int? CartaOfertaId { get; set; }
 
-        /// <summary>Fecha de ingreso pactada, una de las condiciones que viajan en el correo.</summary>
+        /// <summary>
+        /// Fecha de ingreso pactada, una de las condiciones que viajan en el correo. Es también la
+        /// fecha de inicio de labores que imprime la carta generada.
+        /// </summary>
         public DateOnly? FechaIngreso { get; set; }
+
+        /// <summary>Sueldo ofrecido, tal como salió impreso en la carta generada. Null si se adjuntó ya armada.</summary>
+        public decimal? Sueldo { get; set; }
+
+        /// <summary>Hasta cuándo puede aceptar la propuesta. Null si la carta se adjuntó ya armada.</summary>
+        public DateOnly? FechaLimiteAceptacion { get; set; }
+
+        // ── Borrador generado desde la plantilla (.docx) ──────────────────────
+
+        /// <summary>Nombre del .docx generado. Null = la carta no se generó acá (se adjuntó).</summary>
+        public string? GeneradaNombre { get; set; }
+
+        /// <summary>
+        /// Enlace al .docx en SharePoint: es lo que GTH abre para revisar —y corregir en Word— la
+        /// carta antes de mandarla. El PDF que se envía sale de convertir este mismo archivo.
+        /// </summary>
+        public string? GeneradaUrl { get; set; }
+
+        /// <summary>Momento de la última generación del documento, en hora de Perú.</summary>
+        public DateTime? GeneradaEn { get; set; }
+
+        // ── Envío (todo null mientras la carta no se haya enviado) ────────────
 
         public string? CartaNombre { get; set; }
         public string? CartaUrl { get; set; }
@@ -77,6 +105,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Carpeta de SharePoint donde vive el file digital del colaborador.</summary>
         public string? FileDigitalCarpeta { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que GTH pone a mano para generar la carta oferta desde la plantilla: las tres condiciones
+    /// que el documento no puede sacar solo de la base de datos. El resto de los placeholders
+    /// —nombre, puesto, jefatura, razón social— se resuelven del requerimiento y de la ficha del
+    /// seleccionado.
+    /// </summary>
+    public class CartaOfertaGenerarDto
+    {
+        /// <summary>
+        /// Fecha de inicio de labores: el <c>{{FECHA_INICIO_LABORES}}</c> de la carta y la fecha de
+        /// ingreso que hereda el onboarding. Obligatoria para generar (el documento la imprime).
+        /// </summary>
+        public DateOnly? FechaIngreso { get; set; }
+
+        /// <summary>
+        /// Sueldo básico bruto mensual en soles. Lo define GTH, no se toma del sueldo referencial
+        /// del requerimiento.
+        /// </summary>
+        public decimal? Sueldo { get; set; }
+
+        /// <summary>Hasta cuándo el candidato puede aceptar. El frontend propone mañana por defecto.</summary>
+        public DateOnly? FechaLimiteAceptacion { get; set; }
     }
 
     /// <summary>Datos del envío de la carta oferta (el JSON del multipart; la carta va como archivo).</summary>
@@ -158,6 +210,70 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Correo { get; set; } = string.Empty;
         public DateOnly? FechaIngreso { get; set; }
         public string? JefeDirecto { get; set; }
+
+        /// <summary>File digital ya persistido. Null la primera vez (hay que resolverlo).</summary>
+        public FileDigitalCarpetaDto? Carpeta { get; set; }
+
+        // ── Borrador generado, cuando la carta se armó acá ────────────────────
+        // El envío sin archivo adjunto significa «manda la que generamos»: el PDF se saca
+        // convirtiendo este .docx tal como esté HOY en SharePoint, para que se lleve también las
+        // correcciones que GTH le haya hecho en Word después de generarlo.
+
+        public string? GeneradaDriveId { get; set; }
+        public string? GeneradaItemId { get; set; }
+        public string? GeneradaNombre { get; set; }
+    }
+
+    /// <summary>
+    /// Todo lo que hace falta para rellenar la plantilla de la carta oferta y dejar el .docx en el
+    /// file del colaborador, resuelto en un solo roundtrip y ANTES de escribir nada. Cada propiedad
+    /// de la mitad de arriba alimenta un placeholder concreto del documento; las de abajo dicen
+    /// dónde guardarlo.
+    /// </summary>
+    public class CartaOfertaGeneracionContextoDto
+    {
+        public int RequerimientoId { get; set; }
+        public int CandidatoId { get; set; }
+
+        /// <summary>Ficha de la base maestra del seleccionado. Obligatoria, igual que para enviar.</summary>
+        public int PersonId { get; set; }
+
+        /// <summary>Código del requerimiento (REQ-AAAA-NNNN): nombra el archivo en SharePoint.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        // ── Valores de los placeholders ───────────────────────────────────────
+
+        /// <summary>
+        /// <c>{{POSTULANTE_NOMBRE}}</c>: el nombre de la base maestra, que es el nombre legal. Se
+        /// imprime en formato título aunque en <c>person</c> viva en mayúsculas: la carta es un
+        /// documento formal dirigido a la persona, no un listado.
+        /// </summary>
+        public string PostulanteNombre { get; set; } = string.Empty;
+
+        /// <summary><c>{{PUESTO_NOMBRE}}</c>: el puesto del requerimiento, tal cual está en el catálogo.</summary>
+        public string? Puesto { get; set; }
+
+        /// <summary>
+        /// Área a la que ENTRA el contratado (<c>puesto.area_destino_scope_id</c>), no la del
+        /// solicitante: con ella se arma el <c>{{JEFATURA_AREA_NOMBRE}}</c>. Cae al área del
+        /// solicitante cuando el puesto no tiene destino.
+        /// </summary>
+        public string? AreaDestino { get; set; }
+
+        /// <summary>
+        /// <c>{{RAZON_SOCIAL}}</c>: la empresa con la que se firma, tomada de la ficha del
+        /// trabajador (<c>workers.contributor_id</c>) y, si su ficha todavía no la tiene, del
+        /// requerimiento que lo trajo.
+        /// </summary>
+        public string? RazonSocial { get; set; }
+
+        // ── Destino en SharePoint ─────────────────────────────────────────────
+
+        /// <summary>Nombre con el que se arma la carpeta del file digital.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Documento de identidad: primer tramo del nombre de esa carpeta.</summary>
+        public string Dni { get; set; } = string.Empty;
 
         /// <summary>File digital ya persistido. Null la primera vez (hay que resolverlo).</summary>
         public FileDigitalCarpetaDto? Carpeta { get; set; }

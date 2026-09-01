@@ -26,13 +26,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<CartaOfertaContextoDto> PrepararEnvio(int requerimientoId, DateOnly? fechaIngreso, string? correo, string token);
 
         /// <summary>
-        /// Registra la carta oferta ya subida y mueve el requerimiento a CARTA_OFERTA. Se llama
+        /// Registra la carta oferta ya subida y mueve el requerimiento a CARTA_OFERTA. Completa el
+        /// borrador si la carta se generó acá o crea la fila entera si se adjuntó ya armada. Se llama
         /// DESPUÉS de guardar el archivo y ANTES de mandar el correo: un correo que falla deja una
         /// carta completa de la que GTH reenvía el enlace.
         /// </summary>
         Task<CartaOfertaAccionResultDto> Crear(
             CartaOfertaContextoDto contexto,
             FileDigitalDocumentoDto carta,
+            FileDigitalCarpetaDto carpeta,
+            int? userId);
+
+        /// <summary>
+        /// Valida que se pueda armar la carta desde la plantilla (misma fase que el envío, con
+        /// seleccionado, documento y ficha maestra, y sin carta ya enviada) y devuelve los valores de
+        /// los placeholders más el destino en SharePoint. No escribe nada.
+        /// </summary>
+        Task<CartaOfertaGeneracionContextoDto> PrepararGeneracion(int requerimientoId);
+
+        /// <summary>
+        /// Guarda el .docx generado y las condiciones que imprime, como BORRADOR: la carta queda
+        /// lista para revisar pero el requerimiento NO cambia de fase — eso lo hace el envío.
+        /// Regenerar sobre un borrador existente lo pisa.
+        /// </summary>
+        Task<CartaOfertaAccionResultDto> GuardarGenerada(
+            CartaOfertaGeneracionContextoDto contexto,
+            CartaOfertaGenerarDto datos,
+            FileDigitalDocumentoDto documento,
             FileDigitalCarpetaDto carpeta,
             int? userId);
 

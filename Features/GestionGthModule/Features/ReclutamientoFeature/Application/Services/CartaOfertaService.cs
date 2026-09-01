@@ -1,7 +1,8 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Helpers;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Shared.Correos;
@@ -60,23 +61,86 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         private const long MaxCartaBytes = 15L * 1024 * 1024; // 15 MB
 
+        /// <summary>
+        /// MIME del .docx generado, para que SharePoint lo abra en Word Online al hacer clic y no lo
+        /// baje como binario suelto.
+        /// </summary>
+        private const string DocxMime =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+        // ── Generación desde la plantilla ──────────────────────────────────────
+
+        public async Task<CartaOfertaAccionResultDto> Generar(
+            int requerimientoId, CartaOfertaGenerarDto dto, int? userId)
+        {
+            if (dto == null)
+                throw new AbrilException("No llegaron las condiciones de la carta oferta.", 400);
+
+            // Las tres son obligatorias porque las tres se imprimen: una vacía deja un hueco en el
+            // documento que le llega al candidato.
+            if (dto.FechaIngreso == null)
+                throw new AbrilException("Indica la fecha de ingreso: es la fecha de inicio de labores que dice la carta.", 400);
+            if (dto.Sueldo == null || dto.Sueldo <= 0)
+                throw new AbrilException("Indica el sueldo mensual que se le ofrece al candidato.", 400);
+            if (dto.FechaLimiteAceptacion == null)
+                throw new AbrilException("Indica hasta cuándo el candidato puede aceptar la propuesta.", 400);
+
+            // El plazo para aceptar tiene que estar por delante: una carta que vence antes de salir
+            // le pide al candidato algo imposible.
+            if (dto.FechaLimiteAceptacion < CartaOfertaPlantilla.HoyEnPeru())
+                throw new AbrilException("La fecha límite de aceptación ya pasó.", 400);
+
+            if (!File.Exists(CartaOfertaPlantilla.RutaPlantilla))
+                throw new AbrilException(
+                    "No se encontró la plantilla de la carta oferta en el servidor. "
+                    + "Contacta al administrador del sistema.", 500);
+
+            // 1) Validar la fase y resolver los datos del documento ANTES de tocar SharePoint.
+            var ctx = await _repo.PrepararGeneracion(requerimientoId);
+
+            // 2) Armar el Word. Es puro cómputo: si algo falla acá no queda nada a medias.
+            var docx = CartaOfertaPlantilla.Generar(ctx, dto);
+
+            // 3) Dejarlo en el file del colaborador, en la misma carpeta donde después va el PDF que
+            //    se envía: son el mismo documento del expediente en dos formatos.
+            var carpeta = ctx.Carpeta ?? await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
+
+            // Nombre estable a propósito (sin sello de tiempo, a diferencia del resto del file):
+            // regenerar pisa el mismo archivo, así que el enlace que GTH ya tenía abierto sigue
+            // sirviendo y la carpeta no se llena de borradores.
+            var documento = await _fileDigital.SubirDocumentoAsync(
+                carpeta, SubcarpetaFileDigital.CartaEnviada,
+                $"carta_oferta_{ctx.Codigo}.docx",
+                docx, DocxMime, "la carta oferta generada");
+
+            var result = await _repo.GuardarGenerada(ctx, dto, documento, carpeta, userId);
+            result.Message =
+                "Carta oferta generada. Revísala —puedes corregirla en Word desde el file del "
+                + "colaborador— y después envíasela: al candidato le llega en PDF.";
+            return result;
+        }
+
         public async Task<CartaOfertaAccionResultDto> Enviar(
             int requerimientoId,
             CartaOfertaEnviarDto dto,
-            string cartaFileName,
-            string cartaContentType,
-            byte[] cartaContent,
+            string? cartaFileName,
+            string? cartaContentType,
+            byte[]? cartaContent,
             int? userId)
         {
-            if (cartaContent == null || cartaContent.Length == 0)
-                throw new AbrilException("Adjunta la carta oferta para poder enviarla.", 400);
+            // Sin archivo adjunto se manda la carta generada en el sistema. El PDF se saca recién
+            // más abajo, con la fila ya validada.
+            var adjunta = cartaContent != null && cartaContent.Length > 0;
 
-            var ext = Path.GetExtension(cartaFileName);
-            if (!AllowedCartaExt.Contains(ext))
-                throw new AbrilException(
-                    "La carta oferta debe ser un PDF: es el formato que el candidato puede ver y firmar desde el enlace.", 400);
-            if (cartaContent.Length > MaxCartaBytes)
-                throw new AbrilException("La carta oferta supera el tamaño máximo permitido (15 MB).", 400);
+            var ext = adjunta ? Path.GetExtension(cartaFileName) : ".pdf";
+            if (adjunta)
+            {
+                if (!AllowedCartaExt.Contains(ext))
+                    throw new AbrilException(
+                        "La carta oferta debe ser un PDF: es el formato que el candidato puede ver y firmar desde el enlace.", 400);
+                if (cartaContent!.Length > MaxCartaBytes)
+                    throw new AbrilException("La carta oferta supera el tamaño máximo permitido (15 MB).", 400);
+            }
 
             // Un correo escrito a mano se valida acá; el que sale de la base de datos ya es válido.
             var correoManual = string.IsNullOrWhiteSpace(dto?.Correo) ? null : dto!.Correo!.Trim().ToLowerInvariant();
@@ -87,11 +151,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    destino ANTES de tocar SharePoint o mandar correos.
             var ctx = await _repo.PrepararEnvio(requerimientoId, dto?.FechaIngreso, correoManual, NuevoToken());
 
+            // 1.b) Sin archivo adjunto, la carta es la que se generó acá: se pide su PDF a
+            //      SharePoint. Se convierte el archivo tal como está HOY, no los bytes del momento
+            //      de generarlo, para que el candidato reciba también las correcciones que GTH le
+            //      haya hecho en Word.
+            if (!adjunta)
+            {
+                if (string.IsNullOrWhiteSpace(ctx.GeneradaItemId))
+                    throw new AbrilException(
+                        "Todavía no hay carta oferta que enviar: genérala en el sistema o adjunta el PDF.", 400);
+
+                cartaContent = await _fileDigital.DescargarComoPdfAsync(
+                    ctx.GeneradaDriveId!, ctx.GeneradaItemId!, "la carta oferta generada");
+                cartaContentType = "application/pdf";
+            }
+
             // 2) Resolver la carpeta destino ANTES de enviar el correo. Si la biblioteca no está
             //    configurada o no se puede resolver, esto corta acá: lo contrario sería avisarle al
             //    candidato para después fallar al guardar la carta y dejarlo con un enlace que no
-            //    tiene nada que mostrar.
-            var carpeta = await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
+            //    tiene nada que mostrar. La generación ya la dejó resuelta en la fila; solo hay que
+            //    ir a SharePoint cuando la carta se adjuntó sin pasar por ahí.
+            var carpeta = ctx.Carpeta ?? await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
 
             // 3) Guardar la carta en el file del colaborador y registrar la carta oferta (lo que mueve
             //    el requerimiento a CARTA_OFERTA). Va ANTES del correo porque el correo solo lleva un
@@ -101,7 +181,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var carta = await _fileDigital.SubirDocumentoAsync(
                 carpeta, SubcarpetaFileDigital.CartaEnviada,
                 _fileDigital.NombreArchivo("carta_oferta", ctx.Codigo, ext),
-                cartaContent, cartaContentType, "la carta oferta");
+                cartaContent!, cartaContentType ?? "application/pdf", "la carta oferta");
 
             var result = await _repo.Crear(ctx, carta, carpeta, userId);
 

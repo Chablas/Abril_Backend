@@ -1,9 +1,10 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
@@ -67,6 +68,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public string? JefeDirecto { get; set; }
             public string EstadoCodigo { get; set; } = string.Empty;
             public GthCartaOferta? Carta { get; set; }
+
+            // ── Solo para la carta GENERADA desde la plantilla ─────────────────
+            // Viajan en la misma consulta y no en una aparte porque la generación necesita
+            // exactamente los mismos joins que el resto (candidato → requerimiento → puesto) más
+            // dos saltos, y separarlas sería un roundtrip de más para repetir lo mismo.
+
+            /// <summary>
+            /// Área a la que ENTRA el contratado: la de DESTINO del puesto pedido
+            /// (<c>puesto.area_destino_scope_id</c>), no la del solicitante — la Gerencia
+            /// Inmobiliaria pide un INGENIERO RESIDENTE y el residente entra a Residencia. Es de
+            /// donde sale la jefatura que imprime la carta. Null cuando el puesto no tiene destino;
+            /// ahí manda <see cref="Area"/>, la del solicitante.
+            /// </summary>
+            public string? AreaDestino { get; set; }
+
+            /// <summary>
+            /// Razón social de la ficha del trabajador (<c>workers.contributor_id</c>): es con la
+            /// empresa de SU ficha con la que firma, que puede no ser la del requerimiento si ya
+            /// tenía ficha de antes. Null si su ficha todavía no la tiene; ahí manda
+            /// <see cref="Empresa"/>, la del requerimiento.
+            /// </summary>
+            public string? RazonSocialFicha { get; set; }
         }
 
         /// <summary>
@@ -144,6 +167,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                  JefeDirecto  = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
                  EstadoCodigo = e.Codigo,
                  Carta        = ca,
+
+                 // Área DESTINO del puesto: la del árbol, no el texto plano de la solicitud.
+                 AreaDestino = ctx.AreaScope
+                     .Where(sc => sc.AreaScopeId == p.AreaDestinoScopeId)
+                     .Select(sc => sc.AreaItem!.AreaItemName)
+                     .FirstOrDefault(),
+
+                 // Razón social de la ficha del seleccionado. Se ordena igual que al abrirla
+                 // (ReclutamientoRepository.ResolverFichaFinalistaAsync): primero la de
+                 // pre-ingreso y, si no la hay, la más reciente — una persona puede tener
+                 // varias fichas por reingreso y la vigente es la que manda.
+                 RazonSocialFicha = ctx.Worker
+                     .Where(x => x.PersonId == personId && x.ContributorId != null)
+                     .OrderByDescending(x => x.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado ? 1 : 0)
+                     .ThenByDescending(x => x.Id)
+                     .Select(x => x.Contributor!.ContributorName)
+                     .FirstOrDefault(),
              }).FirstOrDefaultAsync();
 
         /// <summary>Proyecta la fila cruda a lo que ve el detalle de GTH.</summary>
@@ -161,8 +201,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var carta = x.Carta;
             if (carta == null) return dto;
 
-            dto.CartaOfertaId       = carta.GthCartaOfertaId;
-            dto.FechaIngreso        = carta.FechaIngreso;
+            dto.CartaOfertaId         = carta.GthCartaOfertaId;
+            dto.FechaIngreso          = carta.FechaIngreso;
+            dto.Sueldo                = carta.Sueldo;
+            dto.FechaLimiteAceptacion = carta.FechaLimiteAceptacion;
+            dto.GeneradaNombre        = carta.GeneradaNombre;
+            dto.GeneradaUrl           = carta.GeneradaUrl;
+            dto.GeneradaEn            = carta.GeneradaDateTime?.ToOffset(PeruOffset).DateTime;
             dto.CartaNombre         = carta.CartaNombre;
             dto.CartaUrl            = carta.CartaUrl;
             dto.Correo              = carta.Correo;
@@ -213,7 +258,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "Solo se puede enviar la carta oferta cuando el EMO de ingreso del seleccionado "
                     + "salió Apto o Apto con Restricciones.", 409);
 
-            if (raw.Carta != null)
+            // Solo bloquea la que YA SE ENVIÓ. Una fila sin envío es el borrador que dejó la
+            // generación del documento: ese es justamente el que se viene a mandar.
+            if (raw.Carta?.EnviadaDateTime != null)
                 throw new AbrilException(
                     "Este candidato ya tiene una carta oferta enviada. Reenvíale el enlace desde el detalle.", 409);
 
@@ -258,11 +305,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Empresa         = raw.Empresa,
                 ProyectoObra    = raw.ProyectoObra,
                 Correo          = destino.ToLowerInvariant(),
-                FechaIngreso    = fechaIngreso,
+                // Enviar sin fecha no puede borrar la que quedó pactada al generar el documento:
+                // la carta ya la imprimió y el onboarding la hereda de acá.
+                FechaIngreso    = fechaIngreso ?? raw.Carta?.FechaIngreso,
                 JefeDirecto     = raw.JefeDirecto,
+                Carpeta         = raw.Carta == null ? null : Carpeta(raw.Carta),
+                GeneradaDriveId = raw.Carta?.GeneradaDriveId,
+                GeneradaItemId  = raw.Carta?.GeneradaItemId,
+                GeneradaNombre  = raw.Carta?.GeneradaNombre,
             };
         }
 
+        /// <summary>
+        /// Deja registrado el envío: completa el borrador si la carta se generó acá, o crea la fila
+        /// entera si se adjuntó ya armada sin pasar por la generación. En los dos casos es lo que
+        /// mueve el requerimiento a CARTA_OFERTA.
+        /// </summary>
         public async Task<CartaOfertaAccionResultDto> Crear(
             CartaOfertaContextoDto contexto,
             FileDigitalDocumentoDto carta,
@@ -272,31 +330,162 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             using var ctx = _factory.CreateDbContext();
 
             var now = DateTimeOffset.UtcNow;
-            var fila = new GthCartaOferta
+
+            var fila = await BuscarCarta(ctx, contexto.RequerimientoId);
+            if (fila == null)
             {
-                GthCandidatoId     = contexto.CandidatoId,
-                PersonId           = contexto.PersonId,
-                FechaIngreso       = contexto.FechaIngreso,
-                CartaNombre        = carta.Nombre,
-                CartaUrl           = carta.Url,
-                CartaItemId        = carta.ItemId,
-                CartaDriveId       = carta.DriveId,
-                Correo             = contexto.Correo,
-                Token              = contexto.Token,
-                EnviadaDateTime    = now,
-                EnviadaUserId      = userId,
-                FileDigitalDriveId = carpeta.DriveId,
-                FileDigitalItemId  = carpeta.ItemId,
-                FileDigitalRuta    = carpeta.Ruta,
-                CreatedDateTime    = now,
-                CreatedUserId      = userId,
-            };
-            ctx.GthCartaOferta.Add(fila);
+                fila = new GthCartaOferta
+                {
+                    GthCandidatoId  = contexto.CandidatoId,
+                    PersonId        = contexto.PersonId,
+                    CreatedDateTime = now,
+                    CreatedUserId   = userId,
+                };
+                ctx.GthCartaOferta.Add(fila);
+            }
+            else
+            {
+                // Carrera contra otra pestaña que ya mandó esta misma carta: se relee acá y no solo
+                // en PrepararEnvio porque entre la validación y este punto pasaron la subida a
+                // SharePoint y la resolución de la carpeta.
+                if (fila.EnviadaDateTime != null)
+                    throw new AbrilException(
+                        "Este candidato ya tiene una carta oferta enviada. Reenvíale el enlace desde el detalle.", 409);
+
+                fila.UpdatedDateTime = now;
+                fila.UpdatedUserId   = userId;
+            }
+
+            fila.FechaIngreso    = contexto.FechaIngreso;
+            fila.CartaNombre     = carta.Nombre;
+            fila.CartaUrl        = carta.Url;
+            fila.CartaItemId     = carta.ItemId;
+            fila.CartaDriveId    = carta.DriveId;
+            fila.Correo          = contexto.Correo;
+            fila.Token           = contexto.Token;
+            fila.EnviadaDateTime = now;
+            fila.EnviadaUserId   = userId;
+
+            fila.FileDigitalDriveId = carpeta.DriveId;
+            fila.FileDigitalItemId  = carpeta.ItemId;
+            fila.FileDigitalRuta    = carpeta.Ruta;
 
             var estado = await MoverFase(ctx, contexto.RequerimientoId, EstadoReclutamiento.CartaOferta, userId);
             await ctx.SaveChangesAsync();
 
             return await LeerResultado(ctx, contexto.RequerimientoId, estado);
+        }
+
+        // ── Generación del documento desde la plantilla ────────────────────────
+
+        public async Task<CartaOfertaGeneracionContextoDto> PrepararGeneracion(int requerimientoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var raw = await QuerySeleccionado(ctx, requerimientoId)
+                ?? throw new AbrilException(
+                    "Este requerimiento todavía no tiene un candidato seleccionado al que ofrecerle el puesto.", 409);
+
+            // Mismas dos fases que el envío: generar la carta antes de que el EMO diga que la
+            // persona puede entrar sería armar una propuesta que todavía no se puede sostener.
+            if (!EstadoReclutamiento.EmoAptas.Contains(raw.EstadoCodigo))
+                throw new AbrilException(
+                    "Solo se puede armar la carta oferta cuando el EMO de ingreso del seleccionado "
+                    + "salió Apto o Apto con Restricciones.", 409);
+
+            if (raw.Carta?.EnviadaDateTime != null)
+                throw new AbrilException(
+                    "La carta oferta de este candidato ya se envió: no se puede volver a generar el documento.", 409);
+
+            var dni = Trim(raw.Dni);
+            if (string.IsNullOrWhiteSpace(dni))
+                throw new AbrilException(
+                    "El candidato no tiene documento de identidad en su ficha de la base maestra.", 409);
+
+            // La ficha se exige desde la generación —y no recién al enviar— porque el documento se
+            // guarda en su file digital y porque el nombre que imprime la carta sale de ahí.
+            var personId = raw.PersonId
+                ?? await ctx.Person
+                    .Where(x => x.DocumentIdentityCode == dni)
+                    .Select(x => (int?)x.PersonId)
+                    .FirstOrDefaultAsync();
+
+            if (personId == null)
+                throw new AbrilException(
+                    "El candidato no tiene ficha en la base maestra: de ahí sale el nombre de la carta.", 409);
+
+            return new CartaOfertaGeneracionContextoDto
+            {
+                RequerimientoId  = raw.RequerimientoId,
+                CandidatoId      = raw.CandidatoId,
+                PersonId         = personId.Value,
+                Codigo           = raw.Codigo,
+                PostulanteNombre = Trim(raw.PersonNombre) ?? raw.CandidatoNombre,
+                Puesto           = raw.Puesto,
+                // Sin área de destino manda la del solicitante, que es lo que hubo siempre.
+                AreaDestino      = Trim(raw.AreaDestino) ?? Trim(raw.Area),
+                // Sin razón social en su ficha manda la del requerimiento que lo trajo.
+                RazonSocial      = Trim(raw.RazonSocialFicha) ?? Trim(raw.Empresa),
+                Nombre           = NombreFile(raw),
+                Dni              = dni,
+                Carpeta          = raw.Carta == null ? null : Carpeta(raw.Carta),
+            };
+        }
+
+        public async Task<CartaOfertaAccionResultDto> GuardarGenerada(
+            CartaOfertaGeneracionContextoDto contexto,
+            CartaOfertaGenerarDto datos,
+            FileDigitalDocumentoDto documento,
+            FileDigitalCarpetaDto carpeta,
+            int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var now = DateTimeOffset.UtcNow;
+
+            var fila = await BuscarCarta(ctx, contexto.RequerimientoId);
+            if (fila == null)
+            {
+                fila = new GthCartaOferta
+                {
+                    GthCandidatoId  = contexto.CandidatoId,
+                    PersonId        = contexto.PersonId,
+                    CreatedDateTime = now,
+                    CreatedUserId   = userId,
+                };
+                ctx.GthCartaOferta.Add(fila);
+            }
+            else
+            {
+                if (fila.EnviadaDateTime != null)
+                    throw new AbrilException(
+                        "La carta oferta de este candidato ya se envió: no se puede volver a generar el documento.", 409);
+
+                fila.UpdatedDateTime = now;
+                fila.UpdatedUserId   = userId;
+            }
+
+            // Las condiciones se guardan con el documento: son lo que la carta dice, y lo que se
+            // vuelve a mostrar en el formulario si hay que regenerarla.
+            fila.FechaIngreso          = datos.FechaIngreso;
+            fila.Sueldo                = datos.Sueldo;
+            fila.FechaLimiteAceptacion = datos.FechaLimiteAceptacion;
+
+            fila.GeneradaNombre   = documento.Nombre;
+            fila.GeneradaUrl      = documento.Url;
+            fila.GeneradaItemId   = documento.ItemId;
+            fila.GeneradaDriveId  = documento.DriveId;
+            fila.GeneradaDateTime = now;
+            fila.GeneradaUserId   = userId;
+
+            fila.FileDigitalDriveId = carpeta.DriveId;
+            fila.FileDigitalItemId  = carpeta.ItemId;
+            fila.FileDigitalRuta    = carpeta.Ruta;
+
+            // Generar NO mueve la fase: el requerimiento sigue esperando el envío.
+            await ctx.SaveChangesAsync();
+
+            return await LeerResultado(ctx, contexto.RequerimientoId, null);
         }
 
         // ── Reenvío del enlace ─────────────────────────────────────────────────
@@ -312,6 +501,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var carta = raw.Carta
                 ?? throw new AbrilException(
                     "Este requerimiento todavía no tiene una carta oferta enviada.", 409);
+
+            // El borrador generado todavía no le llegó a nadie: no hay enlace que reenviar.
+            if (carta.EnviadaDateTime == null)
+                throw new AbrilException(
+                    "La carta oferta todavía no se envió: mándala primero desde el detalle.", 409);
 
             // Ya aprobada: el proceso está cerrado y el enlace abriría una página de solo lectura.
             if (carta.AprobadaDateTime != null)
@@ -381,6 +575,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var carta = raw.Carta
                 ?? throw new AbrilException(
                     "Este requerimiento todavía no tiene una carta oferta enviada.", 409);
+
+            if (carta.EnviadaDateTime == null)
+                throw new AbrilException(
+                    "La carta oferta todavía no se envió: no puede haber una versión firmada.", 409);
 
             // Aprobada = proceso cerrado. Reemplazar el documento acá dejaría un requerimiento
             // CERRADO con una carta sin aprobar, así que se corta: si hay que rehacerla, es un
@@ -469,12 +667,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// seleccionado, que es la llave real: la carta cuelga del candidato, no del requerimiento.
         /// </summary>
         private static async Task<GthCartaOferta> CartaDelRequerimiento(AppDbContext ctx, int requerimientoId) =>
-            await (from ca in ctx.GthCartaOferta
-                   where ca.State
-                   join c in ctx.GthCandidato on ca.GthCandidatoId equals c.GthCandidatoId
-                   where c.State && c.GthRequerimientoId == requerimientoId
-                   select ca).FirstOrDefaultAsync()
+            await BuscarCarta(ctx, requerimientoId)
             ?? throw new AbrilException("Este requerimiento no tiene una carta oferta registrada.", 404);
+
+        /// <summary>
+        /// La misma búsqueda, pero devolviendo null en vez de lanzar. La usan la generación y el
+        /// envío, que tienen que poder crear la fila cuando todavía no existe: para ellos «no hay
+        /// carta» es el caso normal, no un error.
+        /// </summary>
+        private static Task<GthCartaOferta?> BuscarCarta(AppDbContext ctx, int requerimientoId) =>
+            (from ca in ctx.GthCartaOferta
+             where ca.State
+             join c in ctx.GthCandidato on ca.GthCandidatoId equals c.GthCandidatoId
+             where c.State && c.GthRequerimientoId == requerimientoId
+             select ca).FirstOrDefaultAsync();
 
         /// <summary>
         /// Deja el requerimiento en la fase indicada. No hace SaveChanges: lo llama quien está

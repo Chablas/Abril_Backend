@@ -1,4 +1,4 @@
-using Abril_Backend.Infrastructure.Interfaces;
+﻿using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces;
@@ -14,7 +14,7 @@ using Abril_Backend.Shared.Services.SharePoint.Options;
 using Microsoft.Extensions.Options;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
-using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
+using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Interfaces;
 using ClosedXML.Excel;

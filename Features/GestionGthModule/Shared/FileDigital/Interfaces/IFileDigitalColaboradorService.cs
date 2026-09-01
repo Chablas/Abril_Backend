@@ -41,6 +41,16 @@ namespace Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Interfaces
         /// pisar una versión anterior del mismo documento.
         /// </summary>
         string NombreArchivo(string prefijo, string codigo, string extension);
+
+        /// <summary>
+        /// Baja un documento del file convertido a PDF por SharePoint. Lo usa la carta oferta, que
+        /// se arma en Word para que GTH la revise —y la corrija ahí mismo si hace falta— pero se le
+        /// manda al candidato en PDF, que es lo que puede ver y firmar desde el enlace.
+        ///
+        /// Convierte lo que HAY en SharePoint, no lo que se generó: así el PDF se lleva también las
+        /// correcciones posteriores. <paramref name="queEs"/> solo arma el mensaje de error.
+        /// </summary>
+        Task<byte[]> DescargarComoPdfAsync(string driveId, string itemId, string queEs);
     }
 
     /// <summary>

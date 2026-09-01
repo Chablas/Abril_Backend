@@ -69,6 +69,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public string EstadoCodigo { get; set; } = string.Empty;
             public GthCartaOferta? Carta { get; set; }
 
+            /// <summary>
+            /// Las condiciones de contrato que quedaron guardadas con el borrador, en orden. Viajan
+            /// con el resto y no en una consulta aparte porque el formulario de GTH las repinta cada
+            /// vez que abre el detalle. Vacía cuando la carta todavía no se generó, y también en las
+            /// cartas viejas: esas llevan el bloque de condiciones impreso dentro de su .docx.
+            /// </summary>
+            public List<string> Condiciones { get; set; } = new();
+
             // ── Solo para la carta GENERADA desde la plantilla ─────────────────
             // Viajan en la misma consulta y no en una aparte porque la generación necesita
             // exactamente los mismos joins que el resto (candidato → requerimiento → puesto) más
@@ -90,6 +98,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             /// <see cref="Empresa"/>, la del requerimiento.
             /// </summary>
             public string? RazonSocialFicha { get; set; }
+
+            /// <summary>
+            /// Ubicación del proyecto/obra al que se pidió la vacante: es la ubicación de trabajo que
+            /// declara la carta. Salen de la misma fila de <c>project</c> que ya se juntaba para
+            /// <see cref="ProyectoObra"/>, así que no cuestan un join más.
+            /// </summary>
+            public string? ProyectoUbicacion { get; set; }
+            public string? ProyectoDistrito { get; set; }
+            public string? ProyectoProvincia { get; set; }
+            public string? ProyectoDepartamento { get; set; }
         }
 
         /// <summary>
@@ -168,6 +186,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                  EstadoCodigo = e.Codigo,
                  Carta        = ca,
 
+                 // Ubicación de trabajo que declara la carta. Sale del proyecto ya juntado arriba.
+                 ProyectoUbicacion    = pr.ProjectLocation,
+                 ProyectoDistrito     = pr.ProjectDistrict,
+                 ProyectoProvincia    = pr.ProjectProvince,
+                 ProyectoDepartamento = pr.ProjectDepartment,
+
+                 // Las viñetas de condiciones del borrador. Va como proyección de colección dentro
+                 // de la misma consulta (no un segundo Query) para no gastar un roundtrip extra por
+                 // cada vez que se abre el detalle. Sin carta oferta el join de arriba deja `ca` en
+                 // null: la comparación queda contra un NULL y no engancha ninguna fila, que es
+                 // justo lo que se quiere (lista vacía) — por eso no lleva un `ca != null` delante.
+                 Condiciones = ctx.GthCartaOfertaCondicion
+                     .Where(x => x.GthCartaOfertaId == ca.GthCartaOfertaId && x.State)
+                     .OrderBy(x => x.Orden)
+                     .Select(x => x.Texto)
+                     .ToList(),
+
                  // Área DESTINO del puesto: la del árbol, no el texto plano de la solicitud.
                  AreaDestino = ctx.AreaScope
                      .Where(sc => sc.AreaScopeId == p.AreaDestinoScopeId)
@@ -205,6 +240,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.FechaIngreso          = carta.FechaIngreso;
             dto.Sueldo                = carta.Sueldo;
             dto.FechaLimiteAceptacion = carta.FechaLimiteAceptacion;
+            dto.Condiciones           = x.Condiciones;
             dto.GeneradaNombre        = carta.GeneradaNombre;
             dto.GeneradaUrl           = carta.GeneradaUrl;
             dto.GeneradaEn            = carta.GeneradaDateTime?.ToOffset(PeruOffset).DateTime;
@@ -216,6 +252,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.FirmadaUrl          = carta.FirmadaUrl;
             dto.FirmadaSubidaEn     = carta.FirmadaSubidaDateTime?.ToOffset(PeruOffset).DateTime;
             dto.FirmadaPostulanteEn = carta.FirmadaPostulanteDateTime?.ToOffset(PeruOffset).DateTime;
+            dto.FinalizadaEn        = carta.FinalizadaDateTime?.ToOffset(PeruOffset).DateTime;
             dto.AprobadaEn          = carta.AprobadaDateTime?.ToOffset(PeruOffset).DateTime;
             dto.FileDigitalCarpeta  = carta.FileDigitalRuta;
             return dto;
@@ -426,6 +463,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 AreaDestino      = Trim(raw.AreaDestino) ?? Trim(raw.Area),
                 // Sin razón social en su ficha manda la del requerimiento que lo trajo.
                 RazonSocial      = Trim(raw.RazonSocialFicha) ?? Trim(raw.Empresa),
+
+                // La ubicación de trabajo, tal como esté cargada en el proyecto. Un dato que falte
+                // sale vacío en el documento a propósito: ver el comentario del DTO.
+                ProyectoNombre       = Trim(raw.ProyectoObra),
+                ProyectoUbicacion    = Trim(raw.ProyectoUbicacion),
+                ProyectoDistrito     = Trim(raw.ProyectoDistrito),
+                ProyectoProvincia    = Trim(raw.ProyectoProvincia),
+                ProyectoDepartamento = Trim(raw.ProyectoDepartamento),
+
                 Nombre           = NombreFile(raw),
                 Dni              = dni,
                 Carpeta          = raw.Carta == null ? null : Carpeta(raw.Carta),
@@ -470,6 +516,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             fila.FechaIngreso          = datos.FechaIngreso;
             fila.Sueldo                = datos.Sueldo;
             fila.FechaLimiteAceptacion = datos.FechaLimiteAceptacion;
+
+            // Las viñetas de condiciones se reemplazan enteras: regenerar la carta es rehacer el
+            // documento, y estas son lo que ese documento dice. Las anteriores se dan de baja lógica
+            // en vez de borrarse, como el resto del módulo — si la carta ya se había generado, qué
+            // decía es parte de su historia. La lista llega ya limpia del servicio.
+            if (fila.GthCartaOfertaId != 0)
+            {
+                var previas = await ctx.GthCartaOfertaCondicion
+                    .Where(c => c.GthCartaOfertaId == fila.GthCartaOfertaId && c.State)
+                    .ToListAsync();
+
+                foreach (var previa in previas)
+                {
+                    previa.State           = false;
+                    previa.UpdatedDateTime = now;
+                    previa.UpdatedUserId   = userId;
+                }
+            }
+
+            // Van por la navegación —y no con un GthCartaOfertaId a mano— porque en la PRIMERA
+            // generación la fila padre todavía no tiene id: es EF quien lo propaga al guardar.
+            for (var i = 0; i < datos.Condiciones.Count; i++)
+            {
+                fila.Condiciones.Add(new GthCartaOfertaCondicion
+                {
+                    Orden           = i + 1,
+                    Texto           = datos.Condiciones[i],
+                    CreatedDateTime = now,
+                    CreatedUserId   = userId,
+                });
+            }
 
             fila.GeneradaNombre   = documento.Nombre;
             fila.GeneradaUrl      = documento.Url;
@@ -587,6 +664,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException(
                     "La carta oferta firmada ya fue aprobada y el proceso de reclutamiento está cerrado: "
                     + "no se puede reemplazar el documento.", 409);
+
+            // Finalizada = el colaborador firmó y cerró el trámite desde su enlace, y el solicitante
+            // ya recibió el aviso de que la oferta quedó aceptada. Ese documento es el que él firmó:
+            // reemplazarlo por otro dejaría el expediente con una carta que el colaborador nunca
+            // vio. A GTH le queda revisarla y aprobarla, que es lo único que falta.
+            if (carta.FinalizadaDateTime != null)
+                throw new AbrilException(
+                    "El colaborador ya firmó y finalizó su carta oferta: ese es el documento definitivo y no "
+                    + "se puede reemplazar. Solo queda revisarlo y aprobarlo.", 409);
 
             return new CartaOfertaDocumentoContextoDto
             {

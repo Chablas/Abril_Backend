@@ -228,6 +228,23 @@
         public const string CartaOfertaFirmada = "CARTA_OFERTA_FIRMADA";
 
         /// <summary>
+        /// Correo de "el colaborador finalizó su carta oferta" que va al <b>solicitante</b> de la
+        /// vacante. Lo dispara el propio colaborador al pulsar «Finalizar» en la página pública,
+        /// después de firmar.
+        ///
+        /// Es otro correo que <see cref="CartaOfertaFirmada"/> aunque los dispare el mismo trámite:
+        /// aquel le pide a GTH que entre a aprobar el documento —es trabajo pendiente— y este le
+        /// cierra el círculo a quien pidió la vacante, que la abrió hace semanas y hasta ahora solo
+        /// supo del finalista. No pide nada: informa que el ingreso ya está confirmado y desde
+        /// cuándo.
+        ///
+        /// El destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
+        /// configuración solo aporta principales adicionales y copias, igual que en
+        /// <see cref="EntrevistaConfirmadaSolicitante"/> y <see cref="CandidatoRetomado"/>.
+        /// </summary>
+        public const string CartaOfertaFinalizada = "CARTA_OFERTA_FINALIZADA";
+
+        /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>aprobacion-reemplazo</c> /
         /// <c>aprobacion-reemplazo-gth</c> / <c>aviso-gerente-area</c> / <c>solicitud</c> /
         /// <c>reemplazo-aprobado</c> / <c>ti-vacantes</c> /
@@ -263,8 +280,9 @@
             "entrevista-confirmada-solicitante" => EntrevistaConfirmadaSolicitante,
             "candidato-retomado"     => CandidatoRetomado,
             "agradecimiento"         => Agradecimiento,
-            "carta-oferta"           => CartaOferta,
-            "carta-oferta-firmada"   => CartaOfertaFirmada,
+            "carta-oferta"            => CartaOferta,
+            "carta-oferta-firmada"    => CartaOfertaFirmada,
+            "carta-oferta-finalizada" => CartaOfertaFinalizada,
             _ => null,
         };
     }

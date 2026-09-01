@@ -33,5 +33,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// esto: sin ese aviso el documento firmado esperaría a que alguien pase por la bandeja.
         /// </summary>
         Task<CartaOfertaFirmarResultDto> Firmar(string token);
+
+        /// <summary>
+        /// Cierra el trámite del lado del colaborador: es el paso que sigue a firmar y el que le dice
+        /// que ya no tiene nada más que hacer. Deja la carta marcada como finalizada —desde ahí el
+        /// documento firmado es el definitivo— y le avisa por correo al SOLICITANTE de la vacante,
+        /// que hasta ahora solo supo del finalista y necesita saber que el ingreso está confirmado.
+        ///
+        /// Es idempotente: volver a llamarlo sobre una carta ya finalizada devuelve el mismo
+        /// resultado sin mandar el correo de nuevo.
+        /// </summary>
+        Task<CartaOfertaFinalizarResultDto> Finalizar(string token);
     }
 }

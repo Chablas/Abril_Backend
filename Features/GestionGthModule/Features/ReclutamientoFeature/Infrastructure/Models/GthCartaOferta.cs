@@ -62,6 +62,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public DateOnly? FechaLimiteAceptacion { get; set; }
 
+        /// <summary>
+        /// Las condiciones de contrato que imprime la carta (el <c>{{CONDICIONES}}</c> de la
+        /// plantilla), una viñeta por elemento. Existe como navegación —y no solo como tabla suelta—
+        /// porque al generar la carta por primera vez la fila padre y sus condiciones se guardan en
+        /// el mismo <c>SaveChanges</c>: sin la navegación habría que grabar la carta, releer su id y
+        /// volver a grabar.
+        ///
+        /// NO se carga en las lecturas: el detalle las trae proyectadas en su propia consulta. Acá
+        /// viene vacía salvo que alguien la haya llenado para escribir.
+        /// </summary>
+        public List<GthCartaOfertaCondicion> Condiciones { get; set; } = new();
+
         // ── Carta oferta GENERADA desde la plantilla (.docx, borrador) ────────
         // El documento de trabajo: se genera rellenando la plantilla Word, queda en el file del
         // colaborador y GTH lo revisa —y lo corrige en Word si hace falta— antes de mandarlo. Va
@@ -93,6 +105,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? EnviadaUserId { get; set; }
 
         /// <summary>
+        /// Primera vez que el colaborador abrió su enlace. Es la fecha de conformidad que imprime el
+        /// formato de aceptación de la carta (<c>{{FECHA_HOY_CONFORMIDAD_DE_COLABORADOR}}</c>): el
+        /// día en que el documento llegó a sus manos, no el día en que GTH lo armó.
+        ///
+        /// Se escribe UNA sola vez —la primera apertura— y no se toca más: volver a abrir el enlace
+        /// no es una conformidad nueva, y si se moviera, el documento que ya leyó cambiaría de fecha
+        /// bajo sus pies.
+        /// </summary>
+        public DateTimeOffset? PrimeraAperturaDateTime { get; set; }
+
+        /// <summary>
         /// Token del enlace público con el que el candidato ve y firma su carta oferta. Es la única
         /// credencial de esa página, así que es único entre las cartas vigentes. Se genera al enviar
         /// la carta y NO se rota al reenviar el enlace: un mismo candidato puede recibir el correo
@@ -120,6 +143,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// porque no es un usuario del sistema.
         /// </summary>
         public DateTimeOffset? FirmadaPostulanteDateTime { get; set; }
+
+        /// <summary>
+        /// Momento en que el colaborador pulsó «Finalizar» en la página pública: su cierre explícito
+        /// del trámite, después de firmar. Es lo que dispara el aviso al solicitante de la vacante.
+        ///
+        /// Va aparte de <see cref="FirmadaPostulanteDateTime"/> porque son dos actos distintos: se
+        /// puede firmar y volver a firmar —para rehacer una firma que salió mal— mientras el trámite
+        /// sigue abierto, y finalizar es decir «ya está, no toco más». Desde ese momento el documento
+        /// firmado es el definitivo: ni él vuelve a firmar ni GTH lo reemplaza.
+        ///
+        /// Null en las cartas que GTH subió firmadas a mano (la vía de respaldo): ahí no hubo página
+        /// pública que finalizar.
+        /// </summary>
+        public DateTimeOffset? FinalizadaDateTime { get; set; }
 
         /// <summary>
         /// Momento en que GTH aprobó la carta firmada. Es lo que cierra el requerimiento: mientras

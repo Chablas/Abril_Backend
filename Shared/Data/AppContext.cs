@@ -560,6 +560,9 @@ namespace Abril_Backend.Infrastructure.Data
         // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────────
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta> GthCartaOferta => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>();
 
+        // Las viñetas del bloque de condiciones de contrato que imprime la carta, una fila por viñeta.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion> GthCartaOfertaCondicion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion>();
+
         // Biblioteca del file de colaboradores: la abre la carta oferta y la sigue usando Onboarding,
         // así que el modelo vive en el Shared/ del módulo.
         public DbSet<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder>();
@@ -1826,6 +1829,17 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(c => c.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Person>()
                  .WithMany().HasForeignKey(c => c.PersonId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Las condiciones de contrato que imprime la carta: una fila por viñeta.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion>(e =>
+            {
+                // Se leen SIEMPRE por carta y en orden, que es como se imprimen.
+                e.HasIndex(c => new { c.GthCartaOfertaId, c.Orden });
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>()
+                 .WithMany(c => c.Condiciones)
+                 .HasForeignKey(c => c.GthCartaOfertaId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Notificaciones in-app (campanita del encabezado) ────────────────

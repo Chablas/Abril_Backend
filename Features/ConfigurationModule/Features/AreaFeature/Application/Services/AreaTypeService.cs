@@ -10,11 +10,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applic
         private readonly IAreaTypeRepository _repository;
         public AreaTypeService(IAreaTypeRepository repository) => _repository = repository;
 
-        public Task<PagedResult<AreaTypeDto>> GetPaged(int page, int pageSize)
+        public Task<PagedResult<AreaTypeDto>> GetPaged(AreaTypeFilterDto filter)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 10;
-            return _repository.GetPaged(page, pageSize);
+            if (filter.Page < 1) filter.Page = 1;
+            if (filter.PageSize < 1) filter.PageSize = 10;
+            return _repository.GetPaged(filter);
         }
 
         public Task<List<AreaTypeSimpleDto>> GetSimple() => _repository.GetSimple();

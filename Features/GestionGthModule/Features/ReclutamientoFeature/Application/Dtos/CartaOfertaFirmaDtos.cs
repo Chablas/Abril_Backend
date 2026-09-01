@@ -45,6 +45,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// firmar ni siquiera para corregir la firma.
         /// </summary>
         public bool Aprobada { get; set; }
+
+        /// <summary>
+        /// true si ya pulsó «Finalizar». La página pasa a su pantalla de cierre: no hay nada más que
+        /// hacer y se lo decimos, que es justo para lo que existe ese paso.
+        /// </summary>
+        public bool Finalizada { get; set; }
+
+        /// <summary>Cuándo finalizó el trámite, ya en hora de Perú.</summary>
+        public DateTime? FinalizadaEn { get; set; }
+
+        /// <summary>
+        /// Cuándo abrió este enlace por primera vez, en hora de Perú. Es la fecha de conformidad que
+        /// lleva impresa su carta. Viaja para que el servicio sepa, sin una consulta de más, si esta
+        /// visita es la primera y hay que sellarla.
+        /// </summary>
+        public DateTime? PrimeraAperturaEn { get; set; }
     }
 
     /// <summary>Firma que el postulante dibujó en el canvas de la página pública.</summary>
@@ -69,6 +85,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Cuándo quedó firmada, ya en hora de Perú.</summary>
         public DateTime? FirmadaEn { get; set; }
+    }
+
+    /// <summary>
+    /// Resultado de finalizar la carta oferta: el paso con el que el colaborador cierra su trámite
+    /// después de firmar.
+    /// </summary>
+    public class CartaOfertaFinalizarResultDto
+    {
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>Cuándo quedó finalizada, ya en hora de Perú.</summary>
+        public DateTime? FinalizadaEn { get; set; }
     }
 
     /// <summary>
@@ -116,11 +144,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Correo personal al que se le envió la carta oferta.</summary>
         public string? Correo { get; set; }
 
+        // ── Solicitante de la vacante (solo para el aviso de «finalizada») ────
+        // Es quien pidió el puesto hace semanas y, hasta ahora, lo último que supo fue del
+        // finalista: el aviso de que el colaborador cerró su carta le confirma el ingreso.
+
+        /// <summary>Correo del usuario que registró la solicitud. Null si la solicitud quedó sin usuario.</summary>
+        public string? SolicitanteEmail { get; set; }
+
+        /// <summary>Su nombre, para encabezar el correo. Null si no tiene ficha en la base maestra.</summary>
+        public string? SolicitanteNombre { get; set; }
+
         // ── Carta oferta que subió GTH (la que se muestra y se firma) ──────────
         public string? CartaNombre { get; set; }
         public string? CartaUrl { get; set; }
         public string? CartaDriveId { get; set; }
         public string? CartaItemId { get; set; }
+
+        // ── .docx generado, del que sale el PDF ───────────────────────────────
+        // Se necesita en la PRIMERA apertura: ahí hay que rellenarle la fecha de conformidad —el
+        // único marcador que la generación deja sin resolver, porque su valor es justamente ese
+        // momento— y volver a convertirlo a PDF. Null en las cartas viejas que GTH adjuntó ya
+        // armadas: esas no tienen nada que rellenar.
+
+        public string? GeneradaDriveId { get; set; }
+        public string? GeneradaItemId { get; set; }
+        public string? GeneradaNombre { get; set; }
+
+        /// <summary>Momento de la primera apertura del enlace, si ya está sellada.</summary>
+        public DateTimeOffset? PrimeraApertura { get; set; }
 
         // ── Carta ya firmada, si existe ────────────────────────────────────────
         // Es la que el visor muestra después de firmar: al postulante le interesa revisar y descargar
@@ -135,5 +186,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public bool YaFirmada { get; set; }
         public bool Aprobada { get; set; }
+
+        /// <summary>
+        /// true si el colaborador ya pulsó «Finalizar»: el trámite quedó cerrado de su lado y el
+        /// documento firmado es el definitivo.
+        /// </summary>
+        public bool Finalizada { get; set; }
     }
 }

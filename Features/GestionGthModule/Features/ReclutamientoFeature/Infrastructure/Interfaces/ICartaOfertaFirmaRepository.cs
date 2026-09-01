@@ -46,5 +46,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<DateTime> GuardarFirmadaPorPostulante(
             int cartaOfertaId, FileDigitalDocumentoDto carta, FileDigitalCarpetaDto? carpeta);
+
+        /// <summary>
+        /// Sella la PRIMERA apertura del enlace —la fecha de conformidad que imprime el formato de
+        /// aceptación de la carta, que se escribe una sola vez— y, junto con ella, dónde quedaron el
+        /// .docx y el PDF que el servicio rehizo con esa fecha. Devuelve la fecha registrada (la de
+        /// antes si otra pestaña llegó primero; null si el token no resuelve).
+        ///
+        /// Los dos documentos son opcionales: no hay nada que rehacer cuando la carta se adjuntó ya
+        /// armada, y ahí esto solo sella la fecha.
+        /// </summary>
+        Task<DateTimeOffset?> GuardarConformidad(
+            string token,
+            DateTimeOffset fecha,
+            FileDigitalDocumentoDto? generada,
+            FileDigitalDocumentoDto? carta);
+
+        /// <summary>
+        /// Registra que el colaborador cerró su trámite con «Finalizar». Devuelve el momento en hora
+        /// de Perú, o null si la carta YA estaba finalizada — que es como el servicio sabe que no
+        /// tiene que volver a avisarle al solicitante.
+        /// </summary>
+        Task<DateTime?> MarcarFinalizada(int cartaOfertaId);
     }
 }

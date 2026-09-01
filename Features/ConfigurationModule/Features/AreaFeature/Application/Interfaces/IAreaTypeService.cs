@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applic
 {
     public interface IAreaTypeService
     {
-        Task<PagedResult<AreaTypeDto>> GetPaged(int page, int pageSize);
+        Task<PagedResult<AreaTypeDto>> GetPaged(AreaTypeFilterDto filter);
         Task<List<AreaTypeSimpleDto>> GetSimple();
         Task Create(AreaTypeCreateDto dto);
         Task Update(AreaTypeEditDto dto);

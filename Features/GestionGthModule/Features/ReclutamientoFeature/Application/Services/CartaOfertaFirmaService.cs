@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Helpers;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Shared.Correos;
@@ -43,8 +44,105 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _logger        = logger;
         }
 
-        public Task<CartaOfertaFirmaPublicoDto> GetPublico(string token) =>
-            _repo.GetPublicoByToken(ExigirToken(token));
+        /// <summary>Perú no tiene horario de verano, así que el desfase es fijo.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Contexto de la página y, en la PRIMERA apertura, el sellado de la fecha de conformidad.
+        ///
+        /// Esa fecha —el día en que el documento llegó a manos del colaborador— es el único dato de
+        /// la carta que no se puede saber cuando GTH la arma, así que la generación deja su marcador
+        /// sin resolver y se rellena acá: se baja el .docx del file, se le pone la fecha, se vuelve a
+        /// subir y se reconvierte a PDF. El colaborador lee y firma el documento ya completo.
+        ///
+        /// Si algo de eso falla, la página se abre igual con el documento como esté y la fecha NO se
+        /// sella: la próxima apertura lo reintenta. Nunca se sella una fecha que el documento no
+        /// llegó a imprimir — el sello es de una sola vez y dejaría la carta en falso para siempre.
+        /// </summary>
+        public async Task<CartaOfertaFirmaPublicoDto> GetPublico(string token)
+        {
+            var t   = ExigirToken(token);
+            var dto = await _repo.GetPublicoByToken(t);
+
+            if (dto.PrimeraAperturaEn == null)
+            {
+                try
+                {
+                    var sellada = await SellarConformidadAsync(t);
+                    dto.PrimeraAperturaEn = sellada?.ToOffset(PeruOffset).DateTime;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "CARTA OFERTA FIRMA · no se pudo estampar la fecha de conformidad en la carta");
+                }
+            }
+
+            return dto;
+        }
+
+        /// <summary>
+        /// Rellena la fecha de conformidad en el documento y la sella en la fila. Devuelve la fecha
+        /// que quedó registrada, o null si el token no resuelve.
+        ///
+        /// No se rehace nada en dos casos, y en los dos solo se sella la fecha:
+        ///   • la carta se adjuntó ya armada (cartas anteriores a que se retirara esa vía): no hay
+        ///     .docx del que salga, y su PDF no tiene ningún marcador que rellenar;
+        ///   • la carta YA está firmada: el documento firmado es el que vale y rehacer el original
+        ///     dejaría al expediente con dos versiones distintas del mismo texto.
+        /// </summary>
+        private async Task<DateTimeOffset?> SellarConformidadAsync(string token)
+        {
+            var ctx = await _repo.PrepararPorToken(token);
+
+            // Otra pestaña pudo sellarla entre la lectura y esta línea.
+            if (ctx.PrimeraApertura != null) return ctx.PrimeraApertura;
+
+            var fecha = DateTimeOffset.UtcNow;
+
+            var sinDocumentoQueRehacer =
+                ctx.YaFirmada
+                || string.IsNullOrWhiteSpace(ctx.GeneradaDriveId)
+                || string.IsNullOrWhiteSpace(ctx.GeneradaItemId);
+
+            if (sinDocumentoQueRehacer)
+                return await _repo.GuardarConformidad(token, fecha, null, null);
+
+            var carpeta = ctx.Carpeta ?? await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
+            var dia     = DateOnly.FromDateTime(fecha.ToOffset(PeruOffset).DateTime);
+
+            // 1) El .docx del file, con las correcciones que GTH le haya hecho en Word, más la fecha.
+            var (original, _) = await _sharePoint.DownloadFromOneDriveByItemIdAsync(
+                ctx.GeneradaDriveId!, ctx.GeneradaItemId!);
+            var conFecha = CartaOfertaPlantilla.RellenarConformidad(original, dia);
+
+            // 2) Se sube con el MISMO nombre estable, así que reemplaza al anterior en vez de dejar
+            //    dos Word en la carpeta. Es el documento de trabajo, no una versión nueva.
+            var generada = await _fileDigital.SubirDocumentoAsync(
+                carpeta, SubcarpetaFileDigital.CartaEnviada,
+                ctx.GeneradaNombre ?? CartaOfertaArchivos.Docx(ctx.Codigo),
+                conFecha, DocxMime, "tu carta oferta");
+
+            // 3) Y de ese Word sale el PDF que el colaborador lee y firma.
+            var pdf = await _fileDigital.DescargarComoPdfAsync(
+                generada.DriveId, generada.ItemId, "tu carta oferta");
+
+            //    Con el MISMO nombre que le puso el envío, para que reemplace a aquel en vez de
+            //    dejar dos PDF en la carpeta: es la misma carta, solo que con su fecha puesta.
+            var carta = await _fileDigital.SubirDocumentoAsync(
+                carpeta, SubcarpetaFileDigital.CartaEnviada,
+                CartaOfertaArchivos.Pdf(ctx.Codigo),
+                pdf, "application/pdf", "tu carta oferta");
+
+            return await _repo.GuardarConformidad(token, fecha, generada, carta);
+        }
+
+        /// <summary>
+        /// MIME del .docx, para que SharePoint lo abra en Word Online al hacer clic y no lo baje como
+        /// binario suelto. Mismo valor que usa la generación.
+        /// </summary>
+        private const string DocxMime =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
         public async Task<(byte[] Content, string ContentType, string FileName)> GetDocumento(string token)
         {
@@ -89,6 +187,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException(
                     "Tu carta oferta ya fue revisada y aprobada por Gestión de Talento Humano: la firma ya no se puede cambiar.", 409);
 
+            // Finalizar es el cierre explícito del trámite: desde ahí el documento firmado es el
+            // definitivo, así que la firma con la que se estampó tampoco se toca.
+            if (ctx.Finalizada)
+                throw new AbrilException(
+                    "Ya finalizaste tu carta oferta: la firma con la que quedó firmada ya no se puede cambiar.", 409);
+
             // Mismas reglas que la firma del Gerente General en Contabilidad: las dos van a las mismas
             // columnas de la ficha y las dos se estampan con el mismo helper de PDF.
             var bytes = FirmaImagenHelper.DecodePng(dto?.ImageBase64);
@@ -104,9 +208,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException(
                     "Tu carta oferta ya fue revisada y aprobada por Gestión de Talento Humano: el proceso de firma está cerrado.", 409);
 
-            // Ya firmada pero sin aprobar: se permite volver a firmar (por ejemplo si rehízo su firma
-            // porque la anterior salió mal). El documento nuevo reemplaza al anterior y la revisión de
-            // GTH vuelve a quedar pendiente.
+            // Ya finalizada: el propio colaborador cerró el trámite y el documento firmado quedó
+            // como definitivo. Volver a firmar generaría un documento nuevo después de que el
+            // solicitante ya recibió el aviso de que la oferta estaba aceptada.
+            if (ctx.Finalizada)
+                throw new AbrilException(
+                    "Ya finalizaste tu carta oferta: el proceso de firma está cerrado. Si necesitas corregir algo, "
+                    + "escríbele a Gestión de Talento Humano.", 409);
+
+            // Ya firmada pero sin finalizar: se permite volver a firmar (por ejemplo si rehízo su
+            // firma porque la anterior salió mal). El documento nuevo reemplaza al anterior y la
+            // revisión de GTH vuelve a quedar pendiente. Es justamente el margen que el paso de
+            // «Finalizar» convierte en explícito.
             var firma = await _repo.GetFirmaBytes(ctx.PersonId)
                 ?? throw new AbrilException(
                     "Primero registra tu firma en esta página y después presiona «Firmar».", 409);
@@ -172,6 +285,153 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Message   = "¡Listo! Tu carta oferta quedó firmada y enviada a Gestión de Talento Humano.",
                 FirmadaEn = firmadaEn,
             };
+        }
+
+        public async Task<CartaOfertaFinalizarResultDto> Finalizar(string token)
+        {
+            var ctx = await _repo.PrepararPorToken(ExigirToken(token));
+
+            // Finalizar es cerrar lo que ya se firmó: sin documento firmado no hay nada que cerrar y
+            // el botón no debería siquiera estar visible.
+            if (!ctx.YaFirmada)
+                throw new AbrilException(
+                    "Primero firma tu carta oferta y después presiona «Finalizar».", 409);
+
+            // Ya finalizada: se responde igual pero sin volver a avisarle al solicitante. Recargar la
+            // pantalla de confirmación no es un cierre nuevo.
+            var finalizadaEn = await _repo.MarcarFinalizada(ctx.CartaOfertaId);
+            if (finalizadaEn == null)
+                return new CartaOfertaFinalizarResultDto
+                {
+                    Message = "Tu carta oferta ya estaba finalizada. No tienes nada más que hacer.",
+                };
+
+            // Aviso al solicitante. Best-effort, igual que el de GTH al firmar: el trámite del
+            // colaborador ya quedó cerrado en la base de datos, así que no puede ver un error —ni
+            // verse empujado a finalizar de nuevo— porque un correo interno no salió.
+            try
+            {
+                await EnviarAvisoFinalizadaAlSolicitanteAsync(ctx, finalizadaEn.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "CARTA OFERTA FIRMA · no se pudo avisar al solicitante del cierre (carta {CartaOfertaId})",
+                    ctx.CartaOfertaId);
+            }
+
+            return new CartaOfertaFinalizarResultDto
+            {
+                Message      = "¡Listo! Tu carta oferta quedó firmada y enviada. No tienes nada más que hacer.",
+                FinalizadaEn = finalizadaEn,
+            };
+        }
+
+        // ── Aviso al solicitante ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Le avisa al SOLICITANTE de la vacante que el colaborador firmó y cerró su carta oferta
+        /// (tipo CARTA_OFERTA_FINALIZADA). Es el último eslabón de un proceso que él arrancó semanas
+        /// antes y del que, hasta ahora, lo último que supo fue la decisión del finalista.
+        ///
+        /// No pide nada —aprobar la carta le toca a GTH, que ya recibió lo suyo al firmarse— así que
+        /// no lleva llamada a la acción: lleva la fecha de ingreso, que es lo que él necesita para
+        /// preparar la llegada.
+        ///
+        /// El destinatario principal es SIEMPRE el solicitante; la configuración solo aporta
+        /// principales adicionales y copias. Sin nadie a quien mandarlo no se envía: es una decisión
+        /// de Configuración (o una solicitud vieja sin usuario), no una falla que reintentar.
+        /// </summary>
+        private async Task EnviarAvisoFinalizadaAlSolicitanteAsync(
+            CartaOfertaFirmaContextoDto ctx, DateTime finalizadaEn)
+        {
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.CartaOfertaFinalizada);
+            var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
+
+            if (principales.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Carta oferta finalizada del requerimiento {Codigo}: el solicitante no tiene correo cargado "
+                    + "y el correo CARTA_OFERTA_FINALIZADA no tiene destinatarios principales activos, así que el "
+                    + "aviso no sale.", ctx.Codigo);
+                return;
+            }
+
+            await _email.SendAsync(
+                to:      principales,
+                subject: $"[Reclutamiento] {ctx.NombreColaborador} aceptó la oferta — {ctx.Codigo} · {ctx.Puesto}",
+                body:    ConstruirCuerpoFinalizadaSolicitante(ctx, finalizadaEn),
+                isHtml:  true,
+                cc:      copias.Count > 0 ? copias : null,
+                // Buzón de GTH: es el área que lleva el proceso la que le está dando la noticia, igual
+                // que en la long list, el finalista y la entrevista confirmada.
+                sender:  EmailSenders.Gth);
+        }
+
+        /// <summary>
+        /// Cuerpo del aviso al solicitante, en el chrome de marca de Abril One (ver
+        /// <see cref="Layout"/>). Lo que importa es que el ingreso está confirmado y desde cuándo,
+        /// así que la fecha de ingreso va en la franja —se lee de un vistazo— y repetida en la
+        /// tarjeta con el resto del contexto. El botón lleva al seguimiento del requerimiento, que es
+        /// donde él puede mirar el proceso; no hay nada que aprobar de su lado.
+        ///
+        /// Las filas en blanco se omiten: la vacante puede no tener proyecto ni razón social, y una
+        /// etiqueta con el valor vacío se lee como un error nuestro.
+        /// </summary>
+        private string ConstruirCuerpoFinalizadaSolicitante(
+            CartaOfertaFirmaContextoDto ctx, DateTime finalizadaEn)
+        {
+            var l = Layout.Desde(_configuration);
+
+            var datos = new List<Layout.Fila>();
+            void Fila(string icono, string etiqueta, string? valor)
+            {
+                if (!string.IsNullOrWhiteSpace(valor))
+                    datos.Add(new(icono, etiqueta, Layout.Esc(valor)));
+            }
+
+            Fila("req-codigo",    "Requerimiento",    ctx.Codigo);
+            Fila("req-candidato", "Colaborador",      ctx.NombreColaborador);
+            Fila("req-puesto",    "Puesto",           ctx.Puesto);
+            Fila("req-area",      "Área",             ctx.Area);
+            Fila("req-proyecto",  "Proyecto / obra",  ctx.ProyectoObra);
+            Fila("onb-empresa",   "Empresa",          ctx.Empresa);
+            Fila("req-fecha",     "Fecha de ingreso", ctx.FechaIngreso?.ToString("dd/MM/yyyy"));
+            Fila("req-hora",      "Aceptada el",      finalizadaEn.ToString("dd/MM/yyyy HH:mm"));
+
+            var colaborador = string.IsNullOrWhiteSpace(ctx.NombreColaborador)
+                ? "El colaborador" : Layout.Esc(ctx.NombreColaborador);
+
+            var link = ConstruirLinkSeguimientoRequerimiento(ctx.RequerimientoId);
+
+            return l.Documento(
+                new Layout.Cabecera(
+                    "onb-carta", "Oferta Aceptada",
+                    $"<b>{colaborador}</b> firmó y aceptó su carta oferta para "
+                    + $"<b>{Layout.Esc(ctx.Puesto)}</b>."),
+                ctx.FechaIngreso == null
+                    ? l.Franja("req-check", Layout.Tono.Verde,
+                        "La vacante que pediste ya tiene a su colaborador confirmado.")
+                    : l.Franja("req-check", Layout.Tono.Verde,
+                        $"Ingresa el <b>{ctx.FechaIngreso.Value:dd/MM/yyyy}</b>."),
+                l.Tarjeta(datos),
+                l.Boton("Ver el requerimiento", link),
+                l.EnlaceDirecto(link));
+        }
+
+        /// <summary>
+        /// Enlace al SEGUIMIENTO del requerimiento, que es la pantalla del solicitante: la bandeja de
+        /// Reclutamiento a la que lleva el aviso de GTH es de GTH, y quien pidió la vacante no
+        /// necesariamente entra ahí. Es el mismo enlace que llevan los demás correos que le hablan a
+        /// él (finalista, entrevista confirmada, candidato retomado).
+        ///
+        /// Sin sesión, el <c>authGuard</c> del frontend manda al login con esta URL como
+        /// <c>returnUrl</c> y lo devuelve acá al entrar.
+        /// </summary>
+        private string ConstruirLinkSeguimientoRequerimiento(int requerimientoId)
+        {
+            var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            return $"{frontendUrl}/gestion-gth/solicitud-personal/seguimiento/{requerimientoId}";
         }
 
         // ── Aviso a GTH ────────────────────────────────────────────────────────

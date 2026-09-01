@@ -56,6 +56,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ca.FirmadaPostulanteDateTime,
                     ca.FirmadaSubidaDateTime,
                     ca.AprobadaDateTime,
+                    ca.FinalizadaDateTime,
+                    ca.PrimeraAperturaDateTime,
                     CandidatoNombre = c.Nombre,
                     PersonNombre    = pe == null ? null : pe.FullName,
                     // La firma vive en la ficha de la base maestra: son las mismas columnas que usa la
@@ -99,7 +101,90 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 FirmadaEn = (fila.FirmadaPostulanteDateTime ?? fila.FirmadaSubidaDateTime)
                     ?.ToOffset(PeruOffset).DateTime,
                 Aprobada  = fila.AprobadaDateTime != null,
+
+                Finalizada   = fila.FinalizadaDateTime != null,
+                FinalizadaEn = fila.FinalizadaDateTime?.ToOffset(PeruOffset).DateTime,
+
+                PrimeraAperturaEn = fila.PrimeraAperturaDateTime?.ToOffset(PeruOffset).DateTime,
             };
+        }
+
+        /// <summary>
+        /// Sella la PRIMERA apertura del enlace y, si el servicio rehizo el documento con esa fecha,
+        /// guarda también dónde quedaron el .docx y el PDF nuevos. Devuelve la fecha que quedó
+        /// registrada (la de antes si otra pestaña llegó primero).
+        ///
+        /// Va todo en una sola escritura a propósito: la fecha de conformidad es la que imprime el
+        /// documento, así que sellarla sin haber podido rehacerlo dejaría la carta diciendo una fecha
+        /// que no está en ninguna parte —y sin forma de reintentarlo, porque el sello es de una sola
+        /// vez—. Si la conversión falla, el servicio no llama acá y la próxima apertura lo reintenta.
+        ///
+        /// La guarda del sello (<c>PrimeraAperturaDateTime != null</c>) se repite acá y no se confía
+        /// solo en la del servicio: dos pestañas abiertas a la vez llegan las dos.
+        /// </summary>
+        public async Task<DateTimeOffset?> GuardarConformidad(
+            string token,
+            DateTimeOffset fecha,
+            FileDigitalDocumentoDto? generada,
+            FileDigitalDocumentoDto? carta)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var fila = await ctx.GthCartaOferta
+                .FirstOrDefaultAsync(c => c.State && c.Token == token);
+            if (fila == null) return null;
+
+            if (fila.PrimeraAperturaDateTime != null) return fila.PrimeraAperturaDateTime;
+
+            fila.PrimeraAperturaDateTime = fecha;
+
+            // El .docx se sube con el mismo nombre estable, así que normalmente vuelve con el mismo
+            // itemId; se reasigna igual por si SharePoint tuvo que renombrarlo.
+            if (generada != null)
+            {
+                fila.GeneradaNombre  = generada.Nombre;
+                fila.GeneradaUrl     = generada.Url;
+                fila.GeneradaItemId  = generada.ItemId;
+                fila.GeneradaDriveId = generada.DriveId;
+            }
+
+            // El PDF sí es un archivo nuevo: es el que el colaborador lee y el que se firma.
+            if (carta != null)
+            {
+                fila.CartaNombre  = carta.Nombre;
+                fila.CartaUrl     = carta.Url;
+                fila.CartaItemId  = carta.ItemId;
+                fila.CartaDriveId = carta.DriveId;
+            }
+
+            fila.UpdatedDateTime = DateTimeOffset.UtcNow;
+            // Sin updated_user_id: del otro lado no hay un usuario del sistema.
+
+            await ctx.SaveChangesAsync();
+            return fecha;
+        }
+
+        /// <summary>
+        /// Registra el cierre del trámite por parte del colaborador. Devuelve null si ya estaba
+        /// finalizada, que es como el servicio sabe que no tiene que volver a avisarle al
+        /// solicitante: recargar la página de confirmación no es un cierre nuevo.
+        /// </summary>
+        public async Task<DateTime?> MarcarFinalizada(int cartaOfertaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var carta = await ctx.GthCartaOferta
+                .FirstOrDefaultAsync(c => c.GthCartaOfertaId == cartaOfertaId && c.State)
+                ?? throw new AbrilException(TokenInvalido, 404);
+
+            if (carta.FinalizadaDateTime != null) return null;
+
+            var now = DateTimeOffset.UtcNow;
+            carta.FinalizadaDateTime = now;
+            carta.UpdatedDateTime    = now;
+
+            await ctx.SaveChangesAsync();
+            return now.ToOffset(PeruOffset).DateTime;
         }
 
         public async Task<CartaOfertaFirmaContextoDto> PrepararPorToken(string token)
@@ -123,11 +208,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from pe in peJoin.DefaultIfEmpty()
                 join w in ctx.Worker on s.SolicitanteWorkerId equals (int?)w.Id into wJoin
                 from w in wJoin.DefaultIfEmpty()
+                    // Solicitante de la vacante: es el destinatario del aviso de «carta finalizada».
+                    // Left join por lo mismo que en el resto del módulo — una solicitud vieja puede
+                    // haber quedado sin usuario solicitante.
+                join us in ctx.User on s.SolicitanteUserId equals (int?)us.UserId into usJoin
+                from us in usJoin.DefaultIfEmpty()
+                join pso in ctx.Person on s.SolicitanteUserId equals pso.UserId into psoJoin
+                from pso in psoJoin.DefaultIfEmpty()
                 select new
                 {
                     Ca = ca,
                     RequerimientoId = r.GthRequerimientoId,
                     r.Codigo,
+                    SolicitanteEmail  = us == null ? null : us.Email,
+                    SolicitanteNombre = pso == null ? null : pso.FullName,
                     CandidatoNombre = c.Nombre,
                     PersonNombre    = pe == null ? null : pe.FullName,
                     Puesto          = p.Nombre,
@@ -182,10 +276,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 FechaIngreso = carta.FechaIngreso,
                 Correo       = carta.Correo,
 
+                SolicitanteEmail  = fila.SolicitanteEmail,
+                SolicitanteNombre = fila.SolicitanteNombre,
+
                 CartaNombre  = carta.CartaNombre,
                 CartaUrl     = carta.CartaUrl,
                 CartaDriveId = carta.CartaDriveId,
                 CartaItemId  = carta.CartaItemId,
+
+                GeneradaDriveId = carta.GeneradaDriveId,
+                GeneradaItemId  = carta.GeneradaItemId,
+                GeneradaNombre  = carta.GeneradaNombre,
+                PrimeraApertura = carta.PrimeraAperturaDateTime,
                 FirmadaNombre  = carta.FirmadaNombre,
                 FirmadaUrl     = carta.FirmadaUrl,
                 FirmadaDriveId = carta.FirmadaDriveId,
@@ -199,8 +301,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         ItemId  = carta.FileDigitalItemId!,
                         Ruta    = carta.FileDigitalRuta,
                     },
-                YaFirmada = !string.IsNullOrWhiteSpace(carta.FirmadaUrl),
-                Aprobada  = carta.AprobadaDateTime != null,
+                YaFirmada  = !string.IsNullOrWhiteSpace(carta.FirmadaUrl),
+                Aprobada   = carta.AprobadaDateTime != null,
+                Finalizada = carta.FinalizadaDateTime != null,
             };
         }
 

@@ -96,6 +96,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // configuran acá desde que la carta dejó de ser el primer paso del onboarding.
                     CorreoTipoGth.CartaOferta,
                     CorreoTipoGth.CartaOfertaFirmada,
+                    // Y el cierre del círculo para quien pidió la vacante: el colaborador finalizó
+                    // su carta oferta, o sea que el ingreso ya está confirmado. Lo dispara el mismo
+                    // botón «Finalizar» de la página pública que avisa a GTH, pero le habla al
+                    // solicitante y no pide nada.
+                    CorreoTipoGth.CartaOfertaFinalizada,
                 },
             };
 

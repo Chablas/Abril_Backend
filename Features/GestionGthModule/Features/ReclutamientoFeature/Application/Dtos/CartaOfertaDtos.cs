@@ -58,6 +58,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Hasta cuándo puede aceptar la propuesta. Null si la carta se adjuntó ya armada.</summary>
         public DateOnly? FechaLimiteAceptacion { get; set; }
 
+        /// <summary>
+        /// Las condiciones de contrato que imprime la carta, una por viñeta y en el orden en que se
+        /// escribieron. Vacía mientras no se haya generado ningún borrador: el formulario arranca
+        /// entonces con una línea en blanco.
+        /// </summary>
+        public List<string> Condiciones { get; set; } = new();
+
         // ── Borrador generado desde la plantilla (.docx) ──────────────────────
 
         /// <summary>Nombre del .docx generado. Null = la carta no se generó acá (se adjuntó).</summary>
@@ -98,6 +105,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public DateTime? FirmadaPostulanteEn { get; set; }
 
         /// <summary>
+        /// Momento en que el colaborador pulsó «Finalizar» en su enlace, en hora de Perú. Con valor,
+        /// el documento firmado es el DEFINITIVO: GTH ya no lo puede reemplazar, solo aprobarlo.
+        /// Null en las cartas que GTH subió firmadas a mano y en las anteriores a que ese paso
+        /// existiera.
+        /// </summary>
+        public DateTime? FinalizadaEn { get; set; }
+
+        /// <summary>
         /// Momento en que GTH aprobó la carta firmada, en hora de Perú. Es lo que cierra el
         /// requerimiento: null = todavía pendiente de revisión.
         /// </summary>
@@ -108,10 +123,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
-    /// Lo que GTH pone a mano para generar la carta oferta desde la plantilla: las tres condiciones
-    /// que el documento no puede sacar solo de la base de datos. El resto de los placeholders
-    /// —nombre, puesto, jefatura, razón social— se resuelven del requerimiento y de la ficha del
-    /// seleccionado.
+    /// Lo que GTH pone a mano para generar la carta oferta desde la plantilla: lo que el documento
+    /// no puede sacar solo de la base de datos. El resto de los placeholders —nombre, puesto,
+    /// jefatura, razón social, y la ubicación de trabajo que sale del proyecto del requerimiento— se
+    /// resuelven solos.
     /// </summary>
     public class CartaOfertaGenerarDto
     {
@@ -129,6 +144,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Hasta cuándo el candidato puede aceptar. El frontend propone mañana por defecto.</summary>
         public DateOnly? FechaLimiteAceptacion { get; set; }
+
+        /// <summary>
+        /// Las condiciones de contrato: el <c>{{CONDICIONES}}</c> de la carta, una viñeta por
+        /// elemento y en este mismo orden. Las escribe GTH porque cambian con el cargo —la jornada
+        /// no es la misma para staff de obra que para oficina, ni la condición laboral para un
+        /// puesto de confianza que para uno sin categoría— y no hay de dónde derivarlas.
+        ///
+        /// Al menos una tiene que venir con texto: el bloque lo anuncia la plantilla («Las
+        /// condiciones de contrato se detallan a continuación:») y sin viñetas debajo la carta
+        /// queda con un encabezado colgando.
+        /// </summary>
+        public List<string> Condiciones { get; set; } = new();
     }
 
     /// <summary>Datos del envío de la carta oferta (el JSON del multipart; la carta va como archivo).</summary>
@@ -266,6 +293,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// requerimiento que lo trajo.
         /// </summary>
         public string? RazonSocial { get; set; }
+
+        // ── Ubicación de trabajo: el proyecto/obra del requerimiento ──────────
+        // Los cinco salen de la misma fila de <c>project</c> —la del proyecto al que se pidió la
+        // vacante— y arman una sola frase de la carta: «Su ubicación de trabajo será en {NOMBRE}
+        // ubicado en {UBICACIÓN}, distrito de {DISTRITO}, provincia de {PROVINCIA} y departamento de
+        // {DEPARTAMENTO}». Se imprimen tal como estén: hoy hay proyectos con la dirección todavía
+        // sin cargar —OFICINA CENTRAL entre ellos— y bloquear la generación por eso dejaría a GTH
+        // sin poder mandar ninguna carta hasta que alguien complete la ficha del proyecto. El hueco
+        // se ve al revisar el .docx antes de enviarlo, que es el paso que existe justo para eso.
+
+        /// <summary><c>{{PROYECTO_NOMBRE}}</c>: <c>project.project_description</c>.</summary>
+        public string? ProyectoNombre { get; set; }
+
+        /// <summary><c>{{PROYECTO_UBICACIÓN}}</c>: la dirección, <c>project.project_location</c>.</summary>
+        public string? ProyectoUbicacion { get; set; }
+
+        /// <summary><c>{{PROYECTO_DISTRITO}}</c>: <c>project.project_district</c>.</summary>
+        public string? ProyectoDistrito { get; set; }
+
+        /// <summary><c>{{PROYECTO_PROVINCIA}}</c>: <c>project.project_province</c>.</summary>
+        public string? ProyectoProvincia { get; set; }
+
+        /// <summary><c>{{PROYECTO_DEPARTAMENTO}}</c>: <c>project.project_department</c>.</summary>
+        public string? ProyectoDepartamento { get; set; }
 
         // ── Destino en SharePoint ─────────────────────────────────────────────
 

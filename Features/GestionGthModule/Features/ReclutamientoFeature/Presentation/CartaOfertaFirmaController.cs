@@ -129,5 +129,29 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>
+        /// Cierra el trámite del lado del colaborador, después de firmar: deja la carta marcada como
+        /// finalizada y le avisa por correo al solicitante de la vacante que el ingreso quedó
+        /// confirmado. Es idempotente — volver a llamarlo no manda el correo de nuevo.
+        /// </summary>
+        [HttpPost("publico/finalizar")]
+        [AllowAnonymous]
+        public async Task<IActionResult> Finalizar([FromQuery] string token)
+        {
+            try
+            {
+                return Ok(await _service.Finalizar(token));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en CartaOfertaFirmaController.Finalizar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

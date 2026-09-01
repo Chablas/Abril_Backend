@@ -34,12 +34,20 @@ public static class WordTemplateHelper
     /// apuntando a donde lo dejó la plantilla. Solo se tocan las relaciones cuyo placeholder tenga
     /// URL no vacía.
     /// </param>
+    /// <param name="compactMultiParagraphPlaceholders">
+    /// Placeholders de <paramref name="multiParagraphReplacements"/> cuyos párrafos van
+    /// <b>pegados</b>, sin la línea en blanco que se intercala por defecto. La separación
+    /// con línea en blanco es lo que quieren las cláusulas de un contrato, pero deja una
+    /// viñeta vacía de por medio en una lista corta como las condiciones de la carta
+    /// oferta. Solo afecta a los placeholders nombrados acá.
+    /// </param>
     public static byte[] FillTemplate(
         Stream templateStream,
         Dictionary<string, string> replacements,
         Dictionary<string, List<string>>? multiParagraphReplacements = null,
         Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements = null,
-        Dictionary<string, string>? hyperlinkTargets = null)
+        Dictionary<string, string>? hyperlinkTargets = null,
+        ISet<string>? compactMultiParagraphPlaceholders = null)
     {
         var ms = new MemoryStream();
         templateStream.CopyTo(ms);
@@ -61,7 +69,8 @@ public static class WordTemplateHelper
                 .ToList();
 
             foreach (var name in entryNames)
-                ProcessZipEntry(zip, name, replacements, multiParagraphReplacements, boldAwareMultiParagraphReplacements);
+                ProcessZipEntry(zip, name, replacements, multiParagraphReplacements,
+                                boldAwareMultiParagraphReplacements, compactMultiParagraphPlaceholders);
         }
 
         ms.Position = 0;
@@ -75,7 +84,8 @@ public static class WordTemplateHelper
         string entryName,
         Dictionary<string, string> replacements,
         Dictionary<string, List<string>>? multiParagraphReplacements,
-        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements)
+        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements,
+        ISet<string>? compactMultiParagraphPlaceholders)
     {
         var entry = zip.GetEntry(entryName);
         if (entry is null) return;
@@ -102,7 +112,9 @@ public static class WordTemplateHelper
         if (multiParagraphReplacements is { Count: > 0 })
         {
             foreach (var (placeholder, values) in multiParagraphReplacements)
-                xml = ReplaceWithMultipleParagraphs(xml, placeholder, values);
+                xml = ReplaceWithMultipleParagraphs(
+                    xml, placeholder, values,
+                    conSeparador: compactMultiParagraphPlaceholders?.Contains(placeholder) != true);
         }
 
         // Reemplazos multi-párrafo con control explícito de negrita por ítem
@@ -198,8 +210,11 @@ public static class WordTemplateHelper
     /// sustituye por tantos párrafos como elementos tenga <paramref name="values"/>.
     /// Si <paramref name="values"/> está vacío, el párrafo se elimina.
     /// Los saltos de línea (\n) dentro de cada valor se convierten en &lt;w:br/&gt;.
+    /// Con <paramref name="conSeparador"/> en false los párrafos van pegados, sin la línea
+    /// en blanco intermedia (ver <c>compactMultiParagraphPlaceholders</c> en FillTemplate).
     /// </summary>
-    private static string ReplaceWithMultipleParagraphs(string xml, string placeholder, List<string> values)
+    private static string ReplaceWithMultipleParagraphs(
+        string xml, string placeholder, List<string> values, bool conSeparador = true)
     {
         return Regex.Replace(
             xml,
@@ -240,7 +255,7 @@ public static class WordTemplateHelper
                 {
                     sb.Append(BuildParagraphWithText(pPr, rPr, values[vi]));
                     // Línea en blanco entre cláusulas (sin numeración)
-                    if (vi < values.Count - 1)
+                    if (conSeparador && vi < values.Count - 1)
                         sb.Append($"<w:p>{separatorPPr}</w:p>");
                 }
 

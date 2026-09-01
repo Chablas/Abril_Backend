@@ -39,6 +39,11 @@ public class RatioDriverUpsertItem
     public decimal Cantidad { get; set; }
     public decimal Ratio { get; set; }
     public int DiasRegistrados { get; set; }
+    /// <summary>Valor de incluido_manual SOLO para cuando el par (tipo,proyecto) se inserta por
+    /// primera vez — true únicamente si el proyecto ya está Finalizado. Si la fila ya existía,
+    /// el UPDATE no toca esta columna: la decisión manual previa del responsable se respeta
+    /// siempre, incluso si el proyecto pasa de Activo a Finalizado más adelante.</summary>
+    public bool IncluidoManualDefault { get; set; }
 }
 
 public class RatioDriverOutlierRow

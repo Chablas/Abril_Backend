@@ -40,7 +40,9 @@ public class RatioDriverRepository : IRatioDriverRepository
     /// proyecto, para no arriesgar doble conteo entre semanas de planilla y días de Tareo que se
     /// solapen):
     ///   1. Excel de planilla/Tareo semanal (HhCargaService) si el proyecto tiene alguna carga
-    ///      activa — es la fuente más completa cuando alguien se tomó el trabajo de subirla.
+    ///      activa — trae TODAS las partidas de control (no solo SSOMA), excluyendo únicamente
+    ///      personal "EMPLEADO" (staff, no obrero); es la fuente más completa cuando alguien se
+    ///      tomó el trabajo de subirla.
     ///   2. Si no, Tareo de Control de Acceso (personas del día x horas de jornada de ese día,
     ///      sumado en todo el rango registrado) — misma fórmula que el dashboard de Horas Hombre.
     ///      OJO: si el Tareo no arranca junto con el proyecto (se empezó a registrar después de
@@ -139,9 +141,9 @@ public class RatioDriverRepository : IRatioDriverRepository
         using var conn = Conn();
         const string sql = """
             INSERT INTO ss_ratio_proyecto_driver
-              (tipo_driver, project_id, area_techada, cantidad, ratio, dias_registrados, es_outlier)
+              (tipo_driver, project_id, area_techada, cantidad, ratio, dias_registrados, es_outlier, incluido_manual)
             VALUES
-              (@TipoDriver, @ProjectId, @AreaTechada, @Cantidad, @Ratio, @DiasRegistrados, false)
+              (@TipoDriver, @ProjectId, @AreaTechada, @Cantidad, @Ratio, @DiasRegistrados, false, @IncluidoManualDefault)
             ON CONFLICT (tipo_driver, project_id)
             DO UPDATE SET
               area_techada     = EXCLUDED.area_techada,
@@ -151,8 +153,8 @@ public class RatioDriverRepository : IRatioDriverRepository
               es_outlier       = false,
               calculado_en     = now()
             """;
-        // incluido_manual no se toca en el UPDATE: si el usuario ya lo marco a mano,
-        // ese criterio se respeta aunque se recalculen los ratios.
+        // incluido_manual solo se aplica en el INSERT (fila nueva): en el UPDATE no se toca,
+        // para que la decision manual previa del responsable se respete siempre.
         await conn.ExecuteAsync(sql, items);
     }
 

@@ -93,11 +93,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("entregables/{itemId:int}/versiones")]
-        public async Task<IActionResult> GetVersionesEntregable(int empresaId, int itemId)
+        public async Task<IActionResult> GetVersionesEntregable(int empresaId, int itemId, [FromQuery] int proyectoId)
         {
             try
             {
-                var versiones = await _repo.GetVersionesDocumentoEmpresaAsync(empresaId, itemId);
+                var versiones = await _repo.GetVersionesDocumentoEmpresaAsync(empresaId, proyectoId, itemId);
                 return Ok(versiones);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -30,6 +30,10 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFold
 using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.PasosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.PasosFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.PasosFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.PasosFeature.Application.Services;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Application.Interfaces;
@@ -87,6 +91,10 @@ namespace Abril_Backend.Features.Costs
             // Especialidades
             services.AddScoped<IWorkSpecialtyRepository, WorkSpecialtyRepository>();
             services.AddScoped<IWorkSpecialtyService, WorkSpecialtyService>();
+
+            // Pasos (opciones configurables por paso del flujo de adjudicaciones)
+            services.AddScoped<ICostsPasoRepository, CostsPasoRepository>();
+            services.AddScoped<ICostsPasoService, CostsPasoService>();
 
             return services;
         }

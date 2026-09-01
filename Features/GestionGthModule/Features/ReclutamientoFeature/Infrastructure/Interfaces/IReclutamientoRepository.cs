@@ -195,15 +195,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
 
         /// <summary>
-        /// Cierra el proceso de reclutamiento desde EMO_APTO / EMO_APTO_RESTRICCIONES: pasa el
-        /// requerimiento a CERRADO, que es lo que hace aparecer al seleccionado en Onboarding como
-        /// candidato por ingresar. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el requerimiento
-        /// no existe y 409 si no está en una de esas dos fases.
-        /// </summary>
-        Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(int requerimientoId, int? userId);
-
-        /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO: crea o
         /// actualiza su única fila vigente en <c>gth_entrevista</c> y resuelve el correo del
         /// postulante al que se envía la invitación. Lanza

@@ -116,6 +116,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Null mientras el proceso no se haya cerrado con un seleccionado.
         /// </summary>
         public SeleccionadoDto? Seleccionado { get; set; }
+
+        /// <summary>
+        /// Carta oferta del seleccionado: el último paso del proceso, que es el que lo cierra. Null
+        /// mientras no haya seleccionado; con seleccionado y sin carta enviada trae solo los datos
+        /// de destino (correo, documento y si su ficha maestra existe), que es lo que la sección
+        /// necesita para poder enviarla.
+        /// </summary>
+        public CartaOfertaRequerimientoDto? CartaOferta { get; set; }
     }
 
     /// <summary>Candidato aprobado por el solicitante, tal como lo ve GTH en la fase "Long list aprobada".</summary>

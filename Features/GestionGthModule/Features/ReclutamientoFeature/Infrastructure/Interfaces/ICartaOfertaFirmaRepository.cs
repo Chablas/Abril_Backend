@@ -1,11 +1,12 @@
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
 {
     /// <summary>
     /// Acceso a datos de la página PÚBLICA donde el postulante ve y firma su carta oferta. Todo entra
     /// por el token del enlace: no hay usuario autenticado del que colgar los permisos, así que el
-    /// token es lo único que decide a qué onboarding se está entrando.
+    /// token es lo único que decide a qué carta oferta se está entrando.
     /// </summary>
     public interface ICartaOfertaFirmaRepository
     {
@@ -18,10 +19,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
 
         /// <summary>
         /// Resuelve el token para las acciones (mostrar el PDF, guardar la firma, firmar): a qué
-        /// onboarding apunta, de qué ficha es la firma y dónde está la carta. Trae además los datos
-        /// del colaborador y de su vacante, que son los del aviso a GTH al firmar: son joins de una
-        /// fila sobre llaves que la consulta ya recorre, así que firmar no paga un roundtrip extra
-        /// por ellos. No escribe nada.
+        /// carta oferta apunta, de qué ficha es la firma y dónde está el documento. Trae además los
+        /// datos del colaborador y de su vacante, que son los del aviso a GTH al firmar: son joins de
+        /// una fila sobre llaves que la consulta ya recorre, así que firmar no paga un roundtrip
+        /// extra por ellos. No escribe nada.
         /// </summary>
         Task<CartaOfertaFirmaContextoDto> PrepararPorToken(string token);
 
@@ -38,13 +39,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         Task<(byte[] Bytes, string Mime)?> GetFirmaBytes(int personId);
 
         /// <summary>
-        /// Deja la carta ya firmada por el postulante en la fila del onboarding: llena las columnas
-        /// <c>carta_firmada_*</c> —las mismas que llenaba GTH cuando subía el documento a mano, así el
-        /// checklist y el avance de fase no cambian— y marca que la firmó él desde el enlace. La
-        /// aprobación previa se limpia: lo que GTH hubiera aprobado ya no es lo que está adjunto.
-        /// Devuelve el momento de la firma en hora de Perú.
+        /// Deja la carta ya firmada por el postulante en su fila —las mismas columnas
+        /// <c>firmada_*</c> que llena GTH cuando sube el documento a mano— y marca que la firmó él
+        /// desde el enlace. Mueve el requerimiento a CARTA_OFERTA_FIRMADA, que es lo que le pone la
+        /// revisión en la bandeja a GTH. Devuelve el momento de la firma en hora de Perú.
         /// </summary>
-        Task<DateTime> GuardarCartaFirmadaPorPostulante(
-            int onboardingId, CartaOfertaPersistDto carta, FileDigitalCarpetaDto? carpeta);
+        Task<DateTime> GuardarFirmadaPorPostulante(
+            int cartaOfertaId, FileDigitalDocumentoDto carta, FileDigitalCarpetaDto? carpeta);
     }
 }

@@ -1,10 +1,10 @@
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Presentation
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Presentation
 {
     /// <summary>
     /// Página PÚBLICA de la carta oferta: el postulante entra con el token que le llegó por correo, lee
@@ -14,7 +14,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
     ///
     /// Reemplaza al flujo anterior, en el que la carta se enviaba adjunta y GTH subía a mano el
     /// documento que el postulante devolvía firmado por correo. Esa vía sigue existiendo en la pantalla
-    /// de GTH como respaldo (<see cref="OnboardingController"/>).
+    /// de GTH como respaldo (<see cref="CartaOfertaController"/>).
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-gth/carta-oferta-firma")]
@@ -108,7 +108,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
 
         /// <summary>
         /// Firma la carta: estampa la firma registrada en la última página, la guarda en el file digital
-        /// del colaborador y la deja como carta firmada del onboarding, pendiente de revisión de GTH.
+        /// del colaborador y deja el requerimiento en CARTA_OFERTA_FIRMADA, pendiente de que GTH la
+        /// apruebe — que es lo que cierra el proceso de reclutamiento.
         /// </summary>
         [HttpPost("publico/firmar")]
         [AllowAnonymous]

@@ -429,10 +429,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             int requerimientoId, int? userId) =>
             _repo.VolverALongListDesdeEmoNoApto(requerimientoId, userId);
 
-        public Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(
-            int requerimientoId, int? userId) =>
-            _repo.CerrarProcesoDesdeEmoApto(requerimientoId, userId);
-
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
         {

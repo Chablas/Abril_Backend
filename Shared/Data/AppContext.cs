@@ -119,6 +119,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
+        public DbSet<ProjectSubContractorStepOption> ProjectSubContractorStepOption { get; set; }
         public DbSet<ProjectSubContractorContract> ProjectSubContractorContract { get; set; }
         public DbSet<ProjectSubContractorSummarySheet> ProjectSubContractorSummarySheet { get; set; }
         public DbSet<ProjectSubContractorBudget> ProjectSubContractorBudget { get; set; }
@@ -556,11 +557,17 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg> GthAprobacionGg => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle> GthAprobacionGgDetalle => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>();
 
+        // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────────
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta> GthCartaOferta => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>();
+
+        // Biblioteca del file de colaboradores: la abre la carta oferta y la sigue usando Onboarding,
+        // así que el modelo vive en el Shared/ del módulo.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder>();
+
         // ── Gestión GTH · Onboarding (la fase que sigue a Reclutamiento) ────────
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase> GthOnboardingFase => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
-        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
@@ -1793,11 +1800,6 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasIndex(o => o.GthCandidatoId).IsUnique().HasFilter("state = true");
                 e.HasIndex(o => o.PersonId);
 
-                // El token del enlace público es la única credencial de la página donde el postulante
-                // firma su carta oferta: no puede repetirse entre onboardings vigentes.
-                e.HasIndex(o => o.CartaOfertaToken).IsUnique()
-                 .HasFilter("state = true AND carta_oferta_token IS NOT NULL");
-
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
                  .WithMany().HasForeignKey(o => o.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Person>()
@@ -1806,6 +1808,24 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(o => o.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                  .WithMany().HasForeignKey(o => o.GthOnboardingEstadoId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>(e =>
+            {
+                // Una sola carta oferta "viva" (state = true) por candidato seleccionado.
+                e.HasIndex(c => c.GthCandidatoId).IsUnique().HasFilter("state = true");
+                e.HasIndex(c => c.PersonId);
+
+                // El token del enlace público es la única credencial de la página donde el candidato
+                // firma su carta oferta: no puede repetirse entre cartas vigentes.
+                e.HasIndex(c => c.Token).IsUnique()
+                 .HasFilter("state = true AND token IS NOT NULL");
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
+                 .WithMany().HasForeignKey(c => c.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Person>()
+                 .WithMany().HasForeignKey(c => c.PersonId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Notificaciones in-app (campanita del encabezado) ────────────────

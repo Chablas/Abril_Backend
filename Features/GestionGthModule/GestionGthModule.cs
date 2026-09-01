@@ -12,12 +12,14 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infr
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Services;
 
 namespace Abril_Backend.Features.GestionGthModule
 {
     /// <summary>
-    /// Módulo Gestión GTH (Talento Humano): Reclutamiento, Onboarding y Base maestra.
-    /// Por ahora solo registra la feature de Reclutamiento (formulario de solicitud de personal).
+    /// Módulo Gestión GTH (Talento Humano): Solicitud de Personal, Aprobaciones, Reclutamiento
+    /// (que termina con la carta oferta firmada) y Onboarding.
     /// </summary>
     public static class GestionGthModule
     {
@@ -66,18 +68,24 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IReclutadoresRepository, ReclutadoresRepository>();
             services.AddScoped<IReclutadoresService, ReclutadoresService>();
 
-            // Onboarding: la fase que sigue a Reclutamiento (carta oferta → base maestra).
-            services.AddScoped<IOnboardingRepository, OnboardingRepository>();
-            services.AddScoped<IOnboardingService, OnboardingService>();
+            // Carta oferta: el último paso de Reclutamiento, el que cierra el proceso.
+            services.AddScoped<ICartaOfertaRepository, CartaOfertaRepository>();
+            services.AddScoped<ICartaOfertaService, CartaOfertaService>();
 
-            // File digital del colaborador en SharePoint. Lo comparten la pantalla de GTH y la página
-            // pública de firma: las dos tienen que dejar los documentos en la misma carpeta.
-            services.AddScoped<IFileDigitalColaboradorService, FileDigitalColaboradorService>();
-
-            // Página pública donde el postulante ve su carta oferta, registra su firma y la firma
+            // Página pública donde el candidato ve su carta oferta, registra su firma y la firma
             // (acceso por token, sin login).
             services.AddScoped<ICartaOfertaFirmaRepository, CartaOfertaFirmaRepository>();
             services.AddScoped<ICartaOfertaFirmaService, CartaOfertaFirmaService>();
+
+            // Onboarding: la fase que sigue al cierre del requerimiento.
+            services.AddScoped<IOnboardingRepository, OnboardingRepository>();
+            services.AddScoped<IOnboardingService, OnboardingService>();
+
+            // File digital del colaborador en SharePoint. Va en el Shared/ del módulo: lo abre la
+            // carta oferta (bandeja de GTH y página pública de firma) y lo sigue llenando Onboarding,
+            // y los tres tienen que dejar los documentos en la misma carpeta.
+            services.AddScoped<IFileDigitalFolderRepository, FileDigitalFolderRepository>();
+            services.AddScoped<IFileDigitalColaboradorService, FileDigitalColaboradorService>();
             return services;
         }
     }

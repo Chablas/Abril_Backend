@@ -24,8 +24,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///   • solicitud-personal → los correos del flujo del solicitante.
         ///   • aprobaciones       → los que dispara una decisión de esa pantalla (los avisos a GTH
         ///                            y a TI).
-        ///   • reclutamiento      → los que salen desde la bandeja de GTH.
-        ///   • onboarding         → los de la fase que sigue al cierre del requerimiento.
+        ///   • reclutamiento      → los que salen desde la bandeja de GTH, de punta a punta del
+        ///                            proceso: desde la long list hasta la carta oferta que lo cierra.
+        ///
+        /// Onboarding ya no tiene pantalla propia: sus dos únicos correos eran los de la carta
+        /// oferta, que pasó a ser el último paso de Reclutamiento. Cuando el onboarding tenga
+        /// correos suyos, vuelve como una clave más de este diccionario.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, string[]> CorreosPorPantalla =
             new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -86,14 +90,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // solicitante se configura acá.
                     CorreoTipoGth.CandidatoRetomado,
                     CorreoTipoGth.Agradecimiento,
-                },
-                // Onboarding, la fase que sigue al cierre del requerimiento. Es su propia pantalla
-                // y no una sección más de Reclutamiento porque son bandejas distintas y las
-                // administra quien trabaja en cada una. Sus dos correos son la ida y la vuelta de
-                // la carta oferta: el primero se la manda al colaborador (al abrir el onboarding o
-                // al reenviarle el enlace) y el segundo le avisa a GTH cuando él la firma.
-                ["onboarding"] = new[]
-                {
+                    // La ida y la vuelta de la carta oferta, que es el último paso del proceso: el
+                    // primero se la manda al candidato (al enviarla o al reenviarle el enlace) y el
+                    // segundo le avisa a GTH cuando él la firma, para que la apruebe y cierre. Se
+                    // configuran acá desde que la carta dejó de ser el primer paso del onboarding.
                     CorreoTipoGth.CartaOferta,
                     CorreoTipoGth.CartaOfertaFirmada,
                 },

@@ -5,6 +5,7 @@ using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.CostsModule.Shared.Constants;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Models;
@@ -432,6 +433,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cStatusId   = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
             string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
 
+            // ProjectSubContractorStepOption (opciones por paso — Configuración → Pasos)
+            string tStepOption        = ctx.Table<ProjectSubContractorStepOption>();
+            string cStepOptionKey     = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.OptionKey));
+            string cStepOptionEnabled = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Enabled));
+            string cStepOptionActive  = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Active));
+            string cStepOptionState   = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.State));
+
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
             string cContractorId        = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
@@ -528,15 +536,25 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                        {cContractorEmailEmail} AS email
                   FROM {tContractorEmail}
                  WHERE {cContractorEmailActive} = TRUE;
+
+                SELECT COALESCE((
+                         SELECT {cStepOptionEnabled}
+                           FROM {tStepOption}
+                          WHERE {cStepOptionKey} = @paso4OptionKey
+                            AND {cStepOptionState} = TRUE
+                            AND {cStepOptionActive} = TRUE
+                          LIMIT 1), FALSE) AS allow_regenerate;
             ";
 
-            // ----- Ejecutar y leer los 12 result sets -----
+            // ----- Ejecutar y leer los 14 result sets -----
 
             var connection = ctx.Database.GetDbConnection();
             if (connection.State != ConnectionState.Open)
                 await connection.OpenAsync();
 
-            using var multi = await connection.QueryMultipleAsync(sql);
+            using var multi = await connection.QueryMultipleAsync(
+                sql,
+                new { paso4OptionKey = CostsStepOptionKeys.Paso4PermitirRegenerarPaquete });
 
             var projects           = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
             var contractTypes      = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
@@ -551,6 +569,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var statuses           = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
             var emails             = (await multi.ReadAsync<(int ContractorId, string Email)>()).ToList();
+            var allowRegenerate    = await multi.ReadFirstAsync<bool>();
 
             // ----- Asociar emails a cada contratista -----
 
@@ -583,6 +602,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkSpecialties    = workSpecialties,
                 ProjectSubContractorStatuses = statuses,
                 Contributors       = contractors,
+                AllowRegenerateContractPackage = allowRegenerate,
             };
         }
 
@@ -1265,6 +1285,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cStatusId = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
             string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
 
+            // Opciones por paso (Configuración → Pasos)
+            string tStepOption = ctx.Table<ProjectSubContractorStepOption>();
+            string cStepOptionKey = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.OptionKey));
+            string cStepOptionEnabled = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Enabled));
+            string cStepOptionActive = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Active));
+            string cStepOptionState = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.State));
+
             // Document tables
             string tContractDoc = ctx.Table<ProjectSubContractorContract>();
             string cContractDocId = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.ProjectSubContractorContractId));
@@ -1388,6 +1415,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var parameters = new DynamicParameters();
             parameters.Add("@PageSize", pageSize);
             parameters.Add("@PageOffset", offset);
+            parameters.Add("@Paso4OptionKey", CostsStepOptionKeys.Paso4PermitirRegenerarPaquete);
 
             var whereConditions = new List<string> { $"psc.{cPscState} = TRUE" };
 
@@ -1637,6 +1665,10 @@ SELECT {cQFId} AS ""FileId"", {cQFPscId} AS ""ProjectSubContractorId"", {cQFFile
 SELECT {cCFId} AS ""FileId"", {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
 SELECT {cSDPscId} AS ""ProjectSubContractorId"", {cSDSlot} AS ""Slot"", {cSDFileUrl} AS ""FileUrl"", {cSDFileName} AS ""OriginalFileName"" FROM {tScannedFile} WHERE {cSDState} = TRUE;
 SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
+
+-- 18. Opción del paso 4 (Configuración → Pasos): si está prendida, el paso 4 deja regenerar
+-- el contrato completo aunque la adjudicación ya haya avanzado.
+SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOptionKey} = @Paso4OptionKey AND {cStepOptionState} = TRUE AND {cStepOptionActive} = TRUE LIMIT 1), FALSE) AS allow_regenerate;
             ";
 
             using var multi = await connection.QueryMultipleAsync(sql, parameters);
@@ -1665,6 +1697,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var scannedFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
+            var allowRegenerate = await multi.ReadFirstAsync<bool>();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
             var quotationFiles = quotationFilesRaw.Select(f => new { FileId = (int)f.FileId, ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
@@ -1787,7 +1820,8 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 WorkItems = workItems,
                 WorkItemCategories = workItemCategories,
                 ProjectSubContractorStatuses = statuses,
-                Contributors = contractors
+                Contributors = contractors,
+                AllowRegenerateContractPackage = allowRegenerate
             };
 
             int totalPages = (totalRecords + pageSize - 1) / pageSize;
@@ -3022,21 +3056,32 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     x.ProjectSubContractorPromissoryNoteId,
                     x.ProjectSubContractorAnexoId,
                     x.ContractNumber,
+                    x.ProjectSubContractorStatusId,
                 })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("La adjudicación no existe.");
 
+            // Opción del paso 4: solo se mira cuando la adjudicación ya avanzó (ver el service).
+            var allowRegenerate = await ctx.ProjectSubContractorStepOption
+                .Where(o => o.OptionKey == CostsStepOptionKeys.Paso4PermitirRegenerarPaquete
+                         && o.State && o.Active)
+                .Select(o => o.Enabled)
+                .FirstOrDefaultAsync();
+
+            // Hoja resumen y contrato normalmente se generan (.xlsx / .docx), pero el paso 3 también
+            // permite subirlos a mano y en ese caso pueden llegar ya en PDF: por eso traen
+            // OriginalFileName, igual que los adjuntos.
             var summarySheet = ids.ProjectSubContractorSummarySheetId.HasValue
                 ? await ctx.ProjectSubContractorSummarySheet
                     .Where(x => x.ProjectSubContractorSummarySheetId == ids.ProjectSubContractorSummarySheetId.Value)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
             var contract = ids.ProjectSubContractorContractId.HasValue
                 ? await ctx.ProjectSubContractorContract
                     .Where(x => x.ProjectSubContractorContractId == ids.ProjectSubContractorContractId.Value)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3086,7 +3131,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 ? await ctx.ProjectSubContractorInstructivo
                     .Where(x => x.ProjectSubContractorInstructivoId == ids.ProjectSubContractorInstructivoId.Value
                              && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3094,7 +3139,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 ? await ctx.ProjectSubContractorPromissoryNote
                     .Where(x => x.ProjectSubContractorPromissoryNoteId == ids.ProjectSubContractorPromissoryNoteId.Value
                              && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3114,8 +3159,10 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             {
                 SummarySheetUrl             = summarySheet?.FileUrl,
                 SummarySheetItemId          = summarySheet?.SharepointItemId,
+                SummarySheetFileName        = summarySheet?.OriginalFileName,
                 ContractUrl                 = contract?.FileUrl,
                 ContractItemId              = contract?.SharepointItemId,
+                ContractFileName            = contract?.OriginalFileName,
                 AttachedQuotationUrl        = attachedQuotation?.FileUrl,
                 AttachedQuotationItemId     = attachedQuotation?.SharepointItemId,
                 AttachedQuotationFileName   = attachedQuotation?.OriginalFileName,
@@ -3133,12 +3180,16 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 FinishProtectionApproved    = finishProtectionApproved,
                 InstructivoUrl              = instructivo?.FileUrl,
                 InstructivoItemId           = instructivo?.SharepointItemId,
+                InstructivoFileName         = instructivo?.OriginalFileName,
                 PromissoryNoteUrl           = promissoryNote?.FileUrl,
                 PromissoryNoteItemId        = promissoryNote?.SharepointItemId,
+                PromissoryNoteFileName      = promissoryNote?.OriginalFileName,
                 AnexoUrl                    = anexo?.FileUrl,
                 AnexoItemId                 = anexo?.SharepointItemId,
                 AnexoFileName               = anexo?.OriginalFileName,
                 ContractNumber              = ids.ContractNumber,
+                StatusId                    = ids.ProjectSubContractorStatusId,
+                AllowRegeneratePackage      = allowRegenerate,
             };
         }
 

@@ -13,5 +13,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public List<WorkSpecialtySimpleDTO> WorkSpecialties { get;set; } = new();
         public List<ProjectSubContractorStatusSimpleDTO> ProjectSubContractorStatuses { get;set; } = new();
         public List<ContributorFactoryDTO> Contributors {get;set;}
+        /// <summary>
+        /// Opción "Permitir volver a generar el contrato completo" del paso 4
+        /// (Configuración de Costos → Pasos). Con ella prendida el paso 4 deja regenerar el
+        /// paquete aunque la adjudicación ya haya avanzado; el correo al SC NO se reabre.
+        /// </summary>
+        public bool AllowRegenerateContractPackage { get; set; }
     }
 }

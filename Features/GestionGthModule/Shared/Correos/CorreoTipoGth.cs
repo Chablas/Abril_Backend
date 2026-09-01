@@ -4,11 +4,10 @@
     /// Códigos estables de los tipos de correo configurables de Gestión GTH (espejo de
     /// <c>gth_correo_tipo.codigo</c>). Se usan para scopear los destinatarios.
     ///
-    /// Vive en el <c>Shared/</c> del módulo y no dentro de una feature porque lo usan dos:
-    /// Reclutamiento (todo el flujo de la vacante, desde la solicitud hasta el cierre) y
-    /// Onboarding (la carta oferta al colaborador que ya fue elegido y el aviso de que la firmó).
-    /// La tabla que refleja es
-    /// una sola para el módulo y las cuatro pantallas de Configuración se reparten sus filas.
+    /// Vive en el <c>Shared/</c> del módulo y no dentro de una feature porque lo usan varias:
+    /// Solicitud de Personal, Aprobaciones y Reclutamiento (todo el flujo de la vacante, desde la
+    /// solicitud hasta la carta oferta que la cierra). La tabla que refleja es una sola para el
+    /// módulo y las pantallas de Configuración se reparten sus filas.
     /// </summary>
     public static class CorreoTipoGth
     {
@@ -203,11 +202,11 @@
         public const string Agradecimiento = "AGRADECIMIENTO";
 
         /// <summary>
-        /// Correo de la <b>carta oferta</b> (va al colaborador que entra a Onboarding). Es el
-        /// primer correo que recibe de la empresa ya como contratado: le da la bienvenida, le
+        /// Correo de la <b>carta oferta</b> (va al candidato seleccionado). Es el último correo del
+        /// proceso de reclutamiento y el primero que recibe ya como elegido: le da la bienvenida, le
         /// resume la posición y lo lleva al enlace público donde lee la carta, registra su firma y
-        /// la firma en línea. Lo disparan tanto el alta del onboarding como el reenvío del enlace,
-        /// con el mismo cuerpo.
+        /// la firma en línea. Lo disparan tanto el envío de la carta como el reenvío del enlace, con
+        /// el mismo cuerpo.
         ///
         /// El destinatario principal es SIEMPRE el colaborador; la configuración aporta principales
         /// adicionales y copias.
@@ -215,12 +214,12 @@
         public const string CartaOferta = "CARTA_OFERTA";
 
         /// <summary>
-        /// Correo de "el colaborador firmó su carta oferta" (va a GTH). Es la vuelta de
-        /// <see cref="CartaOferta"/>: lo dispara el propio colaborador al pulsar «Firmar» en la
+        /// Correo de "el candidato firmó su carta oferta" (va a GTH). Es la vuelta de
+        /// <see cref="CartaOferta"/>: lo dispara el propio candidato al pulsar «Firmar» en la
         /// página pública, sin que nadie de la empresa haga nada, y avisa que ya hay un documento
-        /// firmado esperando la revisión de GTH —que es la primera actividad obligatoria de su
-        /// checklist y lo que destraba el onboarding—. Su botón abre el detalle de ese colaborador
-        /// en la bandeja de Onboarding, que es donde se aprueba.
+        /// firmado esperando la revisión de GTH —aprobarlo es lo que CIERRA el proceso de
+        /// reclutamiento—. Su botón abre el detalle de ese requerimiento en la bandeja de
+        /// Reclutamiento, que es donde se aprueba.
         ///
         /// No tiene destinatario principal automático: a quién le llega sale entero de
         /// Configuración, igual que en <see cref="FormularioCompletado"/>, que es el mismo caso del

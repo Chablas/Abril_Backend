@@ -1,10 +1,11 @@
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Repositories
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
     /// <inheritdoc cref="ICartaOfertaFirmaRepository"/>
     public class CartaOfertaFirmaRepository : ICartaOfertaFirmaRepository
@@ -21,7 +22,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
 
         /// <summary>
         /// Mensaje único para "el token no sirve". Es a propósito el mismo para un token inexistente,
-        /// uno de un onboarding dado de baja y uno sin carta cargada: desde afuera no se puede
+        /// uno de una carta dada de baja y uno sin archivo cargado: desde afuera no se puede
         /// distinguir un token inventado de uno que existió, y así probar tokens no informa nada.
         /// </summary>
         private const string TokenInvalido =
@@ -32,9 +33,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             using var ctx = _factory.CreateDbContext();
 
             var fila = await (
-                from ob in ctx.GthOnboarding
-                where ob.State && ob.CartaOfertaToken == token
-                join c in ctx.GthCandidato on ob.GthCandidatoId equals c.GthCandidatoId
+                from ca in ctx.GthCartaOferta
+                where ca.State && ca.Token == token
+                join c in ctx.GthCandidato on ca.GthCandidatoId equals c.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join s in ctx.GthSolicitud on r.GthSolicitudId equals s.GthSolicitudId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
@@ -42,19 +43,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     // Razón social, ficha maestra y jefe directo son todos opcionales en la vacante.
                 join co in ctx.Contributor on r.ContributorId equals (int?)co.ContributorId into coJoin
                 from co in coJoin.DefaultIfEmpty()
-                join pe in ctx.Person on ob.PersonId equals (int?)pe.PersonId into peJoin
+                join pe in ctx.Person on ca.PersonId equals pe.PersonId into peJoin
                 from pe in peJoin.DefaultIfEmpty()
                 join w in ctx.Worker on s.SolicitanteWorkerId equals (int?)w.Id into wJoin
                 from w in wJoin.DefaultIfEmpty()
                 select new
                 {
-                    ob.CartaOfertaNombre,
-                    ob.CartaOfertaUrl,
-                    ob.FechaIngreso,
-                    ob.CartaFirmadaUrl,
-                    ob.CartaFirmadaPostulanteDateTime,
-                    ob.CartaFirmadaSubidaDateTime,
-                    ob.CartaFirmadaAprobadaDateTime,
+                    ca.CartaNombre,
+                    ca.CartaUrl,
+                    ca.FechaIngreso,
+                    ca.FirmadaUrl,
+                    ca.FirmadaPostulanteDateTime,
+                    ca.FirmadaSubidaDateTime,
+                    ca.AprobadaDateTime,
                     CandidatoNombre = c.Nombre,
                     PersonNombre    = pe == null ? null : pe.FullName,
                     // La firma vive en la ficha de la base maestra: son las mismas columnas que usa la
@@ -72,7 +73,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 ?? throw new AbrilException(TokenInvalido, 404);
 
             // Sin carta cargada no hay nada que mostrar ni firmar: la página no tendría contenido.
-            if (string.IsNullOrWhiteSpace(fila.CartaOfertaUrl))
+            if (string.IsNullOrWhiteSpace(fila.CartaUrl))
                 throw new AbrilException(TokenInvalido, 404);
 
             return new CartaOfertaFirmaPublicoDto
@@ -85,19 +86,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 ProyectoObra = fila.ProyectoObra,
                 JefeDirecto  = fila.JefeDirecto,
                 FechaIngreso = fila.FechaIngreso,
-                CartaNombre  = fila.CartaOfertaNombre,
+                CartaNombre  = fila.CartaNombre,
 
                 FirmaDataUrl = fila.FirmaBytes == null
                     ? null
                     : $"data:{fila.FirmaMime ?? "image/png"};base64,{Convert.ToBase64String(fila.FirmaBytes)}",
                 FirmaActualizadaEn = fila.FirmaFecha?.ToOffset(PeruOffset).DateTime,
 
-                YaFirmada = !string.IsNullOrWhiteSpace(fila.CartaFirmadaUrl),
+                YaFirmada = !string.IsNullOrWhiteSpace(fila.FirmadaUrl),
                 // La fecha de firma del postulante manda; si la carta la subió GTH a mano, se muestra
                 // la de esa subida, que es cuando el documento firmado entró al expediente.
-                FirmadaEn = (fila.CartaFirmadaPostulanteDateTime ?? fila.CartaFirmadaSubidaDateTime)
+                FirmadaEn = (fila.FirmadaPostulanteDateTime ?? fila.FirmadaSubidaDateTime)
                     ?.ToOffset(PeruOffset).DateTime,
-                Aprobada  = fila.CartaFirmadaAprobadaDateTime != null,
+                Aprobada  = fila.AprobadaDateTime != null,
             };
         }
 
@@ -106,9 +107,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             using var ctx = _factory.CreateDbContext();
 
             var fila = await (
-                from ob in ctx.GthOnboarding
-                where ob.State && ob.CartaOfertaToken == token
-                join c in ctx.GthCandidato on ob.GthCandidatoId equals c.GthCandidatoId
+                from ca in ctx.GthCartaOferta
+                where ca.State && ca.Token == token
+                join c in ctx.GthCandidato on ca.GthCandidatoId equals c.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                     // De acá para abajo, todo es para el aviso a GTH de que la carta quedó firmada:
                     // los mismos joins que ya hace GetPublicoByToken, sobre la misma fila.
@@ -118,13 +119,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     // Razón social, ficha maestra y jefe directo son todos opcionales en la vacante.
                 join co in ctx.Contributor on r.ContributorId equals (int?)co.ContributorId into coJoin
                 from co in coJoin.DefaultIfEmpty()
-                join pe in ctx.Person on ob.PersonId equals (int?)pe.PersonId into peJoin
+                join pe in ctx.Person on ca.PersonId equals pe.PersonId into peJoin
                 from pe in peJoin.DefaultIfEmpty()
                 join w in ctx.Worker on s.SolicitanteWorkerId equals (int?)w.Id into wJoin
                 from w in wJoin.DefaultIfEmpty()
                 select new
                 {
-                    Ob = ob,
+                    Ca = ca,
+                    RequerimientoId = r.GthRequerimientoId,
                     r.Codigo,
                     CandidatoNombre = c.Nombre,
                     PersonNombre    = pe == null ? null : pe.FullName,
@@ -142,7 +144,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                         .Select(f => f.NombresCompletos)
                         .FirstOrDefault(),
                     Dni = ctx.Person
-                        .Where(x => x.PersonId == ob.PersonId)
+                        .Where(x => x.PersonId == ca.PersonId)
                         .Select(x => x.DocumentIdentityCode)
                         .FirstOrDefault()
                         ?? ctx.GthPostulanteFormulario
@@ -153,29 +155,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException(TokenInvalido, 404);
 
-            var onboarding = fila.Ob;
+            var carta = fila.Ca;
 
-            if (string.IsNullOrWhiteSpace(onboarding.CartaOfertaUrl))
+            if (string.IsNullOrWhiteSpace(carta.CartaUrl))
                 throw new AbrilException(TokenInvalido, 404);
-
-            // El enlace solo se manda cuando la ficha existe, así que esto no debería pasar; la guarda
-            // está para no dejar que un null se convierta en un person_id 0 al firmar.
-            if (onboarding.PersonId == null)
-                throw new AbrilException(
-                    "Tu ficha no está completa en nuestros registros, así que todavía no podemos guardar tu firma. Escríbele a Gestión de Talento Humano.",
-                    409);
 
             return new CartaOfertaFirmaContextoDto
             {
-                OnboardingId = onboarding.GthOnboardingId,
-                PersonId     = onboarding.PersonId.Value,
-                Codigo       = fila.Codigo,
-                Nombre       = string.IsNullOrWhiteSpace(fila.FormularioNombre)
+                CartaOfertaId   = carta.GthCartaOfertaId,
+                RequerimientoId = fila.RequerimientoId,
+                PersonId        = carta.PersonId,
+                Codigo          = fila.Codigo,
+                Nombre          = string.IsNullOrWhiteSpace(fila.FormularioNombre)
                     ? fila.CandidatoNombre : fila.FormularioNombre!,
-                Dni                = fila.Dni ?? string.Empty,
+                Dni             = fila.Dni ?? string.Empty,
 
-                // Mismo criterio que la bandeja de Onboarding: manda el nombre de la base maestra y
-                // el del candidato es el respaldo mientras no tenga ficha.
+                // Mismo criterio que el detalle de GTH: manda el nombre de la base maestra y el del
+                // candidato es el respaldo mientras no tenga ficha.
                 NombreColaborador = string.IsNullOrWhiteSpace(fila.PersonNombre)
                     ? fila.CandidatoNombre : fila.PersonNombre!,
                 Puesto       = fila.Puesto,
@@ -183,28 +179,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 Empresa      = fila.Empresa,
                 ProyectoObra = fila.ProyectoObra,
                 JefeDirecto  = fila.JefeDirecto,
-                FechaIngreso = onboarding.FechaIngreso,
-                Correo       = onboarding.CartaOfertaCorreo,
+                FechaIngreso = carta.FechaIngreso,
+                Correo       = carta.Correo,
 
-                CartaOfertaNombre  = onboarding.CartaOfertaNombre,
-                CartaOfertaUrl     = onboarding.CartaOfertaUrl,
-                CartaOfertaDriveId = onboarding.CartaOfertaDriveId,
-                CartaOfertaItemId  = onboarding.CartaOfertaItemId,
-                CartaFirmadaNombre  = onboarding.CartaFirmadaNombre,
-                CartaFirmadaUrl     = onboarding.CartaFirmadaUrl,
-                CartaFirmadaDriveId = onboarding.CartaFirmadaDriveId,
-                CartaFirmadaItemId  = onboarding.CartaFirmadaItemId,
-                Carpeta            = string.IsNullOrWhiteSpace(onboarding.FileDigitalDriveId)
-                                  || string.IsNullOrWhiteSpace(onboarding.FileDigitalItemId)
+                CartaNombre  = carta.CartaNombre,
+                CartaUrl     = carta.CartaUrl,
+                CartaDriveId = carta.CartaDriveId,
+                CartaItemId  = carta.CartaItemId,
+                FirmadaNombre  = carta.FirmadaNombre,
+                FirmadaUrl     = carta.FirmadaUrl,
+                FirmadaDriveId = carta.FirmadaDriveId,
+                FirmadaItemId  = carta.FirmadaItemId,
+                Carpeta        = string.IsNullOrWhiteSpace(carta.FileDigitalDriveId)
+                              || string.IsNullOrWhiteSpace(carta.FileDigitalItemId)
                     ? null
                     : new FileDigitalCarpetaDto
                     {
-                        DriveId = onboarding.FileDigitalDriveId!,
-                        ItemId  = onboarding.FileDigitalItemId!,
-                        Ruta    = onboarding.FileDigitalRuta,
+                        DriveId = carta.FileDigitalDriveId!,
+                        ItemId  = carta.FileDigitalItemId!,
+                        Ruta    = carta.FileDigitalRuta,
                     },
-                YaFirmada = !string.IsNullOrWhiteSpace(onboarding.CartaFirmadaUrl),
-                Aprobada  = onboarding.CartaFirmadaAprobadaDateTime != null,
+                YaFirmada = !string.IsNullOrWhiteSpace(carta.FirmadaUrl),
+                Aprobada  = carta.AprobadaDateTime != null,
             };
         }
 
@@ -243,42 +239,63 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
             return p == null ? null : (p.SignatureImageBytes!, p.SignatureMime ?? "image/png");
         }
 
-        public async Task<DateTime> GuardarCartaFirmadaPorPostulante(
-            int onboardingId, CartaOfertaPersistDto carta, FileDigitalCarpetaDto? carpeta)
+        public async Task<DateTime> GuardarFirmadaPorPostulante(
+            int cartaOfertaId, FileDigitalDocumentoDto documento, FileDigitalCarpetaDto? carpeta)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var ob = await ctx.GthOnboarding.FirstOrDefaultAsync(o => o.GthOnboardingId == onboardingId && o.State)
+            var carta = await ctx.GthCartaOferta
+                .FirstOrDefaultAsync(c => c.GthCartaOfertaId == cartaOfertaId && c.State)
                 ?? throw new AbrilException(TokenInvalido, 404);
 
             var now = DateTimeOffset.UtcNow;
 
-            ob.CartaFirmadaNombre = carta.Nombre;
-            ob.CartaFirmadaUrl    = carta.Url;
-            ob.CartaFirmadaItemId = carta.ItemId;
-            ob.CartaFirmadaDriveId = carta.DriveId;
-            ob.CartaFirmadaSubidaDateTime = now;
+            carta.FirmadaNombre  = documento.Nombre;
+            carta.FirmadaUrl     = documento.Url;
+            carta.FirmadaItemId  = documento.ItemId;
+            carta.FirmadaDriveId = documento.DriveId;
+            carta.FirmadaSubidaDateTime = now;
             // Queda en null a propósito: el que firmó es el postulante, que no es un usuario del
             // sistema. La fecha de abajo es la que dice que la firma vino del enlace y no de GTH.
-            ob.CartaFirmadaSubidaUserId       = null;
-            ob.CartaFirmadaPostulanteDateTime = now;
+            carta.FirmadaSubidaUserId       = null;
+            carta.FirmadaPostulanteDateTime = now;
 
-            // Reemplazar el documento anula la aprobación anterior, igual que cuando GTH lo reemplaza:
-            // lo que se aprobó ya no es lo que está adjunto.
-            ob.CartaFirmadaAprobadaDateTime = null;
-            ob.CartaFirmadaAprobadaUserId   = null;
+            // El documento firmado no se aprueba solo: reemplazar el archivo anula cualquier
+            // aprobación anterior, igual que cuando lo reemplaza GTH.
+            carta.AprobadaDateTime = null;
+            carta.AprobadaUserId   = null;
 
-            // Onboardings abiertos antes de que se persistiera el file digital: se completa con la
-            // carpeta que acaba de resolver el servicio.
-            if (carpeta != null && string.IsNullOrWhiteSpace(ob.FileDigitalItemId))
+            // Cartas anteriores a que se persistiera el file digital: se completa con la carpeta que
+            // acaba de resolver el servicio.
+            if (carpeta != null && string.IsNullOrWhiteSpace(carta.FileDigitalItemId))
             {
-                ob.FileDigitalDriveId = carpeta.DriveId;
-                ob.FileDigitalItemId  = carpeta.ItemId;
-                ob.FileDigitalRuta    = carpeta.Ruta;
+                carta.FileDigitalDriveId = carpeta.DriveId;
+                carta.FileDigitalItemId  = carpeta.ItemId;
+                carta.FileDigitalRuta    = carpeta.Ruta;
             }
 
-            ob.UpdatedDateTime = now;
+            carta.UpdatedDateTime = now;
             // Sin updated_user_id: no hay usuario del sistema detrás de esta escritura.
+
+            // La firma mueve el requerimiento: es lo que le pone la revisión en la bandeja a GTH.
+            // Va en el mismo SaveChanges que la carta para que no pueda quedar uno sin el otro.
+            var estado = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && e.Codigo == EstadoReclutamiento.CartaOfertaFirmada)
+                .Select(e => (int?)e.GthEstadoRequerimientoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException(
+                    $"No está configurado el estado {EstadoReclutamiento.CartaOfertaFirmada} de reclutamiento.", 500);
+
+            var req = await (from c in ctx.GthCandidato
+                             where c.GthCandidatoId == carta.GthCandidatoId
+                             join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                             where r.State
+                             select r).FirstOrDefaultAsync();
+            if (req != null)
+            {
+                req.GthEstadoRequerimientoId = estado;
+                req.UpdatedDateTime          = now;
+            }
 
             await ctx.SaveChangesAsync();
 

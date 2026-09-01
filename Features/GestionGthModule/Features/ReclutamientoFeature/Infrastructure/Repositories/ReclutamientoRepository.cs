@@ -1551,6 +1551,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Quién obtuvo el puesto (null mientras el proceso no cierre con un seleccionado).
             var seleccionado = await QuerySeleccionado(ctx, requerimientoId);
 
+            // Carta oferta: el último paso del proceso. Se lee sobre este mismo contexto (ver
+            // CartaOfertaRepository.Leer) porque es una sección más del modal, no una pantalla
+            // aparte.
+            var cartaOferta = await CartaOfertaRepository.Leer(ctx, requerimientoId);
+
             return new DetalleRequerimientoGthDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -1586,6 +1591,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatosAprobados = candidatosAprobados,
                 CandidatosRechazados = candidatosRechazados,
                 Seleccionado         = seleccionado,
+                CartaOferta          = cartaOferta,
             };
         }
 
@@ -2963,52 +2969,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(
-            int requerimientoId, int? userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var req = await ctx.GthRequerimiento
-                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State)
-                ?? throw new AbrilException("Requerimiento no encontrado.", 404);
-
-            var estados = await ctx.GthEstadoRequerimiento
-                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.Cerrado
-                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
-                .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
-                .ToListAsync();
-
-            var actual = estados
-                .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
-
-            // El cierre es la salida de las dos fases de "el examen salió bien" y de ninguna otra.
-            // Desde EMO_OBSERVADO no se cierra (todavía no hay aptitud), desde EMO_NO_APTO tampoco
-            // (el candidato quedó fuera) y desde una fase anterior sería saltarse el examen.
-            if (!EstadoReclutamiento.EmoAptas.Contains(actual ?? string.Empty))
-                throw new AbrilException(
-                    "Solo se puede cerrar el proceso cuando el EMO de ingreso del seleccionado salió "
-                    + "Apto o Apto con Restricciones.", 409);
-
-            var cerrado = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.Cerrado)
-                ?? throw new AbrilException("No está configurado el estado CERRADO de reclutamiento.", 500);
-
-            // Nada más que la fase: el candidato ya está SELECCIONADO desde la decisión del área
-            // solicitante y su ficha de pre-ingreso ya existe. Cerrar es exactamente lo que hace que
-            // aparezca en Onboarding como candidato por ingresar (ver OnboardingRepository, que
-            // lista los SELECCIONADOS de requerimientos CERRADOS).
-            req.GthEstadoRequerimientoId = cerrado.GthEstadoRequerimientoId;
-            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
-            req.UpdatedUserId            = userId;
-
-            await ctx.SaveChangesAsync();
-
-            return new EstadoRequerimientoResultDto
-            {
-                EstadoCodigo = cerrado.Codigo,
-                EstadoNombre = cerrado.Nombre,
-            };
-        }
-
         public async Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -3556,8 +3516,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Qué le falta al requerimiento cuando ya está en una de las fases de resultado del EMO de
-        /// ingreso. Null si la fase no es una de esas, para que el llamador siga con la descripción
-        /// del catálogo.
+        /// ingreso, o cuando el candidato ya firmó su carta oferta. Null si no es ninguna de esas,
+        /// para que el llamador siga con la descripción del catálogo.
         ///
         /// Estas cuatro fases comparten el <c>orden</c> de <c>EMO_INGRESO</c> (es el paso vigente de
         /// la línea de tiempo), así que la descripción del catálogo diría que falta programar el
@@ -3566,11 +3526,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static string? SiguientePasoTrasEmo(string estadoCodigo) => estadoCodigo switch
         {
             EstadoReclutamiento.EmoApto =>
-                "El examen médico de ingreso salió Apto. GTH está cerrando el proceso para pasar al "
-                + "candidato a onboarding.",
+                "El examen médico de ingreso salió Apto. GTH está preparando la carta oferta del "
+                + "candidato, que es el último paso del proceso.",
             EstadoReclutamiento.EmoAptoRestricciones =>
-                "El examen médico de ingreso salió Apto con Restricciones. GTH está cerrando el "
-                + "proceso para pasar al candidato a onboarding.",
+                "El examen médico de ingreso salió Apto con Restricciones. GTH está preparando la "
+                + "carta oferta del candidato, que es el último paso del proceso.",
+            EstadoReclutamiento.CartaOfertaFirmada =>
+                "El candidato ya firmó su carta oferta. GTH la está revisando: al aprobarla, el "
+                + "proceso queda cerrado.",
             EstadoReclutamiento.EmoObservado =>
                 "El examen médico de ingreso quedó Observado: el candidato fue derivado a "
                 + "interconsulta y su aptitud se define con ese resultado.",
@@ -4353,11 +4316,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string EmoIngreso        = "EMO_INGRESO";
 
         /// <summary>
-        /// El EMO de ingreso salió <b>Apto</b>. El proceso NO cierra solo: queda esperando a que GTH
-        /// lo cierre y lo pase a onboarding desde el detalle del requerimiento
-        /// (<c>cerrar-proceso</c>). Esa confirmación existe porque el cierre es lo que habilita al
-        /// candidato en Onboarding, y GTH tiene que poder ver el resultado del examen antes de dar
-        /// ese paso en vez de encontrarse el proceso cerrado por su cuenta.
+        /// El EMO de ingreso salió <b>Apto</b>. El proceso NO cierra acá: queda esperando a que GTH
+        /// le envíe la <b>carta oferta</b> al seleccionado desde el detalle del requerimiento, que
+        /// es el último paso (ver <see cref="CartaOferta"/>). Hasta que el candidato no firme y GTH
+        /// no apruebe esa carta, la vacante no está aceptada y no hay nada que cerrar.
         ///
         /// Sembrado con <c>active = false</c> y con el <c>orden</c> de <see cref="EmoIngreso"/>, por
         /// el mismo motivo que <see cref="EmoNoApto"/>: es un estado del requerimiento, no un paso
@@ -4367,8 +4329,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// El EMO de ingreso salió <b>Apto con Restricciones</b>. Vale exactamente lo mismo que
-        /// <see cref="EmoApto"/> —la persona puede entrar y GTH cierra el proceso— y es un estado
-        /// aparte solo para que el badge diga qué dijo la clínica sin tener que abrir la ficha.
+        /// <see cref="EmoApto"/> —la persona puede entrar y GTH le manda la carta oferta— y es un
+        /// estado aparte solo para que el badge diga qué dijo la clínica sin abrir la ficha.
         /// </summary>
         public const string EmoAptoRestricciones = "EMO_APTO_RESTRICCIONES";
 
@@ -4402,13 +4364,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string EmoNoApto         = "EMO_NO_APTO";
 
         /// <summary>
-        /// Estado final: GTH cerró el proceso desde <see cref="EmoApto"/> /
-        /// <see cref="EmoAptoRestricciones"/>. El reclutamiento termina y el seleccionado aparece en
-        /// Onboarding como candidato por ingresar (ver <c>OnboardingRepository</c>, que lista
-        /// exactamente los SELECCIONADOS de requerimientos CERRADOS).
+        /// GTH le envió la <b>carta oferta</b> al seleccionado y espera su firma. Es el ÚLTIMO paso
+        /// del proceso y la salida de <see cref="EmoApto"/> / <see cref="EmoAptoRestricciones"/>: la
+        /// carta se guarda en el file del colaborador y al candidato le llega un correo con el enlace
+        /// donde la lee y la firma en línea (ver <c>CartaOfertaService</c>).
         ///
-        /// Ni programar la cita ni el resultado del examen cierran el proceso por sí solos: lo
-        /// cierra GTH a mano, con el resultado del EMO ya a la vista.
+        /// Antes esta fase vivía en Onboarding, como su primer paso; se movió acá para que el
+        /// reclutamiento no termine hasta que la propuesta esté aceptada.
+        /// </summary>
+        public const string CartaOferta       = "CARTA_OFERTA";
+
+        /// <summary>
+        /// El candidato ya firmó su carta oferta —desde el enlace público o, de respaldo, en papel y
+        /// subida por GTH— y falta que GTH la revise y la apruebe. Aprobarla es lo que pasa el
+        /// requerimiento a <see cref="Cerrado"/>.
+        ///
+        /// Sembrado con <c>active = false</c> y con el <c>orden</c> de <see cref="CartaOferta"/>, por
+        /// el mismo motivo que <see cref="EmoApto"/>: es un estado del requerimiento, no un paso
+        /// propio de la línea de tiempo, y el paso vigente sigue siendo el de la carta oferta.
+        /// </summary>
+        public const string CartaOfertaFirmada = "CARTA_OFERTA_FIRMADA";
+
+        /// <summary>
+        /// Estado final: GTH aprobó la carta oferta firmada por el seleccionado. El reclutamiento
+        /// termina y el seleccionado aparece en Onboarding como candidato por ingresar (ver
+        /// <c>OnboardingRepository</c>, que lista exactamente los SELECCIONADOS de requerimientos
+        /// CERRADOS).
+        ///
+        /// Ni la cita del EMO, ni su resultado, ni la firma del candidato cierran el proceso por sí
+        /// solos: lo cierra GTH al aprobar la carta firmada, con el documento a la vista.
         /// </summary>
         public const string Cerrado           = "CERRADO";
 
@@ -4427,8 +4411,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string CerradoSinCubrir  = "CERRADO_SIN_CUBRIR";
 
         /// <summary>
-        /// Las dos fases desde las que GTH puede cerrar el proceso y pasar el candidato a
-        /// onboarding: las que dicen que el examen médico salió bien.
+        /// Las dos fases desde las que GTH puede mandarle la carta oferta al seleccionado: las que
+        /// dicen que el examen médico salió bien.
         /// </summary>
         public static readonly HashSet<string> EmoAptas = new()
         {
@@ -4482,6 +4466,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             EmoAptoRestricciones,
             EmoObservado,
             EmoNoApto,
+            // La carta oferta también es trabajo de GTH: prepararla y enviarla es suyo, y revisar la
+            // firmada para cerrar el proceso también. Entre medio la pelota la tiene el candidato,
+            // pero eso no lo devuelve al solicitante — que es lo que estas tarjetas distinguen.
+            CartaOferta,
+            CartaOfertaFirmada,
         };
     }
 
@@ -4516,6 +4505,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                                       EstadoReclutamiento.EmoAptoRestricciones,
                                                       EstadoReclutamiento.EmoObservado,
                                                       EstadoReclutamiento.EmoNoApto }),
+            // La carta oferta es etapa propia por el mismo motivo que el EMO: un requerimiento
+            // puede quedarse días esperando que el candidato firme, y sin esta etapa sus dos fases
+            // no pertenecerían a ninguna y se caerían del embudo — y de "Vacantes abiertas", que se
+            // calcula recortando estas mismas etapas.
+            new("CARTA_OFERTA", "Carta oferta", new[] { EstadoReclutamiento.CartaOferta,
+                                                        EstadoReclutamiento.CartaOfertaFirmada }),
             // CERRADO_SIN_CUBRIR entra en la etapa de cierre porque el proceso terminó igual: si no,
             // "En proceso" (que es el total menos esta etapa) seguiría contando un requerimiento
             // que ya no tiene nada pendiente.

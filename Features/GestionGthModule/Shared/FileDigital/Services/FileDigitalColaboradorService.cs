@@ -1,14 +1,15 @@
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Interfaces;
+using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Services
+namespace Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Services
 {
     /// <summary>
     /// Subcarpetas del file del colaborador. GTH pidió que cada documento del expediente viva en su
-    /// propia carpeta con nombre fijo (no una por onboarding), para poder ubicarlo siempre en el mismo
+    /// propia carpeta con nombre fijo (no una por proceso), para poder ubicarlo siempre en el mismo
     /// sitio y dar permisos sobre el file completo. Son literales: si se renombran acá, los documentos
     /// nuevos van a una carpeta nueva y los ya subidos se quedan donde están.
     /// </summary>
@@ -21,12 +22,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
     /// <inheritdoc cref="IFileDigitalColaboradorService"/>
     public class FileDigitalColaboradorService : IFileDigitalColaboradorService
     {
-        private readonly IOnboardingRepository _repo;
+        private readonly IFileDigitalFolderRepository _repo;
         private readonly IGraphSharePointService _sharePoint;
         private readonly ILogger<FileDigitalColaboradorService> _logger;
 
         public FileDigitalColaboradorService(
-            IOnboardingRepository repo,
+            IFileDigitalFolderRepository repo,
             IGraphSharePointService sharePoint,
             ILogger<FileDigitalColaboradorService> logger)
         {
@@ -41,7 +42,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// dependen tanto ubicarla como los permisos que se le den encima.
         ///
         /// El link se lee de la BD en cada uso, así que cambiar esa fila redirige los documentos nuevos
-        /// sin redeploy y sin tocar los anteriores. Para un onboarding ya abierto no se vuelve a
+        /// sin redeploy y sin tocar los anteriores. Para una carta oferta ya enviada no se vuelve a
         /// llamar: su carpeta queda persistida en la fila.
         ///
         /// Si la carpeta no se puede crear se corta con error, sin caer a la raíz de la biblioteca:
@@ -50,13 +51,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         /// </summary>
         public async Task<FileDigitalCarpetaDto> ResolverCarpetaAsync(string dni, string nombre)
         {
-            // Al abrir el onboarding esto ya se validó con un mensaje más preciso; la guarda cubre a
-            // los onboardings viejos, que rearman su carpeta acá al subirles un documento nuevo.
+            // Al enviar la carta oferta esto ya se validó con un mensaje más preciso; la guarda cubre
+            // a los expedientes viejos, que rearman su carpeta acá al subirles un documento nuevo.
             if (string.IsNullOrWhiteSpace(dni))
                 throw new AbrilException(
                     "El colaborador no tiene documento de identidad registrado y con él se nombra su carpeta en el file de colaboradores. Complétalo en su ficha de la base maestra.", 409);
 
-            var folder = await _repo.GetCartaOfertaFolder();
+            var folder = await _repo.GetFolder();
             if (folder == null || string.IsNullOrWhiteSpace(folder.LinkUrl))
                 throw new AbrilException(
                     "No está configurada la biblioteca de SharePoint donde se guarda el file de los colaboradores.", 500);
@@ -92,7 +93,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             }
         }
 
-        public async Task<CartaOfertaPersistDto> SubirDocumentoAsync(
+        public async Task<FileDigitalDocumentoDto> SubirDocumentoAsync(
             FileDigitalCarpetaDto carpeta,
             string subcarpeta,
             string fileName,
@@ -113,9 +114,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                 if (result?.WebUrl == null)
                     throw new AbrilException($"No se pudo subir {queEs} a SharePoint.", 502);
 
-                // La fila del onboarding se queda con el driveId/itemId/webUrl de ESTA subida: si
+                // La fila que lo referencia se queda con el driveId/itemId/webUrl de ESTA subida: si
                 // mañana se cambia la biblioteca configurada, el documento se sigue abriendo desde acá.
-                return new CartaOfertaPersistDto
+                return new FileDigitalDocumentoDto
                 {
                     Nombre  = result.FileName ?? fileName,
                     Url     = result.WebUrl,
@@ -136,8 +137,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
         /// <summary>
         /// Devuelve la subcarpeta <paramref name="nombre"/> dentro del file del colaborador, creándola
-        /// si es la primera vez. Se resuelve al subir y no se persiste: el onboarding guarda el file
-        /// (la carpeta padre) y cada tipo de documento sabe en qué subcarpeta va. EnsureChildFolder es
+        /// si es la primera vez. Se resuelve al subir y no se persiste: la fila guarda el file (la
+        /// carpeta padre) y cada tipo de documento sabe en qué subcarpeta va. EnsureChildFolder es
         /// idempotente, así que la segunda carta cae en la misma.
         /// </summary>
         private async Task<FileDigitalCarpetaDto> ResolverSubcarpetaAsync(FileDigitalCarpetaDto carpeta, string nombre)
@@ -169,6 +170,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
                 .ToArray())
                 .Trim();
             return string.IsNullOrWhiteSpace(limpio) ? "sin_nombre" : limpio;
+        }
+    }
+
+    /// <inheritdoc cref="IFileDigitalFolderRepository"/>
+    public class FileDigitalFolderRepository : IFileDigitalFolderRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public FileDigitalFolderRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        public async Task<FileDigitalFolderDto?> GetFolder()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GthCartaOfertaFolder
+                .Where(f => f.State && f.Active)
+                .OrderBy(f => f.GthCartaOfertaFolderId)
+                .Select(f => new FileDigitalFolderDto { LinkUrl = f.LinkUrl, FolderName = f.FolderName })
+                .FirstOrDefaultAsync();
         }
     }
 }

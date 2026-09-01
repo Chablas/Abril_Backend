@@ -615,6 +615,14 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
+            // Red de seguridad: Graph responde 406 (InputFormatNotSupported) si se le pide convertir
+            // a PDF un archivo que ya es PDF. El caller decide AlreadyPdf por la extensión guardada
+            // en BD; si esa extensión no refleja el archivo real, el 406 tumbaría toda la descarga.
+            // Esos items se apuntan aquí y se reintentan una sola vez bajando el contenido crudo.
+            var pedidoComoPdf = new Dictionary<string, bool>();
+            foreach (var it in items) pedidoComoPdf[it.ItemId] = !it.AlreadyPdf;
+            var reintentarCrudo = new List<string>();
+
             const int BatchSize = 20;
             for (int offset = 0; offset < items.Count; offset += BatchSize)
             {
@@ -665,14 +673,27 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                     {
                         var location = sub.GetProperty("headers").GetProperty("Location").GetString()!;
                         var capturedId = id;
+                        var seSolicitoConversion = pedidoComoPdf.TryGetValue(capturedId, out var pedido) && pedido;
                         redirectFetches.Add(Task.Run(async () =>
                         {
                             using var redirectClient = _httpClientFactory.CreateClient();
                             var redirectResp = await redirectClient.GetAsync(location);
+
+                            // El 406 puede llegar recién al seguir el redirect a la URL de conversión.
+                            if ((int)redirectResp.StatusCode == 406 && seSolicitoConversion)
+                            {
+                                lock (reintentarCrudo) { reintentarCrudo.Add(capturedId); }
+                                return;
+                            }
+
                             redirectResp.EnsureSuccessStatusCode();
                             var fetched = await redirectResp.Content.ReadAsByteArrayAsync();
                             lock (result) { result[capturedId] = fetched; }
                         }));
+                    }
+                    else if (status == 406 && pedidoComoPdf.TryGetValue(id, out var pidioConversion) && pidioConversion)
+                    {
+                        reintentarCrudo.Add(id);
                     }
                     else
                     {
@@ -686,6 +707,19 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
                 if (redirectFetches.Count > 0)
                     await Task.WhenAll(redirectFetches);
+            }
+
+            // Reintento de los que Graph rechazó convertir: se bajan tal cual. La llamada recursiva
+            // va con AlreadyPdf=true, así que no puede volver a entrar en este mismo camino.
+            if (reintentarCrudo.Count > 0)
+            {
+                _logger.LogWarning(
+                    "OneDrive devolvió 406 al convertir a PDF {Count} archivo(s) ({Items}); se reintenta la descarga cruda.",
+                    reintentarCrudo.Count, string.Join(", ", reintentarCrudo));
+
+                var crudos = reintentarCrudo.Select(id => (ItemId: id, AlreadyPdf: true)).ToList();
+                foreach (var kv in await DownloadMultipleAsPdfFromOneDriveAsync(driveId, crudos))
+                    result[kv.Key] = kv.Value;
             }
 
             return result;

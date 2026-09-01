@@ -1,16 +1,18 @@
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Interfaces;
-using Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Services.Email.Configuration;
 using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
-using Layout = Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Shared.OnboardingEmailLayout;
+using Layout = Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared.ReclutamientoEmailLayout;
 
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Services
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
 {
     /// <inheritdoc cref="ICartaOfertaFirmaService"/>
     public class CartaOfertaFirmaService : ICartaOfertaFirmaService
@@ -51,10 +53,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             // Si ya firmó, el visor muestra el documento FIRMADO: es el que a él le importa revisar y
             // descargar, y ver el original después de firmar solo confunde.
             var (content, nombreOrigen) = ctx.YaFirmada
-                ? (await DescargarAsync(ctx.CartaFirmadaDriveId, ctx.CartaFirmadaItemId, ctx.CartaFirmadaUrl),
-                   ctx.CartaFirmadaNombre)
-                : (await DescargarAsync(ctx.CartaOfertaDriveId, ctx.CartaOfertaItemId, ctx.CartaOfertaUrl),
-                   ctx.CartaOfertaNombre);
+                ? (await DescargarAsync(ctx.FirmadaDriveId, ctx.FirmadaItemId, ctx.FirmadaUrl), ctx.FirmadaNombre)
+                : (await DescargarAsync(ctx.CartaDriveId, ctx.CartaItemId, ctx.CartaUrl), ctx.CartaNombre);
 
             // La carta que sube GTH para firmar es siempre PDF, y lo que firma el postulante también.
             // Pero la carta firmada que GTH puede adjuntar a mano (la vía de respaldo) admite además
@@ -114,13 +114,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             byte[] original;
             try
             {
-                original = await DescargarAsync(ctx.CartaOfertaDriveId, ctx.CartaOfertaItemId, ctx.CartaOfertaUrl);
+                original = await DescargarAsync(ctx.CartaDriveId, ctx.CartaItemId, ctx.CartaUrl);
             }
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "CARTA OFERTA FIRMA · falló la descarga del original (onboarding {OnboardingId})", ctx.OnboardingId);
+                    "CARTA OFERTA FIRMA · falló la descarga del original (carta {CartaOfertaId})", ctx.CartaOfertaId);
                 throw new AbrilException(
                     "No pudimos abrir tu carta oferta para firmarla. Inténtalo de nuevo en unos minutos.", 502);
             }
@@ -135,8 +135,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "CARTA OFERTA FIRMA · falló el estampado (onboarding {OnboardingId}, bytes={Bytes}, firma={Firma})",
-                    ctx.OnboardingId, original.Length, firma.Bytes.Length);
+                    "CARTA OFERTA FIRMA · falló el estampado (carta {CartaOfertaId}, bytes={Bytes}, firma={Firma})",
+                    ctx.CartaOfertaId, original.Length, firma.Bytes.Length);
                 throw new AbrilException(
                     "No pudimos estampar tu firma en el documento. Escríbele a Gestión de Talento Humano para que lo revise.", 502);
             }
@@ -145,17 +145,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             // subiera a mano, para que el expediente se lea igual sin importar por dónde entró.
             var carpeta = ctx.Carpeta ?? await _fileDigital.ResolverCarpetaAsync(ctx.Dni, ctx.Nombre);
 
-            var carta = await _fileDigital.SubirDocumentoAsync(
+            var documento = await _fileDigital.SubirDocumentoAsync(
                 carpeta, SubcarpetaFileDigital.CartaFirmada,
                 _fileDigital.NombreArchivo("carta_oferta_firmada", ctx.Codigo, ".pdf"),
                 firmado, "application/pdf", "tu carta oferta firmada");
 
-            var firmadaEn = await _repo.GuardarCartaFirmadaPorPostulante(ctx.OnboardingId, carta, carpeta);
+            var firmadaEn = await _repo.GuardarFirmadaPorPostulante(ctx.CartaOfertaId, documento, carpeta);
 
             // Aviso a GTH de que ya hay una carta firmada esperando su revisión. Best-effort a
-            // propósito: el colaborador ya firmó y el documento ya está en su file digital, así que
-            // no puede ver un error —ni verse empujado a firmar de nuevo, que reemplazaría el
-            // documento— porque un correo interno no salió.
+            // propósito: el colaborador ya firmó, el documento ya está en su file digital y el
+            // requerimiento ya se movió de fase, así que no puede ver un error —ni verse empujado a
+            // firmar de nuevo, que reemplazaría el documento— porque un correo interno no salió.
             try
             {
                 await EnviarAvisoCartaFirmadaAsync(ctx, firmadaEn);
@@ -163,8 +163,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "CARTA OFERTA FIRMA · no se pudo avisar a GTH de la firma (onboarding {OnboardingId})",
-                    ctx.OnboardingId);
+                    "CARTA OFERTA FIRMA · no se pudo avisar a GTH de la firma (carta {CartaOfertaId})",
+                    ctx.CartaOfertaId);
             }
 
             return new CartaOfertaFirmarResultDto
@@ -177,16 +177,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         // ── Aviso a GTH ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Le avisa a GTH que el colaborador firmó su carta oferta, para que entre a revisarla: es
-        /// la primera actividad obligatoria del checklist y hasta que no la apruebe el onboarding no
-        /// avanza de fase. Nadie de la empresa dispara este correo —lo dispara el colaborador al
-        /// firmar—, así que sin él la carta firmada se quedaría esperando a que alguien pase por la
-        /// bandeja.
+        /// Le avisa a GTH que el candidato firmó su carta oferta, para que entre a revisarla: aprobarla
+        /// es lo que CIERRA el proceso de reclutamiento. Nadie de la empresa dispara este correo —lo
+        /// dispara el candidato al firmar—, así que sin él la carta firmada se quedaría esperando a que
+        /// alguien pase por la bandeja.
         ///
-        /// A quién le llega sale entero de Configuración
-        /// (<c>/gestion-gth/onboarding/configuracion</c>): no hay destinatario principal automático,
-        /// igual que en el aviso de «formulario completado» de Reclutamiento. Sin destinatarios
-        /// activos no se envía nada, que es lo que esa pantalla quiso decir al apagarlos.
+        /// A quién le llega sale entero de Configuración de correos de Reclutamiento: no hay
+        /// destinatario principal automático, igual que en el aviso de «formulario completado». Sin
+        /// destinatarios activos no se envía nada, que es lo que esa pantalla quiso decir al apagarlos.
         /// </summary>
         private async Task EnviarAvisoCartaFirmadaAsync(CartaOfertaFirmaContextoDto ctx, DateTime firmadaEn)
         {
@@ -198,39 +196,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
             await _email.SendAsync(
                 to:      para,
-                subject: $"[Onboarding] {ctx.NombreColaborador} firmó su carta oferta — {ctx.Codigo} · {ctx.Puesto}",
+                subject: $"[Reclutamiento] {ctx.NombreColaborador} firmó su carta oferta — {ctx.Codigo} · {ctx.Puesto}",
                 body:    ConstruirCuerpoAvisoCartaFirmada(ctx, firmadaEn),
                 isHtml:  true,
                 cc:      copias.Count > 0 ? copias : null,
                 // Sale de aprobaciones@abril.pe y no del buzón de GTH: es un aviso INTERNO que llega
                 // justamente al buzón de GTH, y mandarlo desde ese mismo buzón lo dejaría como un
                 // correo que el área se escribe a sí misma. El de la carta oferta, que va al
-                // colaborador, sí sale de GTH.
+                // candidato, sí sale de GTH.
                 sender:  EmailSenders.Aprobaciones);
         }
 
         /// <summary>
-        /// Enlace al colaborador dentro de la bandeja de Onboarding, con su detalle ya abierto: es
-        /// donde se revisa y se aprueba la carta firmada. Mismo mecanismo que el resto de correos
+        /// Enlace al requerimiento dentro de la bandeja de Reclutamiento, con su detalle ya abierto:
+        /// es donde se revisa y se aprueba la carta firmada. Mismo mecanismo que el resto de correos
         /// internos del módulo: sin sesión, el <c>authGuard</c> del frontend manda al login con esta
         /// URL como <c>returnUrl</c> y lo devuelve acá al entrar.
         /// </summary>
-        private string ConstruirLinkDetalleColaborador(int onboardingId)
+        private string ConstruirLinkDetalleRequerimiento(int requerimientoId)
         {
             var frontendUrl = _configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
-            return $"{frontendUrl}/gestion-gth/onboarding/colaborador/{onboardingId}";
+            return $"{frontendUrl}/gestion-gth/reclutamiento/requerimiento/{requerimientoId}";
         }
 
         /// <summary>
         /// Cuerpo del aviso, en el chrome de marca de Abril One (ver <see cref="Layout"/>). Es un
-        /// correo INTERNO, así que no lleva la primera persona ni las explicaciones que sí puede
-        /// llevar el de la carta oferta: la tarjeta trae los datos del ingreso y el botón lleva a
-        /// donde se aprueba. El documento firmado tampoco va adjunto — se ve en el detalle, junto
-        /// al botón de aprobarlo.
+        /// correo INTERNO, así que lleva datos y un acceso, no explicaciones: la tarjeta trae los
+        /// datos del ingreso y el botón lleva a donde se aprueba. El documento firmado tampoco va
+        /// adjunto — se ve en el detalle, junto al botón de aprobarlo.
         ///
-        /// Las filas en blanco se omiten, igual que en el correo de la carta oferta: el onboarding
-        /// se puede abrir con la ficha a medio llenar y una etiqueta con el valor vacío se lee como
-        /// un error nuestro.
+        /// Las filas en blanco se omiten: la vacante puede estar a medio llenar y una etiqueta con el
+        /// valor vacío se lee como un error nuestro.
         /// </summary>
         private string ConstruirCuerpoAvisoCartaFirmada(CartaOfertaFirmaContextoDto ctx, DateTime firmadaEn)
         {
@@ -257,14 +253,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
             var nombre = string.IsNullOrWhiteSpace(ctx.NombreColaborador)
                 ? "El colaborador" : Layout.Esc(ctx.NombreColaborador);
 
-            var link = ConstruirLinkDetalleColaborador(ctx.OnboardingId);
+            var link = ConstruirLinkDetalleRequerimiento(ctx.RequerimientoId);
 
             return l.Documento(
                 new Layout.Cabecera(
                     "onb-carta", "Carta Oferta Firmada",
                     $"<b>{nombre}</b> firmó su carta oferta desde el enlace."),
                 l.Tarjeta(datos),
-                l.Boton("Revisar carta firmada", link),
+                l.Boton("Revisar y aprobar la carta", link),
                 l.EnlaceDirecto(link));
         }
 

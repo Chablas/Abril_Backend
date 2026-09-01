@@ -1,4 +1,6 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos
+using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
+
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
     /// Todo lo que la página PÚBLICA de firma de la carta oferta necesita al abrirse, en una sola
@@ -39,7 +41,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
         /// <summary>
         /// true si GTH ya revisó y aprobó la carta firmada. Desde ese momento el documento es
-        /// definitivo y no se puede volver a firmar ni siquiera para corregir la firma.
+        /// definitivo —y el proceso de reclutamiento quedó cerrado—, así que no se puede volver a
+        /// firmar ni siquiera para corregir la firma.
         /// </summary>
         public bool Aprobada { get; set; }
     }
@@ -69,13 +72,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
     }
 
     /// <summary>
-    /// Lo que el servicio necesita para resolver un token: a qué onboarding apunta, de qué ficha es
-    /// la firma, dónde está la carta oferta que hay que mostrar o estampar y en qué estado quedó.
-    /// Lo arma el repositorio en un solo roundtrip y no sale nunca al frontend.
+    /// Lo que el servicio necesita para resolver un token: a qué carta oferta apunta, de qué ficha es
+    /// la firma, dónde está el documento que hay que mostrar o estampar y en qué estado quedó. Lo
+    /// arma el repositorio en un solo roundtrip y no sale nunca al frontend.
     /// </summary>
     public class CartaOfertaFirmaContextoDto
     {
-        public int OnboardingId { get; set; }
+        public int CartaOfertaId { get; set; }
+
+        /// <summary>Requerimiento al que pertenece: firmar lo mueve de fase.</summary>
+        public int RequerimientoId { get; set; }
 
         /// <summary>Ficha de la base maestra donde vive la firma del postulante.</summary>
         public int PersonId { get; set; }
@@ -94,9 +100,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         // son joins de una fila sobre las llaves que la consulta ya recorre.
 
         /// <summary>
-        /// Nombre del colaborador tal como lo ve GTH en la bandeja de Onboarding (el de la base
-        /// maestra y, si todavía no tiene ficha, el que registró GTH). Es otro que
-        /// <see cref="Nombre"/>, que es el del file digital y NO puede cambiar.
+        /// Nombre del colaborador tal como lo ve GTH (el de la base maestra y, si todavía no tiene
+        /// ficha, el que registró GTH). Es otro que <see cref="Nombre"/>, que es el del file digital
+        /// y NO puede cambiar.
         /// </summary>
         public string NombreColaborador { get; set; } = string.Empty;
 
@@ -111,18 +117,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         public string? Correo { get; set; }
 
         // ── Carta oferta que subió GTH (la que se muestra y se firma) ──────────
-        public string? CartaOfertaNombre { get; set; }
-        public string? CartaOfertaUrl { get; set; }
-        public string? CartaOfertaDriveId { get; set; }
-        public string? CartaOfertaItemId { get; set; }
+        public string? CartaNombre { get; set; }
+        public string? CartaUrl { get; set; }
+        public string? CartaDriveId { get; set; }
+        public string? CartaItemId { get; set; }
 
         // ── Carta ya firmada, si existe ────────────────────────────────────────
         // Es la que el visor muestra después de firmar: al postulante le interesa revisar y descargar
         // el documento con su firma, no el original.
-        public string? CartaFirmadaNombre { get; set; }
-        public string? CartaFirmadaUrl { get; set; }
-        public string? CartaFirmadaDriveId { get; set; }
-        public string? CartaFirmadaItemId { get; set; }
+        public string? FirmadaNombre { get; set; }
+        public string? FirmadaUrl { get; set; }
+        public string? FirmadaDriveId { get; set; }
+        public string? FirmadaItemId { get; set; }
 
         /// <summary>File digital del colaborador, si ya está persistido en la fila.</summary>
         public FileDigitalCarpetaDto? Carpeta { get; set; }

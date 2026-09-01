@@ -202,13 +202,19 @@ public class InspeccionService : IInspeccionService
         await _repo.CerrarHallazgoAsync(hallazgoId, request, evidenciaUrl);
     }
 
-    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request)
+    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request, int? userId, bool esContratista)
     {
         if (string.IsNullOrWhiteSpace(request.Descripcion))
             throw new AbrilException("La descripción del hallazgo es requerida.", 400);
-        await _repo.EditarHallazgoAsync(hallazgoId, request);
+        var worker = userId.HasValue ? await _workerSearch.GetByUserId(userId.Value, esContratista) : null;
+        var esJefeSsoma = await _repo.EsJefeSsomaAsync(userId);
+        await _repo.EditarHallazgoAsync(hallazgoId, request, worker?.Id, esJefeSsoma);
     }
 
-    public async Task EliminarHallazgoAsync(int hallazgoId)
-        => await _repo.EliminarHallazgoAsync(hallazgoId);
+    public async Task EliminarHallazgoAsync(int hallazgoId, int? userId, bool esContratista)
+    {
+        var worker = userId.HasValue ? await _workerSearch.GetByUserId(userId.Value, esContratista) : null;
+        var esJefeSsoma = await _repo.EsJefeSsomaAsync(userId);
+        await _repo.EliminarHallazgoAsync(hallazgoId, worker?.Id, esJefeSsoma);
+    }
 }

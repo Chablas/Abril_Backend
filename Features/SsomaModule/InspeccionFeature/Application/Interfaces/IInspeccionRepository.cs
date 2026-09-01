@@ -17,8 +17,9 @@ public interface IInspeccionRepository
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls, int? userId = null);
     Task EditarInspeccionAsync(int inspeccionId, EditarInspeccionRequest request);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl);
-    Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request);
-    Task EliminarHallazgoAsync(int hallazgoId);
+    Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request, int? workerId, bool esJefeSsoma);
+    Task EliminarHallazgoAsync(int hallazgoId, int? workerId, bool esJefeSsoma);
+    Task<bool> EsJefeSsomaAsync(int? userId);
     Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);

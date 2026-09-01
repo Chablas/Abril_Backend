@@ -13,8 +13,8 @@ public interface IInspeccionService
     Task<int> CrearInspeccionAsync(CrearInspeccionRequest request, int? userId = null);
     Task EditarInspeccionAsync(int inspeccionId, EditarInspeccionRequest request);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request);
-    Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request);
-    Task EliminarHallazgoAsync(int hallazgoId);
+    Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request, int? userId, bool esContratista);
+    Task EliminarHallazgoAsync(int hallazgoId, int? userId, bool esContratista);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);

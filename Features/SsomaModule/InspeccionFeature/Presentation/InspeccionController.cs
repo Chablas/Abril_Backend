@@ -179,7 +179,7 @@ public class InspeccionController : ControllerBase
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
                 if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
-            await _service.EditarHallazgoAsync(id, request);
+            await _service.EditarHallazgoAsync(id, request, GetUserId(), EsContratista());
             return Ok(new { message = "Hallazgo actualizado correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -198,7 +198,7 @@ public class InspeccionController : ControllerBase
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
                 if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
-            await _service.EliminarHallazgoAsync(id);
+            await _service.EliminarHallazgoAsync(id, GetUserId(), EsContratista());
             return Ok(new { message = "Hallazgo eliminado correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

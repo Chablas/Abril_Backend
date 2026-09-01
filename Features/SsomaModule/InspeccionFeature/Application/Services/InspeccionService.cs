@@ -115,6 +115,15 @@ public class InspeccionService : IInspeccionService
         return id;
     }
 
+    public async Task EditarInspeccionAsync(int inspeccionId, EditarInspeccionRequest request)
+    {
+        if (request.TipoId <= 0)
+            throw new AbrilException("El tipo de inspección es requerido.", 400);
+        if (request.ProyectoId <= 0)
+            throw new AbrilException("El proyecto es requerido.", 400);
+        await _repo.EditarInspeccionAsync(inspeccionId, request);
+    }
+
     public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null)
         => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta, empresaIdContratista);
 

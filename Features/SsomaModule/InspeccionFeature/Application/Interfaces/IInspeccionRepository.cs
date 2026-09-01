@@ -15,6 +15,7 @@ public interface IInspeccionRepository
     Task<int> CrearInspeccionAsync(CrearInspeccionRequest request,
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls, int? userId = null);
+    Task EditarInspeccionAsync(int inspeccionId, EditarInspeccionRequest request);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl);
     Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request);
     Task EliminarHallazgoAsync(int hallazgoId);

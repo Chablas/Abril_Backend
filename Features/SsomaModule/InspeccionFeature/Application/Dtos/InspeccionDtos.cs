@@ -115,6 +115,27 @@ public class CrearInspeccionRequest
     public List<string> FotosAreaBase64 { get; set; } = [];
 }
 
+/// <summary>Edición de la inspección completa (no de un hallazgo) — solo permitida mientras la
+/// inspección no esté "Cerrada". Si ProyectoId cambia respecto al valor guardado, se notifica
+/// por correo al residente (y demás destinatarios de siempre) del proyecto nuevo — ver
+/// InspeccionRepository.EditarInspeccionAsync.</summary>
+public class EditarInspeccionRequest
+{
+    public int ProyectoId { get; set; }
+    public int TipoId { get; set; }
+    public bool EsPlanificada { get; set; } = true;
+    public DateTime Fecha { get; set; }
+    public string? HoraInicio { get; set; }
+    public string? HoraFin { get; set; }
+    public string? Area { get; set; }
+    public string? ResponsableArea { get; set; }
+    public string? InspectorNombre { get; set; }
+    public string? InspectorCargo { get; set; }
+    public string? InspectorEmpresa { get; set; }
+    public string? RepresentanteNombre { get; set; }
+    public string? RepresentanteCargo { get; set; }
+}
+
 public class UnirseInspeccionRequest
 {
     public string Nombre { get; set; } = string.Empty;

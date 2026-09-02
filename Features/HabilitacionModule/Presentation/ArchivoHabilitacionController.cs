@@ -274,9 +274,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         // En ese caso NO se pisa el estado ni la vigencia anterior: pasa a "Renovando" y la
                         // nueva fecha se guarda como propuesta, para no dejar al trabajador sin habilitación
                         // mientras Abril revisa. En cualquier otro caso (primera subida, vencido) → "Enviado".
+                        // Comparación por día calendario, no por instante: un documento vigente "hasta
+                        // hoy" (medianoche UTC) se trataba como ya vencido desde la medianoche del mismo
+                        // día — mismo bug ya corregido en ControlAccesoRepository y HabTrabajadorRepository.
                         var esRenovacion = string.Equals(ent.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
                             && ent.Vigencia.HasValue
-                            && ent.Vigencia.Value > DateTime.UtcNow;
+                            && ent.Vigencia.Value >= DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
 
                         ent.ArchivoUrl = primerArchivo.ArchivoUrl;
                         if (esRenovacion)

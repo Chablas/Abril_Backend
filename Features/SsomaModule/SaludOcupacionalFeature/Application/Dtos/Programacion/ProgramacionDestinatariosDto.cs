@@ -3,7 +3,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
     /// <summary>
     /// Origen de un destinatario, para poder etiquetarlo en el formulario. Coincide con el
     /// código del destinatario en la Configuración de EMOs (ver
-    /// <c>EmoCorreoDestinatarioCodigo</c>): CLINICA, JEFE, JEFE_SOLICITANTE, TRABAJADOR,
+    /// <c>EmoCorreoDestinatarioCodigo</c>): CLINICA, JEFE, SOLICITANTE, TRABAJADOR,
     /// RESIDENTE, COORD_ADMIN, COORD_SSOMA, ADMIN_RAZON_SOCIAL, GTH, MEDICINA_OCUPACIONAL,
     /// ARQCOM_*, POSTVENTA_* o <see cref="Adicional"/>.
     /// </summary>

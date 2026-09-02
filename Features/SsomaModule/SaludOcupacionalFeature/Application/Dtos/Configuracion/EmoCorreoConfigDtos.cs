@@ -80,19 +80,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         // ── Dinámicos: el correo no está guardado, se resuelve al enviar ──
         /// <summary>Correos de contacto de la clínica de la programación.</summary>
         public const string Clinica            = "CLINICA";
-        /// <summary>Jefe personalizado del trabajador o, si no tiene, el revisor de su área.</summary>
+        /// <summary>
+        /// Jefe ACTUAL de alguien que ya trabaja en Abril: su jefe personalizado o, si no tiene,
+        /// el revisor de su área.
+        ///
+        /// No aporta a nadie cuando la ficha todavía es de pre-ingreso
+        /// (<c>workers.workers_estado_id</c> en <c>WorkersEstadoIds.PreIngreso</c>): esa persona
+        /// no es trabajador de nadie todavía, así que el revisor del área a la que va a entrar no
+        /// es su jefe sino, a lo sumo, su futuro jefe — y a ese le habla
+        /// <see cref="Solicitante"/>, no este destinatario.
+        /// </summary>
         public const string Jefe               = "JEFE";
         /// <summary>
-        /// El mismo <see cref="Jefe"/> mientras el trabajador ya esté en Abril, pero el
-        /// <b>solicitante de la vacante</b> cuando la ficha todavía es de pre-ingreso
-        /// (<c>workers.workers_estado_id</c> en <c>WorkersEstadoIds.PreIngreso</c>): a un
-        /// postulante que viene de Solicitud de Personal el resultado de su EMO le importa a
-        /// quien pidió la vacante, no al revisor del área a la que todavía no entró.
+        /// Quien pidió la vacante en Solicitud de Personal: un jefe o gerente que sí trabaja en
+        /// Abril y que, normalmente, será el futuro jefe del postulante.
         ///
-        /// Es un destinatario aparte de <see cref="Jefe"/> a propósito: los otros correos de
-        /// EMO no tienen por qué cambiar de destinatario por esto.
+        /// Es el reverso exacto de <see cref="Jefe"/>: solo aporta cuando la ficha es de
+        /// pre-ingreso (<c>WorkersEstadoIds.PreIngreso</c>), y nunca cae al jefe del trabajador.
+        /// Así cada correo de EMO elige a quién le habla —a la jefatura de un trabajador o al
+        /// área que pidió la vacante— en vez de recibir uno u otro según el estado de la ficha.
         /// </summary>
-        public const string JefeSolicitante    = "JEFE_SOLICITANTE";
+        public const string Solicitante        = "SOLICITANTE";
         /// <summary>Correo corporativo del propio trabajador.</summary>
         public const string Trabajador         = "TRABAJADOR";
         /// <summary>Residente del proyecto donde está vinculado el trabajador.</summary>

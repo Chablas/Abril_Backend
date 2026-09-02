@@ -402,7 +402,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return l.Documento(
                 new Layout.Cabecera(
-                    "req-candidatos", "El Proceso Continúa",
+                    "req-candidatos", "Proceso retomado",
                     $"<b>{nombre}</b> vuelve al proceso de <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Franja("req-aviso", Layout.Tono.Info,
                     $"El candidato seleccionado no pasó su examen médico de ingreso. El proceso se retoma "

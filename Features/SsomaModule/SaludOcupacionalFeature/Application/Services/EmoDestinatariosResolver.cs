@@ -137,6 +137,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         w.Proyecto = proyecto;
             }
 
+            // Frontera pre-ingreso / trabajador: decide a cuál de los dos destinatarios de
+            // jefatura le toca este trabajador. JEFE es el jefe de quien ya trabaja acá y
+            // SOLICITANTE es quien pidió la vacante de quien todavía no, así que cada ficha
+            // aporta exactamente uno de los dos (o ninguno, si el que le toca no está activo).
+            foreach (var w in workers)
+                w.EsPreIngreso = WorkersEstadoIds.PreIngreso.Contains(w.WorkersEstadoId);
+
             // Un trabajador es de Arquitectura Comercial si es staff con esa subárea, o si
             // es obrero cuyo proyecto actual es, literalmente, el proyecto "Arquitectura
             // Comercial" — mismo criterio que ArquitecturaComercialRepository.GetSupervisoresAc.
@@ -211,16 +218,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         eventoCodigo, AreaScopeIds.GestionDelTalentoHumano);
             }
 
-            // JEFE_SOLICITANTE resuelve al jefe igual que JEFE mientras el trabajador ya esté en
-            // Abril, así que la lista de jefes se pide si está activo cualquiera de los dos.
-            var necesitaJefe =
-                codigosActivos.Contains(EmoCorreoDestinatarioCodigo.Jefe) ||
-                codigosActivos.Contains(EmoCorreoDestinatarioCodigo.JefeSolicitante);
+            // El jefe solo se resuelve para las fichas de trabajadores reales. En un lote que sea
+            // todo pre-ingreso (el EMO de Ingreso de una tanda de postulantes) no hay a quién
+            // resolverle jefe y esta consulta —la más cara de todas— no se hace.
+            var idsConJefe = codigosActivos.Contains(EmoCorreoDestinatarioCodigo.Jefe)
+                ? workers.Where(w => !w.EsPreIngreso).Select(w => w.Id).ToList()
+                : new List<int>();
 
             var jefes = new Dictionary<int, JefeRevisorResolution>();
-            if (necesitaJefe)
+            if (idsConJefe.Count > 0)
             {
-                try { jefes = await _jefeResolver.ResolveManyAsync(ids); }
+                try { jefes = await _jefeResolver.ResolveManyAsync(idsConJefe); }
                 catch (Exception ex)
                 {
                     // Best-effort: si la resolución falla, el correo sale igual con el resto.
@@ -232,8 +240,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             // Solicitante de la vacante: solo para las fichas de pre-ingreso, que todavía no son
             // trabajadores de Abril. Es una consulta más y solo se paga cuando el correo tiene
-            // activo JEFE_SOLICITANTE y además hay alguna ficha de pre-ingreso en el lote.
-            if (codigosActivos.Contains(EmoCorreoDestinatarioCodigo.JefeSolicitante))
+            // activo SOLICITANTE y además hay alguna ficha de pre-ingreso en el lote.
+            if (codigosActivos.Contains(EmoCorreoDestinatarioCodigo.Solicitante))
                 await ResolverSolicitantesAsync(ctx, workers, eventoCodigo);
 
             // ── Armado ──
@@ -297,8 +305,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         /// <summary>
         /// Cuelga en cada ficha de pre-ingreso del lote el correo del solicitante de la vacante
-        /// por la que está en proceso. A las fichas de trabajadores reales no les toca nada: para
-        /// ellas <c>JEFE_SOLICITANTE</c> resuelve al jefe, igual que <c>JEFE</c>.
+        /// por la que está en proceso. A las fichas de trabajadores reales no les toca nada: a
+        /// ellas les habla <c>JEFE</c>, que es el destinatario del otro lado de la frontera.
         ///
         /// Del <c>person_id</c> al requerimiento hay DOS caminos y hay que mirar los dos, porque
         /// son las dos formas en que un candidato queda enganchado a una ficha (mismo criterio que
@@ -314,7 +322,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         /// Van en dos consultas y no en una con <c>Concat</c>: los dos caminos parten de tablas
         /// distintas y cada uno arrastra sus dos left join al solicitante, así que unirlos deja una
         /// consulta que EF puede o no saber traducir — y esto se ejecuta solo cuando el correo
-        /// tiene activo JEFE_SOLICITANTE <b>y</b> además hay alguna ficha de pre-ingreso en el
+        /// tiene activo SOLICITANTE <b>y</b> además hay alguna ficha de pre-ingreso en el
         /// lote, que es el caso raro. De los procesos por los que haya pasado la persona manda el
         /// más reciente.
         /// </summary>
@@ -322,8 +330,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             AppDbContext ctx, List<WorkerContexto> workers, string eventoCodigo)
         {
             var personIds = workers
-                .Where(w => w.PersonId.HasValue
-                         && WorkersEstadoIds.PreIngreso.Contains(w.WorkersEstadoId))
+                .Where(w => w.PersonId.HasValue && w.EsPreIngreso)
                 .Select(w => w.PersonId!.Value)
                 .Distinct()
                 .ToList();
@@ -375,13 +382,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             foreach (var w in workers)
             {
-                if (!w.PersonId.HasValue) continue;
-                if (!WorkersEstadoIds.PreIngreso.Contains(w.WorkersEstadoId)) continue;
-
-                // La ficha es de pre-ingreso pase lo que pase: aunque no se le encuentre proceso
-                // (o el requerimiento haya quedado sin usuario solicitante), no corresponde caer al
-                // jefe del área — todavía no entró a ninguna.
-                w.EsPreIngreso = true;
+                if (!w.PersonId.HasValue || !w.EsPreIngreso) continue;
 
                 if (porPersona.TryGetValue(w.PersonId.Value, out var fila)
                     && !string.IsNullOrWhiteSpace(fila.Email))
@@ -422,24 +423,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     return clinicaEmails.Select(e => ((string?)e, (string?)(clinicaNombre ?? regla.Nombre)));
 
                 case EmoCorreoDestinatarioCodigo.Jefe:
+                    // Solo de quien ya trabaja en Abril. En una ficha de pre-ingreso el resolver
+                    // igual devolvería a alguien —el revisor del área de destino, o el fallback de
+                    // GTH—, pero ese no es el jefe de nadie todavía: al postulante no lo notifica
+                    // este destinatario sino SOLICITANTE, si el correo lo tiene activo.
+                    if (w.EsPreIngreso) return Array.Empty<(string?, string?)>();
+
                     return jefes.TryGetValue(w.Id, out var jefe)
                         ? new[] { ((string?)jefe.Email, (string?)(jefe.Nombre ?? regla.Nombre)) }
                         : Array.Empty<(string?, string?)>();
 
-                case EmoCorreoDestinatarioCodigo.JefeSolicitante:
-                    // Ficha de pre-ingreso: el solicitante de la vacante, y solo él. No se cae al
-                    // jefe del área a propósito — el trabajador todavía no entró a ninguna, así que
-                    // ese revisor sería un destinatario que nada tiene que ver con el proceso.
-                    if (w.EsPreIngreso)
-                        return string.IsNullOrWhiteSpace(w.EmailSolicitante)
-                            ? Array.Empty<(string?, string?)>()
-                            : new[] { ((string?)w.EmailSolicitante,
-                                       (string?)(w.NombreSolicitante ?? regla.Nombre)) };
+                case EmoCorreoDestinatarioCodigo.Solicitante:
+                    // Solo de quien todavía NO trabaja en Abril, y solo el solicitante de su
+                    // vacante: nunca se cae al jefe del área a propósito —el trabajador todavía no
+                    // entró a ninguna, así que ese revisor no tiene nada que ver con el proceso—,
+                    // y a un trabajador de casa este destinatario no le aporta a nadie, que es lo
+                    // que deja apagar el aviso al área solicitante sin apagar el del jefe.
+                    if (!w.EsPreIngreso) return Array.Empty<(string?, string?)>();
 
-                    return jefes.TryGetValue(w.Id, out var jefeDelTrabajador)
-                        ? new[] { ((string?)jefeDelTrabajador.Email,
-                                   (string?)(jefeDelTrabajador.Nombre ?? regla.Nombre)) }
-                        : Array.Empty<(string?, string?)>();
+                    return string.IsNullOrWhiteSpace(w.EmailSolicitante)
+                        ? Array.Empty<(string?, string?)>()
+                        : new[] { ((string?)w.EmailSolicitante,
+                                   (string?)(w.NombreSolicitante ?? regla.Nombre)) };
 
                 case EmoCorreoDestinatarioCodigo.Trabajador:
                     return new[] { ((string?)w.EmailCorporativo, (string?)regla.Nombre) };
@@ -492,7 +497,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             public string? EmailAdminRazonSocial { get; set; }
             public string? Subarea { get; set; }
             public bool EsArquitecturaComercial { get; set; }
-            /// <summary>La ficha todavía no es de un trabajador de Abril (ver WorkersEstadoIds.PreIngreso).</summary>
+            /// <summary>
+            /// La ficha todavía no es de un trabajador de Abril (ver WorkersEstadoIds.PreIngreso).
+            /// Decide cuál de los dos destinatarios de jefatura le aplica: JEFE si es false,
+            /// SOLICITANTE si es true.
+            /// </summary>
             public bool EsPreIngreso { get; set; }
             /// <summary>Solicitante de la vacante por la que está en proceso. Solo en las fichas de pre-ingreso.</summary>
             public string? EmailSolicitante { get; set; }

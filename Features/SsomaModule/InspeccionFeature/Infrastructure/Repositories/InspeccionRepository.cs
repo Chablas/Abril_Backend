@@ -6,6 +6,7 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,6 +39,26 @@ public class InspeccionRepository : IInspeccionRepository
             .Select(h => new { h.Inspeccion!.EmpresaId, h.Inspeccion!.EmpresaInspectoraId })
             .FirstOrDefaultAsync();
         return (row?.EmpresaId, row?.EmpresaInspectoraId);
+    }
+
+    /// <summary>Resuelve si el usuario logueado es el Jefe SSOMA (puesto único,
+    /// <see cref="PuestoIds.JefeSsoma"/>) — mismo criterio que EvSupervisorContratistaRepository.
+    /// EsJefeSsomaAsync, matcheando por correo entre workers y app_user en vez de por
+    /// person.user_id porque no todos los trabajadores tienen ese campo poblado.</summary>
+    public async Task<bool> EsJefeSsomaAsync(int? userId)
+    {
+        if (userId == null) return false;
+        using var ctx = _factory.CreateDbContext();
+        await ctx.Database.OpenConnectionAsync();
+        var conn = ctx.Database.GetDbConnection();
+        return await conn.QueryFirstOrDefaultAsync<bool>(
+            @"SELECT EXISTS (
+                SELECT 1
+                FROM app_user au
+                JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                WHERE au.user_id = @UserId AND w.puesto_id = @PuestoJefeSsoma
+              )",
+            new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
     }
 
     public async Task<List<InspeccionTipoDto>> GetTiposAsync()
@@ -217,6 +238,106 @@ public class InspeccionRepository : IInspeccionRepository
         return inspeccion.Id;
     }
 
+    /// <summary>Edita los datos generales de la inspección (no un hallazgo) — permitido mientras
+    /// la inspección no esté "Cerrada". Si el proyecto cambia, se notifica por correo al
+    /// residente (y demás destinatarios habituales) del proyecto nuevo, reusando el mismo
+    /// criterio de resolución de destinatarios que el cierre de inspección colaborativa
+    /// (<see cref="ResolverDestinatariosCierreAsync"/>) para no duplicar esa lógica.</summary>
+    public async Task EditarInspeccionAsync(int inspeccionId, EditarInspeccionRequest request)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+
+        if (insp.Estado == "Cerrada")
+            throw new AbrilException("La inspección ya está cerrada, no se puede editar.", 400);
+
+        var proyectoAnteriorId = insp.ProyectoId;
+
+        TimeOnly? horaInicio = null, horaFin = null;
+        if (!string.IsNullOrEmpty(request.HoraInicio) && TimeOnly.TryParse(request.HoraInicio, out var hi))
+            horaInicio = hi;
+        if (!string.IsNullOrEmpty(request.HoraFin) && TimeOnly.TryParse(request.HoraFin, out var hf))
+            horaFin = hf;
+
+        insp.ProyectoId = request.ProyectoId;
+        insp.TipoId = request.TipoId;
+        insp.EsPlanificada = request.EsPlanificada;
+        insp.Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc);
+        insp.HoraInicio = horaInicio;
+        insp.HoraFin = horaFin;
+        insp.Area = request.Area;
+        insp.ResponsableArea = request.ResponsableArea;
+        insp.InspectorNombre = request.InspectorNombre;
+        insp.InspectorCargo = request.InspectorCargo;
+        insp.InspectorEmpresa = request.InspectorEmpresa;
+        insp.RepresentanteNombre = request.RepresentanteNombre;
+        insp.RepresentanteCargo = request.RepresentanteCargo;
+        await ctx.SaveChangesAsync();
+
+        if (request.ProyectoId != proyectoAnteriorId)
+            await EnviarNotificacionReasignacionProyectoAsync(ctx, insp, proyectoAnteriorId);
+    }
+
+    /// <summary>Correo de aviso cuando se reasigna una inspección a otro proyecto — mismos
+    /// destinatarios que el cierre de inspección colaborativa (residente, coordinador SSOMA,
+    /// gerente inmobiliario en "para"; jefe SSOMA en copia), pero resueltos ya con
+    /// <c>insp.ProyectoId</c> actualizado al proyecto nuevo.</summary>
+    private async Task EnviarNotificacionReasignacionProyectoAsync(AppDbContext ctx, SsomaInspeccion insp, int proyectoAnteriorId)
+    {
+        try
+        {
+            var destinatarios = await ResolverDestinatariosCierreAsync(ctx, insp, null);
+
+            var to = new List<string?> { destinatarios.ResidenteEmail, destinatarios.CoordSsomaEmail, destinatarios.GerenteInmobiliarioEmail }
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!)
+                .Distinct()
+                .ToList();
+            if (to.Count == 0) return;
+
+            var cc = new List<string?> { destinatarios.JefeSsomaEmail }
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!)
+                .Distinct()
+                .ToList();
+
+            var proyectoNuevo = await ctx.Project.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.ProjectId == insp.ProyectoId);
+            var proyectoAnterior = await ctx.Project.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.ProjectId == proyectoAnteriorId);
+            if (proyectoNuevo == null) return;
+
+            var tipoNombre = await ctx.SsomaInspeccionTipo.AsNoTracking()
+                .Where(t => t.Id == insp.TipoId)
+                .Select(t => t.Nombre)
+                .FirstOrDefaultAsync();
+            var fechaStr = insp.Fecha.ToString("dd/MM/yyyy");
+
+            var html = $@"<h2>Inspección reasignada a tu proyecto</h2>
+<p>La inspección #{insp.Id} fue reasignada desde <strong>{proyectoAnterior?.ProjectDescription ?? "otro proyecto"}</strong> hacia <strong>{proyectoNuevo.ProjectDescription}</strong>:</p>
+<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Proyecto</td><td style='padding:6px 12px'>{proyectoNuevo.ProjectDescription}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo de inspección</td><td style='padding:6px 12px'>{tipoNombre ?? "—"}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Área</td><td style='padding:6px 12px'>{insp.Area ?? "—"}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Estado</td><td style='padding:6px 12px'>{insp.Estado}</td></tr>
+</table>
+<p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
+
+            await _emailService.SendAsync(
+                to: to,
+                subject: $"[Inspección Reasignada] {proyectoNuevo.ProjectDescription} — {fechaStr}",
+                body: html,
+                isHtml: true,
+                cc: cc);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo enviar la notificación de reasignación de proyecto de la inspección {InspeccionId}.", insp.Id);
+        }
+    }
+
     public async Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl)
     {
         using var ctx = _factory.CreateDbContext();
@@ -229,10 +350,13 @@ public class InspeccionRepository : IInspeccionRepository
         await ctx.SaveChangesAsync();
     }
 
-    /// <summary>Solo editable mientras el hallazgo sigue "Abierto" y su inspección sigue
-    /// "Abierta" — un hallazgo ya cerrado, o cuya inspección ya se cerró, es un registro final
-    /// y no debe modificarse.</summary>
-    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request)
+    /// <summary>Solo editable mientras el hallazgo sigue "Abierto" y su inspección no está
+    /// "Cerrada" (puede seguir "Abierta" o "EnProceso", que es donde la mayoría de hallazgos se
+    /// resuelven) — un hallazgo ya cerrado, o cuya inspección ya se cerró, es un registro final
+    /// y no debe modificarse. Además solo puede editarlo quien lo creó (CreadoPorWorkerId) o el
+    /// Jefe SSOMA — el controller resuelve <paramref name="workerId"/>/<paramref name="esJefeSsoma"/>
+    /// antes de llamar acá.</summary>
+    public async Task EditarHallazgoAsync(int hallazgoId, EditarHallazgoRequest request, int? workerId, bool esJefeSsoma)
     {
         using var ctx = _factory.CreateDbContext();
         var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
@@ -241,8 +365,10 @@ public class InspeccionRepository : IInspeccionRepository
 
         if (hallazgo.Estado != "Abierto")
             throw new AbrilException("Solo se pueden editar hallazgos abiertos.", 400);
-        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado == "Cerrada")
             throw new AbrilException("La inspección ya está cerrada, no se puede editar el hallazgo.", 400);
+        if (!esJefeSsoma && (workerId == null || hallazgo.CreadoPorWorkerId != workerId))
+            throw new AbrilException("Solo quien creó el hallazgo o el Jefe SSOMA pueden editarlo.", 403);
 
         hallazgo.Descripcion = request.Descripcion;
         hallazgo.Tipo = request.Tipo;
@@ -257,7 +383,7 @@ public class InspeccionRepository : IInspeccionRepository
     /// <summary>Soft delete — marca Estado = "Eliminado" en vez de borrar la fila, para
     /// conservar el registro ante una auditoría. Mismas condiciones que EditarHallazgoAsync.
     /// Todas las lecturas de hallazgos (detalle, PDF, dashboard, lista) ya excluyen este estado.</summary>
-    public async Task EliminarHallazgoAsync(int hallazgoId)
+    public async Task EliminarHallazgoAsync(int hallazgoId, int? workerId, bool esJefeSsoma)
     {
         using var ctx = _factory.CreateDbContext();
         var hallazgo = await ctx.SsomaInspeccionHallazgo.Include(h => h.Inspeccion)
@@ -266,8 +392,10 @@ public class InspeccionRepository : IInspeccionRepository
 
         if (hallazgo.Estado != "Abierto")
             throw new AbrilException("Solo se pueden eliminar hallazgos abiertos.", 400);
-        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado != "Abierta")
+        if (hallazgo.Inspeccion == null || hallazgo.Inspeccion.Estado == "Cerrada")
             throw new AbrilException("La inspección ya está cerrada, no se puede eliminar el hallazgo.", 400);
+        if (!esJefeSsoma && (workerId == null || hallazgo.CreadoPorWorkerId != workerId))
+            throw new AbrilException("Solo quien creó el hallazgo o el Jefe SSOMA pueden eliminarlo.", 403);
 
         hallazgo.Estado = "Eliminado";
         await ctx.SaveChangesAsync();
@@ -406,6 +534,7 @@ public class InspeccionRepository : IInspeccionRepository
                     Latitud = h.Latitud,
                     Longitud = h.Longitud,
                     CreadoPorNombre = h.CreadoPorNombre,
+                    CreadoPorWorkerId = h.CreadoPorWorkerId,
                     Fotos = h.Fotos.OrderBy(f => f.Orden)
                         .Select(f => new InspeccionHallazgoFotoDto
                         {

@@ -95,6 +95,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var empresaHabilitadaMap = EmpresaHabilitacionHelper.CalcularHabilitadas(habEmpresaRowsSsoma, itemsSsomaEmpresaIds);
 
+            // Día calendario (no instante) para los chequeos de "ya venció" — comparar contra
+            // DateTime.UtcNow (con hora) marcaba un documento vigente "hasta hoy" como vencido
+            // desde la medianoche UTC del mismo día, aunque su día de vigencia no hubiera
+            // terminado (mismo bug ya corregido en ControlAccesoRepository, caso Mego Lozano).
+            var hoyCalendario = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
+
             var empresasNoHabilitadasKeys = empresaHabilitadaMap
                 .Where(kv => !kv.Value)
                 .Select(kv => (long)kv.Key.EmpresaId * 100000L + kv.Key.ProyectoId)
@@ -153,8 +159,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              //    corriera el cron, aunque Control de Acceso (que sí compara vigencia en
                              //    vivo) ya lo mostrara "No Autorizado" — caso Mego Lozano (Vida ley vencida).
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow)) ||
-                              (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= DateTime.UtcNow)) &&
+                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoyCalendario)) ||
+                              (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoyCalendario)) &&
                              // Antes se excluía el ítem EMO (id 4) para "Casa" acá, confiando SOLO
                              // en el chequeo de WorkerEmo.Estado de la línea de abajo como única
                              // fuente de verdad. Si ese estado quedaba desincronizado (p.ej. el job

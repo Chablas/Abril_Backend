@@ -6,19 +6,20 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applic
 
 /// <summary>
 /// Ratios historicos de los drivers del proyecto (HH total y N Trabajadores) por m2 de area
-/// techada — mismo patron IQR que RatioService usa para materiales, pero calculado desde
-/// fuentes reales independientes, no desde Project.HhTotalCasa/CantTrabajadoresCasa (campos
-/// tipeados a mano, pueden ser una estimacion — ver el caso real donde 3 proyectos "cerrados"
-/// distintos dieron casi el mismo ratio, señal de que reusaron el mismo indice en vez de medir):
-///   - HH: suma del Tareo de Control de Acceso (personas del dia x horas de jornada). OJO: si
-///     el Tareo no arranca junto con el proyecto, el total queda parcial — limitacion conocida
-///     de la fuente, pendiente de resolver con una carga manual complementaria.
-///   - Trabajadores: cantidad de trabajadores DISTINTOS que alguna vez tuvieron una vinculacion
-///     (worker_vinculaciones) a ese proyecto — "los que alguna vez pisaron la obra", no un
-///     promedio de dotacion diaria.
-/// A proposito no segmenta por tipo de proyecto (cartera homogenea); "es outlier" es solo
-/// informativo, la unica autoridad real es IncluidoManual — el responsable decide caso por
-/// caso, incluso si el proyecto sigue activo.
+/// techada — mismo patron IQR que RatioService usa para materiales.
+///
+/// Cada driver tiene DOS fuentes, y la "oficial" (Cantidad/Ratio, la que entra a la mediana)
+/// prioriza el valor manual sobre el calculado cuando el responsable ya lo cargó en Datos Base:
+///   - Calculado ("en vivo"): HH = suma del Tareo de Control de Acceso o Excel de planilla;
+///     Trabajadores = distintos que alguna vez tuvieron una vinculacion (worker_vinculaciones)
+///     a ese proyecto. Puede quedar parcial o directamente vacio si la fuente no esta bien
+///     cargada para ese proyecto (caso real: SAUCO con solo 3 filas en worker_vinculaciones).
+///   - Manual (Project.HhTotalCasa / CantTrabajadoresCasa): lo que el responsable tipeo a mano
+///     en Datos Base, tipicamente el total final real de un proyecto ya cerrado. Gana sobre el
+///     calculado cuando existe.
+/// Ambos valores se guardan (CantidadCalculado / CantidadManual) para poder comparar en la UI;
+/// "es outlier" es solo informativo, la unica autoridad real sobre la mediana es IncluidoManual
+/// — el responsable decide caso por caso, incluso si el proyecto sigue activo.
 /// </summary>
 public class RatioDriverService : IRatioDriverService
 {
@@ -50,16 +51,27 @@ public class RatioDriverService : IRatioDriverService
             // y esa decisión manual queda registrada y no se pisa en recálculos posteriores.
             var incluidoPorDefecto = p.CicloVida == "Finalizado";
 
-            if (hhPorProyecto.TryGetValue(p.ProjectId, out var hh) && hh.HhTotal > 0)
+            var hhCalculado = hhPorProyecto.TryGetValue(p.ProjectId, out var hh) ? hh.HhTotal : 0;
+            var diasRegistrados = hhPorProyecto.TryGetValue(p.ProjectId, out var hhDias) ? hhDias.DiasRegistrados : 0;
+            // El valor manual final (Datos Base) manda sobre el calculado desde Tareo/planilla
+            // cuando existe — normalmente porque el proyecto ya cerró y el real definitivo se
+            // conocía por otra vía (ver caso SAUCO: worker_vinculaciones quedó casi vacío para
+            // ese proyecto, pero Datos Base sí tenía el total correcto tipeado a mano).
+            var hhManual = p.HhTotalCasa;
+            var hhOficial = hhManual ?? hhCalculado;
+
+            if (hhOficial > 0)
             {
                 items.Add(new RatioDriverUpsertItem
                 {
                     TipoDriver = HH,
                     ProjectId = p.ProjectId,
                     AreaTechada = p.AreaTechada,
-                    Cantidad = hh.HhTotal,
-                    Ratio = hh.HhTotal / p.AreaTechada,
-                    DiasRegistrados = hh.DiasRegistrados,
+                    Cantidad = hhOficial,
+                    Ratio = hhOficial / p.AreaTechada,
+                    CantidadCalculado = hhCalculado,
+                    CantidadManual = hhManual,
+                    DiasRegistrados = diasRegistrados,
                     IncluidoManualDefault = incluidoPorDefecto,
                 });
             }
@@ -68,15 +80,21 @@ public class RatioDriverService : IRatioDriverService
                 sinTareo++;
             }
 
-            if (trabPorProyecto.TryGetValue(p.ProjectId, out var trab) && trab.TotalTrabajadoresDistintos > 0)
+            var trabCalculado = trabPorProyecto.TryGetValue(p.ProjectId, out var trab) ? trab.TotalTrabajadoresDistintos : 0;
+            var trabManual = decimal.TryParse(p.CantTrabajadoresCasa, out var trabManualParsed) ? trabManualParsed : (decimal?)null;
+            var trabOficial = trabManual ?? trabCalculado;
+
+            if (trabOficial > 0)
             {
                 items.Add(new RatioDriverUpsertItem
                 {
                     TipoDriver = TRABAJADORES,
                     ProjectId = p.ProjectId,
                     AreaTechada = p.AreaTechada,
-                    Cantidad = trab.TotalTrabajadoresDistintos,
-                    Ratio = trab.TotalTrabajadoresDistintos / p.AreaTechada,
+                    Cantidad = trabOficial,
+                    Ratio = trabOficial / p.AreaTechada,
+                    CantidadCalculado = trabCalculado,
+                    CantidadManual = trabManual,
                     DiasRegistrados = 0,
                     IncluidoManualDefault = incluidoPorDefecto,
                 });

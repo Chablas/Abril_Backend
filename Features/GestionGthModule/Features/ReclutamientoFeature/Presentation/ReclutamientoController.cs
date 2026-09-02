@@ -761,6 +761,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var codigos = result.Codigos.Count == 1
                     ? $"Requerimiento generado: {result.Codigos[0]}."
                     : $"Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
+
+                // A quién se le mandó la solicitud lo decide cada VACANTE y no la solicitud: una
+                // vacante nueva sube a Gerencia General y un reemplazo lo firma primero el gerente
+                // del área —cubrir a alguien que se va no crea plaza— y una misma solicitud puede
+                // traer de las dos (ver RutaAprobacion). Nombrar al que no es manda al solicitante
+                // a preguntarle por su solicitud a quien nunca la vio.
+                var vaAGerenciaGeneral = result.RutasAprobacion.Contains(RutaAprobacion.GerenciaGeneral);
+                var vaAGerenciaArea    = result.RutasAprobacion.Contains(RutaAprobacion.AreaYGth);
+                var destino = vaAGerenciaGeneral && vaAGerenciaArea
+                    ? "Gerencia General y a la Gerencia del Área"
+                    : vaAGerenciaArea
+                        ? "la Gerencia del Área"
+                        : "Gerencia General";
+
                 // Qué sigue depende de lo que traiga la solicitud, así que el mensaje lo dice
                 // explícitamente (y avisa si algún correo no pudo salir, porque entonces hay que
                 // reenviarlo). Un ingreso directo no tiene paso de aprobación: pasa derecho a GTH,
@@ -774,13 +788,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : result.HayIngresoDirecto
                         ? result.CorreoGerenciaEnviado
                             ? $"Solicitud registrada. {codigos} El ingreso directo pasó a Gestión de Talento " +
-                              "Humano y el resto se envió para su aprobación."
+                              $"Humano y el resto se envió a {destino} para su aprobación."
                             : $"Solicitud registrada. {codigos} No se pudo enviar alguno de los correos: usa " +
                               "«Reenviar aprobación» en la tabla para reintentar el de aprobación."
                         : result.CorreoGerenciaEnviado
-                            ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
-                            : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
-                              "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
+                            ? $"Solicitud registrada y enviada a {destino} para su aprobación. {codigos}"
+                            : $"Solicitud registrada. {codigos} No se pudo enviar el correo a {destino}: " +
+                              "usa «Reenviar aprobación» en la tabla para reintentarlo.";
                 return Ok(new
                 {
                     id = result.SolicitudId,

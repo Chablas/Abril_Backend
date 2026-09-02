@@ -227,7 +227,10 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 {
                     Id = x.PuestoId,
                     Nombre = x.Nombre,
-                    CategoriaId = x.CategoriaId
+                    CategoriaId = x.CategoriaId,
+                    // El area a la que va quien ejerce el puesto, no la que puede pedirlo: es de
+                    // donde el formulario de trabajadores saca el area de la ficha.
+                    AreaDestinoScopeId = x.AreaDestinoScopeId
                 }).ToList();
                 return Ok(result);
             }

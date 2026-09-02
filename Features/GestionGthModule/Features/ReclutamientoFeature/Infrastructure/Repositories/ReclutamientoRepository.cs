@@ -4068,6 +4068,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(t => t.GthTipoRequerimientoId)
                 .ToHashSet();
 
+            // Por dónde va a pasar cada vacante para quedar aprobada, sin repetir: es lo que le
+            // permite al mensaje de respuesta nombrar a quien de verdad la tiene (una nueva sube a
+            // Gerencia General, un reemplazo lo firma primero el gerente del área). Se calcula acá
+            // por lo mismo que las reglas de abajo: depende del código del tipo, que es lo que se
+            // acaba de traer, y volver a preguntarlo sería un roundtrip de más.
+            var codigoPorTipo   = tipos.ToDictionary(t => t.GthTipoRequerimientoId, t => t.Codigo);
+            var rutasAprobacion = vacantes
+                .Select(v => RutaAprobacion.De(v.EsFft, codigoPorTipo.GetValueOrDefault(v.TipoRequerimientoId)))
+                .Distinct()
+                .ToList();
+
             var projectsOk = await ctx.Project.CountAsync(p => projectIds.Contains(p.ProjectId) && p.State && p.Active);
             if (projectsOk != projectIds.Count)
                 throw new AbrilException("Uno o más proyectos/obras seleccionados no son válidos.", 400);
@@ -4266,8 +4277,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return new SolicitudPersonalCreateResultDto
             {
-                SolicitudId = solicitud.GthSolicitudId,
-                Codigos     = codigos,
+                SolicitudId     = solicitud.GthSolicitudId,
+                Codigos         = codigos,
+                RutasAprobacion = rutasAprobacion,
             };
         }
     }

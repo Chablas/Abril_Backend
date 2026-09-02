@@ -883,6 +883,16 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.ProjectSubContractorPackageId)
                 .IsRequired(false);
 
+            // Era la única navegación de documento que se resolvía por convención. Desde que las
+            // tablas de documento guardan project_sub_contractor_id, la convención ve un candidato
+            // de FK en ambos lados, se rinde e inventa una FK sombra
+            // (instructivo_project_sub_contractor_instructivo_id) que no existe en la BD.
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Instructivo)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorInstructivoId)
+                .IsRequired(false);
+
             modelBuilder.Entity<ProjectSubContractor>()
                 .HasOne(s => s.NonConformingOutput)
                 .WithMany()

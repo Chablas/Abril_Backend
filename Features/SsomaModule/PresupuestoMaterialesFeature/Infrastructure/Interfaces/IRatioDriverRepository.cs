@@ -11,6 +11,11 @@ public class ProyectoAreaRow
     /// <summary>Project.Activo: Finalizado | Activo | Inactivo — si el proyecto sigue Activo,
     /// el HH acumulado a la fecha es parcial (todavía no es el total real de la obra).</summary>
     public string CicloVida { get; set; } = "";
+    /// <summary>Valor final tipeado a mano en Datos Base (Project.HhTotalCasa) — gana sobre el
+    /// calculado desde Tareo/planilla cuando existe.</summary>
+    public decimal? HhTotalCasa { get; set; }
+    /// <summary>Project.CantTrabajadoresCasa, texto libre — se parsea al calcular.</summary>
+    public string? CantTrabajadoresCasa { get; set; }
 }
 
 /// <summary>HH real de un proyecto, agregado desde el Tareo de Control de Acceso (SsTareo +
@@ -36,8 +41,16 @@ public class RatioDriverUpsertItem
     public string TipoDriver { get; set; } = null!;
     public int ProjectId { get; set; }
     public decimal AreaTechada { get; set; }
+    /// <summary>Valor "oficial": el manual si existe, si no el calculado. Es el que entra a
+    /// la mediana/ratio.</summary>
     public decimal Cantidad { get; set; }
     public decimal Ratio { get; set; }
+    /// <summary>Crudo calculado desde Tareo/planilla (HH) o worker_vinculaciones
+    /// (TRABAJADORES) — se guarda siempre, aunque haya manual, para poder comparar.</summary>
+    public decimal CantidadCalculado { get; set; }
+    /// <summary>Valor final tipeado a mano en Datos Base — null si el proyecto todavía no lo
+    /// tiene cargado.</summary>
+    public decimal? CantidadManual { get; set; }
     public int DiasRegistrados { get; set; }
     /// <summary>Valor de incluido_manual SOLO para cuando el par (tipo,proyecto) se inserta por
     /// primera vez — true únicamente si el proyecto ya está Finalizado. Si la fila ya existía,

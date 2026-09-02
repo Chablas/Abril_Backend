@@ -13,8 +13,21 @@ public class RatioDriverProyectoDto
     public string CicloVida { get; set; } = null!;
     public int DiasRegistrados { get; set; }
     public decimal AreaTechada { get; set; }
+    /// <summary>Valor "oficial" (manual si existe, si no el calculado) — el que entra a la
+    /// mediana. Mantenido por compatibilidad; para distinguir las fuentes usar
+    /// CantidadCalculado / CantidadManual.</summary>
     public decimal Cantidad { get; set; }
     public decimal Ratio { get; set; }
+    /// <summary>Acumulado real calculado desde Tareo/planilla (HH) o worker_vinculaciones
+    /// (TRABAJADORES) — "en vivo", puede estar incompleto si el proyecto sigue activo o si la
+    /// fuente no está bien cargada para ese proyecto (ver caso SAUCO).</summary>
+    public decimal CantidadCalculado { get; set; }
+    /// <summary>Valor final tipeado a mano en Datos Base (Project.HhTotalCasa /
+    /// CantTrabajadoresCasa) — null si el proyecto todavía no lo tiene cargado.</summary>
+    public decimal? CantidadManual { get; set; }
+    /// <summary>Solo informativo para HH: HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA — de
+    /// dónde salió el valor manual, si lo hay.</summary>
+    public string? HhFuente { get; set; }
     public bool EsOutlier { get; set; }
     /// <summary>Unica autoridad real sobre si este proyecto entra al calculo del ratio
     /// recomendado — el responsable decide por criterio propio, no se filtra

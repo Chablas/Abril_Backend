@@ -31,6 +31,8 @@ public class RatioDriverRepository : IRatioDriverRepository
                 ProjectId = p.ProjectId,
                 AreaTechada = p.AreaTechadaM2!.Value,
                 CicloVida = p.Activo ?? "Activo",
+                HhTotalCasa = p.HhTotalCasa,
+                CantTrabajadoresCasa = p.CantTrabajadoresCasa,
             })
             .ToListAsync();
     }
@@ -141,17 +143,19 @@ public class RatioDriverRepository : IRatioDriverRepository
         using var conn = Conn();
         const string sql = """
             INSERT INTO ss_ratio_proyecto_driver
-              (tipo_driver, project_id, area_techada, cantidad, ratio, dias_registrados, es_outlier, incluido_manual)
+              (tipo_driver, project_id, area_techada, cantidad, ratio, cantidad_calculado, cantidad_manual, dias_registrados, es_outlier, incluido_manual)
             VALUES
-              (@TipoDriver, @ProjectId, @AreaTechada, @Cantidad, @Ratio, @DiasRegistrados, false, @IncluidoManualDefault)
+              (@TipoDriver, @ProjectId, @AreaTechada, @Cantidad, @Ratio, @CantidadCalculado, @CantidadManual, @DiasRegistrados, false, @IncluidoManualDefault)
             ON CONFLICT (tipo_driver, project_id)
             DO UPDATE SET
-              area_techada     = EXCLUDED.area_techada,
-              cantidad         = EXCLUDED.cantidad,
-              ratio            = EXCLUDED.ratio,
-              dias_registrados = EXCLUDED.dias_registrados,
-              es_outlier       = false,
-              calculado_en     = now()
+              area_techada       = EXCLUDED.area_techada,
+              cantidad           = EXCLUDED.cantidad,
+              ratio              = EXCLUDED.ratio,
+              cantidad_calculado = EXCLUDED.cantidad_calculado,
+              cantidad_manual    = EXCLUDED.cantidad_manual,
+              dias_registrados   = EXCLUDED.dias_registrados,
+              es_outlier         = false,
+              calculado_en       = now()
             """;
         // incluido_manual solo se aplica en el INSERT (fila nueva): en el UPDATE no se toca,
         // para que la decision manual previa del responsable se respete siempre.
@@ -181,6 +185,8 @@ public class RatioDriverRepository : IRatioDriverRepository
             SELECT d.project_id AS ProjectId, p.project_description AS ProjectDescription,
                    COALESCE(p.activo, 'Activo') AS CicloVida, d.dias_registrados AS DiasRegistrados,
                    d.area_techada AS AreaTechada, d.cantidad AS Cantidad, d.ratio AS Ratio,
+                   d.cantidad_calculado AS CantidadCalculado, d.cantidad_manual AS CantidadManual,
+                   p.hh_fuente AS HhFuente,
                    d.es_outlier AS EsOutlier, d.incluido_manual AS IncluidoManual
             FROM ss_ratio_proyecto_driver d
             JOIN project p ON p.project_id = d.project_id

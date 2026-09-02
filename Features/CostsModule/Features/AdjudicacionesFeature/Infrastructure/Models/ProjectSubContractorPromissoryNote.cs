@@ -1,8 +1,12 @@
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models
 {
-    public class ProjectSubContractorPromissoryNote
+    public class ProjectSubContractorPromissoryNote : IAdjudicacionDocument
     {
         public int ProjectSubContractorPromissoryNoteId { get; set; }
+        // Adjudicación a la que pertenece el documento. Se guarda acá (además de la FK que
+        // apunta al documento vigente desde project_sub_contractor) para que al eliminarlo
+        // (state = false) la fila siga sabiendo de qué adjudicación era.
+        public int? ProjectSubContractorId { get; set; }
         public string? FileUrl { get; set; }
         public string? OriginalFileName { get; set; }
         public string? SharepointItemId { get; set; }

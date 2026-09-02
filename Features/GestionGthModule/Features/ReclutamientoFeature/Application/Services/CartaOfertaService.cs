@@ -334,7 +334,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Correo con el enlace a la carta oferta, en el chrome de marca de Abril One (ver
         /// <see cref="Layout"/>). La carta NO va adjunta: el candidato entra al enlace, la lee ahí,
-        /// registra su firma y la firma en la misma página. La tarjeta resume la posición para que
+        /// registra su firma y la firma en la misma página. La tarjeta resume el puesto para que
         /// reconozca de qué proceso se trata sin abrir nada, pero las condiciones de la propuesta
         /// solo se ven dentro del enlace, que es personal.
         ///
@@ -367,7 +367,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return l.Documento(
                 new Layout.Cabecera(
                     "onb-carta", "¡Bienvenido(a) a Abril!",
-                    $"Estimado(a) {Layout.Esc(nombre)}: fuiste seleccionado(a) para la posición de "
+                    $"Estimado(a) {Layout.Esc(nombre)}: fuiste seleccionado(a) para el puesto de "
                     + $"<b>{Layout.Esc(ctx.Puesto)}</b> en Abril Grupo Inmobiliario."),
                 l.Tarjeta(datos),
                 l.Franja("req-aviso", Layout.Tono.Info,

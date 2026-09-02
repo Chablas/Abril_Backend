@@ -37,6 +37,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         /// <summary>Lee el nombre asignado a la carpeta de la adjudicación (null si aún no tiene).</summary>
         Task<string?> GetAdjudicacionFolderNameAsync(int projectSubContractorId);
         Task SaveDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, string fileUrl, string originalFileName, int userId, string? sharepointItemId = null);
+        /// <summary>Soft delete del documento vigente del expediente (state = false). El archivo en OneDrive no se toca.</summary>
+        Task<bool> DeleteDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
         Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId);
         Task<ScNotificationDataDto> GetScNotificationDataAsync(int projectSubContractorId);

@@ -1290,6 +1290,43 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
         }
 
+        /// <summary>
+        /// Documentos del expediente que se pueden eliminar: los que se suben o se generan.
+        /// Quedan fuera los de plantilla (no tienen archivo propio) y el paquete del paso 4,
+        /// que se rehace regenerándolo.
+        /// </summary>
+        private static readonly HashSet<AdjudicacionDocumentType> DeletableDocuments =
+        [
+            AdjudicacionDocumentType.Contract,
+            AdjudicacionDocumentType.SummarySheet,
+            AdjudicacionDocumentType.Schedule,
+            AdjudicacionDocumentType.AttachedQuotation,
+            AdjudicacionDocumentType.ServiceOrder,
+            AdjudicacionDocumentType.PromissoryNote,
+            AdjudicacionDocumentType.Instructivo,
+            AdjudicacionDocumentType.FichaTecnica,
+            AdjudicacionDocumentType.Anexo,
+        ];
+
+        /// <summary>
+        /// Quita el documento del expediente. Es un soft delete: la fila queda con state = false
+        /// y el archivo en OneDrive se conserva.
+        /// </summary>
+        public async Task DeleteDocumentAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            int userId)
+        {
+            if (!DeletableDocuments.Contains(documentType))
+                throw new AbrilException("Este documento no se puede eliminar.", 400);
+
+            var removed = await _projectSubContractorRepository.DeleteDocumentAsync(
+                projectSubContractorId, documentType, userId);
+
+            if (!removed)
+                throw new AbrilException("El documento ya no tiene archivo.", 404);
+        }
+
         // ── Generación de documentos ─────────────────────────────────────────
 
         public async Task<DocumentUploadResponseDto> GenerateDocumentAsync(

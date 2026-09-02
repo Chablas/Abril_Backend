@@ -23,7 +23,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
         public List<string> Restricciones { get; set; } = new();
         /// <summary>
         /// true = la ficha todavía es de pre-ingreso: quien lee el correo es el solicitante de la
-        /// vacante, no la jefatura de alguien que ya trabaja acá. Cambia UNA línea (la bajada).
+        /// vacante, no la jefatura de alguien que ya trabaja acá.
+        ///
+        /// Cambia cómo se le llama a la persona examinada en todo el correo —la bajada y la
+        /// etiqueta de la primera fila— vía <see cref="EmoExaminadoTexto"/>. Quién lo recibe no
+        /// sale de acá: la versión del postulante es su propia sección de Configuración de EMOs
+        /// (<c>RESULTADO_POSTULANTE</c>), con sus propios destinatarios.
         /// </summary>
         public bool EsPostulante { get; set; }
     }
@@ -31,6 +36,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
     /// <summary>
     /// El correo que avisa el resultado del EMO al médico ocupacional, a GTH y a la jefatura del
     /// trabajador (o al solicitante de la vacante, si todavía es un postulante).
+    ///
+    /// Sirve a las dos versiones del correo —<c>RESULTADO</c> y <c>RESULTADO_POSTULANTE</c>— con
+    /// el mismo HTML: lo único que cambia es cómo se le llama a la persona examinada, vía
+    /// <see cref="EmoExaminadoTexto"/>. A quién le llega cada versión sale de la matriz de
+    /// Configuración de EMOs, que las tiene como dos secciones separadas.
     ///
     /// Es un correo que solo informa: no lleva botón ni enlace, a diferencia del resto de la
     /// familia. Quien lo recibe no tiene que ir a hacer nada — el certificado de aptitud, la
@@ -71,7 +81,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
             var esNoApto        = Es(d.Aptitud, AptitudNoApto);
             var esRestricciones = Es(d.Aptitud, AptitudAptoRestricciones);
 
-            var quien = d.EsPostulante ? "del postulante" : "del trabajador";
+            var quien = "del " + EmoExaminadoTexto.Minuscula(d.EsPostulante);
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
@@ -111,7 +121,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
         {
             var filas = new List<AbrilEmailLayout.Fila>
             {
-                new(FilaTrabajador, "Trabajador", AbrilEmailLayout.Esc(d.Trabajador)),
+                new(FilaTrabajador, EmoExaminadoTexto.Capitalizada(d.EsPostulante),
+                    AbrilEmailLayout.Esc(d.Trabajador)),
             };
 
             if (!string.IsNullOrWhiteSpace(d.Dni))

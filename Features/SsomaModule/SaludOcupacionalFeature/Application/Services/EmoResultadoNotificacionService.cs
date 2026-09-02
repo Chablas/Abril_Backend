@@ -95,8 +95,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     return;
                 }
 
+                // Pre-ingreso decide TODO lo que distingue las dos versiones del correo: de qué
+                // sección de Configuración salen los destinatarios y cómo lo llama el texto. Se
+                // calcula una vez acá para que no puedan discrepar.
+                var esPostulante = WorkersEstadoIds.PreIngreso.Contains(datos.WorkersEstadoId);
+
                 var destinatarios = await _destinatarios.ResolverAsync(
-                    EmoCorreoEventoCodigo.Resultado, datos.WorkerId, datos.ClinicaId);
+                    EmoCorreoEventoCodigo.Para(EmoCorreoEventoCodigo.Resultado, esPostulante),
+                    datos.WorkerId, datos.ClinicaId);
 
                 var to = destinatarios.Para.Select(d => d.Email).ToList();
                 var cc = destinatarios.Copias.Select(d => d.Email).ToList();
@@ -154,7 +160,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 var correo = new EmoResultadoCorreoDatos
                 {
-                    Trabajador       = datos.Trabajador ?? $"Trabajador #{datos.WorkerId}",
+                    Trabajador       = datos.Trabajador
+                                       ?? $"{EmoExaminadoTexto.Capitalizada(esPostulante)} #{datos.WorkerId}",
                     Dni              = datos.Dni,
                     Puesto           = datos.Puesto,
                     TipoEmo          = datos.TipoEmo,
@@ -164,7 +171,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Proyecto         = proyecto,
                     Aptitud          = aptitud,
                     Restricciones    = restricciones,
-                    EsPostulante     = WorkersEstadoIds.PreIngreso.Contains(datos.WorkersEstadoId),
+                    EsPostulante     = esPostulante,
                 };
 
                 var layout = SaludOcupacionalEmailLayout.Desde(_configuration);

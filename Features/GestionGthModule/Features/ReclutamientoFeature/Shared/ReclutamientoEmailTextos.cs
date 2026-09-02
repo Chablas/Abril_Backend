@@ -63,5 +63,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Guion cuando el dato no está: nunca se deja una celda o una fila en blanco.</summary>
         public static string OGuion(string? valor) =>
             string.IsNullOrWhiteSpace(valor) ? "—" : ReclutamientoEmailLayout.Esc(valor);
+
+        /// <summary>
+        /// Fila "Lugar" de los correos de la entrevista: la dirección, la referencia para ubicarla
+        /// y el enlace al mapa, cada una en su propia línea y solo si el lugar la tiene cargada.
+        ///
+        /// Está acá y no en cada correo porque la misma cita se la cuenta al postulante (la
+        /// invitación) y al solicitante (el aviso de entrevista confirmada), y las dos veces tiene
+        /// que decir lo mismo: la referencia se agregó justamente porque la dirección sola no
+        /// alcanzaba para llegar.
+        ///
+        /// Es un enlace y no un mapa embebido a propósito: Outlook bloquea las imágenes remotas de
+        /// terceros y una imagen estática de Google Maps necesita una API key, así que el mapa
+        /// saldría roto justo donde más importa.
+        /// </summary>
+        public static string Lugar(string? nombre, string? referencia, string? mapsUrl)
+        {
+            var html = OGuion(nombre);
+
+            if (!string.IsNullOrWhiteSpace(referencia))
+                html += Subtexto(referencia);
+
+            if (!string.IsNullOrWhiteSpace(mapsUrl))
+                html += $"<br />{Enlace(mapsUrl!, "Ver en Google Maps")}";
+
+            return html;
+        }
     }
 }

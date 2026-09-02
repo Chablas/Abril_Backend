@@ -2360,6 +2360,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Contract:
                     psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorContract,
+                        projectSubContractorId,
                         psc.ProjectSubContractorContractId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorContract { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2369,6 +2370,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.SummarySheet:
                     psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSummarySheet,
+                        projectSubContractorId,
                         psc.ProjectSubContractorSummarySheetId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSummarySheet { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2378,6 +2380,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Budget:
                     psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorBudget,
+                        projectSubContractorId,
                         psc.ProjectSubContractorBudgetId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorBudget { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2387,6 +2390,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Schedule:
                     psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSchedule,
+                        projectSubContractorId,
                         psc.ProjectSubContractorScheduleId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSchedule { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2396,6 +2400,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.AttachedQuotation:
                     psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAttachedQuotation,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAttachedQuotationId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAttachedQuotation { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2405,6 +2410,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.ServiceOrder:
                     psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorServiceOrder,
+                        projectSubContractorId,
                         psc.ProjectSubContractorServiceOrderId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorServiceOrder { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2414,6 +2420,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.PromissoryNote:
                     psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPromissoryNote,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPromissoryNoteId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPromissoryNote { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2423,6 +2430,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.ContractPackage:
                     psc.ProjectSubContractorPackageId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPackage,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPackageId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPackage { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2432,6 +2440,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Instructivo:
                     psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorInstructivo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorInstructivoId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorInstructivo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2441,6 +2450,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.NonConformingOutput:
                     psc.ProjectSubContractorNonConformingOutputId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorNonConformingOutput,
+                        projectSubContractorId,
                         psc.ProjectSubContractorNonConformingOutputId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorNonConformingOutput { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2450,6 +2460,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.ToleranceChart:
                     psc.ProjectSubContractorToleranceChartId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorToleranceChart,
+                        projectSubContractorId,
                         psc.ProjectSubContractorToleranceChartId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorToleranceChart { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2459,6 +2470,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.FichaTecnica:
                     psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorFichaTecnica,
+                        projectSubContractorId,
                         psc.ProjectSubContractorFichaTecnicaId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorFichaTecnica { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2468,6 +2480,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Anexo:
                     psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAnexo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAnexoId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAnexo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2516,6 +2529,94 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
             psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
             await _context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Elimina el documento vigente de la adjudicación: la fila se marca con
+        /// <c>state = false</c> (el archivo en OneDrive no se toca) y la adjudicación deja de
+        /// apuntarla, así que la pantalla ya no la ve. Devuelve false si no había nada que borrar.
+        /// </summary>
+        public async Task<bool> DeleteDocumentAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Da de baja la fila y suelta la FK de la adjudicación (la FK se limpia siempre,
+            // incluso si la fila ya no estaba: así no queda apuntando a un documento eliminado).
+            async Task<bool> Remove<T>(
+                Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
+                int? existingId,
+                Action clearForeignKey) where T : class, IAdjudicacionDocument
+            {
+                clearForeignKey();
+                if (!existingId.HasValue) return false;
+
+                var doc = await dbSet.FindAsync(existingId.Value);
+                if (doc is null || !doc.State) return false;
+
+                doc.ProjectSubContractorId ??= projectSubContractorId;
+                doc.State = false;
+                doc.UpdatedDatetime = now;
+                doc.UpdatedUserId = userId;
+                return true;
+            }
+
+            var removed = documentType switch
+            {
+                AdjudicacionDocumentType.Contract => await Remove(
+                    _context.ProjectSubContractorContract, psc.ProjectSubContractorContractId,
+                    () => psc.ProjectSubContractorContractId = null),
+
+                AdjudicacionDocumentType.SummarySheet => await Remove(
+                    _context.ProjectSubContractorSummarySheet, psc.ProjectSubContractorSummarySheetId,
+                    () => psc.ProjectSubContractorSummarySheetId = null),
+
+                AdjudicacionDocumentType.Budget => await Remove(
+                    _context.ProjectSubContractorBudget, psc.ProjectSubContractorBudgetId,
+                    () => psc.ProjectSubContractorBudgetId = null),
+
+                AdjudicacionDocumentType.Schedule => await Remove(
+                    _context.ProjectSubContractorSchedule, psc.ProjectSubContractorScheduleId,
+                    () => psc.ProjectSubContractorScheduleId = null),
+
+                AdjudicacionDocumentType.AttachedQuotation => await Remove(
+                    _context.ProjectSubContractorAttachedQuotation, psc.ProjectSubContractorAttachedQuotationId,
+                    () => psc.ProjectSubContractorAttachedQuotationId = null),
+
+                AdjudicacionDocumentType.ServiceOrder => await Remove(
+                    _context.ProjectSubContractorServiceOrder, psc.ProjectSubContractorServiceOrderId,
+                    () => psc.ProjectSubContractorServiceOrderId = null),
+
+                AdjudicacionDocumentType.PromissoryNote => await Remove(
+                    _context.ProjectSubContractorPromissoryNote, psc.ProjectSubContractorPromissoryNoteId,
+                    () => psc.ProjectSubContractorPromissoryNoteId = null),
+
+                AdjudicacionDocumentType.Instructivo => await Remove(
+                    _context.ProjectSubContractorInstructivo, psc.ProjectSubContractorInstructivoId,
+                    () => psc.ProjectSubContractorInstructivoId = null),
+
+                AdjudicacionDocumentType.FichaTecnica => await Remove(
+                    _context.ProjectSubContractorFichaTecnica, psc.ProjectSubContractorFichaTecnicaId,
+                    () => psc.ProjectSubContractorFichaTecnicaId = null),
+
+                AdjudicacionDocumentType.Anexo => await Remove(
+                    _context.ProjectSubContractorAnexo, psc.ProjectSubContractorAnexoId,
+                    () => psc.ProjectSubContractorAnexoId = null),
+
+                _ => throw new AbrilException("Este documento no se puede eliminar.", 400),
+            };
+
+            psc.UpdatedDateTime = now;
+            psc.UpdatedUserId = userId;
+            await _context.SaveChangesAsync();
+
+            return removed;
         }
 
         public async Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId)
@@ -2664,6 +2765,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Contract:
                     psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorContract,
+                        projectSubContractorId,
                         psc.ProjectSubContractorContractId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorContract { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2673,6 +2775,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.SummarySheet:
                     psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSummarySheet,
+                        projectSubContractorId,
                         psc.ProjectSubContractorSummarySheetId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSummarySheet { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2682,6 +2785,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Budget:
                     psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorBudget,
+                        projectSubContractorId,
                         psc.ProjectSubContractorBudgetId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorBudget { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2691,6 +2795,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Schedule:
                     psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSchedule,
+                        projectSubContractorId,
                         psc.ProjectSubContractorScheduleId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSchedule { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2700,6 +2805,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.AttachedQuotation:
                     psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAttachedQuotation,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAttachedQuotationId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAttachedQuotation { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2709,6 +2815,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.ServiceOrder:
                     psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorServiceOrder,
+                        projectSubContractorId,
                         psc.ProjectSubContractorServiceOrderId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorServiceOrder { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2718,6 +2825,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.PromissoryNote:
                     psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPromissoryNote,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPromissoryNoteId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPromissoryNote { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2727,6 +2835,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Instructivo:
                     psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorInstructivo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorInstructivoId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorInstructivo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2747,6 +2856,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.FichaTecnica:
                     psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorFichaTecnica,
+                        projectSubContractorId,
                         psc.ProjectSubContractorFichaTecnicaId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorFichaTecnica { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2756,6 +2866,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                 case AdjudicacionDocumentType.Anexo:
                     psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAnexo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAnexoId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAnexo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -3253,28 +3364,40 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
             };
         }
 
+        /// <summary>
+        /// Crea o actualiza el documento vigente de la adjudicación y devuelve su id (el que
+        /// guarda la FK de <c>project_sub_contractor</c>). Un documento eliminado
+        /// (<c>State = false</c>) nunca se reutiliza: se crea una fila nueva y la eliminada queda
+        /// como está para la auditoría.
+        /// </summary>
         private async Task<int> UpsertDocumentAsync<T>(
             Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
+            int projectSubContractorId,
             int? existingId,
             Action<T> update,
             Func<T> create,
-            Func<T, int> getId) where T : class
+            Func<T, int> getId) where T : class, IAdjudicacionDocument
         {
             if (existingId.HasValue)
             {
                 var existing = await dbSet.FindAsync(existingId.Value)
                     ?? throw new AbrilException("El documento referenciado no existe.");
-                update(existing);
-                await _context.SaveChangesAsync();
-                return existingId.Value;
+
+                if (existing.State)
+                {
+                    // Las filas anteriores a la normalización no traen la adjudicación grabada.
+                    existing.ProjectSubContractorId = projectSubContractorId;
+                    update(existing);
+                    await _context.SaveChangesAsync();
+                    return existingId.Value;
+                }
             }
-            else
-            {
-                var newDoc = create();
-                dbSet.Add(newDoc);
-                await _context.SaveChangesAsync();
-                return getId(newDoc);
-            }
+
+            var newDoc = create();
+            newDoc.ProjectSubContractorId = projectSubContractorId;
+            dbSet.Add(newDoc);
+            await _context.SaveChangesAsync();
+            return getId(newDoc);
         }
     }
 }

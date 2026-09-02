@@ -1777,6 +1777,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto          = cand.Puesto,
                 Codigo          = cand.Codigo,
                 LugarMapsUrl    = lugar.MapsUrl,
+                LugarReferencia = lugar.Referencia,
                 Token           = nuevoToken,
                 Resumen = new EntrevistaResumenDto
                 {
@@ -1837,6 +1838,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Area = r.Solicitud!.AreaNombre,
                     LugarNombre = l != null ? l.Nombre : null,
                     LugarMapsUrl = l != null ? l.MapsUrl : null,
+                    LugarReferencia = l != null ? l.Referencia : null,
                     SolicitanteEmail  = u != null ? u.Email : null,
                     SolicitanteNombre = ps != null ? ps.FullName : null,
                 }).FirstOrDefaultAsync();
@@ -1866,6 +1868,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SolicitanteEmail  = contexto.SolicitanteEmail,
                 SolicitanteNombre = contexto.SolicitanteNombre,
                 LugarMapsUrl      = contexto.LugarMapsUrl,
+                LugarReferencia   = contexto.LugarReferencia,
                 YaHabiaRespondidoLoMismo = repetida,
                 Resumen = new EntrevistaResumenDto
                 {
@@ -4405,6 +4408,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///
         /// Ni la cita del EMO, ni su resultado, ni la firma del candidato cierran el proceso por sí
         /// solos: lo cierra GTH al aprobar la carta firmada, con el documento a la vista.
+        ///
+        /// En pantalla se llama <b>Finalizado</b>: el nombre visible vive en
+        /// <c>gth_estado_requerimiento.nombre</c> y GTH lo cambió ahí. Este código NO se renombra
+        /// —es la clave estable con la que lo buscan este archivo y <c>OnboardingRepository</c>—,
+        /// así que no sorprenda que el constante diga "Cerrado" y la pantalla "Finalizado".
         /// </summary>
         public const string Cerrado           = "CERRADO";
 

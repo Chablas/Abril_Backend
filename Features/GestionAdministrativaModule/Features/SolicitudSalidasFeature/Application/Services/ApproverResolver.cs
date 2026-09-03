@@ -49,15 +49,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             using var ctx = _factory.CreateDbContext();
 
-            // La categoría del trabajador ya no vive en workers: se resuelve por su puesto
-            // (workers.puesto_id -> puesto.categoria_id). Sin puesto no hay categoría, y sin
-            // categoría el trabajador cae al walk-up por el árbol como cualquier otro.
-            var userCategoriaId = user.PuestoId == null
+            // Ni la categoría ni el área del trabajador viven ya en workers: las dos se
+            // resuelven por su puesto (puesto.categoria_id y puesto.area_destino_scope_id).
+            // Sin puesto no hay ninguna de las dos, y sin categoría el trabajador cae al
+            // walk-up por el árbol como cualquier otro. Van en una sola consulta porque
+            // siempre se necesitan juntas.
+            var userPuesto = user.PuestoId == null
                 ? null
                 : await ctx.Puesto.AsNoTracking()
                     .Where(p => p.PuestoId == user.PuestoId.Value)
-                    .Select(p => (int?)p.CategoriaId)
+                    .Select(p => new { p.CategoriaId, p.AreaDestinoScopeId })
                     .FirstOrDefaultAsync();
+
+            var userCategoriaId  = userPuesto?.CategoriaId;
+            var userAreaScopeId  = userPuesto?.AreaDestinoScopeId;
 
             // Regla 0 (override manual): si el trabajador tiene un revisor de salidas asignado
             // (workers.worker_salida_jefe_id, sección "Revisor de Salidas") y ese jefe tiene
@@ -85,7 +90,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return null;
 
             // Si el trabajador no tiene área en el árbol, no se puede resolver por jerarquía
-            if (!user.AreaScopeId.HasValue)
+            if (!userAreaScopeId.HasValue)
                 return null;
 
             // Cargamos la topología completa del árbol una sola vez (es una tabla
@@ -95,7 +100,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
                 .ToDictionaryAsync(s => s.AreaScopeId, s => s.AreaScopeParentId);
 
-            var ancestros = BuildAncestorsChain(user.AreaScopeId.Value, parentByScope);
+            var ancestros = BuildAncestorsChain(userAreaScopeId.Value, parentByScope);
             var rootId    = ancestros[^1]; // último = raíz
 
             // Regla B: Jefe / Sub Gerente → salta directo al Gerente del macro-área
@@ -110,7 +115,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             {
                 var candidatos = await (
                     from w in ctx.Worker.AsNoTracking()
-                    where w.AreaScopeId == scopeId
+                    where w.PuestoCatalogo!.AreaDestinoScopeId == scopeId
                           && w.Id != user.Id
                           && w.PuestoCatalogo != null
                           && CategoriasWalkUp.Contains(w.PuestoCatalogo.CategoriaId)
@@ -153,8 +158,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         /// <summary>
-        /// Busca el Gerente entre todos los workers cuyo <c>area_scope_id</c> resuelva
-        /// al mismo root que el del solicitante. Excluye self.
+        /// Busca el Gerente entre todos los workers cuya área (la de destino de su puesto)
+        /// resuelva al mismo root que la del solicitante. Excluye self.
         /// </summary>
         private static async Task<ApproverResolution?> FindGerenteByRootAsync(
             AppDbContext ctx,
@@ -169,13 +174,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var gerentes = await (
                 from w in ctx.Worker.AsNoTracking()
-                where w.AreaScopeId.HasValue
+                where w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.AreaDestinoScopeId.HasValue
                       && w.Id != excludeWorkerId
-                      && w.PuestoCatalogo != null
                       && w.PuestoCatalogo.CategoriaId == CategoriaIds.Gerente
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.EndsWith(EmailDomainCorp)
-                select new { w.Id, w.AreaScopeId, w.EmailCorporativo }
+                select new { w.Id, AreaScopeId = w.PuestoCatalogo.AreaDestinoScopeId, w.EmailCorporativo }
             ).ToListAsync();
 
             var gerente = gerentes.FirstOrDefault(g => g.AreaScopeId.HasValue && scopesEnRaiz.Contains(g.AreaScopeId.Value));

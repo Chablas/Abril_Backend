@@ -77,9 +77,14 @@ namespace Abril_Backend.Shared.Models
         public AreaScope? AreaSolicitanteScope { get; set; }
 
         /// <summary>
-        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista: es la que
-        /// queda en <c>workers.area_scope_id</c> de su ficha de pre-ingreso, y con ella se
+        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista, y con ella se
         /// resuelve después su jefatura.
+        ///
+        /// Desde el 2026-09-03 es EL área del trabajador, no solo la de su alta: <c>workers</c>
+        /// dejó de tener su propia <c>area_scope_id</c> y toda pantalla que muestre o filtre por
+        /// área de un trabajador llega hasta acá por <c>workers.puesto_id</c>. O sea que cambiar
+        /// esta columna mueve de área a TODOS los trabajadores del puesto de golpe — incluidos
+        /// sus aprobadores de salidas y sus revisores.
         ///
         /// No es lo mismo que <see cref="AreaSolicitanteScopeId"/> y por eso son dos columnas:
         /// INGENIERO RESIDENTE lo pide la Gerencia Inmobiliaria, pero el residente trabaja en

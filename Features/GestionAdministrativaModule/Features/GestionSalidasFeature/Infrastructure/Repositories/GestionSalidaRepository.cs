@@ -174,17 +174,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                          ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
                     ||
                     ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        w.AreaScopeId != null && areaIds.Contains(w.AreaScopeId.Value)));
+                        w.PuestoCatalogo!.AreaDestinoScopeId != null
+                        && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)));
             }
 
-            // Filtro de área elegido por el usuario (cascada): trabajadores cuyo area_scope_id
-            // esté dentro del nodo seleccionado + sus descendientes (ya expandidos en el frontend).
+            // Filtro de área elegido por el usuario (cascada): trabajadores cuya área (la de
+            // destino de su puesto) esté dentro del nodo seleccionado + sus descendientes
+            // (ya expandidos en el frontend).
             if (filters.FilterAreaScopeIds is { Count: > 0 })
             {
                 var areaFilter = filters.FilterAreaScopeIds;
                 solicitudQuery = solicitudQuery.Where(s =>
                     ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        w.AreaScopeId != null && areaFilter.Contains(w.AreaScopeId.Value)));
+                        w.PuestoCatalogo!.AreaDestinoScopeId != null
+                        && areaFilter.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)));
             }
 
             // Filtro por lugar proyecto: necesita pasar por trayectos
@@ -208,7 +211,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 orderby s.FechaSalida descending, s.CreatedAt descending
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea, w.AreaScopeId,
+                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
                     s.HoraSalidaReal, s.HoraRetornoReal, s.RendicionId,
@@ -292,7 +296,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
             }
 
-            // 4.c. Área del trabajador (nodo de workers.area_scope_id, el más bajo del árbol) y
+            // 4.c. Área del trabajador (nodo de puesto.area_destino_scope_id, el más bajo del árbol) y
             //       jefe/revisor de cada solicitante. El revisor se resuelve en UN lote para todos
             //       los trabajadores de la lista con la misma fuente que decide a quién se le manda
             //       la solicitud a aprobar (IJefeRevisorResolver).
@@ -425,7 +429,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (!seesAll)
             {
                 trabajadoresQuery = trabajadoresQuery.Where(w =>
-                    (w.AreaScopeId != null && visibleAreaScopeIds.Contains(w.AreaScopeId.Value))
+                    (w.PuestoCatalogo!.AreaDestinoScopeId != null
+                     && visibleAreaScopeIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
                     || (currentUserId != null &&
                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == currentUserId)));
             }
@@ -728,7 +733,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == id
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id, w.Subarea, w.AreaScopeId,
+                    s.Id, WorkerInternalId = w.Id, w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt, s.MotivoRechazo,
                     s.RendicionId,
@@ -947,7 +953,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
                         TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
                         TrabajadorDocumentTypeId = per != null ? per.DocumentIdentityTypeId : null,
-                        Area             = w.Area,     // fallback; se sobrescribe abajo si hay area_scope_id
+                        Area             = w.Area,     // fallback; se sobrescribe abajo si el puesto resuelve un área
                         FechaSalida      = s.FechaSalida,
                         Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
                         MotivoAdicional  = t.MotivoAdicional,
@@ -961,7 +967,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Ruc              = cont != null ? cont.ContributorRuc  : null,
                     },
                     Subarea = w.Subarea,
-                    WorkerAreaScopeId = w.AreaScopeId,
+                    WorkerAreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
                 }
@@ -1257,7 +1263,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == solicitudId
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id, w.AreaScopeId,
+                    s.Id, WorkerInternalId = w.Id,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
                     Email = u != null ? u.Email : null,
                     s.FechaSalida, s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
@@ -1384,7 +1391,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>
         /// El área más baja a la que pertenece el trabajador: el nodo al que apunta directamente
-        /// <c>workers.area_scope_id</c> (el último de <see cref="RutaArea"/>). Es lo único que se
+        /// <c>puesto.area_destino_scope_id</c> (el último de <see cref="RutaArea"/>). Es lo único que se
         /// muestra en la tabla; el detalle muestra además la ruta completa.
         /// </summary>
         private static string? AreaMasBaja(

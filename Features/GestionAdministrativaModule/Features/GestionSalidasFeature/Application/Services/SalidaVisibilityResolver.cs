@@ -53,8 +53,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 select new
                 {
                     w.Id,
-                    w.AreaScopeId,
-                    // La categoría sale del puesto: workers ya no la guarda.
+                    // El área y la categoría salen las dos del puesto: workers ya no las guarda.
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
                 }
             ).ToListAsync();
@@ -163,10 +163,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                                      string.Equals(name, AreaAdminObra, StringComparison.OrdinalIgnoreCase)))
                 {
                     areasConPersonalDeObra ??= await ctx.Worker
-                        .Where(x => x.AreaScopeId != null
+                        .Where(x => x.PuestoCatalogo!.AreaDestinoScopeId != null
                                     && (x.ObraOficinaStaffId == ObraOficinaStaffIds.Obra
                                         || x.ObraOficinaStaffId == ObraOficinaStaffIds.Staff))
-                        .Select(x => x.AreaScopeId!.Value)
+                        .Select(x => x.PuestoCatalogo!.AreaDestinoScopeId!.Value)
                         .Distinct()
                         .ToListAsync();
 

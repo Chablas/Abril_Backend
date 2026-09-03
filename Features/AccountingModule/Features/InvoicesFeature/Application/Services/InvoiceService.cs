@@ -268,8 +268,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             byte[] signedPdf;
             try
             {
-                // Todas las páginas: la firma del Gerente General vale como visado de cada hoja.
-                signedPdf = SignaturePdfStamper.Stamp(original, signature.Bytes, SignatureStampScope.AllPages);
+                // La firma del Gerente General vale como visado de cada hoja.
+                signedPdf = SignaturePdfStamper.Stamp(original, signature.Bytes);
             }
             catch (Exception ex)
             {

@@ -66,7 +66,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                     Email = w.EmailCorporativo,
                     CategoryId = pu != null ? pu.CategoriaId : (int?)null,
                     Category = c != null ? c.Nombre : null,
-                    AreaScopeId = w.AreaScopeId,
+                    // El área sale del puesto, que ya está joineado acá para la categoría.
+                    AreaScopeId = pu != null ? pu.AreaDestinoScopeId : null,
                 }
             ).ToListAsync();
 

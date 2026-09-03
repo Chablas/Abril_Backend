@@ -561,7 +561,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 join w in ctx.Worker on p.PersonId equals w.PersonId
                 where p.UserId == filter.CurrentUserId
                 orderby (w.ObraOficinaStaffId != null ? 0 : 1), w.Id
-                select new { w.ObraOficinaStaffId, w.AreaScopeId }
+                select new
+                {
+                    w.ObraOficinaStaffId,
+                    // El área sale del puesto: workers ya no la guarda.
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                }
             ).FirstOrDefaultAsync();
 
             // lesson_area_ids con plantilla: una lesson_area sin scope_item no aparece
@@ -603,7 +608,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         /// <summary>
         /// Área del formulario que le corresponde por defecto a un trabajador según el nodo
-        /// del árbol que tiene asignado (<c>workers.area_scope_id</c>).
+        /// del árbol que tiene asignado (<c>puesto.area_destino_scope_id</c>).
         ///
         /// La cascada del formulario solo acepta HOJAS, así que se busca la hoja más cercana
         /// subiendo desde su nodo:

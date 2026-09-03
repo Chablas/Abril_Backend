@@ -252,7 +252,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-                baseQuery = baseQuery.Where(x => x.Worker.AreaScopeId != null && idsArea.Contains(x.Worker.AreaScopeId.Value));
+                baseQuery = baseQuery.Where(x => x.Worker.PuestoCatalogo!.AreaDestinoScopeId != null
+                                              && idsArea.Contains(x.Worker.PuestoCatalogo.AreaDestinoScopeId!.Value));
             }
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
@@ -2031,8 +2032,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
             if (dto.ObraOficinaStaffId.HasValue) w.ObraOficinaStaffId = dto.ObraOficinaStaffId;
-            // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
-            w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea);
+            // El área ya no se deriva del texto capturado ni se guarda en la ficha: sale del
+            // puesto (puesto.area_destino_scope_id). Area/Subarea siguen siendo texto legacy.
             if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
             // El DTO sigue recibiendo el codigo en texto por compatibilidad con quien ya
             // llamaba al endpoint; se traduce al catalogo y un valor desconocido se ignora
@@ -2225,7 +2226,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Categoria = w.PuestoCatalogo?.Categoria?.Nombre,
             PuestoId = w.PuestoId,
             Puesto = w.PuestoCatalogo?.Nombre,
-            AreaScopeId = w.AreaScopeId,
+            AreaScopeId = w.PuestoCatalogo?.AreaDestinoScopeId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,

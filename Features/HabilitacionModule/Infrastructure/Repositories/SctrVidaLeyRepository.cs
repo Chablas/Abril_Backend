@@ -681,7 +681,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // COALESCE equivalente: habX != null ? habX.Estado : "Falta"
             var habQuery =
                 from w in ctx.Worker.Where(w => workerIds.Contains(w.Id)
-                    && (idsArea == null || (w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))))
+                    && (idsArea == null || (w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                            && idsArea.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))))
                 join p in ctx.Person on w.PersonId equals (int?)p.PersonId into pg
                 from person in pg.DefaultIfEmpty()
                 join hs in ctx.SsHabTrabajador.Where(h => h.ItemId == itemSctrId)

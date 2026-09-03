@@ -51,7 +51,7 @@ namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
     }
 
     /// <summary>
-    /// Gerente del área del solicitante, resuelto desde <c>workers.area_scope_id</c> subiendo por
+    /// Gerente del área del solicitante, resuelto desde <c>puesto.area_destino_scope_id</c> subiendo por
     /// el árbol de áreas hasta el primer nodo con un trabajador de categoría GERENTE.
     /// </summary>
     public class GerenteAreaDto

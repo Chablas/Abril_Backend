@@ -6,7 +6,7 @@
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>
-        /// Área del trabajador: el nombre del nodo al que apunta <c>workers.area_scope_id</c>, es
+        /// Área del trabajador: el nombre del nodo al que apunta <c>puesto.area_destino_scope_id</c>, es
         /// decir el área más baja a la que pertenece (una persona puede colgar de Gerencia de
         /// Proyectos › Unidad de Proyectos › Unidad de Proyectos y aquí va solo la última). El
         /// detalle sí devuelve la ruta completa en <see cref="GestionSalidaDetalleDto.AreaRuta"/>.
@@ -351,7 +351,7 @@
         public int Id { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
-        /// <summary>Área más baja del trabajador (el nodo de <c>workers.area_scope_id</c>).</summary>
+        /// <summary>Área más baja del trabajador (el nodo de <c>puesto.area_destino_scope_id</c>).</summary>
         public string? Area { get; set; }
         /// <summary>
         /// Ruta completa del área en el árbol <c>area_scope</c>, de la raíz al nodo del trabajador

@@ -287,7 +287,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 
         /// <summary>
-        /// Gerente del área de un solicitante: parte de su <c>workers.area_scope_id</c> y sube por
+        /// Gerente del área de un solicitante: parte de su <c>puesto.area_destino_scope_id</c> y sube por
         /// el árbol de áreas hasta el primer nodo con un trabajador ACTIVO de categoría GERENTE.
         /// Sube por el árbol porque los gerentes están registrados en el nodo "Área de Gerencia"
         /// y no en el área estándar de la que cuelga el solicitante. null si no hay ninguno.

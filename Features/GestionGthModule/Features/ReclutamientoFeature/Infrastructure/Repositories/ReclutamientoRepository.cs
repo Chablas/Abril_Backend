@@ -734,8 +734,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// (ver <see cref="QueryPuestosDelArea"/>), así que el reemplazado tampoco puede salir de su
         /// propia área — sería pedir el reemplazo de un residente eligiendo entre la gente de GTH.
         /// Lo que SÍ se sigue exigiendo es tener área: los puestos que GTH puede pedir son todos de
-        /// oficina (son los únicos con destino), y sin <c>area_scope_id</c> se colarían las ~2 100
-        /// fichas de obra del padrón, que no reemplazan a nadie en un puesto de oficina.
+        /// oficina (son los únicos con destino), y sin área se colarían las ~2 100 fichas de obra
+        /// del padrón, que no reemplazan a nadie en un puesto de oficina.
         /// </summary>
         private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(
             AppDbContext ctx, int? areaScopeId, bool esGth)
@@ -746,12 +746,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
             var query = ctx.Worker
                 .Where(w => WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
-                         && w.AreaScopeId != null);
+                         && w.PuestoCatalogo!.AreaDestinoScopeId != null);
 
             if (!esGth)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId!.Value);
-                query = query.Where(w => idsArea.Contains(w.AreaScopeId!.Value));
+                query = query.Where(w => idsArea.Contains(w.PuestoCatalogo!.AreaDestinoScopeId!.Value));
             }
 
             var raw = await query
@@ -2387,20 +2387,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
         /// vera el aviso de que falta el formulario.
         ///
-        /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la de DESTINO
-        /// del PUESTO que se pidio (<c>puesto.area_destino_scope_id</c>), no la del solicitante ni
-        /// la que puede pedir el puesto. La Gerencia Inmobiliaria pide un INGENIERO RESIDENTE y el
-        /// residente entra a Residencia. Cuando el puesto no tiene destino se cae al area del
-        /// solicitante.
-        /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
-        /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
-        /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
+        /// El area a la que entra el seleccionado ya no se graba: sale sola del PUESTO que se
+        /// pidio (<c>puesto.area_destino_scope_id</c>), y el puesto SI se graba. Es el area de
+        /// destino, no la del solicitante ni la que puede pedir el puesto: la Gerencia Inmobiliaria
+        /// pide un INGENIERO RESIDENTE y el residente entra a Residencia. Con eso la jefatura del
+        /// seleccionado se resuelve — subiendo por el arbol de area_scope — desde el momento en que
+        /// se le programa el EMO de ingreso, que ocurre antes de que exista contrato.
+        ///
+        /// Ojo con un caso que cambio al bajar <c>workers.area_scope_id</c>: cuando el puesto
+        /// pedido no tiene area de destino, el finalista queda SIN area. Antes se caia al area del
+        /// solicitante, pero ya no hay donde guardar ese respaldo — el arreglo es ponerle destino
+        /// al puesto en Configuracion → Categorias y Puestos.
         ///
         /// La entidad se agrega al ChangeTracker pero NO se guarda: la persiste el SaveChanges de
         /// quien llama, junto con el cambio de estado del requerimiento.
         /// </summary>
         private static async Task<Worker?> ResolverFichaFinalistaAsync(
-            AppDbContext ctx, int candidatoId, GthRequerimiento req, int? areaScopeId)
+            AppDbContext ctx, int candidatoId, GthRequerimiento req)
         {
             var personId = await ctx.GthPostulanteFormulario
                 .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
@@ -2422,16 +2425,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (existente != null)
             {
-                // El área de una ficha de pre-ingreso sale siempre del requerimiento que la aprobó
-                // (es lo unico que la puso ahi, y esta decision es la ultima). La de un trabajador
-                // real, en cambio, es su area de verdad: solo se llena si estaba vacia, para no
-                // moverlo de sitio en el arbol antes de que el contrato exista.
-                var puedeReasignarArea = existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
-                                      || existente.AreaScopeId == null;
-                if (areaScopeId != null && puedeReasignarArea && existente.AreaScopeId != areaScopeId)
+                // Una ficha de pre-ingreso se repunta al puesto del requerimiento que la aprobo:
+                // es lo unico que la puso ahi y esta decision es la ultima. Con eso se mueve
+                // tambien su area (y su categoria), que salen las dos del puesto.
+                //
+                // La ficha de un trabajador real NO se toca: su puesto es su puesto de verdad, y
+                // repuntarlo lo moveria de area y de categoria antes de que exista contrato. Antes
+                // se le llenaba el area si estaba vacia; eso ya no aplica, porque el area dejo de
+                // ser un dato propio de la ficha que pudiera estar vacio.
+                if (existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                    && req.PuestoId != null && existente.PuestoId != req.PuestoId)
                 {
-                    existente.AreaScopeId = areaScopeId;
-                    existente.UpdatedAt   = DateTimeOffset.UtcNow;
+                    existente.PuestoId  = req.PuestoId;
+                    existente.UpdatedAt = DateTimeOffset.UtcNow;
                 }
                 return existente;
             }
@@ -2453,10 +2459,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
                 ObraOficinaStaffId = await ClasificacionPreIngreso
                     .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
-                // Area del puesto que se pidio: es a donde entra el seleccionado, y es lo que deja
-                // resolver su jefatura (subiendo por el arbol de area_scope) sin tener que esperar
-                // al onboarding — la programacion de su EMO de ingreso la necesita ya.
-                AreaScopeId     = areaScopeId,
+                // El area no se graba: sale del puesto de arriba (puesto.area_destino_scope_id).
+                // Es lo que deja resolver su jefatura (subiendo por el arbol de area_scope) sin
+                // esperar al onboarding — la programacion de su EMO de ingreso la necesita ya.
                 // Sin periodo laboral: todavia no ingreso. Se le abre uno cuando firme
                 // (ver WorkersPeriodoLaboral).
                 CreatedAt       = ahora,
@@ -2640,10 +2645,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
-            // decision, para que no exista una sin la otra. Su area sale del puesto pedido, no del
-            // solicitante (ver ResolverAreaDestinoAsync).
+            // decision, para que no exista una sin la otra. Su area no se le pasa porque ya no se
+            // graba: sale del puesto del requerimiento, que es lo que la ficha si guarda.
             var fichaFinalista = aprobado
-                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req, areaDestino)
+                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req)
                 : null;
 
             await ctx.SaveChangesAsync();
@@ -2670,8 +2675,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
-        /// ficha de pre-ingreso. Sale del PUESTO que se pidió
+        /// Área a la que entra el seleccionado, la misma que va a leerse en su ficha de
+        /// pre-ingreso (que no la guarda: la deriva). Sale del PUESTO que se pidió
         /// (<c>puesto.area_destino_scope_id</c>) y no del solicitante ni de una elección en
         /// pantalla: la Gerencia Inmobiliaria pide un INGENIERO RESIDENTE, y el residente entra a
         /// Residencia.
@@ -3754,17 +3759,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    roundtrip extra solo en leer su id.
             var candidatos = await (
                 from w in ctx.Worker.AsNoTracking()
-                where w.AreaScopeId != null && cadena.Contains(w.AreaScopeId.Value)
+                where w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.AreaDestinoScopeId != null
+                      && cadena.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                       && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
-                      && w.PuestoCatalogo != null
                       && w.PuestoCatalogo.CategoriaId == CategoriaIds.Gerente
-                join s in ctx.AreaScope.AsNoTracking() on w.AreaScopeId equals s.AreaScopeId
+                join s in ctx.AreaScope.AsNoTracking() on w.PuestoCatalogo.AreaDestinoScopeId equals (int?)s.AreaScopeId
                 join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
                 select new
                 {
                     w.Id,
-                    AreaScopeId = w.AreaScopeId!.Value,
+                    AreaScopeId = w.PuestoCatalogo.AreaDestinoScopeId!.Value,
                     Email       = w.EmailCorporativo!,
                     Nombre      = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
                     AreaNombre  = ai.AreaItemName,
@@ -3816,9 +3822,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(x => new
                 {
                     x.Id,
-                    x.AreaScopeId,
-                    // Sin puesto no hay categoría: una ficha con puesto_id null deja los dos
-                    // campos vacíos, y el formulario lo dice en vez de mostrar un hueco.
+                    // Sin puesto no hay categoría NI área: una ficha con puesto_id null deja los
+                    // tres campos vacíos, y el formulario lo dice en vez de mostrar un hueco.
+                    AreaScopeId = x.PuestoCatalogo != null ? x.PuestoCatalogo.AreaDestinoScopeId : null,
                     Puesto = x.PuestoCatalogo != null && x.PuestoCatalogo.State
                         ? x.PuestoCatalogo.Nombre
                         : null,

@@ -424,10 +424,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     byte[] firmado;
                     try
                     {
-                        // Todas las páginas: una planilla agrupa a varios trabajadores y cada grupo
-                        // termina con su propia línea de firma de jefatura, así que firmar solo la
-                        // última hoja dejaría sin firma a todos los grupos menos el último.
-                        firmado = SignaturePdfStamper.Stamp(original, firma.Bytes, SignatureStampScope.AllPages);
+                        // Una planilla agrupa a varios trabajadores y cada grupo termina con su
+                        // propia línea de firma de jefatura, así que la firma tiene que ir en todas
+                        // las hojas: solo al pie de la última dejaría sin firma a todos los grupos
+                        // menos el último.
+                        firmado = SignaturePdfStamper.Stamp(original, firma.Bytes);
                     }
                     catch (Exception ex)
                     {

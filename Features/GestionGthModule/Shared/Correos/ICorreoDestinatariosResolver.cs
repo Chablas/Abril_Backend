@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
         /// </summary>
         /// <param name="tipoCodigo">Código estable del correo (<see cref="CorreoTipoGth"/>).</param>
         /// <param name="areaScopeId">
-        /// <c>workers.area_scope_id</c> del solicitante, necesario para resolver al gerente de su
+        /// <c>puesto.area_destino_scope_id</c> del solicitante, necesario para resolver al gerente de su
         /// área. Si es null (o su área no cuelga de ninguna gerencia con gerente registrado) esa
         /// fila simplemente no aporta a nadie.
         /// </param>

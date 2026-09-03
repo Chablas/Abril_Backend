@@ -26,7 +26,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<CartaOfertaFirmaGuardarResultDto> GuardarFirma(string token, CartaOfertaFirmaGuardarDto dto);
 
         /// <summary>
-        /// Firma la carta oferta: estampa la firma registrada en la última página del PDF, sube el
+        /// Firma la carta oferta: estampa la firma registrada en todas las hojas del PDF, sube el
         /// resultado a la carpeta «Carta Oferta Firmada» del file digital del colaborador, lo deja
         /// como carta firmada y mueve el requerimiento a CARTA_OFERTA_FIRMADA, pendiente de la
         /// revisión de GTH. Al final le avisa a GTH por correo, porque nadie de la empresa dispara

@@ -241,9 +241,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             byte[] firmado;
             try
             {
-                // Última página: es donde va la línea de firma de la carta oferta. (En una factura la
-                // firma del Gerente General se estampa en todas, que es el otro uso del mismo helper.)
-                firmado = SignaturePdfStamper.Stamp(original, firma.Bytes, SignatureStampScope.LastPage);
+                // Todas las páginas: GTH pidió que la firma valga como visado de cada hoja de
+                // la carta y no solo de la que lleva la línea de firma al pie. Entra en el
+                // margen inferior de la plantilla (72 pt) sin taparle texto a ninguna hoja: la
+                // firma sale de un lienzo de 600x200, así que a 140 pt de ancho mide ~47 pt de
+                // alto y se dibuja a 24 pt del borde.
+                firmado = SignaturePdfStamper.Stamp(original, firma.Bytes);
             }
             catch (Exception ex)
             {

@@ -109,9 +109,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                             todosLosNodos.Add(id);
 
                     var miembros = await ctx.Worker
-                        .Where(w => w.AreaScopeId != null && todosLosNodos.Contains(w.AreaScopeId.Value)
+                        .Where(w => w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                    && todosLosNodos.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                                     && w.EmailCorporativo != null && w.EmailCorporativo != "")
-                        .Select(w => new { AreaScopeId = w.AreaScopeId!.Value, Email = w.EmailCorporativo! })
+                        .Select(w => new { AreaScopeId = w.PuestoCatalogo!.AreaDestinoScopeId!.Value, Email = w.EmailCorporativo! })
                         .ToListAsync();
 
                     emailsByAreaId = miembros

@@ -97,7 +97,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 if (filter.AreaScopeId.HasValue)
                 {
                     var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
-                    q = q.Where(x => x.w.AreaScopeId != null && idsArea.Contains(x.w.AreaScopeId.Value));
+                    q = q.Where(x => x.w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                  && idsArea.Contains(x.w.PuestoCatalogo.AreaDestinoScopeId!.Value));
                 }
                 if (!string.IsNullOrWhiteSpace(filter.Search))
                 {
@@ -227,7 +228,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (filter.AreaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
-                q = q.Where(x => x.p.Worker != null && x.p.Worker.AreaScopeId != null && idsArea.Contains(x.p.Worker.AreaScopeId.Value));
+                q = q.Where(x => x.p.Worker != null
+                              && x.p.Worker.PuestoCatalogo!.AreaDestinoScopeId != null
+                              && idsArea.Contains(x.p.Worker.PuestoCatalogo.AreaDestinoScopeId!.Value));
             }
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {

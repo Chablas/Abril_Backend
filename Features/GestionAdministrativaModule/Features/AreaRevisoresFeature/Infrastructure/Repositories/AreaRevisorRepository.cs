@@ -27,7 +27,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven
     /// todas las áreas y pueden editarlas; un trabajador de las categorías
     /// <see cref="CategoriaIds.ConVistaDeSuArea"/> (Jefe, Coordinador o Gerente) ve solo el
-    /// área listada a la que pertenece (subiendo el árbol desde su workers.area_scope_id) y
+    /// área listada a la que pertenece (subiendo el árbol desde su puesto.area_destino_scope_id) y
     /// sin poder editarla; el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
@@ -323,7 +323,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         /// area_scope_id (de los nodos elegibles) que el usuario puede ver, o null si
         /// no puede ver ninguno. Solo ven su área los trabajadores de las categorías
         /// <see cref="CategoriaIds.ConVistaDeSuArea"/> (Jefe, Coordinador o Gerente): se
-        /// parte del workers.area_scope_id del trabajador y se sube el árbol hasta el primer
+        /// parte del área del trabajador (la de destino de su puesto) y se sube el árbol hasta el primer
         /// nodo listado en la pantalla (un gerente colgado directamente de su gerencia
         /// resuelve a esa gerencia, que ahora es un nodo listado).
         /// </summary>
@@ -332,10 +332,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         {
             var areaScopeWorker = await (
                 from w in ctx.Worker
-                where w.Person != null && w.Person.UserId == userId && w.AreaScopeId != null
+                where w.Person != null && w.Person.UserId == userId
                     && w.PuestoCatalogo != null
+                    && w.PuestoCatalogo.AreaDestinoScopeId != null
                     && CategoriaIds.ConVistaDeSuArea.Contains(w.PuestoCatalogo.CategoriaId)
-                select w.AreaScopeId
+                select w.PuestoCatalogo.AreaDestinoScopeId
             ).FirstOrDefaultAsync();
             if (areaScopeWorker == null) return null;
 

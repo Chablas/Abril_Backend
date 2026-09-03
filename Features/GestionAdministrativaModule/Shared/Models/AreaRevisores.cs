@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     /// revisores ordenados por prioridad (1 = mayor prioridad). Se usa como segundo paso
     /// al resolver el revisor de una solicitud de salida: si el solicitante no tiene
     /// revisores propios en workers_revisores, se buscan los revisores del área a la que
-    /// pertenece (workers.area_scope_id, subiendo por el árbol si su nodo no tiene
+    /// pertenece (puesto.area_destino_scope_id, subiendo por el árbol si su nodo no tiene
     /// revisores); si tampoco hay, se hace fallback al área de GTH (area_scope.email).
     /// </summary>
     [Table("area_revisores")]

@@ -25,12 +25,8 @@
         /// Categorías y Puestos.
         /// </summary>
         public int? PuestoId { get; set; }
-        /// <summary>
-        /// Nodo del árbol de áreas elegido en el formulario (workers.area_scope_id). Cuando viene,
-        /// es la fuente de verdad del área: el backend deriva de él los campos legacy
-        /// Area/Subarea/Jefatura y se ignora lo que llegue en esos tres.
-        /// </summary>
-        public int? AreaScopeId { get; set; }
+        // El área NO se manda: es la de destino del puesto (puesto.area_destino_scope_id), y el
+        // backend deriva de ella los campos legacy Area/Subarea/Jefatura que lleguen en null.
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }

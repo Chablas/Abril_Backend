@@ -196,7 +196,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (filter.AreaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
-                q = q.Where(x => x.w.AreaScopeId != null && idsArea.Contains(x.w.AreaScopeId.Value));
+                q = q.Where(x => x.w.PuestoCatalogo!.AreaDestinoScopeId != null
+                              && idsArea.Contains(x.w.PuestoCatalogo.AreaDestinoScopeId!.Value));
             }
             if (filter.FechaEmoDesde.HasValue)
                 q = q.Where(x => x.ue != null && x.ue.FechaEmo >= filter.FechaEmoDesde.Value);
@@ -252,7 +253,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     TipoContrata = x.w.ContrataCasa,
                     Categoria = x.w.PuestoCatalogo == null || x.w.PuestoCatalogo.Categoria == null ? null : x.w.PuestoCatalogo.Categoria.Nombre,
                     Puesto = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
-                    AreaScopeId = x.w.AreaScopeId,
+                    AreaScopeId = x.w.PuestoCatalogo != null ? x.w.PuestoCatalogo.AreaDestinoScopeId : null,
                     CategoriaId = x.w.PuestoCatalogo != null ? x.w.PuestoCatalogo.CategoriaId : (int?)null,
                     PuestoId = x.w.PuestoId,
                     EmailCorporativo = x.w.EmailCorporativo,

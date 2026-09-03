@@ -912,7 +912,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 where s.Id == solicitudId
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.AreaScopeId,
+                    s.Id, s.WorkerId, WorkerInternalId = w.Id,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     s.FechaSalida, s.EstadoRendicionId, s.EstadoReembolsoId, s.RendicionId,
                     Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
                     EsPropia   = per != null && per.UserId == userId,

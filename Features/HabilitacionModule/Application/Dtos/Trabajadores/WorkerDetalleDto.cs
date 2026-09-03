@@ -34,7 +34,7 @@
         public int? PuestoId { get; set; }
         public string? Puesto { get; set; }
         /// <summary>
-        /// Nodo del árbol de áreas asignado (workers.area_scope_id). Es lo que el formulario usa
+        /// Nodo del árbol de áreas asignado (puesto.area_destino_scope_id). Es lo que el formulario usa
         /// para precargar los desplegables de área; Area/Subarea son su equivalencia legacy.
         /// </summary>
         public int? AreaScopeId { get; set; }

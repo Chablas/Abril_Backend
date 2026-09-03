@@ -107,7 +107,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Firma la carta: estampa la firma registrada en la última página, la guarda en el file digital
+        /// Firma la carta: estampa la firma registrada en todas sus hojas, la guarda en el file digital
         /// del colaborador y deja el requerimiento en CARTA_OFERTA_FIRMADA, pendiente de que GTH la
         /// apruebe — que es lo que cierra el proceso de reclutamiento.
         /// </summary>

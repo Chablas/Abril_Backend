@@ -96,7 +96,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var noAutorizadosIds = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                             (h.Estado == "Aprobado" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy)) ||
                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))))
                 .Select(h => h.WorkerId)
                 .Distinct()
@@ -566,13 +566,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     hasPendientes = itemsGenerico.Any(h =>
                         h.ItemId != HabItemIds.LecturaEmo &&
                         (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                        (h.Estado == "Aprobado" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy)) ||
                         (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))));
 
                     faltantes = itemsGenerico
                         .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
                                     (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Enviado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoy) ||
+                                    (h.Estado == "Aprobado" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy)) ||
                                     (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)

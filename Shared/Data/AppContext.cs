@@ -33,6 +33,9 @@ using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastru
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models;
+using Abril_Backend.Features.AlmacenModule.Features.MaterialesFeature.Infrastructure.Models;
+using Abril_Backend.Features.AlmacenModule.Features.OrdenesCompraFeature.Infrastructure.Models;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
@@ -509,6 +512,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcRevision> AcRevisiones => Set<AcRevision>();
         public DbSet<AcRevisionObservacion> AcRevisionObservaciones => Set<AcRevisionObservacion>();
         public DbSet<AcRevisionObservacionFoto> AcRevisionObservacionFotos => Set<AcRevisionObservacionFoto>();
+        // ── Costos (Arquitectura Comercial): conteo semanal + proyección mensual ──
+        public DbSet<AcCostoRegistro> AcCostoRegistros => Set<AcCostoRegistro>();
+        public DbSet<AcCostoProyeccion> AcCostoProyecciones => Set<AcCostoProyeccion>();
+        public DbSet<AcCostoMetaMensual> AcCostoMetaMensuales => Set<AcCostoMetaMensual>();
+        // ── Almacén (Logística): módulo nuevo e independiente ─────────────
+        public DbSet<AlmacenMaterial> AlmacenMateriales => Set<AlmacenMaterial>();
+        public DbSet<AlmacenMovimiento> AlmacenMovimientos => Set<AlmacenMovimiento>();
+        public DbSet<AlmacenOrdenCompra> AlmacenOrdenesCompra => Set<AlmacenOrdenCompra>();
 
         public DbSet<DecolectaToken> DecolectaToken => Set<DecolectaToken>();
 
@@ -1137,6 +1148,19 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaAuditoriaAtsRespuesta>().ToTable("ssoma_auditoria_ats_respuesta")
                 .HasIndex(r => new { r.AuditoriaId, r.PreguntaId }).IsUnique();
             modelBuilder.Entity<SsomaAuditoriaAtsFoto>().ToTable("ssoma_auditoria_ats_foto");
+
+            // ── Costos (Arquitectura Comercial) ─────────────────────────────
+            modelBuilder.Entity<AcCostoRegistro>()
+                .HasIndex(r => new { r.ProyectoId, r.Anio, r.Mes, r.Semana, r.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoProyeccion>()
+                .HasIndex(p => new { p.ProyectoId, p.Anio, p.Mes, p.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoMetaMensual>()
+                .HasIndex(m => new { m.Anio, m.Mes }).IsUnique();
+
+            // ── Almacén (Logística) ──────────────────────────────────────────
+            modelBuilder.Entity<AlmacenMaterial>().HasIndex(m => m.Codigo).IsUnique();
+            modelBuilder.Entity<AlmacenMovimiento>().HasIndex(m => new { m.ProyectoId, m.MaterialId });
+            modelBuilder.Entity<AlmacenOrdenCompra>().HasIndex(o => o.ProyectoId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -1198,6 +1222,37 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacionFoto>(entity =>
             {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoRegistro>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoProyeccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoMetaMensual>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+
+            modelBuilder.Entity<AlmacenMaterial>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<AlmacenMovimiento>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<AlmacenOrdenCompra>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
 

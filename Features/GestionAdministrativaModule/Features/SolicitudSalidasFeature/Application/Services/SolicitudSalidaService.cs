@@ -385,7 +385,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // Notificar al solicitante (best-effort, no rompe la respuesta HTML)
             await NotifySolicitanteAprobada(s.Id);
 
-            return RenderResultPage("Solicitud aprobada", $"Has aprobado la solicitud de salida #{s.Id}.", isSuccess: true);
+            return RenderResultPage("Solicitud aprobada", $"Has aprobado la solicitud de salida {Identificador(s)}.", isSuccess: true);
         }
 
         public async Task<string> ProcessRechazarFromEmail(string token, string? motivoRechazo)
@@ -401,8 +401,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // Notificar al solicitante (best-effort, no rompe la respuesta HTML)
             await NotifySolicitanteRechazada(s.Id);
 
-            return RenderResultPage("Solicitud rechazada", $"Has rechazado la solicitud de salida #{s.Id}.", isSuccess: true);
+            return RenderResultPage("Solicitud rechazada", $"Has rechazado la solicitud de salida {Identificador(s)}.", isSuccess: true);
         }
+
+        /// <summary>
+        /// Identificador de la solicitud para las páginas que abre el revisor desde el correo: su
+        /// código SOL-AAAA-NNNN, o "#id" en las anteriores al código (ahí el id es lo único que hay
+        /// a mano y el revisor no lo ve en ningún otro lado).
+        /// </summary>
+        private static string Identificador(GaSolicitudSalida s) =>
+            string.IsNullOrWhiteSpace(s.Codigo) ? $"#{s.Id}" : s.Codigo;
 
         public string RenderRechazarForm(string token)
         {
@@ -604,12 +612,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return;
             }
 
-            var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, solicitud.WorkerId, solicitud.Id);
+            var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, solicitud.WorkerId, solicitud.Id);
 
             var body    = BuildEmailConfirmacionSolicitante(
-                nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio,
+                nombreSolicitante, codigoSolicitud, solicitud.FechaSalida, trayectos, mostrarRecordatorio,
                 enviadoRevisorA, aprobadorEmail);
-            var subject = $"Tu solicitud de salida #{numeroUsuario} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var subject = $"Tu solicitud de salida {codigoSolicitud} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -646,11 +654,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// mostrar un identificador estable y por-usuario en los correos del solicitante,
         /// en lugar del id global de la tabla.
         /// </summary>
-        private static async Task<int> GetUserSolicitudNumeroAsync(AppDbContext ctx, int workerId, int solicitudId)
+        /// <summary>
+        /// Identificador de la solicitud tal como lo ve el trabajador: su código SOL-AAAA-NNNN.
+        /// Las solicitudes anteriores al código conservan el correlativo por trabajador con el que
+        /// salieron sus correos ("#12"), para no cambiarle el número a un hilo ya enviado.
+        /// </summary>
+        private static async Task<string> GetCodigoSolicitudAsync(AppDbContext ctx, int workerId, int solicitudId)
         {
-            return await ctx.GaSolicitudSalida
+            var codigo = await ctx.GaSolicitudSalida
+                .Where(s => s.Id == solicitudId)
+                .Select(s => s.Codigo)
+                .FirstOrDefaultAsync();
+            if (!string.IsNullOrWhiteSpace(codigo)) return codigo;
+
+            var numero = await ctx.GaSolicitudSalida
                 .Where(s => s.WorkerId == workerId && s.Id <= solicitudId)
                 .CountAsync();
+            return $"#{numero}";
         }
 
         /// <summary>
@@ -752,7 +772,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// nunca lo recibió.
         /// </summary>
         private static string BuildEmailConfirmacionSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
+            string nombre, string codigoSolicitud, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             bool mostrarRecordatorio,
             List<string> enviadoRevisorA,
@@ -805,7 +825,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     <div style=""padding:24px"">
       <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
       <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Recibimos tu solicitud de salida <b>#{numeroUsuario}</b> y está pendiente de aprobación.
+        Recibimos tu solicitud de salida <b>{codigoSolicitud}</b> y está pendiente de aprobación.
         Te notificaremos por correo cuando sea aprobada o rechazada.
       </p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
@@ -1021,7 +1041,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var datos = new ReembolsoCorreoDatos
             {
                 SolicitudId    = info.Id,
-                NumeroUsuario  = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id),
+                Codigo         = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id),
                 Trabajador     = info.Trabajador,
                 Area           = await ResolveAreaNombreAsync(ctx, info.AreaScopeId),
                 FechaSalida    = info.FechaSalida,
@@ -1111,7 +1131,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var (resueltos, mostrarRecordatorio) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
+                var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id);
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     CorreoEventoCodigos.Aprobada,
@@ -1126,8 +1146,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, mostrarRecordatorio);
-                var subject = $"Solicitud de salida #{numeroUsuario} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
+                var body    = BuildEmailAprobacionSolicitante(info.Nombre, codigoSolicitud, info.FechaSalida, resueltos, mostrarRecordatorio);
+                var subject = $"Solicitud de salida {codigoSolicitud} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
                     to: envio.Para,
@@ -1189,7 +1209,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var (resueltos, _) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
+                var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id);
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     CorreoEventoCodigos.Rechazada,
@@ -1204,8 +1224,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailRechazoSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, info.MotivoRechazo);
-                var subject = $"Solicitud de salida #{numeroUsuario} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
+                var body    = BuildEmailRechazoSolicitante(info.Nombre, codigoSolicitud, info.FechaSalida, resueltos, info.MotivoRechazo);
+                var subject = $"Solicitud de salida {codigoSolicitud} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
                     to: envio.Para,
@@ -1221,7 +1241,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         private static string BuildEmailRechazoSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
+            string nombre, string codigoSolicitud, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             string? motivoRechazo)
         {
@@ -1261,7 +1281,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     <div style=""padding:24px"">
       <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
       <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>#{numeroUsuario}</b> fue <b style=""color:#D30000"">rechazada</b>.
+        Tu solicitud de salida <b>{codigoSolicitud}</b> fue <b style=""color:#D30000"">rechazada</b>.
         Si tienes dudas, coordina directamente con tu jefatura.
       </p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
@@ -1274,7 +1294,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         private static string BuildEmailAprobacionSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
+            string nombre, string codigoSolicitud, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             bool mostrarRecordatorio)
         {
@@ -1308,7 +1328,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     <div style=""padding:24px"">
       <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
       <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>#{numeroUsuario}</b> fue <b style=""color:#009C87"">aprobada</b>.
+        Tu solicitud de salida <b>{codigoSolicitud}</b> fue <b style=""color:#009C87"">aprobada</b>.
         Recuerda subir las capturas de movilidad (imagen + monto) por cada trayecto para que la rendición pueda procesarse.
       </p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>

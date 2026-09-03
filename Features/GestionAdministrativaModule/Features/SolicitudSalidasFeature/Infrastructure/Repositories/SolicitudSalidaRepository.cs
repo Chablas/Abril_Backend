@@ -13,6 +13,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
+        /// <summary>Hora de Perú: el año del código SOL-AAAA-NNNN corta a la medianoche de acá, no a las 19:00 en UTC.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Espacio de nombres del pg_advisory_xact_lock que serializa el correlativo anual del
+        /// código. Propio de las salidas: no comparte candado con el REQ-AAAA-NNNN de GTH.
+        /// </summary>
+        private const int CorrelativoLockNamespace = 8472;
+
         public SolicitudSalidaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
@@ -33,6 +42,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     EsHoraEstimada          = m.EsHoraEstimada,
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
                     PideHorasLugares        = m.PideHorasLugares,
+                    EsReembolsable          = m.EsReembolsable,
                 })
                 .ToListAsync();
 
@@ -52,10 +62,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 }
             ).ToListAsync();
 
+            // Excepciones del catálogo que anulan el reembolso del motivo. Es una lista corta
+            // (hoy solo Oficina Central ↔ Bosque Real) y no depende del usuario, así que sale de
+            // acá y no del servicio: la regla aplica a todos, no solo a los de TI.
+            var noReembolsables = await ctx.GaTrayecto
+                .Where(t => t.Activo && !t.EsReembolsable)
+                .Select(t => new TrayectoNoReembolsableDto
+                {
+                    LugarOrigenId  = t.LugarOrigenId,
+                    LugarDestinoId = t.LugarDestinoId,
+                })
+                .ToListAsync();
+
             return new SolicitudSalidaFormDataDto
             {
                 Motivos = motivos,
-                Lugares = lugares
+                Lugares = lugares,
+                TrayectosNoReembolsables = noReembolsables
             };
         }
 
@@ -177,6 +200,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 result.Add(new SolicitudSalidaListItemDto
                 {
                     Id           = s.Id,
+                    Codigo       = s.Codigo,
                     FechaSalida  = s.FechaSalida,
                     HoraSalida   = first?.HoraSalida,
                     HoraRetorno  = last?.HoraRetorno,
@@ -267,6 +291,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             await strategy.ExecuteAsync(async () =>
             {
                 using var tx = await ctx.Database.BeginTransactionAsync();
+
+                // Código SOL-AAAA-NNNN. El candado por año se toma ANTES de leer los números
+                // usados: la transacción sola no alcanza, en READ COMMITTED dos solicitudes
+                // simultáneas leen lo mismo, arman el mismo código y la segunda muere contra el
+                // índice único (no es un error transitorio, así que la execution strategy tampoco
+                // lo reintenta). Postgres lo suelta al cerrar la transacción y, al ser por año,
+                // no serializa los registros de años distintos.
+                var anio = now.ToOffset(PeruOffset).Year;
+                await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({CorrelativoLockNamespace}, {anio})");
+
+                // El menor número libre del año, no el máximo + 1: las solicitudes anteriores al
+                // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
+                var usados = (await ctx.GaSolicitudSalida
+                        .Where(s => s.Anio == anio && s.Numero != null)
+                        .Select(s => s.Numero!.Value)
+                        .ToListAsync())
+                    .ToHashSet();
+                var numero = 1;
+                while (usados.Contains(numero)) numero++;
+
+                solicitud.Anio   = anio;
+                solicitud.Numero = numero;
+                solicitud.Codigo = $"SOL-{anio}-{numero:D4}";
+
                 ctx.GaSolicitudSalida.Add(solicitud);
                 await ctx.SaveChangesAsync();
 
@@ -392,7 +441,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 where s.Id == solicitudId && s.WorkerId == workerInfo.Id
                 select new
                 {
-                    s.Id, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
+                    s.Id, s.Codigo, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
                     s.CreatedAt, s.MotivoRechazo, s.RendicionId,
                     Rendicion = r == null ? null : new SolicitudSalidaRendicionDto
                     {
@@ -526,6 +575,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return new SolicitudSalidaDetalleDto
             {
                 Id               = solicitud.Id,
+                Codigo           = solicitud.Codigo,
                 FechaSalida      = solicitud.FechaSalida,
                 EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(solicitud.EstadoAprobacionId),
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(solicitud.EstadoRendicionId),

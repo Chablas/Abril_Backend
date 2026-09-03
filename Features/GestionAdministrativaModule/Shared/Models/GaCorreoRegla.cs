@@ -1,13 +1,14 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
     /// <summary>
     /// Regla de destinatario de un correo del flujo de salidas (<see cref="GaCorreoEvento"/>).
-    /// Cada fila es una entrada de la lista "se enviará a" (<see cref="EsExclusion"/> = false) o
-    /// de la lista "nunca se enviará a" (<see cref="EsExclusion"/> = true). La exclusión gana
-    /// aunque el mismo correo aparezca como inclusión.
+    /// Cada fila es un destinatario al que se le envía ese correo; <see cref="Active"/> lo prende
+    /// y lo apaga sin borrarlo. La lista de exclusiones ("nunca se enviará a") se dio de baja en
+    /// septiembre de 2026: no había forma de saber por qué alguien estaba excluido y la misma
+    /// exclusión se lograba apagando o quitando su fila.
     ///
     /// Según <see cref="TipoId"/> (ver <see cref="GaCorreoTipoDestinatario"/>) se llena UNO solo de:
     /// <list type="bullet">
@@ -27,10 +28,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// <summary>Correo al que aplica la regla (ga_correo_evento.id).</summary>
         [Column("evento_id")]
         public int EventoId { get; set; }
-
-        /// <summary>false = "se enviará a" (inclusión); true = "nunca se enviará a" (exclusión).</summary>
-        [Column("es_exclusion")]
-        public bool EsExclusion { get; set; }
 
         /// <summary>Tipo de destinatario (ga_correo_tipo_destinatario.id).</summary>
         [Column("tipo_id")]
@@ -52,7 +49,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("incluir_descendientes")]
         public bool IncluirDescendientes { get; set; } = true;
 
-        /// <summary>Orden de visualización dentro de su lista.</summary>
+        /// <summary>Orden de visualización dentro del correo.</summary>
         [Column("orden")]
         public int Orden { get; set; }
 

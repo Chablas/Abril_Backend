@@ -58,6 +58,8 @@
     public class SolicitudSalidaDetalleDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public DateOnly FechaSalida { get; set; }
         public string EstadoAprobacion { get; set; } = string.Empty;
         public string EstadoRendicion { get; set; } = "No rendido";

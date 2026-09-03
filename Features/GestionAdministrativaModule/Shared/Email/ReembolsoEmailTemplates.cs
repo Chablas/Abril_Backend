@@ -1,4 +1,4 @@
-using Abril_Backend.Shared.Services.Email.Layout;
+﻿using Abril_Backend.Shared.Services.Email.Layout;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 {
@@ -10,7 +10,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     {
         public int SolicitudId { get; set; }
         /// <summary>Correlativo de la solicitud DENTRO del trabajador (el "#3" que ve él, no el id).</summary>
-        public int NumeroUsuario { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN de la solicitud (o "#N" en las anteriores al código).</summary>
+        public string Codigo { get; set; } = string.Empty;
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>Correo del trabajador que pidió la salida — el destinatario de los dos correos de decisión.</summary>
         public string? TrabajadorEmail { get; set; }
@@ -85,7 +86,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 new AbrilEmailLayout.Cabecera(
                     IconoAprobado,
                     "Reembolso aprobado",
-                    $"Tu solicitud de salida <b>#{d.NumeroUsuario}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
+                    $"Tu solicitud de salida <b>{d.Codigo}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
                     + "quedó aprobada para reembolso."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.DecididoPor)
@@ -109,7 +110,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 new AbrilEmailLayout.Cabecera(
                     IconoRechazado,
                     "Reembolso rechazado",
-                    $"Tu solicitud de salida <b>#{d.NumeroUsuario}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
+                    $"Tu solicitud de salida <b>{d.Codigo}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
                     + "volvió con observaciones."),
                 l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
                     $"<b>Observación:</b> {observacion}"),

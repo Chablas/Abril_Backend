@@ -556,7 +556,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             new()
             {
                 SolicitudId     = info.SolicitudId,
-                NumeroUsuario   = info.NumeroUsuario,
+                Codigo          = info.Codigo,
                 Trabajador      = info.Trabajador,
                 TrabajadorEmail = info.SolicitanteEmail,
                 Area            = info.Area,

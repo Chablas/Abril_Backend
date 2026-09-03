@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Dtos
 {
     public class GaMotivoSalidaConfigItemDto
     {
@@ -14,6 +14,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application
         /// <summary>Si false, al elegir este motivo la solicitud no pide horas, ni lugares,
         /// ni trayectos adicionales (ej. "Licencia sin goce de haber").</summary>
         public bool PideHorasLugares { get; set; } = true;
+        /// <summary>Si true, una salida con este motivo genera reembolso de movilidad. El
+        /// trayecto elegido puede anularlo (ga_trayecto.es_reembolsable), nunca al reves.</summary>
+        public bool EsReembolsable { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -26,6 +29,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application
         /// <summary>Si false, al elegir este motivo la solicitud no pide horas, ni lugares,
         /// ni trayectos adicionales (ej. "Licencia sin goce de haber").</summary>
         public bool PideHorasLugares { get; set; } = true;
+        /// <summary>Si true, una salida con este motivo genera reembolso de movilidad. El
+        /// trayecto elegido puede anularlo (ga_trayecto.es_reembolsable), nunca al reves.</summary>
+        public bool EsReembolsable { get; set; }
     }
 
     public class GaMotivoSalidaEditDto
@@ -37,5 +43,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application
         /// <summary>Si false, al elegir este motivo la solicitud no pide horas, ni lugares,
         /// ni trayectos adicionales (ej. "Licencia sin goce de haber").</summary>
         public bool PideHorasLugares { get; set; } = true;
+        /// <summary>Si true, una salida con este motivo genera reembolso de movilidad. El
+        /// trayecto elegido puede anularlo (ga_trayecto.es_reembolsable), nunca al reves.</summary>
+        public bool EsReembolsable { get; set; }
     }
 }

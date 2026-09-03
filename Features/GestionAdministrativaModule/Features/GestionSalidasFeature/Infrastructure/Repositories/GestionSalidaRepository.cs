@@ -211,7 +211,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 orderby s.FechaSalida descending, s.CreatedAt descending
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, s.Codigo, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
@@ -359,6 +359,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 result.Add(new GestionSalidaListItemDto
                 {
                     Id               = s.Id,
+                    Codigo           = s.Codigo,
                     WorkerId         = s.WorkerInternalId,
                     Trabajador       = s.Trabajador,
                     Area             = AreaMasBaja(s.AreaScopeId, arbolAreas),
@@ -733,7 +734,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == id
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, s.Codigo, WorkerInternalId = w.Id, w.Subarea,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt, s.MotivoRechazo,
@@ -887,6 +888,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return new GestionSalidaDetalleDto
             {
                 Id               = head.Id,
+                Codigo           = head.Codigo,
                 WorkerId         = head.WorkerInternalId,
                 Trabajador       = head.Trabajador,
                 Area             = AreaMasBaja(head.AreaScopeId, arbolAreas),
@@ -1296,16 +1298,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             var arbolAreas = await CargarArbolAreasAsync(ctx);
 
-            // Correlativo dentro del trabajador (el "#3" que ve él), no el id de la tabla: es el
-            // mismo numero que usan los demas correos del flujo.
-            var numeroUsuario = await ctx.GaSolicitudSalida
-                .CountAsync(x => x.WorkerId == head.WorkerInternalId && x.Id <= head.Id);
+            // El identificador que ve el trabajador (SOL-AAAA-NNNN), no el id de la tabla: es el
+            // mismo que usan los demas correos del flujo. Las solicitudes anteriores al codigo
+            // conservan el correlativo por trabajador con el que ya salieron sus correos.
+            var codigo = await ctx.GaSolicitudSalida
+                .Where(x => x.Id == head.Id)
+                .Select(x => x.Codigo)
+                .FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(codigo))
+            {
+                var numeroUsuario = await ctx.GaSolicitudSalida
+                    .CountAsync(x => x.WorkerId == head.WorkerInternalId && x.Id <= head.Id);
+                codigo = $"#{numeroUsuario}";
+            }
 
             return new ReembolsoCorreoInfoDto
             {
                 SolicitudId          = head.Id,
                 WorkerId             = head.WorkerInternalId,
-                NumeroUsuario        = numeroUsuario,
+                Codigo               = codigo,
                 Trabajador           = head.Trabajador,
                 SolicitanteEmail     = head.Email,
                 Area                 = AreaMasBaja(head.AreaScopeId, arbolAreas),

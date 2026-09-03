@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
@@ -41,6 +41,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.
                                         ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
                                         : (ld.Nombre ?? string.Empty),
                     Monto             = t.Monto,
+                    EsReembolsable    = t.EsReembolsable,
                     Activo            = t.Activo,
                     CreatedAt         = t.CreatedAt,
                 }
@@ -85,6 +86,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.
                 LugarOrigenId  = dto.LugarOrigenId,
                 LugarDestinoId = dto.LugarDestinoId,
                 Monto          = dto.Monto,
+                EsReembolsable = dto.EsReembolsable,
                 Activo         = true,
                 CreatedAt      = DateTimeOffset.UtcNow,
             });
@@ -125,6 +127,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.
             trayecto.LugarOrigenId  = dto.LugarOrigenId;
             trayecto.LugarDestinoId = dto.LugarDestinoId;
             trayecto.Monto          = dto.Monto;
+            trayecto.EsReembolsable = dto.EsReembolsable;
             await ctx.SaveChangesAsync();
         }
 

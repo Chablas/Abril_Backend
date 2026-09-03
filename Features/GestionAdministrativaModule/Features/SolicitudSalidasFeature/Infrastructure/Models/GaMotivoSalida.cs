@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
 {
     public class GaMotivoSalida
     {
@@ -22,6 +22,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// comportamiento normal de una salida.
         /// </summary>
         public bool PideHorasLugares { get; set; } = true;
+        /// <summary>
+        /// Si true, una salida con este motivo genera reembolso de movilidad. Es la primera
+        /// mitad de la regla: el trayecto elegido puede anularlo (ver
+        /// <c>GaTrayecto.EsReembolsable</c>), nunca al reves.
+        /// </summary>
+        public bool EsReembolsable { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

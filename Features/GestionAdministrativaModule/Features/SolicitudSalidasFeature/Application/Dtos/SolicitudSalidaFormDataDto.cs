@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
 {
     public class SolicitudSalidaFormDataDto
     {
@@ -13,6 +13,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>Catálogo de trayectos activos — solo poblado cuando <see cref="EsTI"/> es true.</summary>
         public List<TrayectoCatalogoOptionDto> TrayectosCatalogo { get; set; } = new();
+
+        /// <summary>
+        /// Pares (origen, destino) del catálogo marcados como NO reembolsables. Va aparte de
+        /// <see cref="TrayectosCatalogo"/> a propósito: ese solo lo reciben los de TI porque
+        /// lleva montos, y la regla de reembolso aplica a todos. Sin monto, es solo la lista
+        /// de excepciones que anulan el reembolso que concede el motivo.
+        /// </summary>
+        public List<TrayectoNoReembolsableDto> TrayectosNoReembolsables { get; set; } = new();
+    }
+
+    /// <summary>Par (origen, destino) del catálogo que nunca genera reembolso.</summary>
+    public class TrayectoNoReembolsableDto
+    {
+        public int LugarOrigenId { get; set; }
+        public int LugarDestinoId { get; set; }
     }
 
     public class TrayectoCatalogoOptionDto
@@ -36,6 +51,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// <summary>Si false, el formulario oculta horas y lugares y no deja agregar trayectos:
         /// la solicitud queda con un unico trayecto que solo lleva el motivo.</summary>
         public bool PideHorasLugares { get; set; } = true;
+        /// <summary>Si true, una salida con este motivo genera reembolso de movilidad. El par
+        /// (origen, destino) elegido puede anularlo — ver
+        /// <see cref="SolicitudSalidaFormDataDto.TrayectosNoReembolsables"/>.</summary>
+        public bool EsReembolsable { get; set; }
     }
 
     public class LugarSalidaDto

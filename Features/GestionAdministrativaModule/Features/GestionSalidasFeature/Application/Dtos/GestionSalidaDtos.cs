@@ -3,6 +3,8 @@
     public class GestionSalidaListItemDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>
@@ -236,11 +238,11 @@
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>
-        /// Correlativo de la solicitud DENTRO del trabajador: el "#3" que él ve en su pantalla y en
-        /// los otros correos del flujo, no el id de la tabla. Se calcula igual que en
-        /// SolicitudSalidaService para que el mismo pedido no salga con dos numeros distintos.
+        /// Identificador que ve el trabajador: el código SOL-AAAA-NNNN. Se resuelve igual que en
+        /// SolicitudSalidaService para que el mismo pedido no salga con dos identificadores
+        /// distintos; las solicitudes anteriores al código conservan su "#N" por trabajador.
         /// </summary>
-        public int NumeroUsuario { get; set; }
+        public string Codigo { get; set; } = string.Empty;
         /// <summary>Correo del solicitante (app_user.email). Null si no tiene usuario.</summary>
         public string? SolicitanteEmail { get; set; }
         public string? Area { get; set; }
@@ -350,6 +352,8 @@
     public class GestionSalidaDetalleDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>Área más baja del trabajador (el nodo de <c>puesto.area_destino_scope_id</c>).</summary>

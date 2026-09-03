@@ -11,6 +11,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
         public string? EmpresaNombre { get; set; }
+        /// <summary>Ubicación laboral del trabajador (workers.obra_oficina_staff_id).</summary>
+        public int? ObraOficinaStaffId { get; set; }
+        /// <summary>Nombre del catálogo workers_obra_oficina_staff (Obra / Staff / Oficina
+        /// Central / Personal Externo). Null si la ficha del trabajador no lo tiene cargado.</summary>
+        public string? ObraOficinaStaffNombre { get; set; }
         public int TipoId { get; set; }
         /// <summary>Nombre del tipo resuelto desde el catálogo (ss_descanso_tipo).</summary>
         public string Tipo { get; set; } = string.Empty;
@@ -251,6 +256,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public string? Estado { get; set; }
         public int? TipoId { get; set; }
         public int? EmpresaId { get; set; }
+        /// <summary>Ubicación laboral del trabajador (workers.obra_oficina_staff_id).</summary>
+        public int? ObraOficinaStaffId { get; set; }
         public DateOnly? FechaDesde { get; set; }
         public DateOnly? FechaHasta { get; set; }
         public int Page { get; set; } = 1;
@@ -264,6 +271,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
     public class DescansosInicioDto
     {
         public List<DescansoTipoDto> Tipos { get; set; } = [];
+        /// <summary>Catálogo workers_obra_oficina_staff para el filtro "Obra / Oficina".</summary>
+        public List<ObraOficinaStaffOpcionDto> ObraOficinaStaff { get; set; } = [];
         public PagedResult<DescansoMedicoListItemDto> Descansos { get; set; } = new();
+    }
+
+    /// <summary>Opción del catálogo <c>workers_obra_oficina_staff</c> — alimenta el filtro
+    /// "Obra / Oficina" de la tabla de descansos.</summary>
+    public class ObraOficinaStaffOpcionDto
+    {
+        public int ObraOficinaStaffId { get; set; }
+        public string Name { get; set; } = string.Empty;
     }
 }

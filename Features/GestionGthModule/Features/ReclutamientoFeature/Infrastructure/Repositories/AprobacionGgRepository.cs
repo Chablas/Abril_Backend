@@ -149,7 +149,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var solicitanteNombre = solicitud.SolicitanteUserId.HasValue
                 ? await ctx.Worker
                     .Where(w => w.Person != null && w.Person.UserId == solicitud.SolicitanteUserId.Value)
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -209,7 +209,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // vacante (ver AprobacionGgVacanteDto.Ruta).
                     TipoRequerimientoCodigo = t.Codigo,
                     TrabajadorReemplazado  = wr == null ? null
-                        : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
+                        : (wr.Person != null ? wr.Person.FullName : null),
                     ProyectoObra           = pr.ProjectDescription,
                     SalarioBrutoMensual    = r.SalarioBrutoMensual,
                     EsFft                  = r.EsFft,
@@ -244,7 +244,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var solicitanteNombre = solicitud.SolicitanteUserId.HasValue
                 ? await ctx.Worker.AsNoTracking()
                     .Where(w => w.Person != null && w.Person.UserId == solicitud.SolicitanteUserId.Value)
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -924,7 +924,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var solicitanteNombre = solicitud.SolicitanteUserId.HasValue
                 ? await ctx.Worker
                     .Where(w => w.Person != null && w.Person.UserId == solicitud.SolicitanteUserId.Value)
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -1416,7 +1416,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         TipoRequerimiento      = t.Nombre,
                         TipoRequerimientoCodigo = t.Codigo,
                         TrabajadorReemplazado  = wr == null ? null
-                            : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
+                            : (wr.Person != null ? wr.Person.FullName : null),
                         ProyectoObra           = pr.ProjectDescription,
                         SalarioBrutoMensual    = r.SalarioBrutoMensual,
                         // Los datos del ingreso directo también acá: sin ellos, una decisión en

@@ -123,7 +123,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var supervisores = await conn.QueryAsync<SupervisorRaw>(
                 @"SELECT DISTINCT
                     w.id                   AS SupervisorWorkerId,
-                    COALESCE(per.full_name, w.apellido_nombre) AS SupervisorNombre,
+                    per.full_name          AS SupervisorNombre,
                     COALESCE(wv.empresa_id, w.contributor_id, 0) AS ContributorId,
                     COALESCE(c.contributor_name, 'Sin empresa') AS ContributorNombre,
                     wv.proyecto_id         AS ProyectoId,
@@ -215,7 +215,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 var conn = ctx.Database.GetDbConnection();
                 var datos = await conn.QueryFirstOrDefaultAsync<WorkerDatosRaw>(
                     @"SELECT COALESCE(wv.empresa_id, w.contributor_id) AS ContributorId,
-                             COALESCE(per.full_name, w.apellido_nombre) AS Nombre
+                             per.full_name AS Nombre
                       FROM workers w
                       LEFT JOIN person per ON per.person_id = w.person_id
                       LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL

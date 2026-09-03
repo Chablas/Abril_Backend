@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                 Area            = s.AreaNombre,
                 Empresa         = co == null ? null : co.ContributorName,
                 ProyectoObra    = pr.ProjectDescription,
-                JefeDirecto     = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                JefeDirecto     = w == null || w.Person == null ? null : w.Person.FullName,
                 FaseCodigo      = fa.Codigo,
                 FaseNombre      = fa.Nombre,
                 FaseOrden       = fa.Orden,
@@ -282,7 +282,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
                     Empresa         = co == null ? null : co.ContributorName,
                     ProyectoObra    = pr.ProjectDescription,
                     Correo          = pe == null ? null : pe.Email,
-                    JefeDirecto     = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                    JefeDirecto     = w == null || w.Person == null ? null : w.Person.FullName,
                     FechaIngreso       = ca.FechaIngreso,
                     FileDigitalCarpeta = ca.FileDigitalRuta,
                 }).ToListAsync();

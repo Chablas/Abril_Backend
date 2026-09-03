@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.I
                     w.PersonId,
                     AreaScopeId = pu != null ? pu.AreaDestinoScopeId : null,
                     w.WorkersEstadoId,
-                    Nombre = w.Person!.FullName ?? w.ApellidoNombre ?? "",
+                    Nombre = w.Person!.FullName ?? "",
                     Puesto = pu != null ? pu.Nombre : null,
                     Activo = rp != null && rp.Active,
                     Area   = s != null && s.AreaItem != null ? s.AreaItem.AreaItemName : null,
@@ -96,7 +96,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.I
                     w.Id,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     w.WorkersEstadoId,
-                    Nombre = w.Person!.FullName ?? w.ApellidoNombre,
+                    Nombre = w.Person!.FullName,
                 })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No encontramos la ficha de ese trabajador.", 404);

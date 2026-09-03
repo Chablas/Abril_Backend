@@ -74,11 +74,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 where pu.AreaDestinoScopeId == areaScopeId
                 join wc in _context.Categoria on pu.CategoriaId equals wc.CategoriaId into wcj
                 from wc in wcj.DefaultIfEmpty()
-                orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
+                orderby p != null ? p.FullName : null
                 select new AreaScopeWorkerDto
                 {
                     WorkerId         = w.Id,
-                    FullName         = p != null && p.FullName != null ? p.FullName : w.ApellidoNombre,
+                    FullName         = p != null ? p.FullName : null,
                     EmailCorporativo = w.EmailCorporativo,
                     CategoryName     = wc != null ? wc.Nombre : null,
                 }

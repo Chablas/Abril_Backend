@@ -397,7 +397,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.FftPersonId,
                     EstadoRequerimiento = er.Codigo,
                     ResponsableGth = rp == null ? null
-                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : rp.Worker.ApellidoNombre),
+                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : null),
                 }).FirstOrDefaultAsync();
 
             if (raw == null) return null;
@@ -418,7 +418,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         .ThenByDescending(p => p.WorkersPeriodoLaboralId)
                         .Select(p => (DateOnly?)p.FechaIngreso)
                         .FirstOrDefault())
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado. Se llega por person_id, que es el unico
@@ -759,7 +759,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     w.Id,
                     w.PersonId,
-                    Nombre = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
                     // Las dos fechas del último periodo laboral (ver WorkersPeriodoLaboral):
                     // antes eran columnas de `workers`. Solo se usan para elegir la ficha
                     // vigente entre las varias que puede tener una misma persona.
@@ -1117,7 +1117,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Nombre del solicitante para el cuerpo del correo (best-effort; no bloquea).
             var solicitanteNombre = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .Select(w => w.Person!.FullName)
                 .FirstOrDefaultAsync();
 
             await ctx.SaveChangesAsync();
@@ -1325,7 +1325,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                        : null,
                     ProyectoObra = pr.ProjectDescription,
                     TrabajadorReemplazado = wr == null ? null
-                        : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
+                        : (wr.Person != null ? wr.Person.FullName : null),
                     r.SalarioBrutoMensual,
                     r.EsFft,
                     r.FftCandidatoNombre,
@@ -1352,7 +1352,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(rp => new OpcionDto
                 {
                     Id     = rp.GthResponsableProcesoId,
-                    Nombre = rp.Worker!.Person!.FullName ?? rp.Worker.ApellidoNombre ?? "",
+                    Nombre = rp.Worker!.Person!.FullName ?? "",
                 })
                 .OrderBy(o => o.Nombre)
                 .ToListAsync();
@@ -2641,7 +2641,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Nombre del solicitante para el cuerpo del correo a GTH (best-effort; no bloquea).
             var solicitanteNombre = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .Select(w => w.Person!.FullName)
                 .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
@@ -3772,7 +3772,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     w.Id,
                     AreaScopeId = w.PuestoCatalogo.AreaDestinoScopeId!.Value,
                     Email       = w.EmailCorporativo!,
-                    Nombre      = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    Nombre      = w.Person != null ? w.Person.FullName : null,
                     AreaNombre  = ai.AreaItemName,
                 }).ToListAsync();
 

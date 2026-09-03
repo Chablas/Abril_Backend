@@ -116,12 +116,11 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
                     ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
-                w.ApellidoNombre,
                 w.ContrataCasa
             })
             .ToListAsync())
             .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))
-            .Select(s => new { s.WorkerId, s.PersonId, s.CategoriaId, s.Categoria, s.Puesto, s.ApellidoNombre, s.ContrataCasa, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
+            .Select(s => new { s.WorkerId, s.PersonId, s.CategoriaId, s.Categoria, s.Puesto, s.ContrataCasa, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
             .ToList();
 
         if (proyectoId.HasValue)
@@ -160,16 +159,16 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
 
         var personaPorPersonId = personas.ToDictionary(p => p.PersonId);
 
-        string NombreDeWorker(int workerId, int? personId, string? apellidoNombre)
+        string NombreDeWorker(int? personId)
         {
             if (personId != null && personaPorPersonId.TryGetValue(personId.Value, out var p) && !string.IsNullOrWhiteSpace(p.Nombre))
                 return p.Nombre;
-            return string.IsNullOrWhiteSpace(apellidoNombre) ? "Sin nombre" : apellidoNombre;
+            return "Sin nombre";
         }
 
         var nombrePorWorker = staffPorWorker.ToDictionary(
             s => s.WorkerId,
-            s => NombreDeWorker(s.WorkerId, s.PersonId, s.ApellidoNombre));
+            s => NombreDeWorker(s.PersonId));
 
         var workerToUser = staffPorWorker
             .Where(s => s.PersonId != null

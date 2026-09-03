@@ -23,8 +23,8 @@ namespace Abril_Backend.Infrastructure.Models
         /*[Column("celular")]
         public string? Celular { get; set; }*/
 
-        [Column("apellido_nombre")]
-        public string? ApellidoNombre { get; set; }
+        // El nombre dejó de vivir aquí: es único en person.full_name, al que se llega
+        // por PersonId. La columna apellido_nombre se bajó de `workers`.
 
         /// <summary>Correo corporativo @abril.pe del trabajador (antes llamado email_personal).</summary>
         [Column("email_corporativo")]

@@ -52,7 +52,7 @@ public class ObservacionRepository : IObservacionRepository
                 Ejecutor = o.Ejecutor,
                 Origen = o.Origen,
                 LevantaPorWorkerId = o.LevantaPorWorkerId,
-                LevantaPorNombre = o.LevantaPor != null ? o.LevantaPor.ApellidoNombre : null,
+                LevantaPorNombre = o.LevantaPor != null && o.LevantaPor.Person != null ? o.LevantaPor.Person.FullName : null,
                 Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
@@ -63,7 +63,7 @@ public class ObservacionRepository : IObservacionRepository
     public async Task<ObservacionListItemDTO?> GetObservacionById(int id)
     {
         using var ctx = _factory.CreateDbContext();
-        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).Include(x => x.LevantaPor).FirstOrDefaultAsync(x => x.Id == id);
+        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).Include(x => x.LevantaPor).ThenInclude(w => w!.Person).FirstOrDefaultAsync(x => x.Id == id);
         if (o == null) return null;
 
         return new ObservacionListItemDTO
@@ -85,7 +85,7 @@ public class ObservacionRepository : IObservacionRepository
             Ejecutor = o.Ejecutor,
             Origen = o.Origen,
             LevantaPorWorkerId = o.LevantaPorWorkerId,
-            LevantaPorNombre = o.LevantaPor?.ApellidoNombre,
+            LevantaPorNombre = o.LevantaPor?.Person?.FullName,
             Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }

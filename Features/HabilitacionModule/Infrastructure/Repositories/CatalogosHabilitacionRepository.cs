@@ -427,10 +427,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         /// <see cref="GetPuestosTodosAsync"/> las cuenta (todas las fichas, sin filtrar por
         /// estado): así la lista siempre cuadra con el número que muestra la fila.
         ///
-        /// El nombre se lee de <c>person.full_name</c>; se cae a <c>workers.apellido_nombre</c>
-        /// solo si la ficha no tiene persona (la FK es nullable) o la persona no lo tiene.
-        /// El join va por la navegación (LEFT JOIN) justamente para no perder esas fichas y
-        /// desalinear el conteo.
+        /// El nombre se lee de <c>person.full_name</c>. El join va por la navegación
+        /// (LEFT JOIN) para no perder las fichas sin persona (la FK es nullable) y
+        /// desalinear el conteo: esas salen sin nombre, pero salen.
         /// </summary>
         public async Task<List<PuestoTrabajadorDto>> GetTrabajadoresPorPuestoAsync(int puestoId)
         {
@@ -438,12 +437,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await ctx.Worker
                 .AsNoTracking()
                 .Where(w => w.PuestoId == puestoId)
-                .OrderBy(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .OrderBy(w => w.Person!.FullName)
                 .ThenBy(w => w.Id)
                 .Select(w => new PuestoTrabajadorDto
                 {
                     WorkerId = w.Id,
-                    NombreCompleto = (w.Person!.FullName ?? w.ApellidoNombre) ?? "",
+                    NombreCompleto = w.Person!.FullName ?? "",
                     EmailCorporativo = w.EmailCorporativo
                 })
                 .ToListAsync();

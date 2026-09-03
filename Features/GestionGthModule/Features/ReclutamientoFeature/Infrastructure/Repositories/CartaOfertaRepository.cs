@@ -182,7 +182,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                  Area         = s.AreaNombre,
                  Empresa      = co == null ? null : co.ContributorName,
                  ProyectoObra = pr.ProjectDescription,
-                 JefeDirecto  = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                 JefeDirecto  = w == null || w.Person == null ? null : w.Person.FullName,
                  EstadoCodigo = e.Codigo,
                  Carta        = ca,
 

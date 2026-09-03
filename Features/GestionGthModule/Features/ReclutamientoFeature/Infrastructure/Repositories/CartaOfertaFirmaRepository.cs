@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Area            = s.AreaNombre,
                     Empresa         = co == null ? null : co.ContributorName,
                     ProyectoObra    = pr.ProjectDescription,
-                    JefeDirecto     = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                    JefeDirecto     = w == null || w.Person == null ? null : w.Person.FullName,
                 })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException(TokenInvalido, 404);
@@ -228,7 +228,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Area            = s.AreaNombre,
                     Empresa         = co == null ? null : co.ContributorName,
                     ProyectoObra    = pr.ProjectDescription,
-                    JefeDirecto     = w == null ? null : (w.Person != null ? w.Person.FullName : w.ApellidoNombre),
+                    JefeDirecto     = w == null || w.Person == null ? null : w.Person.FullName,
                     // El nombre con el que se armó el file digital: el que declaró el postulante en su
                     // formulario y, si no hay formulario, el que registró GTH. NO el de la base
                     // maestra, que puede haber cambiado después del envío y llevaría el documento

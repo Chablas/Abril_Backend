@@ -45,6 +45,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         }
 
         /// <summary>
+        /// Catálogo workers_obra_oficina_staff (Obra / Staff / Oficina Central / Personal
+        /// Externo) — opciones del filtro "Obra / Oficina" de la tabla.
+        /// </summary>
+        public async Task<List<ObraOficinaStaffOpcionDto>> GetObraOficinaStaff()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.WorkersObraOficinaStaff
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.DisplayOrder)
+                .Select(x => new ObraOficinaStaffOpcionDto
+                {
+                    ObraOficinaStaffId = x.WorkersObraOficinaStaffId,
+                    Name = x.Name,
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
         /// Resuelve el id de un tipo por su nombre de catálogo. Para los descansos que crea el
         /// sistema (p. ej. los que genera el Tópico Médico), que no pasan por un desplegable.
         /// </summary>
@@ -79,6 +97,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.d.TipoId == filter.TipoId.Value);
             if (filter.EmpresaId.HasValue)
                 q = q.Where(x => x.d.EmpresaId == filter.EmpresaId.Value);
+            if (filter.ObraOficinaStaffId.HasValue)
+                q = q.Where(x => x.w.ObraOficinaStaffId == filter.ObraOficinaStaffId.Value);
             if (filter.FechaDesde.HasValue)
                 q = q.Where(x => x.d.FechaInicio >= filter.FechaDesde.Value);
             if (filter.FechaHasta.HasValue)
@@ -100,6 +120,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                     WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                     EmpresaNombre = x.em != null ? x.em.ContributorName : null,
+                    ObraOficinaStaffId = x.w.ObraOficinaStaffId,
+                    ObraOficinaStaffNombre = x.w.ObraOficinaStaff != null ? x.w.ObraOficinaStaff.Name : null,
                     TipoId = x.d.TipoId,
                     Tipo = x.t.Nombre,
                     FechaInicio = x.d.FechaInicio,

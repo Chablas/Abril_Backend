@@ -252,7 +252,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 select new CorreoDestinatarioResueltoDto
                 {
                     Email  = w.EmailCorporativo!,
-                    Nombre = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
                 })
                 .FirstOrDefaultAsync();
         }

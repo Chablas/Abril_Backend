@@ -126,6 +126,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var item = sctrItems.FirstOrDefault(i =>
                 i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
+            // Para empresas Abril el worker entra directo "Aprobado" — si el ítem requiere
+            // vigencia, exigir fecha (igual que AprobarAsync/UpdateAsync) para no dejarlo
+            // "Aprobado" con Vigencia null.
+            if (esAbril && item is not null && item.RequiereVigencia && workersDistinct.Count > 0 && !vigenciaHab.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
+
             if (item is not null)
             {
                 var hoyUtc = DateTime.UtcNow.Date;
@@ -322,6 +328,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (item is not null)
             {
+                // Para empresas Abril, un worker nuevo entra directo "Aprobado" — si el ítem
+                // requiere vigencia, tiene que traer fecha, igual que en AprobarAsync, o queda
+                // "Aprobado" con Vigencia null (bug: ControlAccesoRepository lo trata como
+                // habilitado para siempre).
+                if (esAbril && item.RequiereVigencia && workerIdsAgregar.Count > 0 && !dto.Vigencia.HasValue)
+                    throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
+
+                var vigenciaNuevoWorker = esAbril ? HabilitacionDateHelper.AsUtc(dto.Vigencia) : null;
+
                 // Propagar estado a ss_hab_trabajador para nuevos workers
                 foreach (var workerInput in workersDistinct.Where(w => workerIdsAgregar.Contains(w.WorkerId)))
                 {
@@ -336,6 +351,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             WorkerId = workerInput.WorkerId,
                             ItemId = item.Id,
                             Estado = estadoNuevoWorker,
+                            Vigencia = vigenciaNuevoWorker,
                             ArchivoUrl = dto.ArchivoUrl,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
@@ -348,6 +364,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         if (hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
                         {
                             hab.Estado = estadoNuevoWorker;
+                            hab.Vigencia = vigenciaNuevoWorker;
                             hab.ArchivoUrl = dto.ArchivoUrl;
                             hab.UpdatedAt = DateTime.UtcNow;
                         }
@@ -474,6 +491,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var aprobados = dto.WorkerIdsAprobados.Distinct().ToList();
             var rechazados = dto.WorkerIdsRechazados.Distinct().ToList();
             var afectados = aprobados.Concat(rechazados).Distinct().ToList();
+
+            // Igual que HabTrabajadorRepository.UpdateEntregableAsync: si el ítem requiere
+            // vigencia, no se puede aprobar sin fecha — evita que la fila quede "Aprobado" con
+            // Vigencia null (mostrado como habilitado para siempre por ControlAccesoRepository).
+            if (item is not null && item.RequiereVigencia && aprobados.Count > 0 && !dto.Vigencia.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
 
             if (item is not null && afectados.Count > 0)
             {

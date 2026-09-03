@@ -10,6 +10,7 @@ public interface IRatioService
     Task<List<RatioProyectoDto>> ObtenerRatiosProyectoAsync(int projectId);
     Task<RatioFamiliaComparacionDto?> ObtenerComparacionFamiliaAsync(int familiaId);
     Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo);
+    Task ActualizarActivoFamiliaAsync(int familiaId, bool activo);
     Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync();
     Task<ResumenRatiosDto> ObtenerResumenAsync();
 }

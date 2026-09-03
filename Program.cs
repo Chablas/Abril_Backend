@@ -41,6 +41,7 @@ using Abril_Backend.Features.BoletinModule;
 using Abril_Backend.Features.ArquitecturaComercialModule;
 using Abril_Backend.Features.PlaneamientoBimFeature;
 using Abril_Backend.Features.LearningModule;
+using Abril_Backend.Features.AlmacenModule;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
@@ -205,6 +206,7 @@ builder.Services.AddBoletinModule();
 builder.Services.AddArquitecturaComercialModule();
 builder.Services.AddPlaneamientoBimModule();
 builder.Services.AddLearningModule();
+builder.Services.AddAlmacenModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

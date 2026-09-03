@@ -1,0 +1,1 @@
+SELECT id, puesto_id FROM workers WHERE id IN (12169, 12359, 12621, 12757, 13148, 13976);

@@ -72,6 +72,11 @@ public class ActualizarIncluidoManualDto
     public string Campo { get; set; } = "RATIO";
 }
 
+public class ActualizarActivoFamiliaDto
+{
+    public bool Activo { get; set; }
+}
+
 public class FamiliaConRatioDto
 {
     public int FamiliaId { get; set; }

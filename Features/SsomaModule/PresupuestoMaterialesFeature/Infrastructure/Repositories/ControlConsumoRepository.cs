@@ -138,7 +138,9 @@ public class ControlConsumoRepository : IControlConsumoRepository
 
         if (header is null) return null;
 
-        // Líneas con consumo acumulado
+        // Líneas con consumo acumulado — el consumo real sale del Kardex (ss_consumo_linea), no de
+        // un registro manual: así el dashboard nunca queda desactualizado ni exige doble digitación
+        // de lo que ya entra por la subida semanal del S10.
         var lineas = (await conn.QueryAsync<DashboardLineaDto>("""
             SELECT
               pl.familia_id                                                    AS FamiliaId,
@@ -146,32 +148,36 @@ public class ControlConsumoRepository : IControlConsumoRepository
               t.id                                                             AS TipoId,
               pl.variable_base                                                 AS VariableBase,
               COALESCE(pl.cantidad_manual, pl.cantidad_estimada)               AS CantidadPresupuestada,
-              COALESCE(SUM(cl.cantidad_real), 0)                               AS CantidadConsumida,
+              COALESCE(kx.cantidad_real, 0)                                    AS CantidadConsumida,
               COALESCE(pl.precio_manual, pl.precio_unitario)                   AS PrecioUnitario,
               COALESCE(pl.cantidad_manual, pl.cantidad_estimada)
                 * COALESCE(pl.precio_manual, pl.precio_unitario)               AS TotalPresupuestado,
-              COALESCE(SUM(cl.total_real), 0)                                  AS TotalConsumido,
+              COALESCE(kx.total_real, 0)                                       AS TotalConsumido,
               CASE
                 WHEN COALESCE(pl.cantidad_manual, pl.cantidad_estimada) = 0        THEN 'SIN_PRESUPUESTO'
-                WHEN COALESCE(SUM(cl.cantidad_real), 0)
+                WHEN COALESCE(kx.cantidad_real, 0)
                        >= COALESCE(pl.cantidad_manual, pl.cantidad_estimada)       THEN 'ALERTA'
-                WHEN COALESCE(SUM(cl.cantidad_real), 0)
+                WHEN COALESCE(kx.cantidad_real, 0)
                        >= COALESCE(pl.cantidad_manual, pl.cantidad_estimada) * 0.8 THEN 'ADVERTENCIA'
                 ELSE 'OK'
               END                                                              AS Semaforo
             FROM ss_presupuesto_detalle pl
-            JOIN ss_material_familia f ON f.id = pl.familia_id
-            JOIN ss_material_tipo t    ON t.id = pl.tipo_id
-            LEFT JOIN ss_control_semana   cs ON cs.presupuesto_id = pl.presupuesto_id
-            LEFT JOIN ss_control_semana_linea cl
-                   ON cl.control_id = cs.id AND cl.familia_id = pl.familia_id
+            JOIN ss_material_familia f  ON f.id = pl.familia_id
+            JOIN ss_material_tipo t     ON t.id = pl.tipo_id
+            JOIN ss_presupuesto pr      ON pr.id = pl.presupuesto_id
+            LEFT JOIN (
+              SELECT i.familia_id, l.project_id,
+                     SUM(l.cantidad)     AS cantidad_real,
+                     SUM(l.precio_total) AS total_real
+              FROM ss_consumo_linea l
+              JOIN ss_material_item i ON i.id = l.item_id
+              WHERE l.activo = true AND l.pertenece_ssoma = true
+              GROUP BY i.familia_id, l.project_id
+            ) kx ON kx.familia_id = pl.familia_id AND kx.project_id = pr.project_id
             WHERE pl.presupuesto_id = @presupuestoId
-            GROUP BY pl.familia_id, f.nombre, t.id, pl.variable_base,
-                     pl.cantidad_manual, pl.cantidad_estimada,
-                     pl.precio_manual, pl.precio_unitario
             ORDER BY
-              CASE WHEN COALESCE(SUM(cl.cantidad_real),0) >= COALESCE(pl.cantidad_manual,pl.cantidad_estimada)       THEN 1
-                   WHEN COALESCE(SUM(cl.cantidad_real),0) >= COALESCE(pl.cantidad_manual,pl.cantidad_estimada)*0.8   THEN 2
+              CASE WHEN COALESCE(kx.cantidad_real,0) >= COALESCE(pl.cantidad_manual,pl.cantidad_estimada)       THEN 1
+                   WHEN COALESCE(kx.cantidad_real,0) >= COALESCE(pl.cantidad_manual,pl.cantidad_estimada)*0.8   THEN 2
                    ELSE 3 END,
               t.nombre, f.nombre
             """, new { presupuestoId })).ToList();

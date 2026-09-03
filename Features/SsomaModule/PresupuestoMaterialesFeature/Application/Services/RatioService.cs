@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
@@ -43,26 +44,36 @@ public class RatioService : IRatioService
     {
         var proyectos = await _repo.ObtenerProyectosConConsumoEstandarizadoAsync();
         var resultado = new CalcularRatiosTodosResultDto { TotalProyectosProcesados = proyectos.Count };
-        var familiaIdsAfectadas = new HashSet<int>();
+        var familiaIdsAfectadas = new ConcurrentDictionary<int, byte>();
+        var resultadosPorProyecto = new ConcurrentBag<CalcularRatiosResultDto>();
 
-        foreach (var (projectId, projectDescription) in proyectos)
-        {
-            try
+        // Cada proyecto abre su propia conexión (IDbContextFactory / pool de Npgsql), así que
+        // procesarlos en paralelo es seguro — antes se hacía uno por uno y con ~15-20 proyectos
+        // el tiempo total se sumaba secuencialmente. familiaIdsAfectadas es local por proyecto y
+        // se combina al final en un diccionario concurrente (HashSet no es thread-safe).
+        await Parallel.ForEachAsync(proyectos, new ParallelOptions { MaxDegreeOfParallelism = 5 },
+            async (proyecto, _) =>
             {
-                resultado.Proyectos.Add(await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsAfectadas));
-            }
-            catch (AbrilException ex)
-            {
-                resultado.Proyectos.Add(new CalcularRatiosResultDto
+                var (projectId, projectDescription) = proyecto;
+                var familiaIdsLocal = new HashSet<int>();
+                try
                 {
-                    ProjectId = projectId,
-                    ProjectDescription = projectDescription,
-                    Advertencias = [ex.Message]
-                });
-            }
-        }
+                    resultadosPorProyecto.Add(await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsLocal));
+                }
+                catch (AbrilException ex)
+                {
+                    resultadosPorProyecto.Add(new CalcularRatiosResultDto
+                    {
+                        ProjectId = projectId,
+                        ProjectDescription = projectDescription,
+                        Advertencias = [ex.Message]
+                    });
+                }
+                foreach (var id in familiaIdsLocal) familiaIdsAfectadas.TryAdd(id, 0);
+            });
 
-        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.ToList());
+        resultado.Proyectos.AddRange(resultadosPorProyecto);
+        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.Keys.ToList());
         return resultado;
     }
 
@@ -119,7 +130,14 @@ public class RatioService : IRatioService
 
         // Una sola conexion para todas las familias (antes se abria una por familia).
         await _repo.UpsertRatiosBulkAsync(itemsAGuardar);
-        foreach (var id in itemsAGuardar.Select(i => i.FamiliaId).Distinct())
+
+        var familiaIdsVigentes = itemsAGuardar.Select(i => i.FamiliaId).Distinct().ToList();
+        // Limpia familias que ya no tienen consumo vigente en este proyecto (ej. se fusionaron a
+        // otro ítem) — si no, quedan filas "fantasma" con el último ratio calculado antes de mover
+        // los datos, y la pantalla sigue mostrando una familia como si tuviera consumo real.
+        await _repo.EliminarRatiosObsoletosAsync(projectId, familiaIdsVigentes);
+
+        foreach (var id in familiaIdsVigentes)
             familiaIdsAfectadas.Add(id);
 
         return resultado;
@@ -169,6 +187,9 @@ public class RatioService : IRatioService
 
     public Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo) =>
         _repo.ActualizarIncluidoManualAsync(familiaId, projectId, incluir, campo);
+
+    public Task ActualizarActivoFamiliaAsync(int familiaId, bool activo) =>
+        _repo.ActualizarActivoFamiliaAsync(familiaId, activo);
 
     public Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync() =>
         _repo.ListarFamiliasConRatioAsync();

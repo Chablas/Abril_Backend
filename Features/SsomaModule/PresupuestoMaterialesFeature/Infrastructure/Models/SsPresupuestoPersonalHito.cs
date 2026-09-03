@@ -8,7 +8,7 @@ public class SsPresupuestoPersonalHito
     public int PresupuestoId { get; set; }
     /// <summary>Apunta al hito REAL del cronograma del proyecto (MilestoneSchedule).</summary>
     public int HitoId { get; set; }
-    // VIGIA | MONITOR | PREVENCIONISTA
+    // VIGIA | MONITOR | PREVENCIONISTA | ENCAPSULADOR | CAPATAZ | OFICIAL | OPERARIO | PEON | AYUDANTE
     public string Rol { get; set; } = null!;
     public int Cantidad { get; set; }
     public decimal Semanas { get; set; }

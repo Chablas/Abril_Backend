@@ -119,6 +119,22 @@ public class RatioMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al actualizar inclusión." }); }
     }
 
+    /// <summary>
+    /// Activa/desactiva una familia directamente desde la pantalla de Ratios (mismo flag que
+    /// "Activo" en Catálogo) — al desactivarla deja de considerarse para el ratio y el presupuesto
+    /// de proyectos nuevos, sin tocar el histórico ya calculado.
+    /// </summary>
+    [HttpPatch("familias/{familiaId}/activo")]
+    public async Task<IActionResult> ActualizarActivoFamilia(int familiaId, [FromBody] ActualizarActivoFamiliaDto dto)
+    {
+        try
+        {
+            await _ratioService.ActualizarActivoFamiliaAsync(familiaId, dto.Activo);
+            return Ok(new { familiaId, activo = dto.Activo });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al actualizar el estado de la familia." }); }
+    }
+
     /// <summary>Resumen general de todos los proyectos con ratios calculados.</summary>
     [HttpGet("resumen")]
     public async Task<IActionResult> Resumen()

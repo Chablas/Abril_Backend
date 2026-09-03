@@ -80,6 +80,17 @@ public class RatioRepository : IRatioRepository
         await conn.ExecuteAsync(sql, items);
     }
 
+    public async Task EliminarRatiosObsoletosAsync(int projectId, List<int> familiaIdsVigentes)
+    {
+        using var conn = Conn();
+        const string sql = """
+            DELETE FROM ss_ratio_proyecto
+            WHERE project_id = @projectId
+              AND NOT (familia_id = ANY(@familiaIdsVigentes))
+            """;
+        await conn.ExecuteAsync(sql, new { projectId, familiaIdsVigentes = familiaIdsVigentes.ToArray() });
+    }
+
     public async Task<List<RatioProyectoDto>> ObtenerRatiosPorProyectoAsync(int projectId)
     {
         using var conn = Conn();
@@ -105,6 +116,9 @@ public class RatioRepository : IRatioRepository
     public async Task<List<RatioProyectoDto>> ObtenerRatiosPorFamiliaAsync(int familiaId)
     {
         using var conn = Conn();
+        // Ordenado por consumo más reciente primero: el precio de un proyecto actual pesa más que
+        // uno de hace años (inflación, cambio de proveedor, etc.) — el responsable revisa esa
+        // columna con más criterio si ve primero lo actual.
         const string sql = """
             SELECT r.id, r.familia_id AS FamiliaId, f.nombre AS NombreFamilia, t.nombre AS TipoMaterial,
                    r.project_id AS ProjectId, p.project_description AS ProjectDescription,
@@ -118,7 +132,12 @@ public class RatioRepository : IRatioRepository
             JOIN ss_material_tipo t    ON t.id = f.tipo_id
             JOIN project p             ON p.project_id = r.project_id
             WHERE r.familia_id = @familiaId
-            ORDER BY r.ratio_cantidad
+            ORDER BY (
+              SELECT MAX(l.fecha_guia)
+              FROM ss_consumo_linea l
+              JOIN ss_material_item i2 ON i2.id = l.item_id
+              WHERE i2.familia_id = r.familia_id AND l.project_id = r.project_id AND l.activo = true
+            ) DESC NULLS LAST
             """;
         var result = await conn.QueryAsync<RatioProyectoDto>(sql, new { familiaId });
         return result.ToList();
@@ -136,6 +155,14 @@ public class RatioRepository : IRatioRepository
             WHERE familia_id = @familiaId AND project_id = @projectId
             """;
         await conn.ExecuteAsync(sql, new { familiaId, projectId, incluir });
+    }
+
+    public async Task ActualizarActivoFamiliaAsync(int familiaId, bool activo)
+    {
+        using var conn = Conn();
+        await conn.ExecuteAsync(
+            "UPDATE ss_material_familia SET activo = @activo, actualizado_en = now() WHERE id = @familiaId",
+            new { familiaId, activo });
     }
 
     public async Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync()

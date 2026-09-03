@@ -247,6 +247,8 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
             services.AddScoped<IPersonalHitoRepository, PersonalHitoRepository>();
             services.AddScoped<IPersonalHitoService, PersonalHitoService>();
+            services.AddScoped<IVigilanciaHitoRepository, VigilanciaHitoRepository>();
+            services.AddScoped<IVigilanciaHitoService, VigilanciaHitoService>();
             services.AddScoped<IKitRepository, KitRepository>();
             services.AddScoped<IKitService, KitService>();
             services.AddScoped<IRatioDriverRepository, RatioDriverRepository>();

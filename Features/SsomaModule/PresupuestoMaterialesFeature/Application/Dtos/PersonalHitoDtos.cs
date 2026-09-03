@@ -9,6 +9,11 @@ public class PersonalHitoDto
     public string HitoDescripcion { get; set; } = "";
     public DateOnly? HitoFecha { get; set; }
     public bool EsHitoCritico { get; set; }
+    /// <summary>Hito/etapa en la que este rol se retira — null significa "Semanas" manual (comportamiento
+    /// anterior). Con hito de salida, Semanas se recalcula server-side a partir de las fechas reales.</summary>
+    public int? HitoSalidaId { get; set; }
+    public string? HitoSalidaDescripcion { get; set; }
+    public DateOnly? HitoSalidaFecha { get; set; }
     public string Rol { get; set; } = "";
     public int Cantidad { get; set; }
     public decimal Semanas { get; set; }
@@ -27,6 +32,9 @@ public class HitoCriticoDisponibleDto
 public class PersonalHitoItemInputDto
 {
     public int HitoId { get; set; }
+    /// <summary>Etapa de salida elegida (opcional) — si viene, el backend recalcula Semanas a partir
+    /// de las fechas reales del cronograma y descarta el valor de Semanas enviado.</summary>
+    public int? HitoSalidaId { get; set; }
     public string Rol { get; set; } = "";
     public int Cantidad { get; set; }
     public decimal Semanas { get; set; }

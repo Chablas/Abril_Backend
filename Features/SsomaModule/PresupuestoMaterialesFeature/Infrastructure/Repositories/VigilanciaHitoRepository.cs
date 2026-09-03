@@ -5,10 +5,15 @@ using Npgsql;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
 
-public class PersonalHitoRepository : IPersonalHitoRepository
+/// <summary>Nombre de la família de Catálogo cuyo ratio de precio alimenta el costo del servicio de
+/// vigilancia externa — el mismo mecanismo de Ratios que usan los demás materiales, no un costo tipeado
+/// a mano por fila (a diferencia de "S/ mes" en Dotación de personal).</summary>
+public class VigilanciaHitoRepository : IVigilanciaHitoRepository
 {
+    private const string FamiliaVigilancia = "Servicio de Vigilancia";
+
     private readonly IConfiguration _config;
-    public PersonalHitoRepository(IConfiguration config) => _config = config;
+    public VigilanciaHitoRepository(IConfiguration config) => _config = config;
     private NpgsqlConnection Conn() => new(_config["Database:PostgreSQL"]!);
 
     // Cronograma vigente de un proyecto: la versión de historial marcada como la actual.
@@ -27,63 +32,59 @@ public class PersonalHitoRepository : IPersonalHitoRepository
         )
         """;
 
-    public async Task<List<HitoCriticoDisponibleDto>> ObtenerHitosCriticosAsync(int projectId)
-    {
-        using var conn = Conn();
-        var sql = $"""
-            WITH {CronogramaVigenteCte}
-            SELECT cv.milestone_schedule_id AS HitoId,
-                   COALESCE(m.milestone_description, cv.custom_description, 'Hito') AS HitoDescripcion,
-                   cv.planned_start_date AS HitoFecha
-            FROM cronograma_vigente cv
-            LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
-            ORDER BY cv.planned_start_date NULLS LAST
-            """;
-        var result = await conn.QueryAsync<HitoCriticoDisponibleDto>(sql, new { projectId });
-        return result.ToList();
-    }
-
-    public async Task<List<PersonalHitoDto>> ObtenerPorProyectoAsync(int projectId)
-    {
-        using var conn = Conn();
-        var sql = $"""
-            WITH {CronogramaVigenteCte}
-            SELECT ph.id AS Id, ph.hito_id AS HitoId,
-                   COALESCE(m.milestone_description, cv.custom_description, 'Hito') AS HitoDescripcion,
-                   cv.planned_start_date AS HitoFecha,
-                   cv.es_hito_critico AS EsHitoCritico,
-                   ph.hito_salida_id AS HitoSalidaId,
-                   COALESCE(m2.milestone_description, cv2.custom_description) AS HitoSalidaDescripcion,
-                   cv2.planned_start_date AS HitoSalidaFecha,
-                   ph.rol AS Rol, ph.cantidad AS Cantidad,
-                   CASE
-                       WHEN ph.hito_salida_id IS NOT NULL
-                            AND cv.planned_start_date IS NOT NULL
-                            AND cv2.planned_start_date IS NOT NULL
-                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
-                       ELSE ph.semanas
-                   END AS Semanas,
-                   ph.costo_mensual AS CostoMensual, ph.total AS Total
-            FROM ss_presupuesto_personal_hito ph
-            JOIN ss_presupuesto p ON p.id = ph.presupuesto_id
-            JOIN cronograma_vigente cv ON cv.milestone_schedule_id = ph.hito_id
-            LEFT JOIN cronograma_vigente cv2 ON cv2.milestone_schedule_id = ph.hito_salida_id
-            LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
-            LEFT JOIN milestone m2 ON m2.milestone_id = cv2.milestone_id
-            WHERE p.project_id = @projectId
-            ORDER BY cv.planned_start_date NULLS LAST, ph.rol
-            """;
-        var result = await conn.QueryAsync<PersonalHitoDto>(sql, new { projectId });
-        return result.ToList();
-    }
-
     private class FechaHitoRow
     {
         public int HitoId { get; set; }
         public DateOnly? Fecha { get; set; }
     }
 
-    public async Task GuardarAsync(int projectId, List<PersonalHitoItemInputDto> items, int userId)
+    public async Task<decimal?> ObtenerPrecioUnitarioActualAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT AVG(r.precio_unitario_promedio)
+            FROM ss_ratio_proyecto r
+            JOIN ss_material_familia f ON f.id = r.familia_id
+            WHERE f.nombre = @familia AND r.incluido_manual_precio = true
+            """;
+        return await conn.QuerySingleOrDefaultAsync<decimal?>(sql, new { familia = FamiliaVigilancia });
+    }
+
+    public async Task<List<VigilanciaHitoDto>> ObtenerPorProyectoAsync(int projectId)
+    {
+        using var conn = Conn();
+        var sql = $"""
+            WITH {CronogramaVigenteCte}
+            SELECT vh.id AS Id, vh.hito_id AS HitoId,
+                   COALESCE(m.milestone_description, cv.custom_description, 'Hito') AS HitoDescripcion,
+                   cv.planned_start_date AS HitoFecha,
+                   cv.es_hito_critico AS EsHitoCritico,
+                   vh.hito_salida_id AS HitoSalidaId,
+                   COALESCE(m2.milestone_description, cv2.custom_description) AS HitoSalidaDescripcion,
+                   cv2.planned_start_date AS HitoSalidaFecha,
+                   vh.cantidad_puntos AS CantidadPuntos,
+                   CASE
+                       WHEN vh.hito_salida_id IS NOT NULL
+                            AND cv.planned_start_date IS NOT NULL
+                            AND cv2.planned_start_date IS NOT NULL
+                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       ELSE vh.semanas
+                   END AS Semanas,
+                   vh.precio_unitario AS PrecioUnitario, vh.total AS Total
+            FROM ss_presupuesto_vigilancia_hito vh
+            JOIN ss_presupuesto p ON p.id = vh.presupuesto_id
+            JOIN cronograma_vigente cv ON cv.milestone_schedule_id = vh.hito_id
+            LEFT JOIN cronograma_vigente cv2 ON cv2.milestone_schedule_id = vh.hito_salida_id
+            LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
+            LEFT JOIN milestone m2 ON m2.milestone_id = cv2.milestone_id
+            WHERE p.project_id = @projectId
+            ORDER BY cv.planned_start_date NULLS LAST
+            """;
+        var result = await conn.QueryAsync<VigilanciaHitoDto>(sql, new { projectId });
+        return result.ToList();
+    }
+
+    public async Task GuardarAsync(int projectId, List<VigilanciaHitoItemInputDto> items, int userId)
     {
         using var conn = Conn();
         await conn.OpenAsync();
@@ -102,14 +103,25 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                 INSERT INTO ss_presupuesto (project_id, version, estado, hh_usado, area_usada,
                     trabajadores_usados, total_estimado, generado_por, generado_en, notas)
                 VALUES (@projectId, 1, 'BORRADOR', 0, 0, 0, 0, @userId, now(),
-                    'Generado automáticamente para dotación de personal por hito')
+                    'Generado automáticamente para vigilancia por hito')
                 RETURNING id
                 """, new { projectId, userId }, tx);
         }
 
         await conn.ExecuteAsync(
-            "DELETE FROM ss_presupuesto_personal_hito WHERE presupuesto_id = @presupuestoId",
+            "DELETE FROM ss_presupuesto_vigilancia_hito WHERE presupuesto_id = @presupuestoId",
             new { presupuestoId }, tx);
+
+        // Precio unitario vigente del servicio de vigilancia — mismo mecanismo de Ratios que los
+        // demás materiales, snapshot al momento de guardar (igual que "S/ mes" en Dotación de personal).
+        const string precioSql = """
+            SELECT AVG(r.precio_unitario_promedio)
+            FROM ss_ratio_proyecto r
+            JOIN ss_material_familia f ON f.id = r.familia_id
+            WHERE f.nombre = @familia AND r.incluido_manual_precio = true
+            """;
+        var precioUnitario = await conn.QuerySingleOrDefaultAsync<decimal?>(
+            precioSql, new { familia = FamiliaVigilancia }, tx) ?? 0m;
 
         // Fechas del cronograma vigente — para recalcular Semanas cuando la fila trae un hito de salida.
         var fechasSql = $"""
@@ -135,19 +147,18 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                 presupuestoId,
                 i.HitoId,
                 i.HitoSalidaId,
-                i.Rol,
-                i.Cantidad,
+                i.CantidadPuntos,
                 Semanas = semanas,
-                i.CostoMensual,
-                Total = i.Cantidad * i.CostoMensual * (semanas / semanasPorMes),
+                PrecioUnitario = precioUnitario,
+                Total = i.CantidadPuntos * precioUnitario * (semanas / semanasPorMes),
             };
         });
 
         await conn.ExecuteAsync(
             """
-            INSERT INTO ss_presupuesto_personal_hito
-                (presupuesto_id, hito_id, hito_salida_id, rol, cantidad, semanas, costo_mensual, total)
-            VALUES (@presupuestoId, @HitoId, @HitoSalidaId, @Rol, @Cantidad, @Semanas, @CostoMensual, @Total)
+            INSERT INTO ss_presupuesto_vigilancia_hito
+                (presupuesto_id, hito_id, hito_salida_id, cantidad_puntos, semanas, precio_unitario, total)
+            VALUES (@presupuestoId, @HitoId, @HitoSalidaId, @CantidadPuntos, @Semanas, @PrecioUnitario, @Total)
             """, filas, tx);
 
         await tx.CommitAsync();

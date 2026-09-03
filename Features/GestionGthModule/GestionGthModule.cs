@@ -81,6 +81,11 @@ namespace Abril_Backend.Features.GestionGthModule
             services.AddScoped<IOnboardingRepository, OnboardingRepository>();
             services.AddScoped<IOnboardingService, OnboardingService>();
 
+            // Formulario «Nuevos Talentos» del colaborador (público por token) y el correo de
+            // bienvenida que lo abre: la primera actividad del checklist.
+            services.AddScoped<IOnboardingFormularioRepository, OnboardingFormularioRepository>();
+            services.AddScoped<IOnboardingFormularioService, OnboardingFormularioService>();
+
             // File digital del colaborador en SharePoint. Va en el Shared/ del módulo: lo abre la
             // carta oferta (bandeja de GTH y página pública de firma) y lo sigue llenando Onboarding,
             // y los tres tienen que dejar los documentos en la misma carpeta.

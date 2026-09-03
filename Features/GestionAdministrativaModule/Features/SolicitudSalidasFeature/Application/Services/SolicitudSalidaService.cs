@@ -108,18 +108,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (dto.Trayectos == null || dto.Trayectos.Count == 0)
                 throw new AbrilException("Debe registrar al menos un trayecto.", 400);
 
+            // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
+            //    necesitan documento adjunto, cuáles necesitan motivo adicional y cuáles no
+            //    declaran horario ni lugares. Se carga ANTES de validar porque es el motivo el
+            //    que decide qué campos son obligatorios.
+            var exigencias = await CargarExigenciasMotivosAsync(dto);
+
+            // Un motivo con pide_horas_lugares = false describe una ausencia de día completo
+            // (ej. licencia sin goce de haber), no un desplazamiento: no lleva horas ni lugares y
+            // no admite trayectos adicionales. El motivo libre ("Otro motivo") siempre los pide.
+            bool PideHorasLugares(TrayectoCreateDto t) =>
+                !t.MotivoId.HasValue
+                || !exigencias.TryGetValue(t.MotivoId.Value, out var e)
+                || e.PideHorasLugares;
+
+            if (dto.Trayectos.Count > 1 && dto.Trayectos.Any(t => !PideHorasLugares(t)))
+                throw new AbrilException(
+                    "El motivo seleccionado no admite más de un trayecto: registra la solicitud con un solo trayecto.", 400);
+
             // Validar cada trayecto
             for (int i = 0; i < dto.Trayectos.Count; i++)
             {
                 var t = dto.Trayectos[i];
                 var pos = i + 1;
-                if (t.HoraRetorno.HasValue && t.HoraRetorno.Value <= t.HoraSalida)
-                    throw new AbrilException($"Trayecto {pos}: la hora de retorno debe ser posterior a la hora de salida.", 400);
 
                 var tieneMotivoId    = t.MotivoId.HasValue;
                 var tieneMotivoLibre = !string.IsNullOrWhiteSpace(t.MotivoLibre);
                 if (!tieneMotivoId && !tieneMotivoLibre)
                     throw new AbrilException($"Trayecto {pos}: debe indicar un motivo.", 400);
+
+                // El horario y los lugares pertenecen al motivo: si el motivo no los pide, no se
+                // guarda nada aunque el cliente los haya mandado (ej. cambió de motivo sin limpiar).
+                if (!PideHorasLugares(t))
+                {
+                    t.HoraSalida        = null;
+                    t.HoraRetorno       = null;
+                    t.LugarOrigenId     = null;
+                    t.LugarOrigenLibre  = null;
+                    t.LugarDestinoId    = null;
+                    t.LugarDestinoLibre = null;
+                    continue;
+                }
+
+                if (!t.HoraSalida.HasValue)
+                    throw new AbrilException($"Trayecto {pos}: debe indicar la hora de salida.", 400);
+                if (t.HoraRetorno.HasValue && t.HoraRetorno.Value <= t.HoraSalida.Value)
+                    throw new AbrilException($"Trayecto {pos}: la hora de retorno debe ser posterior a la hora de salida.", 400);
 
                 var tieneOrigenId    = t.LugarOrigenId.HasValue;
                 var tieneOrigenLibre = !string.IsNullOrWhiteSpace(t.LugarOrigenLibre);
@@ -134,10 +168,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 if (tieneOrigenId && tieneDestinoId && t.LugarOrigenId == t.LugarDestinoId)
                     throw new AbrilException($"Trayecto {pos}: el lugar de origen y el lugar de destino no pueden ser iguales.", 400);
             }
-
-            // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
-            //    necesitan documento adjunto y cuáles necesitan motivo adicional.
-            var exigencias = await CargarExigenciasMotivosAsync(dto);
 
             // 2. Motivo adicional: se valida antes de subir nada a SharePoint para que una
             //    solicitud inválida no deje archivos huérfanos en la carpeta.
@@ -218,10 +248,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>
         /// Lee de una sola vez lo que exigen los motivos del catálogo elegidos en la solicitud:
-        /// documento adjunto y/o motivo adicional. Devuelve un diccionario motivoId → exigencias
-        /// (vacío si todos los trayectos usan "Otro motivo").
+        /// documento adjunto, motivo adicional y/o horario y lugares. Devuelve un diccionario
+        /// motivoId → exigencias (vacío si todos los trayectos usan "Otro motivo").
         /// </summary>
-        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)>>
+        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)>>
             CargarExigenciasMotivosAsync(SolicitudSalidaCreateDto dto)
         {
             var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
@@ -230,10 +260,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             using var ctx = _factory.CreateDbContext();
             var filas = await ctx.GaMotivoSalida
                 .Where(m => motivoIds.Contains(m.Id))
-                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional })
+                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares })
                 .ToListAsync();
 
-            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional));
+            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares));
         }
 
         /// <summary>
@@ -245,7 +275,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private async Task<Dictionary<int, List<TrayectoAdjuntoSubidoDto>>?> SubirAdjuntosAsync(
             SolicitudSalidaCreateDto dto,
             IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos,
-            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)> exigencias)
+            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)> exigencias)
         {
             var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
                 .Where(a => a.File != null && a.File.Length > 0)
@@ -425,12 +455,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 {
                     var m = await ctx.GaMotivoSalida
                         .Where(m => m.Id == t.MotivoId.Value)
-                        .Select(m => new { m.Descripcion, m.EsHoraEstimada })
+                        .Select(m => new { m.Descripcion, m.EsHoraEstimada, m.PideHorasLugares })
                         .FirstOrDefaultAsync();
                     motivo = m?.Descripcion ?? "—";
                     if (!string.IsNullOrWhiteSpace(t.MotivoAdicional))
                         motivo = $"{motivo} — {t.MotivoAdicional}";
-                    if (m == null || !m.EsHoraEstimada) algunaHoraExacta = true;
+                    // Un motivo que no declara horario tampoco genera horas que recuperar.
+                    if (m == null || (!m.EsHoraEstimada && m.PideHorasLugares)) algunaHoraExacta = true;
                 }
                 else
                 {
@@ -439,10 +470,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     motivo = t.MotivoLibre ?? "—";
                 }
 
-                var origen  = await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre);
-                var destino = await ResolveLugarDisplay(ctx, t.LugarDestinoId, t.LugarDestinoLibre);
-                var horaRet = t.HoraRetorno.HasValue ? t.HoraRetorno.Value.ToString("HH:mm") : "Sin retorno";
-                resueltos.Add((t.Orden + 1, t.HoraSalida.ToString("HH:mm"), horaRet, motivo, origen, destino));
+                // Los motivos que no piden horario ni lugares dejan estos campos en "": el
+                // bloque del correo omite la fila entera en vez de mostrarla vacía o con un guión.
+                var tieneOrigen  = t.LugarOrigenId.HasValue  || !string.IsNullOrWhiteSpace(t.LugarOrigenLibre);
+                var tieneDestino = t.LugarDestinoId.HasValue || !string.IsNullOrWhiteSpace(t.LugarDestinoLibre);
+                var origen  = tieneOrigen  ? await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre)  : "";
+                var destino = tieneDestino ? await ResolveLugarDisplay(ctx, t.LugarDestinoId, t.LugarDestinoLibre) : "";
+                var horaSal = t.HoraSalida.HasValue ? t.HoraSalida.Value.ToString("HH:mm") : "";
+                var horaRet = t.HoraRetorno.HasValue ? t.HoraRetorno.Value.ToString("HH:mm")
+                            : t.HoraSalida.HasValue  ? "Sin retorno"
+                            : "";
+                resueltos.Add((t.Orden + 1, horaSal, horaRet, motivo, origen, destino));
             }
             return (resueltos, algunaHoraExacta);
         }
@@ -615,6 +653,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 .CountAsync();
         }
 
+        /// <summary>
+        /// Una fila de la tabla de trayecto en los correos. Devuelve "" cuando el dato no aplica
+        /// — los motivos con pide_horas_lugares = false no traen horas ni lugares — para que el
+        /// bloque no muestre filas vacías.
+        /// </summary>
+        private static string FilaTrayectoEmail(string etiqueta, string? valor)
+        {
+            if (string.IsNullOrWhiteSpace(valor)) return "";
+            return $@"<tr><td style=""padding:3px 0;color:#777;width:40%"">{WebUtility.HtmlEncode(etiqueta)}</td><td style=""padding:3px 0;color:#222"">{WebUtility.HtmlEncode(valor)}</td></tr>";
+        }
+
         private static async Task<string> ResolveLugarDisplay(AppDbContext ctx, int? lugarId, string? lugarLibre)
         {
             if (!string.IsNullOrWhiteSpace(lugarLibre)) return lugarLibre.Trim();
@@ -647,15 +696,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
             {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
+                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
+                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
+                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
+                           : "Trayecto";
                 return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
                     <div style=""font-weight:600;color:#64BC04;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
                     <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
+                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
+                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
+                      {FilaTrayectoEmail("Motivo", t.Motivo)}
+                      {FilaTrayectoEmail("Origen", t.Origen)}
+                      {FilaTrayectoEmail("Destino", t.Destino)}
                     </table>
                   </div>";
             }
@@ -710,15 +762,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
             {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
+                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
+                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
+                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
+                           : "Trayecto";
                 return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
                     <div style=""font-weight:600;color:#0086A5;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
                     <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
+                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
+                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
+                      {FilaTrayectoEmail("Motivo", t.Motivo)}
+                      {FilaTrayectoEmail("Origen", t.Origen)}
+                      {FilaTrayectoEmail("Destino", t.Destino)}
                     </table>
                   </div>";
             }
@@ -1174,15 +1229,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
             {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
+                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
+                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
+                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
+                           : "Trayecto";
                 return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
                     <div style=""font-weight:600;color:#D30000;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
                     <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
+                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
+                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
+                      {FilaTrayectoEmail("Motivo", t.Motivo)}
+                      {FilaTrayectoEmail("Origen", t.Origen)}
+                      {FilaTrayectoEmail("Destino", t.Destino)}
                     </table>
                   </div>";
             }
@@ -1224,15 +1282,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
             {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
+                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
+                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
+                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
+                           : "Trayecto";
                 return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
                     <div style=""font-weight:600;color:#009C87;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
                     <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
+                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
+                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
+                      {FilaTrayectoEmail("Motivo", t.Motivo)}
+                      {FilaTrayectoEmail("Origen", t.Origen)}
+                      {FilaTrayectoEmail("Destino", t.Destino)}
                     </table>
                   </div>";
             }

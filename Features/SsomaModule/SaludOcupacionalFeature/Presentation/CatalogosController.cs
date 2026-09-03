@@ -237,6 +237,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // El alta y la edición de razones sociales desde Configuración NO viven acá: este
+        // controller exige el rol AdministradorSsoma a nivel de clase y los [Authorize] de clase y
+        // de método se COMBINAN (AND), así que quien administra Configuración pero no es admin de
+        // SSOMA recibiría 403. Están en
+        // Features/ConfigurationModule/Features/RazonSocialFeature (api/v1/configuracion/razones-sociales).
+
         // ===== Clinica Emails =====
         [HttpGet("clinicas/{id:int}/emails")]
         public async Task<IActionResult> GetClinicaEmails(int id)

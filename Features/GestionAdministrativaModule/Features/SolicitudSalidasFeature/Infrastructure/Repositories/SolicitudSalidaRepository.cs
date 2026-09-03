@@ -32,6 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     RequiereAdjunto         = m.RequiereAdjunto,
                     EsHoraEstimada          = m.EsHoraEstimada,
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
+                    PideHorasLugares        = m.PideHorasLugares,
                 })
                 .ToListAsync();
 
@@ -177,7 +178,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 {
                     Id           = s.Id,
                     FechaSalida  = s.FechaSalida,
-                    HoraSalida   = first?.HoraSalida ?? default,
+                    HoraSalida   = first?.HoraSalida,
                     HoraRetorno  = last?.HoraRetorno,
                     Motivo       = first?.Motivo ?? string.Empty,
                     LugarOrigen  = first?.LugarOrigen,

@@ -15,6 +15,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// obligatorio (ej. "Visita a obra" → a qué se va). Se guarda en
         /// <c>ga_solicitud_trayecto.motivo_adicional</c>.</summary>
         public bool RequiereMotivoAdicional { get; set; }
+        /// <summary>
+        /// Si false, al elegir este motivo la solicitud no pide horas, ni lugares, ni trayectos
+        /// adicionales: queda un único trayecto que solo lleva el motivo (ej. "Licencia sin goce
+        /// de haber", que es una ausencia de día completo y no un desplazamiento). Default true =
+        /// comportamiento normal de una salida.
+        /// </summary>
+        public bool PideHorasLugares { get; set; } = true;
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

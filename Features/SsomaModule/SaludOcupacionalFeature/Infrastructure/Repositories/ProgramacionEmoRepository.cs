@@ -402,6 +402,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 if (!await RazonSocialCuposHelper.EsValidaAsync(ctx, dto.EmpresaId.Value))
                     throw new AbrilException("La razón social seleccionada no es válida.", 400);
 
+                // Y con cupo libre: elegirla aca es ASIGNARSELA a la ficha, asi que una razon
+                // social llena metería un trabajador mas por encima del tope. El modal ya lo avisa
+                // y no deja guardar, pero el tope se cuenta de nuevo acá: entre que se abrio el
+                // modal y este momento otro pudo ocupar el ultimo cupo.
+                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.EmpresaId.Value) == 0)
+                {
+                    var nombre = await ctx.Contributor
+                        .Where(c => c.ContributorId == dto.EmpresaId.Value)
+                        .Select(c => c.ContributorName)
+                        .FirstOrDefaultAsync();
+                    throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
+                }
+
                 worker.ContributorId = dto.EmpresaId;
                 worker.UpdatedAt     = DateTimeOffset.UtcNow;
 

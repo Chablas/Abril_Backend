@@ -30,6 +30,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                     RequiereAdjunto = m.RequiereAdjunto,
                     EsHoraEstimada  = m.EsHoraEstimada,
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
+                    PideHorasLugares = m.PideHorasLugares,
                     CreatedAt       = m.CreatedAt,
                 })
                 .ToListAsync();
@@ -57,6 +58,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                 RequiereAdjunto = dto.RequiereAdjunto,
                 EsHoraEstimada  = dto.EsHoraEstimada,
                 RequiereMotivoAdicional = dto.RequiereMotivoAdicional,
+                PideHorasLugares = dto.PideHorasLugares,
                 CreatedAt       = DateTimeOffset.UtcNow,
             });
 
@@ -97,6 +99,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
             motivo.RequiereAdjunto = dto.RequiereAdjunto;
             motivo.EsHoraEstimada  = dto.EsHoraEstimada;
             motivo.RequiereMotivoAdicional = dto.RequiereMotivoAdicional;
+            motivo.PideHorasLugares = dto.PideHorasLugares;
             await ctx.SaveChangesAsync();
         }
     }

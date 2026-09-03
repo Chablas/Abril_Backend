@@ -20,7 +20,8 @@
     {
         public int Id { get; set; }
         public int Orden { get; set; }
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null en trayectos de motivos que no piden horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
         /// <summary>Detalle escrito por el trabajador cuando el motivo lo exige. Null si no aplica.</summary>
@@ -71,7 +72,8 @@
 
     public class TrayectoCreateDto
     {
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null cuando el motivo elegido tiene pide_horas_lugares = false.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
 
         /// <summary>Id de ga_motivo_salida. Nulo cuando el usuario elige "Otro motivo".</summary>

@@ -364,7 +364,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     Area             = AreaMasBaja(s.AreaScopeId, arbolAreas),
                     RevisorNombre    = revisor?.Nombre,
                     FechaSalida      = s.FechaSalida,
-                    HoraSalida       = first?.HoraSalida ?? default,
+                    HoraSalida       = first?.HoraSalida,
                     HoraRetorno      = last?.HoraRetorno,
                     Motivo           = first?.Motivo ?? string.Empty,
                     LugarOrigen      = first?.LugarOrigen,

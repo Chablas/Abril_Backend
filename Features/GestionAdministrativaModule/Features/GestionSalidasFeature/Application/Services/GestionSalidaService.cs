@@ -160,7 +160,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 ws.Cell(row, 3).Value  = s.Area          ?? "—";
                 ws.Cell(row, 4).Value  = s.RevisorNombre ?? "—";
                 ws.Cell(row, 5).Value  = s.FechaSalida.ToString("dd/MM/yyyy");
-                ws.Cell(row, 6).Value  = s.HoraSalida.ToString("HH:mm");
+                ws.Cell(row, 6).Value  = s.HoraSalida.HasValue ? s.HoraSalida.Value.ToString("HH:mm") : "—";
                 ws.Cell(row, 7).Value  = s.HoraRetorno.HasValue ? s.HoraRetorno.Value.ToString("HH:mm") : "—";
                 ws.Cell(row, 8).Value  = s.Motivo;
                 ws.Cell(row, 9).Value  = s.LugarOrigen  ?? "—";

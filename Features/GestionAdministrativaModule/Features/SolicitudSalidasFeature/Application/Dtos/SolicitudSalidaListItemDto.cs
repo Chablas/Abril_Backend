@@ -6,8 +6,8 @@
         public DateOnly FechaSalida { get; set; }
 
         // ── Datos agregados del/los trayecto(s) para vista de tabla ─────
-        /// <summary>Hora de salida del primer trayecto.</summary>
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Hora de salida del primer trayecto. Null si el motivo no pide horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         /// <summary>Hora de retorno del último trayecto.</summary>
         public TimeOnly? HoraRetorno { get; set; }
         /// <summary>Motivo del primer trayecto.</summary>

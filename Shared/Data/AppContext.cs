@@ -264,6 +264,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType> HolidayType => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday> Holiday => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
+        // Catálogo de bancos (Configuración → Bancos): de acá sale el banco de cada razón social
+        // del grupo, que es el que el formulario de bienvenida le muestra al nuevo colaborador.
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco> Banco => Set<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder> LessonJefeReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder>();
@@ -583,6 +586,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
+        // Formulario «Nuevos Talentos» del colaborador (público por token) + sus catálogos propios.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario> GthOnboardingFormulario => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado> GthOnboardingFormularioEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion> GthOnboardingUbicacion => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta> GthRentaQuinta => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>();
+        // Tallas: la de calzado nace con este formulario; la de camisa (`talla`) existía desde la
+        // data maestra (person.talla_id) pero nadie la leía todavía, así que no estaba mapeada.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado> TallaCalzado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla> Talla => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
         public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
@@ -1846,6 +1858,19 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(d => d.GthRequerimientoId).OnDelete(DeleteBehavior.Restrict);
             });
 
+            // ── Configuración · Bancos ──────────────────────────────────────────
+            // Un solo banco vivo por código, y la razón social apunta acá. La FK se declara sin
+            // navegación en Contributor a propósito: nadie necesita el objeto banco colgado de la
+            // razón social, y declararla obligaría a cargarla en todas las consultas que ya existen.
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>(e =>
+            {
+                e.HasIndex(b => b.Codigo).IsUnique().HasFilter("state = true");
+            });
+
+            modelBuilder.Entity<Contributor>()
+                .HasOne<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>()
+                .WithMany().HasForeignKey(c => c.BancoId).OnDelete(DeleteBehavior.Restrict);
+
             // ── Gestión GTH · Onboarding ────────────────────────────────────────
             // Catálogos: un solo registro "vivo" (state = true) por código.
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>()
@@ -1876,6 +1901,43 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(o => o.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                  .WithMany().HasForeignKey(o => o.GthOnboardingEstadoId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Catálogos propios del formulario de bienvenida: un solo registro vivo por código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+
+            // Formulario «Nuevos Talentos»: uno vivo por onboarding y token único entre los vigentes
+            // (es la única credencial de su página pública).
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario>(e =>
+            {
+                e.HasIndex(f => f.GthOnboardingId).IsUnique().HasFilter("state = true");
+                e.HasIndex(f => f.Token).IsUnique().HasFilter("state = true");
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingFormularioEstadoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Puesto>()
+                 .WithMany().HasForeignKey(f => f.PuestoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingUbicacionId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Contributor>()
+                 .WithMany().HasForeignKey(f => f.ContributorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Sexo>()
+                 .WithMany().HasForeignKey(f => f.SexoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>()
+                 .WithMany().HasForeignKey(f => f.TallaCalzadoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla>()
+                 .WithMany().HasForeignKey(f => f.TallaId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>()
+                 .WithMany().HasForeignKey(f => f.GthRentaQuintaId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────

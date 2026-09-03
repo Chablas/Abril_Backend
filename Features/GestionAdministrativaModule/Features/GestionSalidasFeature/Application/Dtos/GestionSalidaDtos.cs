@@ -19,8 +19,8 @@
         /// </summary>
         public string? RevisorNombre { get; set; }
         public DateOnly FechaSalida { get; set; }
-        /// <summary>Hora de salida del primer trayecto.</summary>
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Hora de salida del primer trayecto. Null si el motivo no pide horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         /// <summary>Hora de retorno del último trayecto.</summary>
         public TimeOnly? HoraRetorno { get; set; }
         /// <summary>Motivo del primer trayecto.</summary>
@@ -330,7 +330,8 @@
     {
         public int Id { get; set; }
         public int Orden { get; set; }
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null en trayectos de motivos que no piden horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
         /// <summary>Detalle que escribió el trabajador cuando el motivo lo exige. Null si no aplica.</summary>

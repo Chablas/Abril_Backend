@@ -53,11 +53,16 @@ public class RatioDriverService : IRatioDriverService
 
             var hhCalculado = hhPorProyecto.TryGetValue(p.ProjectId, out var hh) ? hh.HhTotal : 0;
             var diasRegistrados = hhPorProyecto.TryGetValue(p.ProjectId, out var hhDias) ? hhDias.DiasRegistrados : 0;
-            // El valor manual final (Datos Base) manda sobre el calculado desde Tareo/planilla
-            // cuando existe — normalmente porque el proyecto ya cerró y el real definitivo se
-            // conocía por otra vía (ver caso SAUCO: worker_vinculaciones quedó casi vacío para
-            // ese proyecto, pero Datos Base sí tenía el total correcto tipeado a mano).
-            var hhManual = p.HhTotalCasa;
+            // El valor manual de Datos Base solo manda sobre el calculado cuando el proyecto ya
+            // NO está Activo (Finalizado, Inactivo, o el campo nunca se cargó — típico en obras
+            // viejas). Antes esto se decidía por HhFuente=="HH_REAL", pero ese campo es facil de
+            // olvidar actualizar; el estado del proyecto es lo que el responsable ya revisa y
+            // controla. Si sigue Activo, el manual es un proyectado/estimado de presupuesto, no
+            // un dato real definitivo (ver caso CEDRO 33: su manual era un proyectado inicial,
+            // muy distinto del real que ya se está midiendo por Tareo/Excel).
+            var esManualConfiable = p.CicloVida != "Activo";
+            var hhManual = esManualConfiable ? p.HhTotalCasa : null;
+            var hhProyectado = !esManualConfiable ? p.HhTotalCasa : null;
             var hhOficial = hhManual ?? hhCalculado;
 
             if (hhOficial > 0)
@@ -71,6 +76,12 @@ public class RatioDriverService : IRatioDriverService
                     Ratio = hhOficial / p.AreaTechada,
                     CantidadCalculado = hhCalculado,
                     CantidadManual = hhManual,
+                    CantidadProyectado = hhProyectado,
+                    // El acumulado real (Excel/Tareo) manda por defecto sobre el manual: si el
+                    // proyecto ya cerró y tiene Excel subido, ese acumulado ES el real final, no
+                    // una estimación aparte. El manual solo se usa por defecto si todavía no hay
+                    // ningún dato real medido (proyecto cerrado sin Excel ni Tareo completo).
+                    FuenteCantidadDefault = hhCalculado > 0 ? "CALCULADO" : (hhManual != null ? "MANUAL" : null),
                     DiasRegistrados = diasRegistrados,
                     IncluidoManualDefault = incluidoPorDefecto,
                 });
@@ -81,7 +92,12 @@ public class RatioDriverService : IRatioDriverService
             }
 
             var trabCalculado = trabPorProyecto.TryGetValue(p.ProjectId, out var trab) ? trab.TotalTrabajadoresDistintos : 0;
-            var trabManual = decimal.TryParse(p.CantTrabajadoresCasa, out var trabManualParsed) ? trabManualParsed : (decimal?)null;
+            var trabManual = esManualConfiable && decimal.TryParse(p.CantTrabajadoresCasa, out var trabManualParsed)
+                ? trabManualParsed
+                : (decimal?)null;
+            var trabProyectado = !esManualConfiable && decimal.TryParse(p.CantTrabajadoresCasa, out var trabProyectadoParsed)
+                ? trabProyectadoParsed
+                : (decimal?)null;
             var trabOficial = trabManual ?? trabCalculado;
 
             if (trabOficial > 0)
@@ -95,6 +111,8 @@ public class RatioDriverService : IRatioDriverService
                     Ratio = trabOficial / p.AreaTechada,
                     CantidadCalculado = trabCalculado,
                     CantidadManual = trabManual,
+                    CantidadProyectado = trabProyectado,
+                    FuenteCantidadDefault = trabCalculado > 0 ? "CALCULADO" : (trabManual != null ? "MANUAL" : null),
                     DiasRegistrados = 0,
                     IncluidoManualDefault = incluidoPorDefecto,
                 });
@@ -136,6 +154,9 @@ public class RatioDriverService : IRatioDriverService
 
     public Task ActualizarIncluidoManualAsync(string tipoDriver, int projectId, bool incluir) =>
         _repo.ActualizarIncluidoManualAsync(NormalizarTipo(tipoDriver), projectId, incluir);
+
+    public Task ActualizarFuenteCantidadAsync(string tipoDriver, int projectId, string? fuente) =>
+        _repo.ActualizarFuenteCantidadAsync(NormalizarTipo(tipoDriver), projectId, fuente?.Trim().ToUpperInvariant());
 
     public async Task<RatiosDriversRecomendadosDto> ObtenerRecomendadosAsync() =>
         new()

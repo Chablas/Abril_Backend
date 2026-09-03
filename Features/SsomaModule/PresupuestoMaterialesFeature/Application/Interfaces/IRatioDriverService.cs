@@ -7,5 +7,6 @@ public interface IRatioDriverService
     Task<CalcularRatiosDriversResultDto> CalcularRatiosAsync();
     Task<RatioDriverComparacionDto> ObtenerComparacionAsync(string tipoDriver);
     Task ActualizarIncluidoManualAsync(string tipoDriver, int projectId, bool incluir);
+    Task ActualizarFuenteCantidadAsync(string tipoDriver, int projectId, string? fuente);
     Task<RatiosDriversRecomendadosDto> ObtenerRecomendadosAsync();
 }

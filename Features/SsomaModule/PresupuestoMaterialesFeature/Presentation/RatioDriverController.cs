@@ -49,6 +49,19 @@ public class RatioDriverController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al actualizar inclusión." }); }
     }
 
+    /// <summary>El responsable elige cuál de los 3 valores usar para Cantidad/Ratio de un
+    /// proyecto: CALCULADO | MANUAL | PROYECTADO, o null para "ninguno" (excluye el proyecto).</summary>
+    [HttpPatch("{tipo}/proyectos/{projectId}/fuente")]
+    public async Task<IActionResult> ActualizarFuenteCantidad(string tipo, int projectId, [FromBody] ActualizarFuenteCantidadDriverDto dto)
+    {
+        try
+        {
+            await _service.ActualizarFuenteCantidadAsync(tipo, projectId, dto.Fuente);
+            return Ok(new { tipo, projectId, fuente = dto.Fuente });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al actualizar la fuente elegida." }); }
+    }
+
     /// <summary>Ratio recomendado (mediana) de HH y Trabajadores por m2 — para sugerir valores al generar un presupuesto nuevo.</summary>
     [HttpGet("recomendados")]
     public async Task<IActionResult> ObtenerRecomendados()

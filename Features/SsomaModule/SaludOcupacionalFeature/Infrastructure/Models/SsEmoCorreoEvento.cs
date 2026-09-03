@@ -9,6 +9,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
     /// programación automática, programación manual, aceptada, rechazada y el
     /// resultado del examen.
     ///
+    /// Los cuatro últimos existen dos veces —versión del trabajador y versión del
+    /// postulante, con sufijo <c>_POSTULANTE</c> en el código— porque a un postulante
+    /// no le escribe la misma gente que a un trabajador de casa. La pantalla las
+    /// descubre solas: renderiza una sección por fila activa, así que dar de alta una
+    /// versión nueva es esta tabla más su matriz de reglas, sin tocar el frontend.
+    ///
     /// Es el eje "correo" de la matriz <see cref="SsEmoCorreoRegla"/>.
     /// </summary>
     [Table("ss_emo_correo_evento")]
@@ -18,7 +24,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("id")]
         public int Id { get; set; }
 
-        /// <summary>Clave estable: PROGRAMACION_AUTOMATICA, PROGRAMACION_MANUAL, ACEPTADA, RECHAZADA, RESULTADO.</summary>
+        /// <summary>
+        /// Clave estable: PROGRAMACION_AUTOMATICA, PROGRAMACION_MANUAL, ACEPTADA, RECHAZADA,
+        /// RESULTADO y las cuatro versiones de postulante con sufijo <c>_POSTULANTE</c>.
+        /// </summary>
         [Column("codigo")]
         public string Codigo { get; set; } = string.Empty;
 

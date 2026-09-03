@@ -501,24 +501,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// «Rechazar» y eso es todo lo que hay que saber (mismo criterio editorial que el resto de
         /// la familia, ver <see cref="Layout"/>).
         ///
-        /// El lugar lleva debajo el enlace al mapa cuando el lugar lo tiene cargado. Es un enlace y
-        /// no un mapa embebido a propósito: Outlook bloquea las imágenes remotas de terceros y una
-        /// imagen estática de Google Maps necesita una API key, así que el mapa saldría roto justo
-        /// donde más importa.
+        /// El lugar lleva debajo la referencia para ubicarlo y el enlace al mapa, cuando el lugar
+        /// los tiene cargados (ver <see cref="Textos.Lugar"/>, que arma la misma fila para el aviso
+        /// al solicitante).
         /// </summary>
         private string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
         {
             var l = Layout.Desde(_configuration);
             var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
 
-            var lugar = Textos.OGuion(ctx.Resumen.LugarNombre);
-            if (!string.IsNullOrWhiteSpace(ctx.LugarMapsUrl))
-                lugar += $"<br />{Textos.Enlace(ctx.LugarMapsUrl!, "Ver en Google Maps")}";
+            var lugar = Textos.Lugar(ctx.Resumen.LugarNombre, ctx.LugarReferencia, ctx.LugarMapsUrl);
 
             return l.Documento(
                 new Layout.Cabecera(
                     "req-entrevista", "Invitación a Entrevista",
-                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la posición <b>{Layout.Esc(ctx.Puesto)}</b>."),
+                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la entrevista del puesto <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Tarjeta(new List<Layout.Fila>
                 {
                     new("req-fecha", "Fecha", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
@@ -595,6 +592,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Fecha           = ctx.Resumen.Fecha,
                 Hora            = ctx.Resumen.Hora,
                 LugarNombre     = ctx.Resumen.LugarNombre,
+                // La página de confirmación repite la dirección con su referencia y su enlace al
+                // mapa: el postulante suele leerla desde el celular y en ese momento es cuando
+                // necesita saber cómo llegar, no cuando archivó el correo.
+                LugarReferencia = ctx.LugarReferencia,
+                LugarMapsUrl    = ctx.LugarMapsUrl,
             };
         }
 
@@ -743,13 +745,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 new("req-candidato", "Candidato", Textos.OGuion(ctx.CandidatoNombre)),
                 new("req-fecha", "Fecha", cita.Fecha.ToString("dd/MM/yyyy")),
                 new("req-hora", "Hora", Textos.OGuion(cita.Hora)),
-                // El lugar con su enlace al mapa cuando lo tiene cargado: quien va a la entrevista
-                // puede no conocer la dirección.
-                new("req-lugar", "Lugar", string.IsNullOrWhiteSpace(ctx.LugarMapsUrl)
-                    ? Textos.OGuion(cita.LugarNombre)
-                    : Textos.Enlace(ctx.LugarMapsUrl!, string.IsNullOrWhiteSpace(cita.LugarNombre)
-                        ? "Ver ubicación"
-                        : cita.LugarNombre)),
+                // El lugar con su referencia y su enlace al mapa cuando los tiene cargados: quien
+                // va a la entrevista puede no conocer la dirección. Misma fila que la invitación
+                // del postulante (ver Textos.Lugar).
+                new("req-lugar", "Lugar",
+                    Textos.Lugar(cita.LugarNombre, ctx.LugarReferencia, ctx.LugarMapsUrl)),
             };
 
             return l.Documento(

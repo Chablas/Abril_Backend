@@ -727,7 +727,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return l.Documento(
                 new Layout.Cabecera(
                     "req-formulario", "Formulario de Postulante",
-                    $"Estimado(a) {Layout.Esc(nombre)}: completa tu formulario para la posición "
+                    $"Estimado(a) {Layout.Esc(nombre)}: completa tu formulario para el puesto "
                     + $"<b>{Layout.Esc(puesto)}</b>."),
                 l.Boton("Completar formulario", link),
                 l.EnlaceDirecto(link));

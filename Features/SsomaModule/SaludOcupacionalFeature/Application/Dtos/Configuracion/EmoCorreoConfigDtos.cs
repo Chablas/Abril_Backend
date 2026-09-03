@@ -12,10 +12,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
     /// <summary>
     /// Códigos del catálogo <c>ss_emo_correo_evento</c>: los correos de EMO cuyos
     /// destinatarios se configuran en /ssoma/salud-ocupacional/emos/configuracion.
+    ///
+    /// Cada correo que puede hablarle a las dos audiencias existe DOS veces: la versión
+    /// del trabajador y la del postulante (sufijo <c>_POSTULANTE</c>). No es duplicación
+    /// por gusto: a un postulante no le escribe la misma gente que a un trabajador de
+    /// casa (a él le habla el solicitante de la vacante, no su jefe, que todavía no tiene)
+    /// y el texto lo llama por lo que es. Al ser dos filas del catálogo, cada versión
+    /// aparece como su propia sección en la pantalla de Configuración y se prende y apaga
+    /// por separado — la pantalla las descubre solas, no hay nada que tocar en el
+    /// frontend al agregar una.
+    ///
+    /// Cuál de las dos se usa lo decide <see cref="Para"/>, nunca el llamador a mano.
     /// </summary>
     public static class EmoCorreoEventoCodigo
     {
-        /// <summary>Resumen del cron diario de programación automática por vencimiento.</summary>
+        /// <summary>
+        /// Resumen del cron diario de programación automática por vencimiento.
+        ///
+        /// No tiene versión de postulante y no puede tenerla: el cron programa por
+        /// vencimiento de un EMO anterior y exige vinculación vigente, así que solo
+        /// alcanza a trabajadores que ya están adentro.
+        /// </summary>
         public const string ProgramacionAutomatica = "PROGRAMACION_AUTOMATICA";
         /// <summary>Se programó un EMO a mano desde EMOs o Programaciones.</summary>
         public const string ProgramacionManual     = "PROGRAMACION_MANUAL";
@@ -29,6 +46,39 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         /// hay resultado que comunicar (ver <c>EmoResultadoNotificacionService</c>).
         /// </summary>
         public const string Resultado              = "RESULTADO";
+
+        /// <summary>
+        /// Sufijo de la versión del correo que le habla a un postulante. Se construye por
+        /// concatenación y no como cinco constantes sueltas para que agregar un correo
+        /// nuevo con sus dos versiones no exija recordar declarar la segunda.
+        /// </summary>
+        public const string SufijoPostulante = "_POSTULANTE";
+
+        public const string ProgramacionManualPostulante = ProgramacionManual + SufijoPostulante;
+        public const string AceptadaPostulante           = Aceptada           + SufijoPostulante;
+        public const string RechazadaPostulante          = Rechazada          + SufijoPostulante;
+        public const string ResultadoPostulante          = Resultado          + SufijoPostulante;
+
+        /// <summary>
+        /// La versión del correo que le corresponde a esta ficha.
+        ///
+        /// El discriminante es el estado de la ficha (pre-ingreso o no), NO el tipo de EMO.
+        /// En la práctica coinciden —el EMO de Ingreso que GTH programa desde Reclutamiento
+        /// es siempre de una ficha de pre-ingreso—, pero elegir por tipo se rompe en el caso
+        /// que sí pasa: el EMO de Ingreso de alguien que ya trabaja acá (un reingreso, o un
+        /// primer examen registrado tarde) saldría llamándolo "postulante". Y sobre todo,
+        /// pre-ingreso es el mismo corte que usa <see cref="EmoCorreoDestinatarioCodigo.Jefe"/>
+        /// vs <see cref="EmoCorreoDestinatarioCodigo.Solicitante"/> en el resolver: si el
+        /// texto y los destinatarios se decidieran con criterios distintos, el correo podría
+        /// terminar tratándolo de postulante mientras le escribe a su jefe.
+        /// </summary>
+        public static string Para(string baseCodigo, bool esPostulante) =>
+            esPostulante ? baseCodigo + SufijoPostulante : baseCodigo;
+
+        /// <inheritdoc cref="Para(string, bool)"/>
+        /// <param name="workersEstadoId"><c>workers.workers_estado_id</c> de la ficha.</param>
+        public static string ParaFicha(string baseCodigo, int workersEstadoId) =>
+            Para(baseCodigo, WorkersEstadoIds.PreIngreso.Contains(workersEstadoId));
     }
 
     /// <summary>

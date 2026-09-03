@@ -734,13 +734,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         ///
         /// Secuencial a propósito: cada Resolver abre su propio contexto y la convención del
         /// proyecto es no paralelizar accesos a la base de datos.
+        ///
+        /// El estado de la ficha se lee antes que nada porque decide de qué par de secciones de
+        /// Configuración salen los destinatarios: las del trabajador o las del postulante. Sin
+        /// esa consulta la vista previa mostraría la lista del trabajador para un postulante, que
+        /// es exactamente lo que el usuario NO va a recibir.
         /// </summary>
         public async Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId)
         {
+            int estadoId;
+            using (var ctx = _factory.CreateDbContext())
+                estadoId = await ctx.Worker.AsNoTracking()
+                    .Where(w => w.Id == workerId)
+                    .Select(w => w.WorkersEstadoId)
+                    .FirstOrDefaultAsync();
+
             var manual = await _destinatarios.ResolverAsync(
-                EmoCorreoEventoCodigo.ProgramacionManual, workerId, clinicaId);
+                EmoCorreoEventoCodigo.ParaFicha(EmoCorreoEventoCodigo.ProgramacionManual, estadoId),
+                workerId, clinicaId);
             var aceptada = await _destinatarios.ResolverAsync(
-                EmoCorreoEventoCodigo.Aceptada, workerId, clinicaId);
+                EmoCorreoEventoCodigo.ParaFicha(EmoCorreoEventoCodigo.Aceptada, estadoId),
+                workerId, clinicaId);
 
             return new ProgramacionDestinatariosPreviewDto { Manual = manual, Aceptada = aceptada };
         }
@@ -765,10 +779,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var toRaw = new List<string>();
             try
             {
-                // Destinatarios según la matriz de Configuración de EMOs → sección
-                // "Programación manual", para el perfil del trabajador.
+                // Destinatarios según la matriz de Configuración de EMOs → sección "Programación
+                // manual", para el perfil del trabajador. La ficha de pre-ingreso usa la sección
+                // del postulante, que es otra fila del catálogo con sus propios destinatarios.
+                var esPostulante = WorkersEstadoIds.PreIngreso.Contains(worker.WorkersEstadoId);
                 var destinatarios = await _destinatarios.ResolverAsync(
-                    EmoCorreoEventoCodigo.ProgramacionManual, worker.Id, prog.ClinicaId);
+                    EmoCorreoEventoCodigo.Para(EmoCorreoEventoCodigo.ProgramacionManual, esPostulante),
+                    worker.Id, prog.ClinicaId);
 
                 var to = destinatarios.Para.Select(d => d.Email).ToList();
                 var cc = destinatarios.Copias.Select(d => d.Email).ToList();
@@ -808,10 +825,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var tipoStr = tipoEmo?.Nombre ?? "—";
                 var clinicaNombre = clinica?.Nombre ?? "—";
 
+                var etiqueta = EmoExaminadoTexto.Capitalizada(esPostulante);
+
                 var html = $@"<h2>Nueva programación EMO</h2>
-<p>Se ha programado un Examen Médico Ocupacional para el siguiente trabajador:</p>
+<p>Se ha programado un Examen Médico Ocupacional para el siguiente {EmoExaminadoTexto.Minuscula(esPostulante)}:</p>
 <table style='border-collapse:collapse;width:100%;max-width:500px'>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Trabajador</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>{etiqueta}</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo EMO</td><td style='padding:6px 12px'>{tipoStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hora</td><td style='padding:6px 12px'>{horaStr}</td></tr>
@@ -848,11 +867,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 // Destinatarios según la matriz de Configuración de EMOs → sección
-                // "Programación aceptada por la clínica", para el perfil del trabajador.
+                // "Programación aceptada por la clínica", para el perfil del trabajador
+                // (o la sección del postulante si la ficha todavía es de pre-ingreso).
                 // Que los contratistas no reciban este correo también sale de ahí (su
                 // columna viene sin destinatarios activos), ya no de un corte en el código.
+                var esPostulante = WorkersEstadoIds.PreIngreso.Contains(worker.WorkersEstadoId);
                 var destinatarios = await _destinatarios.ResolverAsync(
-                    EmoCorreoEventoCodigo.Aceptada, worker.Id, prog.ClinicaId);
+                    EmoCorreoEventoCodigo.Para(EmoCorreoEventoCodigo.Aceptada, esPostulante),
+                    worker.Id, prog.ClinicaId);
 
                 var to = destinatarios.Para.Select(d => d.Email).ToList();
                 var cc = destinatarios.Copias.Select(d => d.Email).ToList();
@@ -902,13 +924,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 var html = EmoConfirmacionEmailTemplate.Construir(
                     new EmoConfirmacionEmailTemplate.Datos(
-                        Trabajador: workerNombre,
+                        Examinado: workerNombre,
                         TipoEmo: tipoStr,
                         Fecha: fechaStr,
                         Hora: horaStr,
                         Proyecto: proyectoStr,
                         Clinica: clinicaNombre,
-                        Direccion: clinicaDireccion),
+                        Direccion: clinicaDireccion,
+                        EsPostulante: esPostulante),
                     assetsUrl);
 
                 await _emailService.SendAsync(
@@ -934,9 +957,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 // Destinatarios según la matriz de Configuración de EMOs → sección
-                // "Programación rechazada por la clínica", para el perfil del trabajador.
+                // "Programación rechazada por la clínica", para el perfil del trabajador
+                // (o la sección del postulante si la ficha todavía es de pre-ingreso).
+                var esPostulante = WorkersEstadoIds.PreIngreso.Contains(worker.WorkersEstadoId);
                 var destinatarios = await _destinatarios.ResolverAsync(
-                    EmoCorreoEventoCodigo.Rechazada, worker.Id, prog.ClinicaId);
+                    EmoCorreoEventoCodigo.Para(EmoCorreoEventoCodigo.Rechazada, esPostulante),
+                    worker.Id, prog.ClinicaId);
 
                 var to = destinatarios.Para.Select(d => d.Email).ToList();
                 var cc = destinatarios.Copias.Select(d => d.Email).ToList();
@@ -968,10 +994,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var clinicaNombre = clinica?.Nombre ?? "—";
                 var motivoStr = !string.IsNullOrWhiteSpace(motivo) ? motivo : "—";
 
+                var etiqueta = EmoExaminadoTexto.Capitalizada(esPostulante);
+
                 var html = $@"<h2>EMO Rechazado por Clínica</h2>
-<p>La clínica ha rechazado la programación del Examen Médico Ocupacional:</p>
+<p>La clínica ha rechazado la programación del Examen Médico Ocupacional del {EmoExaminadoTexto.Minuscula(esPostulante)}:</p>
 <table style='border-collapse:collapse;width:100%;max-width:500px'>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Trabajador</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
+<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>{etiqueta}</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo EMO</td><td style='padding:6px 12px'>{tipoStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hora</td><td style='padding:6px 12px'>{horaStr}</td></tr>

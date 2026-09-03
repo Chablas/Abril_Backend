@@ -3,7 +3,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>
     /// Catálogo del lugar donde se cita al candidato para la entrevista
     /// (tabla <c>gth_lugar_entrevista</c>). Hoy solo está la oficina principal
-    /// ("Calle Mama Ocllo 2647"), que es el valor por defecto del desplegable; GTH
+    /// ("Calle Mama Ocllo 2647, Lince"), que es el valor por defecto del desplegable; GTH
     /// puede dar de alta salas de venta u obras sin tocar código.
     /// </summary>
     public class GthLugarEntrevista
@@ -20,6 +20,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// lugares que aún no lo tienen cargado — ahí el correo sale solo con el nombre.
         /// </summary>
         public string? MapsUrl { get; set; }
+
+        /// <summary>
+        /// Referencia para ubicar el lugar ("A la altura de la cuadra 11 de la avenida 2 de Mayo").
+        /// El correo de invitación y la página de confirmación del postulante la muestran bajo la
+        /// dirección. Es un dato DEL lugar por lo mismo que <see cref="MapsUrl"/>: una sala de venta
+        /// o una obra tienen su propia referencia. Null en los lugares que no la tienen cargada — ahí
+        /// no se muestra esa línea.
+        /// </summary>
+        public string? Referencia { get; set; }
 
         /// <summary>Orden en el desplegable (el primero es el que se preselecciona).</summary>
         public int Orden { get; set; }

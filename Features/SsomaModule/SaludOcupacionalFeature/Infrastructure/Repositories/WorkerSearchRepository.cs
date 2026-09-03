@@ -483,14 +483,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaIngreso.HasValue)
                 await WorkersPeriodoLaboralHelper.SetFechaIngresoAsync(
                     ctx, worker.Id, dto.FechaIngreso.Value, DateTimeOffset.UtcNow);
-            // Obra, razón social, puesto (categoría/ocupación) y clasificación (Obra/Staff/
-            // Oficina Central) NO se tocan desde esta edición general — deliberado. Cambiarlas
-            // acá bypaseaba por completo el flujo de "Cambiar obra / puesto de trabajo"
-            // (CambiarObraAsync): no reseteaba el certificado de aptitud, no dejaba auditoría
-            // (WorkerEvento), no bloqueaba la subida de riesgo Oficina Central → Staff/Obra, y
-            // encima MUTABA la vinculación vigente en vez de cerrarla y abrir una nueva,
-            // corrompiendo el historial. Esos cinco campos ahora son de solo lectura en el
-            // formulario de edición; el único camino soportado es CambiarObraAsync.
+            // Obra, razón social y clasificación (Obra/Staff/Oficina Central) NO se tocan desde
+            // esta edición general — deliberado. Cambiarlas acá bypaseaba por completo el flujo
+            // de "Cambiar obra / puesto de trabajo" (CambiarObraAsync): no reseteaba el
+            // certificado de aptitud, no dejaba auditoría (WorkerEvento), no bloqueaba la subida
+            // de riesgo Oficina Central → Staff/Obra, y encima MUTABA la vinculación vigente en
+            // vez de cerrarla y abrir una nueva, corrompiendo el historial. Esos campos son de
+            // solo lectura en el formulario de edición; el único camino soportado es
+            // CambiarObraAsync. El puesto sí se guarda desde acá, pero solo donde el formulario
+            // lo ofrece editable — ver el bloque que sigue a la asignación de clasificación.
             //
             // ÚNICA excepción: ASIGNAR la clasificación a una ficha que no tiene ninguna. No es
             // un cambio de clasificación — no hay origen del que salir, así que no hay aptitud
@@ -502,6 +503,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // clasificación YA asignada sigue siendo exclusivo de CambiarObraAsync.
             if (worker.ObraOficinaStaffId is null && dto.ObraOficinaStaffId.HasValue)
                 worker.ObraOficinaStaffId = dto.ObraOficinaStaffId;
+
+            // Puesto. Sí se cambia desde esta edición general, pero solo en las clasificaciones
+            // donde el formulario lo ofrece editable: Staff, Oficina Central y Personal Externo
+            // (ver `puestoEditable` en worker-create-edit.ts). En Obra sigue siendo exclusivo de
+            // CambiarObraAsync, el único camino que revisa si el EMO vigente sigue valiendo para
+            // el puesto nuevo (mismo protocolo de riesgo) y que deja auditoría del cambio.
+            // Manda la clasificación que quedó después del bloque de arriba, para que asignarle
+            // clasificación y puesto a una ficha en el mismo guardado funcione.
+            //
+            // Sin valor no se hace nada: el formulario omite el campo cuando no lo gestiona, y un
+            // null borraría el puesto — que es el único camino a la categoría, así que la ficha
+            // quedaría fuera de todo filtro y de toda regla (ver Worker.PuestoId).
+            //
+            // La vinculación vigente NO se toca: su `puesto` y `categoria_id` son el snapshot
+            // congelado del momento del cambio de obra (los lee ConvalidacionRepository para
+            // reconstruir el puesto/categoría de origen de un EMO), no el valor vigente.
+            if (dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId)
+            {
+                if (worker.ObraOficinaStaffId == ObraOficinaStaffIds.Obra)
+                    throw new AbrilException(
+                        "El puesto de un trabajador de Obra se cambia con \"Cambiar obra / puesto " +
+                        "de trabajo\", que es donde se revisa su certificado de aptitud.", 400);
+
+                // Un puesto de baja dejaría al trabajador sin categoría legible: se valida igual
+                // que en UpdateDatosBasicos y en CambiarObraAsync.
+                var existePuesto = await ctx.Puesto
+                    .AnyAsync(pu => pu.PuestoId == dto.PuestoId.Value && pu.State);
+                if (!existePuesto)
+                    throw new AbrilException("El puesto seleccionado no existe.", 400);
+
+                worker.PuestoId = dto.PuestoId;
+            }
 
             var areaResuelta = await ResolverAreaAsync(
                 dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);

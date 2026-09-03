@@ -55,8 +55,11 @@ namespace Abril_Backend.Shared.Models
         /// intermedia <c>puesto_area_scope</c> y un puesto podía estar en varias. Los que
         /// estaban en más de una se duplicaron, uno por área, así que un cargo que existe en
         /// dos áreas hoy son dos puestos con el mismo nombre — el índice
-        /// <c>ux_puesto_nombre_area_solicitante_vivo</c> es el que permite esa repetición y a
-        /// la vez prohíbe el nombre repetido DENTRO de un área.
+        /// <c>ux_puesto_nombre_categoria_area_solicitante_vivo</c> es el que permite esa
+        /// repetición. Ese índice lleva también la categoría desde
+        /// <c>Migrations_Manual/2026-09-02_puesto_nombre_unico_por_categoria.sql</c>: dentro de
+        /// una misma área el nombre se repite si la categoría cambia (MODELADOR BIM como
+        /// INGENIERO y como ARQUITECTO), y se prohíbe sólo cuando coinciden las tres.
         ///
         /// Nullable a propósito: el puesto sin área es un caso válido y no un pendiente. Los
         /// ~190 puestos de obra nunca la tuvieron (el padrón de GTH solo cubrió oficina) y

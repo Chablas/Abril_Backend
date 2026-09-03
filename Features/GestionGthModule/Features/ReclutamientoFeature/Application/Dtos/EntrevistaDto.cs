@@ -76,6 +76,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? LugarMapsUrl { get; set; }
 
         /// <summary>
+        /// Referencia del lugar (<c>gth_lugar_entrevista.referencia</c>), la línea que ayuda a
+        /// ubicarlo. Null en los lugares que no la tienen cargada.
+        /// </summary>
+        public string? LugarReferencia { get; set; }
+
+        /// <summary>
         /// Token de acceso público con el que se arman los enlaces de los botones Confirmar y
         /// Rechazar del correo. Se genera nuevo en cada envío.
         /// </summary>
@@ -117,6 +123,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public string? LugarMapsUrl { get; set; }
 
+        /// <summary>
+        /// Referencia del lugar de la cita (<c>gth_lugar_entrevista.referencia</c>). Null en los
+        /// lugares que no la tienen cargada.
+        /// </summary>
+        public string? LugarReferencia { get; set; }
+
         /// <summary>La cita, ya con la respuesta aplicada.</summary>
         public EntrevistaResumenDto Resumen { get; set; } = new();
 
@@ -144,5 +156,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Hora { get; set; } = string.Empty;
 
         public string LugarNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Referencia del lugar (<c>gth_lugar_entrevista.referencia</c>). La página la muestra bajo
+        /// la dirección, igual que el correo de invitación. Null si el lugar no la tiene cargada.
+        /// </summary>
+        public string? LugarReferencia { get; set; }
+
+        /// <summary>
+        /// Enlace al mapa del lugar (<c>gth_lugar_entrevista.maps_url</c>): la página lo muestra
+        /// como enlace a Google Maps para que el postulante llegue desde la misma pantalla en la
+        /// que confirmó. Null si el lugar no lo tiene cargado.
+        /// </summary>
+        public string? LugarMapsUrl { get; set; }
     }
 }

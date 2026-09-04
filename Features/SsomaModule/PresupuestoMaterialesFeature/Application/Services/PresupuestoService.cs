@@ -87,6 +87,9 @@ public class PresupuestoService : IPresupuestoService
     public async Task<string> AprobarAsync(int presupuestoId) =>
         await _repo.AprobarAsync(presupuestoId);
 
+    public Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual) =>
+        _repo.ActualizarCantidadManualPorFamiliaAsync(projectId, familiaId, cantidadManual);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static decimal ObtenerDriver(string variableBase, decimal hh, decimal area, decimal trab) =>

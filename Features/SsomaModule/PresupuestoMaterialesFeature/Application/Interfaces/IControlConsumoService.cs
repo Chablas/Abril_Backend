@@ -10,4 +10,6 @@ public interface IControlConsumoService
     Task<ControlSemanaDto?> ObtenerSemanaAsync(int controlId);
     Task<List<ControlSemanaDto>> ListarSemanasAsync(int presupuestoId);
     Task<DashboardPresupuestoDto?> ObtenerDashboardAsync(int presupuestoId);
+    Task<DashboardPresupuestoDto?> ObtenerDashboardPorProyectoAsync(int projectId);
+    Task<DashboardAcumuladoDto> ObtenerDashboardAcumuladoAsync();
 }

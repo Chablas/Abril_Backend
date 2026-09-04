@@ -11,10 +11,23 @@ public class PresupuestoRepository : IPresupuestoRepository
     public PresupuestoRepository(IConfiguration config) => _config = config;
     private NpgsqlConnection Conn() => new(_config["Database:PostgreSQL"]!);
 
+    /// <summary>Famílias que NO deben generar una línea automática en Presupuesto → Detalle porque
+    /// ya se manejan por su propio mecanismo manual, con su propia tabla y su propia suma en
+    /// PresupuestoTotalHelper — si además entraran acá por ratio, quedarían contadas DOS VECES en el
+    /// total: FIJO = Servicios (ss_presupuesto_item_metrado, cantidad 100% manual por diseño, nunca
+    /// debió entrar por ratio); famílias del BOM de algún kit = Kits/BOM (ss_presupuesto_kit_item,
+    /// cantidad = cantidadKits × receta); "Servicio de Vigilancia" = Vigilancia
+    /// (ss_presupuesto_vigilancia_hito, cantidad de puntos × precio fijo por turno).</summary>
+    private const string FamiliasExcluidasDeRatioWhere = """
+        f.variable_base <> 'FIJO'
+        AND f.nombre NOT ILIKE '%vigilancia%'
+        AND NOT EXISTS (SELECT 1 FROM ss_kit_item ki WHERE ki.familia_id = f.id)
+        """;
+
     public async Task<List<RatioRecomendadoDto>> ObtenerRatiosRecomendadosAsync()
     {
         using var conn = Conn();
-        const string sql = """
+        var sql = $"""
             SELECT
               f.id                                                                        AS FamiliaId,
               f.nombre                                                                    AS NombreFamilia,
@@ -30,6 +43,7 @@ public class PresupuestoRepository : IPresupuestoRepository
             JOIN ss_material_tipo t       ON t.id = f.tipo_id
             LEFT JOIN ss_ratio_proyecto r ON r.familia_id = f.id
             WHERE f.pertenece_ssoma = true AND f.activo = true
+              AND {FamiliasExcluidasDeRatioWhere}
             GROUP BY f.id, f.nombre, t.id, t.nombre, f.variable_base
             ORDER BY t.nombre, f.nombre
             """;
@@ -53,10 +67,10 @@ public class PresupuestoRepository : IPresupuestoRepository
         const string sql = """
             INSERT INTO ss_presupuesto
               (project_id, version, estado, hh_usado, area_usada, trabajadores_usados,
-               total_estimado, generado_por, notas)
+               total_estimado, generado_por, generado_en, notas)
             VALUES
               (@projectId, @version, 'BORRADOR', @hh, @area, @trabajadores,
-               @total, @generadoPor, @notas)
+               @total, @generadoPor, now(), @notas)
             RETURNING id
             """;
         return await conn.ExecuteScalarAsync<int>(sql,
@@ -185,19 +199,38 @@ public class PresupuestoRepository : IPresupuestoRepository
             WHERE id = @lineaId
             """, new { lineaId, cantidadManual, precioManual, notas });
 
-        // Recalcular total del presupuesto padre
-        await conn.ExecuteAsync("""
-            UPDATE ss_presupuesto p
-            SET total_estimado = (
-              SELECT SUM(
-                COALESCE(l.cantidad_manual, l.cantidad_estimada) *
-                COALESCE(l.precio_manual,   l.precio_unitario)
-              )
-              FROM ss_presupuesto_detalle l
-              WHERE l.presupuesto_id = p.id
-            )
-            WHERE p.id = (SELECT presupuesto_id FROM ss_presupuesto_detalle WHERE id = @lineaId)
-            """, new { lineaId });
+        // Recalcular el total del presupuesto padre considerando TODAS las fuentes de costo
+        // (materiales + personal + vigilancia + servicios), no solo esta línea.
+        var presupuestoId = await conn.ExecuteScalarAsync<int>(
+            "SELECT presupuesto_id FROM ss_presupuesto_detalle WHERE id = @lineaId", new { lineaId });
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId);
+    }
+
+    /// <summary>Override manual de cantidad por família, sin que el frontend tenga que conocer el
+    /// lineaId — usado por "Cálculo técnico" (ej. Marcelinos/Punto de Anclaje Textil) para escribir
+    /// directo en la línea real del presupuesto vigente, en vez de quedarse solo en localStorage.</summary>
+    public async Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual)
+    {
+        using var conn = Conn();
+        var lineaId = await conn.ExecuteScalarAsync<int?>(
+            """
+            SELECT d.id
+            FROM ss_presupuesto_detalle d
+            JOIN ss_presupuesto p ON p.id = d.presupuesto_id
+            WHERE p.project_id = @projectId AND d.familia_id = @familiaId
+            ORDER BY p.generado_en DESC LIMIT 1
+            """, new { projectId, familiaId });
+
+        if (lineaId == null)
+            throw new Abril_Backend.Application.Exceptions.AbrilException(
+                "Este proyecto todavía no tiene un presupuesto generado con esta família — genera un presupuesto primero (pestaña Presupuesto).", 400);
+
+        await conn.ExecuteAsync(
+            "UPDATE ss_presupuesto_detalle SET cantidad_manual = @cantidadManual WHERE id = @lineaId",
+            new { lineaId, cantidadManual });
+
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, (await conn.ExecuteScalarAsync<int>(
+            "SELECT presupuesto_id FROM ss_presupuesto_detalle WHERE id = @lineaId", new { lineaId })));
     }
 
     public async Task<string> AprobarAsync(int presupuestoId)

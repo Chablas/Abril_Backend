@@ -17,4 +17,7 @@ public class PersonalHitoService : IPersonalHitoService
 
     public Task GuardarAsync(int projectId, PersonalHitoGuardarDto dto, int userId)
         => _repo.GuardarAsync(projectId, dto.Items, userId);
+
+    public Task<PersonalTarifasSugeridasDto> ObtenerTarifasSugeridasAsync()
+        => _repo.ObtenerTarifasSugeridasAsync();
 }

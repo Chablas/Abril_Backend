@@ -86,9 +86,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
 
+            // El área del trabajador sale del puesto (workers ya no la guarda): decide si las
+            // capturas de movilidad son obligatorias para él.
             var workerInfo = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => new { w.Id, w.Subarea })
+                .Select(w => new
+                {
+                    w.Id,
+                    w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                })
                 .FirstOrDefaultAsync();
             if (workerInfo == null) return new();
 
@@ -175,6 +182,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Capturas opcionales por área (Configuración → Capturas): si el área del trabajador
+            // está marcada como opcional, sus salidas se pueden rendir sin subir ninguna captura.
+            var capturasOpcionales = await CapturasObligatoriasLoader.SonOpcionalesAsync(ctx, workerInfo.AreaScopeId);
+
             // Consolidado del S10 vigente por solicitud (propio o heredado de su planilla).
             var consolidados = await ConsolidadoS10Loader.LoadAsync(
                 ctx, solicitudes.ToDictionary(x => x.Id, x => x.RendicionId));
@@ -189,6 +200,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
                 bool trayectoCubierto(int trayectoId, int? origenId, int? destinoId)
                 {
+                    if (capturasOpcionales) return true;
                     if (trayectosConCapturas.Contains(trayectoId)) return true;
                     if (!esTI) return false;
                     if (!origenId.HasValue || !destinoId.HasValue) return false;

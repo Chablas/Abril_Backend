@@ -18,6 +18,10 @@ using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applicatio
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
@@ -87,6 +91,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // al resolver el revisor de una salida, entre workers_revisores y el fallback GTH)
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
+
+            // Capturas por área (configuración: qué áreas exigen capturas de movilidad para rendir)
+            services.AddScoped<ICapturaAreaRepository, CapturaAreaRepository>();
+            services.AddScoped<ICapturaAreaService, CapturaAreaService>();
 
             // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
             services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();

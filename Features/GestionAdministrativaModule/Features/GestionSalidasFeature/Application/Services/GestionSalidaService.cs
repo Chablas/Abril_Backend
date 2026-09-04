@@ -261,12 +261,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 1.b. Bloqueo: cada trayecto de cada solicitud debe estar cubierto.
             //       Regla normal: trayecto con al menos 1 captura.
+            //       Área con capturas opcionales (Configuración → Capturas): no se exige ninguna.
             //       Regla TI (Tecnología de la Información): captura O match contra ga_trayecto.
             var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(elegiblesIds);
             if (sinCapturas.Count > 0)
                 throw new AbrilException(
                     $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin cubrir (IDs: {string.Join(", ", sinCapturas)}). " +
-                    "Cada trayecto debe tener al menos una captura con monto, o (para trabajadores de Tecnología de la Información) un trayecto registrado en el catálogo.",
+                    "Cada trayecto debe tener al menos una captura con monto, salvo que el área del trabajador tenga las capturas en opcional " +
+                    "(o, para trabajadores de Tecnología de la Información, que el trayecto esté registrado en el catálogo).",
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.

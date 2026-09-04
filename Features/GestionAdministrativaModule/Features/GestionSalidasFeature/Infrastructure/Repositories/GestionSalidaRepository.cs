@@ -274,6 +274,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var hayWorkerTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayWorkerTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // 4.a. Áreas con capturas OPCIONALES (Configuración → Capturas): las salidas de sus
+            //      trabajadores se pueden rendir sin ninguna captura.
+            var areasCapturasOpcionales = await CapturasObligatoriasLoader.LoadAreasOpcionalesAsync(ctx);
+
             // 4.b. Worker(s) del usuario actual + si es Gerente — para marcar por fila si puede
             //      aprobar/rechazar (nadie decide sus propias salidas, salvo los gerentes).
             var misWorkerIds = new HashSet<int>();
@@ -345,8 +349,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 var last  = trList.LastOrDefault();
 
                 var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+                var capturasOpcionales = CapturasObligatoriasLoader.CapturasOpcionales(
+                    areasCapturasOpcionales, s.AreaScopeId);
                 bool trayectoCubierto(dynamic t)
                 {
+                    if (capturasOpcionales) return true;
                     if (trayectosConCapturas.Contains((int)t.Id)) return true;
                     if (!esTI) return false;
                     if (t.LugarOrigenId == null || t.LugarDestinoId == null) return false;
@@ -665,12 +672,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
-            // Cargar info de cada solicitud + subarea del worker
+            // Cargar info de cada solicitud + subarea y área del worker (el área sale del puesto).
             var solicitudes = await (
                 from s in ctx.GaSolicitudSalida
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 where idsList.Contains(s.Id)
-                select new { s.Id, w.Subarea }
+                select new
+                {
+                    s.Id,
+                    w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                }
             ).ToListAsync();
 
             if (solicitudes.Count == 0) return idsList;
@@ -696,14 +708,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var hayTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Áreas con capturas OPCIONALES (Configuración → Capturas).
+            var areasCapturasOpcionales = await CapturasObligatoriasLoader.LoadAreasOpcionalesAsync(ctx);
+
             var incompletas = new List<int>();
             foreach (var s in solicitudes)
             {
+                // Una salida sin trayectos no se puede rendir ni siquiera con las capturas en
+                // opcional: no hay nada que rendir.
                 if (!trayectosBySol.TryGetValue(s.Id, out var trList) || trList.Count == 0)
                 {
                     incompletas.Add(s.Id);
                     continue;
                 }
+
+                if (CapturasObligatoriasLoader.CapturasOpcionales(areasCapturasOpcionales, s.AreaScopeId))
+                    continue;
 
                 var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
                 bool todosCubiertos = trList.All(t =>

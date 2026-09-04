@@ -2,6 +2,14 @@
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
@@ -68,6 +76,15 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // aviso al revisor y seguimiento del reembolso — todo lo que va después de rendir)
             services.AddScoped<IRendicionRepository, RendicionRepository>();
             services.AddScoped<IRendicionService, RendicionService>();
+
+            // Gestión de Rendiciones (el revisor sobre las planillas de su alcance: Consolidado
+            // del S10, decisión del reembolso y firma — todo lo que va después de rendir)
+            services.AddScoped<IGestionRendicionRepository, GestionRendicionRepository>();
+            services.AddScoped<IGestionRendicionService, GestionRendicionService>();
+
+            // Reembolsos (la bandeja de Tesorería: paga lo que la jefatura ya firmó)
+            services.AddScoped<IReembolsoRepository, ReembolsoRepository>();
+            services.AddScoped<IReembolsoService, ReembolsoService>();
 
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();

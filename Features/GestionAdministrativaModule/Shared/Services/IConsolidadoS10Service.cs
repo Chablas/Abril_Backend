@@ -5,8 +5,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// <summary>
     /// Sube y consulta el PDF "Consolidado del S10" de una planilla de rendición ya generada.
     /// Vive en el Shared del módulo porque lo usan Mis Rendiciones (el autoservicio, que es donde
-    /// se adjunta) y Gestión de Salidas (el revisor, que lo consulta y puede adjuntarlo en nombre
-    /// del trabajador).
+    /// se adjunta), Gestión de Rendiciones (el revisor, que lo consulta y puede adjuntarlo en
+    /// nombre del trabajador) y Gestión de Salidas, que solo lo lee para saber si ya hay algo que
+    /// revisar.
     /// </summary>
     public interface IConsolidadoS10Service
     {

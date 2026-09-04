@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -124,22 +125,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-            // Estado del reembolso. En modo TESORERÍA el filtro no es opcional: la bandeja del
-            // tesorero son las salidas ya firmadas por la jefatura y las ya pagadas, y lo que pida
-            // por el desplegable solo puede recortar ESE conjunto, nunca ampliarlo.
+            // Estado del reembolso: acá es solo un filtro informativo. El reembolso se decide en
+            // Gestión de Rendiciones y se paga en Reembolsos; esta pantalla llega hasta rendir y
+            // muestra el estado como columna.
             var reembId = EstadosSalida.Reembolso.IdFromNombre(filters.EstadoReembolso);
-            if (filters.EsTesorero)
-            {
-                var visiblesTesoreria = EstadosSalida.Reembolso.VisiblesParaTesoreria;
-                if (reembId.HasValue && visiblesTesoreria.Contains(reembId.Value))
-                    solicitudQuery = solicitudQuery.Where(s => s.EstadoReembolsoId == reembId.Value);
-                else
-                    solicitudQuery = solicitudQuery.Where(s => visiblesTesoreria.Contains(s.EstadoReembolsoId));
-            }
-            else if (reembId.HasValue)
-            {
+            if (reembId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoReembolsoId == reembId.Value);
-            }
 
             // Filtro "Hoy" (encendido por defecto en Gestión de Salidas): solo las solicitudes cuya
             // fecha de salida es la de hoy. El día se toma en hora de Perú (UTC-5) y no la del
@@ -164,35 +155,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 solicitudQuery = solicitudQuery.Where(s => s.FechaSalida <= hasta);
             }
 
-            // Visibilidad obligatoria (server-side): el usuario SIEMPRE ve sus propias solicitudes
-            // (worker_id → su user), sin importar rol ni área — así un trabajador cualquiera puede
-            // ver y rendir lo suyo. Además ve las que le fueron enviadas para revisar
-            // (enviado_a_correo → su email_corporativo), las que él decidió (aprobador_worker_id →
-            // su user; también cubre solicitudes antiguas donde ese campo guardaba al revisor al que
-            // se envió), MÁS las de los trabajadores que pertenecen a las áreas (area_scope) que
-            // tiene permitido ver. Si SeesAll = true no se aplica restricción por área. El servicio
-            // ya resolvió el alcance (override o algoritmo).
-            if (filters.CurrentUserId.HasValue && !filters.SeesAll && !filters.EsTesorero)
-            {
-                var uid = filters.CurrentUserId.Value;
-                var areaIds = filters.VisibleAreaScopeIds ?? new List<int>();
-                solicitudQuery = solicitudQuery.Where(s =>
-                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
-                    ||
-                    (s.AprobadorWorkerId != null &&
-                     ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
-                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
-                    ||
-                    (s.EnviadoACorreo != null &&
-                     ctx.Worker.Any(w => w.EmailCorporativo != null &&
-                         w.EmailCorporativo.Trim().ToLower() == s.EnviadoACorreo.Trim().ToLower() &&
-                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
-                    ||
-                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        w.PuestoCatalogo!.AreaDestinoScopeId != null
-                        && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)));
-            }
+            // Visibilidad obligatoria (server-side). La regla vive en SalidaVisibilidadFilter
+            // porque Gestión de Rendiciones muestra el mismo universo de salidas agrupadas en
+            // planillas: con dos copias las pantallas podrían discrepar sobre quién ve qué.
+            // El servicio ya resolvió el alcance (override o algoritmo).
+            solicitudQuery = SalidaVisibilidadFilter.Aplicar(
+                solicitudQuery, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
 
             // Filtro de área elegido por el usuario (cascada): trabajadores cuya área (la de
             // destino de su puesto) esté dentro del nodo seleccionado + sus descendientes
@@ -233,7 +201,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
                     s.HoraSalidaReal, s.HoraRetornoReal, s.RendicionId,
                     s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
-                    s.ReembolsoDecididoAt, s.RevisorNotificadoAt
+                    s.ReembolsoDecididoAt
                 }
             ).ToListAsync();
 
@@ -362,18 +330,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     .Select(pe => new { UserId = pe.UserId!.Value, Nombre = pe.FullName ?? "" })
                     .ToDictionaryAsync(x => x.UserId, x => x.Nombre);
 
-            var rendicionIds = solicitudes
-                .Where(x => x.RendicionId.HasValue)
-                .Select(x => x.RendicionId!.Value)
-                .Distinct()
-                .ToList();
-            var planillaFirmadaPorRendicion = rendicionIds.Count == 0
-                ? new Dictionary<int, string>()
-                : await ctx.GaRendicion
-                    .Where(r => rendicionIds.Contains(r.Id) && r.PdfFirmadoUrl != null)
-                    .Select(r => new { r.Id, Url = r.PdfFirmadoUrl! })
-                    .ToDictionaryAsync(x => x.Id, x => x.Url);
-
             // 5. Armar resultado
             var result = new List<GestionSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
@@ -446,25 +402,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
                     ObservacionReembolso = s.ObservacionReembolso,
                     ReembolsoDecididoAt  = s.ReembolsoDecididoAt,
-                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                     ReembolsoDecididoPor = s.ReembolsoDecididoPorId.HasValue
                         ? nombrePorUserId.GetValueOrDefault(s.ReembolsoDecididoPorId.Value)
                         : null,
-                    PlanillaFirmadaUrl = s.RendicionId.HasValue
-                        ? planillaFirmadaPorRendicion.GetValueOrDefault(s.RendicionId.Value)
-                        : null,
                 });
 
-                if (consolidados.TryGetValue(s.Id, out var cons))
-                {
-                    var item = result[^1];
-                    item.ConsolidadoS10Url      = cons.PdfUrl;
-                    item.ConsolidadoS10Filename = cons.PdfFilename;
-                    item.ConsolidadoS10Ambito   = cons.Ambito;
-                }
-
                 // El reembolso solo se revisa cuando la salida ya está rendida Y tiene el
-                // Consolidado del S10: es el papel que el jefe mira para dar el visto bueno.
+                // Consolidado del S10: es el papel que el jefe mira para dar el visto bueno. Acá
+                // solo evita pintar un "Pendiente" que se leería como si esperara a alguien.
                 result[^1].ReembolsoRevisable =
                     s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
                     && consolidados.ContainsKey(s.Id);
@@ -626,15 +571,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .SqlQuery<int>($"SELECT nextval('seq_planilla_numero')::int AS \"Value\"")
                 .ToListAsync();
             return values.First();
-        }
-
-        public async Task<int?> GetRendicionIdDeSolicitud(int solicitudId)
-        {
-            using var ctx = _factory.CreateDbContext();
-            return await ctx.GaSolicitudSalida
-                .Where(s => s.Id == solicitudId)
-                .Select(s => s.RendicionId)
-                .FirstOrDefaultAsync();
         }
 
         public async Task<string?> GetRendicionFolderUrl()
@@ -1174,273 +1110,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// S10 vigente (propio o heredado de su planilla) y con el reembolso todavía abierto
         /// (Pendiente o Rechazado — se puede reconsiderar un rechazo). Lo demás se ignora.
         /// </summary>
-        private static async Task<List<int>> IdsConReembolsoRevisableAsync(AppDbContext ctx, List<int> ids)
-        {
-            if (ids.Count == 0) return new();
-
-            var candidatas = await ctx.GaSolicitudSalida
-                .Where(s => ids.Contains(s.Id)
-                         && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                         && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado))
-                .Select(s => new { s.Id, s.RendicionId })
-                .ToListAsync();
-
-            if (candidatas.Count == 0) return new();
-
-            var consolidados = await ConsolidadoS10Loader.LoadAsync(
-                ctx, candidatas.ToDictionary(x => x.Id, x => x.RendicionId));
-
-            return candidatas.Where(x => consolidados.ContainsKey(x.Id)).Select(x => x.Id).ToList();
-        }
-
-        public async Task<List<int>> DecidirReembolso(
-            IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            if (!aprobar && string.IsNullOrWhiteSpace(observacion))
-                throw new AbrilException("Para rechazar un reembolso hay que escribir la observación.", 400);
-
-            using var ctx = _factory.CreateDbContext();
-
-            var elegibles = await IdsConReembolsoRevisableAsync(ctx, idsList);
-            if (elegibles.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas tiene un reembolso por decidir: deben estar " +
-                    "rendidas y con el Consolidado del S10 adjunto.", 400);
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => elegibles.Contains(s.Id))
-                .ToListAsync();
-
-            // Nadie decide el reembolso de sus propias salidas (salvo Gerente), misma regla que la
-            // aprobación de la salida. El chequeo se hace con UNA consulta para todo el lote y no
-            // con EnsurePuedeDecidirAsync por fila: eso eran dos consultas por salida seleccionada.
-            var misWorkers = await (
-                from w in ctx.Worker
-                join per in ctx.Person on w.PersonId equals per.PersonId
-                where per.UserId == reviewerUserId
-                select new
-                {
-                    w.Id,
-                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-                }
-            ).ToListAsync();
-
-            var misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
-            var esGerente    = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
-
-            if (!esGerente && solicitudes.Any(x => misWorkerIds.Contains(x.WorkerId)))
-                throw new AbrilException(
-                    "No puedes decidir el reembolso de tus propias salidas — deselecciónalas primero.", 403);
-
-            var now  = DateTimeOffset.UtcNow;
-            var obs  = aprobar ? null : observacion!.Trim();
-            var next = aprobar ? EstadosSalida.Reembolso.Aprobado : EstadosSalida.Reembolso.Rechazado;
-
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId      = next;
-                s.ReembolsoDecididoPorId = reviewerUserId;
-                s.ReembolsoDecididoAt    = now;
-                s.UpdatedAt              = now;
-                // Al aprobar se limpia la observación: ya no hay nada que subsanar. Al rechazar se
-                // reemplaza por la nueva.
-                s.ObservacionReembolso   = obs;
-            }
-
-            await ctx.SaveChangesAsync();
-            return solicitudes.Select(s => s.Id).ToList();
-        }
-
-        public async Task<List<RendicionPorFirmarDto>> GetRendicionesPorFirmar(IEnumerable<int> ids)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            using var ctx = _factory.CreateDbContext();
-
-            var filas = await (
-                from s in ctx.GaSolicitudSalida
-                join r in ctx.GaRendicion on s.RendicionId equals r.Id
-                where idsList.Contains(s.Id)
-                   && s.EstadoReembolsoId == EstadosSalida.Reembolso.Aprobado
-                   && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                select new
-                {
-                    SolicitudId = s.Id,
-                    r.Id, r.PdfUrl, r.PdfFilename, r.PdfFirmadoUrl,
-                }
-            ).ToListAsync();
-
-            return filas
-                .GroupBy(x => x.Id)
-                .Select(g => new RendicionPorFirmarDto
-                {
-                    RendicionId   = g.Key,
-                    PdfUrl        = g.First().PdfUrl,
-                    PdfFilename   = g.First().PdfFilename,
-                    PdfFirmadoUrl = g.First().PdfFirmadoUrl,
-                    SolicitudIds  = g.Select(x => x.SolicitudId).ToList(),
-                })
-                .ToList();
-        }
-
-        public async Task MarcarFirmadas(
-            int rendicionId, IEnumerable<int> solicitudIds, int userId,
-            string? pdfUrl, string? pdfItemId, string? pdfFilename)
-        {
-            var idsList = solicitudIds?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return;
-
-            using var ctx = _factory.CreateDbContext();
-            var now = DateTimeOffset.UtcNow;
-
-            var rendicion = await ctx.GaRendicion.FirstOrDefaultAsync(r => r.Id == rendicionId)
-                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
-
-            // Solo se guarda el archivo si esta firma lo generó. Si la planilla ya venía firmada no
-            // se pisa: el PDF firmado que vale es el primero, y lo que falta es mover el estado de
-            // las salidas que aún no estaban firmadas.
-            if (!string.IsNullOrWhiteSpace(pdfUrl))
-            {
-                rendicion.PdfFirmadoUrl      = pdfUrl;
-                rendicion.PdfFirmadoItemId   = pdfItemId;
-                rendicion.PdfFirmadoFilename = pdfFilename;
-                rendicion.FirmadoPorId       = userId;
-                rendicion.FirmadoAt          = now;
-            }
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Aprobado)
-                .ToListAsync();
-
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId = EstadosSalida.Reembolso.Firmado;
-                s.FirmadoPorId      = userId;
-                s.FirmadoAt         = now;
-                s.UpdatedAt         = now;
-            }
-
-            await ctx.SaveChangesAsync();
-        }
-
-        public async Task<List<int>> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            using var ctx = _factory.CreateDbContext();
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Firmado)
-                .ToListAsync();
-
-            if (solicitudes.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas está firmada: solo se puede marcar como pagado " +
-                    "lo que la jefatura ya firmó.", 400);
-
-            var now = DateTimeOffset.UtcNow;
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId = EstadosSalida.Reembolso.Pagado;
-                s.PagadoPorId       = tesoreroUserId;
-                s.PagadoAt          = now;
-                s.UpdatedAt         = now;
-            }
-
-            await ctx.SaveChangesAsync();
-            return solicitudes.Select(s => s.Id).ToList();
-        }
-
-        public async Task<ReembolsoCorreoInfoDto?> GetReembolsoCorreoInfo(int solicitudId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var head = await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                join u in ctx.User on (per != null ? per.UserId : null) equals (int?)u.UserId into uGroup
-                from u in uGroup.DefaultIfEmpty()
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId
-                select new
-                {
-                    s.Id, WorkerInternalId = w.Id,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    Email = u != null ? u.Email : null,
-                    s.FechaSalida, s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
-                    s.RendicionId,
-                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
-                }
-            ).FirstOrDefaultAsync();
-
-            if (head == null) return null;
-
-            var trayectoIds = await ctx.GaSolicitudTrayecto
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => t.Id)
-                .ToListAsync();
-
-            var monto = trayectoIds.Count == 0
-                ? 0m
-                : await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
-
-            string? decididoPor = null;
-            if (head.ReembolsoDecididoPorId.HasValue)
-            {
-                decididoPor = await ctx.Person
-                    .Where(pe => pe.UserId == head.ReembolsoDecididoPorId.Value)
-                    .Select(pe => pe.FullName)
-                    .FirstOrDefaultAsync();
-            }
-
-            var arbolAreas = await CargarArbolAreasAsync(ctx);
-
-            // El identificador que ve el trabajador (SOL-AAAA-NNNN), no el id de la tabla: es el
-            // mismo que usan los demas correos del flujo. Las solicitudes anteriores al codigo
-            // conservan el correlativo por trabajador con el que ya salieron sus correos.
-            var codigo = await ctx.GaSolicitudSalida
-                .Where(x => x.Id == head.Id)
-                .Select(x => x.Codigo)
-                .FirstOrDefaultAsync();
-            if (string.IsNullOrWhiteSpace(codigo))
-            {
-                var numeroUsuario = await ctx.GaSolicitudSalida
-                    .CountAsync(x => x.WorkerId == head.WorkerInternalId && x.Id <= head.Id);
-                codigo = $"#{numeroUsuario}";
-            }
-
-            return new ReembolsoCorreoInfoDto
-            {
-                SolicitudId          = head.Id,
-                WorkerId             = head.WorkerInternalId,
-                Codigo               = codigo,
-                Trabajador           = head.Trabajador,
-                SolicitanteEmail     = head.Email,
-                Area                 = AreaMasBaja(head.AreaScopeId, arbolAreas),
-                FechaSalida          = head.FechaSalida,
-                NumeroPlanilla       = head.NumeroPlanilla.HasValue ? $"TI: {head.NumeroPlanilla.Value:D6}" : null,
-                RendicionId          = head.RendicionId,
-                TrayectosCount       = trayectoIds.Count,
-                MontoTotal           = monto,
-                EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
-                ObservacionReembolso = head.ObservacionReembolso,
-                DecididoPor          = decididoPor,
-            };
-        }
+        // La decisión del reembolso, la firma y el pago ya no viven acá: son pasos posteriores
+        // a rendir y se movieron a Gestión de Rendiciones (revisor) y Reembolsos (Tesorería).
 
         private const string SubareaTi              = "Tecnología de la Información";
         private const string TipoAreaEstandar       = "Área Estándar";

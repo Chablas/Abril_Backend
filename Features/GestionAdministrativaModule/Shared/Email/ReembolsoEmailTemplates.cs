@@ -82,8 +82,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>
         /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 de su PLANILLA y
         /// el reembolso está esperando revisión. El aviso es por planilla (no por salida) porque el
-        /// consolidado cubre la planilla entera; el botón abre Gestión de Salidas en una de sus
-        /// salidas, desde donde el revisor ve el resto.
+        /// consolidado cubre la planilla entera; el botón abre esa planilla en Gestión de
+        /// Rendiciones, que es donde el revisor decide.
         /// </summary>
         public static string RevisionPendiente(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlRevisar)
         {

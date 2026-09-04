@@ -1,4 +1,5 @@
-﻿using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos
@@ -92,15 +93,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </summary>
         public bool EsPropia { get; set; }
 
-        // -- Consolidado del S10 (solo salidas rendidas) -----------------
-        /// <summary>webUrl del PDF Consolidado del S10 vigente, o null si aun no se adjunto.</summary>
-        public string? ConsolidadoS10Url { get; set; }
-        /// <summary>Nombre del archivo del consolidado vigente. Null si no hay.</summary>
-        public string? ConsolidadoS10Filename { get; set; }
-        /// <summary>"Rendicion" (cubre toda la planilla) | "Solicitud" (solo esta salida) | null si no hay.</summary>
-        public string? ConsolidadoS10Ambito { get; set; }
-
-        // -- Reembolso ---------------------------------------------------
+        // -- Reembolso (solo informativo) --------------------------------
+        // El archivo del Consolidado del S10 y la planilla firmada no viajan en esta lista: se
+        // abren desde Gestion de Rendiciones, que es donde se usan. Aca solo se pinta el estado.
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado".</summary>
         public string EstadoReembolso { get; set; } = "Pendiente";
 
@@ -116,12 +111,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Nombre de quien aprobo/rechazo el reembolso. Null si nadie lo decidio aun.</summary>
         public string? ReembolsoDecididoPor { get; set; }
         public DateTimeOffset? ReembolsoDecididoAt { get; set; }
-
-        /// <summary>Momento en que el trabajador aviso al revisor que ya adjunto el S10. Null si nunca aviso.</summary>
-        public DateTimeOffset? RevisorNotificadoAt { get; set; }
-
-        /// <summary>webUrl de la planilla de rendicion FIRMADA. Null mientras nadie la firme.</summary>
-        public string? PlanillaFirmadaUrl { get; set; }
     }
 
     public class RegistrarHoraSalidaRealDto
@@ -145,26 +134,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? EstadoAprobacion { get; set; }
 
         /// <summary>
-        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos.
-        /// Para un tesorero se acota a Firmado/Pagado aunque pida otra cosa (ver <see cref="EsTesorero"/>).
+        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos. Es un
+        /// filtro informativo: el reembolso ya no se decide en esta pantalla (vive en Gestion de
+        /// Rendiciones), pero su estado se sigue mostrando en la columna.
         /// </summary>
         public string? EstadoReembolso { get; set; }
-
-        /// <summary>
-        /// True cuando el usuario entra como TESORERO: tiene el rol y ademas su puesto es de
-        /// categoria Tesorero. Lo resuelve el servicio, no el controller (el rol sale del token
-        /// pero la categoria sale de la base).
-        ///
-        /// En ese modo ve TODAS las areas, pero solo las salidas ya firmadas por la jefatura y las
-        /// ya pagadas: es la bandeja de tesoreria, no la de aprobacion.
-        /// </summary>
-        public bool EsTesorero { get; set; }
-
-        /// <summary>
-        /// True si el token del usuario trae el rol TESORERO. Solo dice que tiene el rol: la
-        /// segunda condicion (la categoria del puesto) la resuelve el servicio contra la base.
-        /// </summary>
-        public bool TieneRolTesorero { get; set; }
 
         /// <summary>
         /// True = solo las solicitudes cuya <c>fecha_salida</c> es la de HOY. El día se calcula en
@@ -308,84 +282,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public List<int> Ids { get; set; } = new();
     }
 
-    /// <summary>Cuerpo de las acciones en bloque sobre el reembolso (aprobar, firmar, pagar).</summary>
-    public class ReembolsoBulkDto
-    {
-        public List<int> Ids { get; set; } = new();
-    }
-
-    /// <summary>
-    /// Rechazo del reembolso en bloque. La observacion es obligatoria: es lo unico que el
-    /// trabajador va a leer para saber que corregir.
-    /// </summary>
-    public class RechazarReembolsoBulkDto
-    {
-        public List<int> Ids { get; set; } = new();
-        public string? Observacion { get; set; }
-    }
-
-    /// <summary>
-    /// Una planilla de rendicion pendiente de firma, con las salidas de la seleccion que cuelgan
-    /// de ella. El PDF se firma UNA vez por planilla aunque la seleccion traiga varias salidas
-    /// suyas: el documento es uno solo.
-    /// </summary>
-    public class RendicionPorFirmarDto
-    {
-        public int RendicionId { get; set; }
-        /// <summary>webUrl del PDF original de la planilla (el que se descarga para estampar).</summary>
-        public string PdfUrl { get; set; } = string.Empty;
-        public string PdfFilename { get; set; } = string.Empty;
-        /// <summary>webUrl de la copia ya firmada, si otra firma anterior la genero.</summary>
-        public string? PdfFirmadoUrl { get; set; }
-        /// <summary>Salidas de la seleccion que cuelgan de esta planilla y estan listas para firmar.</summary>
-        public List<int> SolicitudIds { get; set; } = new();
-    }
-
-    /// <summary>
-    /// Lo que necesitan los correos del reembolso de UNA salida. Sale de una sola consulta para no
-    /// volver a la base por cada correo.
-    /// </summary>
-    public class ReembolsoCorreoInfoDto
-    {
-        public int SolicitudId { get; set; }
-        public int WorkerId { get; set; }
-        public string Trabajador { get; set; } = string.Empty;
-        /// <summary>
-        /// Identificador que ve el trabajador: el código SOL-AAAA-NNNN. Se resuelve igual que en
-        /// SolicitudSalidaService para que el mismo pedido no salga con dos identificadores
-        /// distintos; las solicitudes anteriores al código conservan su "#N" por trabajador.
-        /// </summary>
-        public string Codigo { get; set; } = string.Empty;
-        /// <summary>Correo del solicitante (app_user.email). Null si no tiene usuario.</summary>
-        public string? SolicitanteEmail { get; set; }
-        public string? Area { get; set; }
-        public DateOnly FechaSalida { get; set; }
-        /// <summary>Numero de planilla formateado ("TI: 000123"), o null si no tiene planilla.</summary>
-        public string? NumeroPlanilla { get; set; }
-        /// <summary>
-        /// Planilla a la que pertenece la salida. Es el destino del boton del correo: lo que el
-        /// trabajador tiene que hacer despues de una decision (subsanar volviendo a adjuntar el
-        /// Consolidado del S10) vive en Mis Rendiciones, no en la salida.
-        /// </summary>
-        public int? RendicionId { get; set; }
-        public int TrayectosCount { get; set; }
-        public decimal MontoTotal { get; set; }
-        public string EstadoReembolso { get; set; } = string.Empty;
-        public string? ObservacionReembolso { get; set; }
-        /// <summary>Nombre de quien decidio el reembolso (para mostrarlo en el correo).</summary>
-        public string? DecididoPor { get; set; }
-    }
-
-    /// <summary>Resultado de una accion en bloque sobre el reembolso.</summary>
-    public class ReembolsoBulkResultDto
-    {
-        /// <summary>Cuantas salidas cambiaron de estado.</summary>
-        public int Procesadas { get; set; }
-        /// <summary>Cuantas planillas distintas se firmaron (solo lo usa Firmar).</summary>
-        public int PlanillasFirmadas { get; set; }
-        public string Message { get; set; } = string.Empty;
-    }
-
     public class GestionSalidaFilterDataDto
     {
         public List<TrabajadorOptionDto> Trabajadores { get; set; } = new();
@@ -393,37 +289,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Árbol area_scope (lista plana) para el filtro de área en cascada.</summary>
         public List<AreaNodeDto> AreaTree { get; set; } = new();
 
-        /// <summary>
-        /// True si el usuario entra en modo TESORERÍA: tiene el rol TESORERO Y su puesto es de
-        /// categoría Tesorero. Lo decide el backend porque la mitad del criterio (la categoría)
-        /// vive en la base: el frontend solo ve el rol del token y con eso pintaría la bandeja de
-        /// tesorería a alguien que no lo es.
-        ///
-        /// En ese modo la pantalla solo muestra reembolsos firmados y pagados, esconde las acciones
-        /// de aprobación/rendición y habilita "Marcar como pagadas".
-        /// </summary>
-        public bool EsTesorero { get; set; }
-
         /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
         public List<MesRendicionDto> MesesRendicion { get; set; } = new();
-    }
-
-    /// <summary>Nodo del árbol area_scope (lista plana; el frontend arma la jerarquía). </summary>
-    public class AreaNodeDto
-    {
-        public int AreaScopeId { get; set; }
-        public int AreaItemId { get; set; }
-        public string AreaItemName { get; set; } = string.Empty;
-        public int AreaTypeId { get; set; }
-        public string AreaTypeName { get; set; } = string.Empty;
-        public int? AreaScopeParentId { get; set; }
-        public int DisplayOrder { get; set; }
-    }
-
-    public class TrabajadorOptionDto
-    {
-        public int WorkerId { get; set; }
-        public string NombreCompleto { get; set; } = string.Empty;
     }
 
     public class LugarProyectoOptionDto

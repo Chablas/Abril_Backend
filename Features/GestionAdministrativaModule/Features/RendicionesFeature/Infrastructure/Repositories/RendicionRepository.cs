@@ -1,4 +1,3 @@
-using System.Globalization;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
@@ -128,7 +127,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 {
                     Anio  = p.Year,
                     Mes   = p.Month,
-                    Label = EtiquetaMes(p.Year, p.Month),
+                    Label = PlanillaRendicionHelper.EtiquetaMes(p.Year, p.Month),
                 })
                 .ToList();
         }
@@ -286,16 +285,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var desde = propias.Min(s => s.FechaSalida);
             var hasta = propias.Max(s => s.FechaSalida);
 
-            var estado = ResumirEstadoReembolso(propias.Select(s => s.EstadoReembolsoId));
+            var estado = PlanillaRendicionHelper.ResumirEstadoReembolso(propias.Select(s => s.EstadoReembolsoId));
             var abierto = estado == EstadosSalida.Reembolso.NombrePendiente
                        || estado == EstadosSalida.Reembolso.NombreRechazado;
 
             return new RendicionListItemDto
             {
                 Id             = planilla.Id,
-                NumeroPlanilla = planilla.NumeroPlanilla.HasValue ? $"TI: {planilla.NumeroPlanilla.Value:D6}" : null,
+                NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
                 RendidoAt      = planilla.RendidoAt,
-                Periodo        = EtiquetaPeriodo(desde, hasta),
+                Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                 PeriodoAnio    = desde.Year,
                 PeriodoMes     = desde.Month,
                 SalidasCount   = propias.Count,
@@ -347,20 +346,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.PuedeNotificarRevisor    = origen.PuedeNotificarRevisor;
         }
 
-        /// <summary>
-        /// Gana el estado que más atención pide: mientras una sola salida siga atrás, la planilla
-        /// todavía no está cerrada y decir lo contrario escondería trabajo pendiente.
-        /// </summary>
-        private static string ResumirEstadoReembolso(IEnumerable<int> estados)
-        {
-            var set = estados.ToHashSet();
-            if (set.Contains(EstadosSalida.Reembolso.Rechazado)) return EstadosSalida.Reembolso.NombreRechazado;
-            if (set.Contains(EstadosSalida.Reembolso.Pendiente)) return EstadosSalida.Reembolso.NombrePendiente;
-            if (set.Contains(EstadosSalida.Reembolso.Aprobado))  return EstadosSalida.Reembolso.NombreAprobado;
-            if (set.Contains(EstadosSalida.Reembolso.Firmado))   return EstadosSalida.Reembolso.NombreFirmado;
-            return EstadosSalida.Reembolso.NombrePagado;
-        }
-
         private static List<RendicionListItemDto> Filtrar(
             List<RendicionListItemDto> items, RendicionFiltersDto? filters)
         {
@@ -380,28 +365,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
             return q.ToList();
         }
-
-        /// <summary>"Agosto 2026", o "Julio — Agosto 2026" cuando la planilla cruza meses.</summary>
-        private static string EtiquetaPeriodo(DateOnly desde, DateOnly hasta)
-        {
-            if (desde.Year == hasta.Year && desde.Month == hasta.Month)
-                return EtiquetaMes(desde.Year, desde.Month);
-
-            var cultura = CultureInfo.GetCultureInfo("es-PE");
-            var mesDesde = Capitalizar(cultura.DateTimeFormat.GetMonthName(desde.Month), cultura);
-            var mesHasta = Capitalizar(cultura.DateTimeFormat.GetMonthName(hasta.Month), cultura);
-            return desde.Year == hasta.Year
-                ? $"{mesDesde} — {mesHasta} {hasta.Year}"
-                : $"{mesDesde} {desde.Year} — {mesHasta} {hasta.Year}";
-        }
-
-        private static string EtiquetaMes(int anio, int mes)
-        {
-            var cultura = CultureInfo.GetCultureInfo("es-PE");
-            return $"{Capitalizar(cultura.DateTimeFormat.GetMonthName(mes), cultura)} {anio}";
-        }
-
-        private static string Capitalizar(string nombre, CultureInfo cultura) =>
-            string.IsNullOrEmpty(nombre) ? nombre : $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]}";
     }
 }

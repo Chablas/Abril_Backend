@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// su gerencia + descendientes; un jefe recibe su área + subáreas. Así el desplegable en
         /// cascada arranca en el nodo tope que cada usuario controla, no siempre en la gerencia.
         /// </summary>
-        Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride, bool tieneRolTesorero = false);
+        Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride);
         Task<byte[]> GetExcel(GestionSalidaFiltersDto filters);
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);
@@ -53,12 +53,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </param>
         Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de la PLANILLA a la que pertenece esa
-        /// salida. Lanza 409 si la salida todavía no está rendida (no tiene planilla).
-        /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, IFormFile file, int userId);
-
         /// <summary>Detalle de una solicitud para el modal — devuelve null si no existe.</summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id);
 
@@ -68,32 +62,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Registra (o limpia) la hora real de retorno. Para uso del rol USUARIO DE RECEPCIÓN.</summary>
         Task SetHoraRetornoReal(int id, TimeOnly? hora, int registradaPorUserId);
 
-        // ── Reembolso ────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Aprueba o rechaza en bloque el reembolso de las salidas indicadas y avisa por correo a
-        /// cada solicitante. Solo entran las que están rendidas y con Consolidado del S10 adjunto.
-        /// El correo es best-effort: si falla, la decisión ya quedó guardada.
-        /// </summary>
-        /// <param name="observacion">Obligatoria al rechazar: es lo que el trabajador va a subsanar.</param>
-        Task<ReembolsoBulkResultDto> DecidirReembolso(
-            IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId);
-
-        /// <summary>
-        /// Firma la planilla de rendición de las salidas indicadas: descarga el PDF original,
-        /// le estampa la firma del usuario y sube la copia firmada a SharePoint sin tocar el
-        /// original. Una planilla se firma una sola vez aunque la selección traiga varias de sus
-        /// salidas. Las salidas firmadas pasan a estado Firmado.
-        ///
-        /// Lanza 409 si el usuario todavía no registró su firma: la pantalla usa ese código para
-        /// abrir el modal donde la dibuja en el momento.
-        /// </summary>
-        Task<ReembolsoBulkResultDto> FirmarPlanillas(IEnumerable<int> ids, int userId);
-
-        /// <summary>
-        /// Marca como Pagadas las salidas Firmadas indicadas. Es la acción de Tesorería y el
-        /// controller ya validó que el usuario entra como tesorero.
-        /// </summary>
-        Task<ReembolsoBulkResultDto> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId);
+        // El Consolidado del S10, la decisión del reembolso y la firma ya no viven acá: son
+        // pasos POSTERIORES a rendir y los expone IGestionRendicionService (Gestión de
+        // Rendiciones). El pago es de Tesorería y vive en Reembolsos (IReembolsoService). Esta
+        // pantalla llega hasta rendir.
     }
 }

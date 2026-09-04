@@ -91,7 +91,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 select new
                 {
                     WorkerId    = w.Id,
-                    SolicitudId = s.Id,
                     Trabajador  = per.FullName ?? "Trabajador",
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                 }
@@ -123,9 +122,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 MontoTotal     = planilla.MontoTotal,
             };
 
-            // El botón lleva a Gestión de Salidas, que es donde el revisor decide. Se abre en una
-            // de las salidas de la planilla: desde ahí ve el resto con el filtro de la pantalla.
-            var url  = SalidaEnlaces.Gestion(_configuration, quien.SolicitudId);
+            // El botón lleva a Gestión de Rendiciones, que es donde el revisor decide, y abre esta
+            // planilla: lo que va a mirar (el Consolidado del S10) es del documento, no de una
+            // salida suelta. Gestión de Salidas ya no llega hasta el reembolso.
+            var url  = SalidaEnlaces.GestionRendiciones(_configuration, rendicionId);
             var body = ReembolsoEmailTemplates.RevisionPendiente(
                 SalidaEmailLayout.Desde(_configuration), datos, url);
 

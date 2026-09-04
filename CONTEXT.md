@@ -6027,3 +6027,51 @@ El endpoint hacía `await _emailService.SendAsync(...)` dentro del propio reques
 - Correr en prod la migración SQL de `ss_presupuesto_vigilancia_hito` (dev ya corrida por el usuario).
 - Probar en navegador el flujo completo de Vigilancia (guardar, recargar, ver totales) contra el backend real.
 - El bug de freeze reportado durante la sesión ("Cargando dotación/vigilancia" nunca desaparece) resultó ser 100% frontend (ver CONTEXT.md de Abril-Frontend) — no requirió cambios en este repo más allá del fix de correo bloqueante de arriba.
+
+## Sesión 2026-09-04 — Presupuesto Materiales: Servicios/Kits/Personal/Vigilancia completos + fix de doble conteo
+
+### Contexto
+Continuación directa de la sesión anterior: completar los últimos mecanismos de costo del presupuesto de Sauce Zen (Servicios de costo fijo, Kits/BOM real, tarifas de Personal, precio de Vigilancia) y, sobre la marcha, encontrar y arreglar varios bugs reales de cálculo que dejaban el total del presupuesto en S/0,00 o duplicado.
+
+### Cambios
+
+**1) Servicios de costo fijo (nuevo feature completo)** — mismo patrón que Vigilancia:
+- `ServicioFijoDtos.cs`, `IServicioFijoRepository.cs`/`ServicioFijoRepository.cs`, `IServicioFijoService.cs`/`ServicioFijoService.cs`, `ServicioFijoController.cs`, registrado en `SsomaModule.cs`.
+- Famílias con `variable_base = 'FIJO'` en el catálogo (no escalan por HH/Área/Trabajadores) — cantidad 100% manual por proyecto, precio unitario snapshot de `ss_ratio_proyecto` (mismo mecanismo que Vigilancia). Tabla `ss_presupuesto_item_metrado` (ya existía, estaba sin usar).
+
+**2) Kits/BOM — guardado real (antes solo calculaba en pantalla, se perdía al recargar)**
+- Tabla nueva `ss_presupuesto_kit_item` (`Migrations_Manual/2026-09-04_presupuesto_kit_item.sql`) — separada de `ss_presupuesto_item_metrado` (Servicios) a propósito, para no pisarse los DELETE-and-reinsert de cada guardado.
+- `KitRepository`: `GuardarEnProyectoAsync`/`EliminarDelProyectoAsync`/`ObtenerGuardadosPorProyectoAsync` — **soporta varios kits guardados a la vez por proyecto** (ej. Botiquín ×3 y Estación de Emergencia ×1 simultáneamente); el primer intento borraba TODO el presupuesto_id al guardar un kit nuevo, corregido a `DELETE ... WHERE presupuesto_id = @id AND kit_id = @kitId`.
+- `CalcularAsync` (vista previa antes de guardar) ahora también trae precio/total en vivo desde Ratios — antes daba siempre S/0,00 hasta guardar.
+- `KitController`: nuevas rutas `GET/PUT proyectos/{projectId}/kits` y `DELETE proyectos/{projectId}/kits/{kitId}`.
+
+**3) Personal — tarifa semanal sugerida desde planilla real**
+- `ObtenerTarifasSugeridasAsync` en `PersonalHitoRepository`: en vez de promediar `ss_presupuesto_personal_hito` (vacío, recién se usa), promedia el pago REAL de `ss_hh_carga_linea` (la planilla semanal que sube "Subir Excel de Horas Hombre"). Verificado con datos reales que la planilla nunca dice "Peón" — el equivalente es "Ayudante *"; "Oficial *" sí aparece literal; se excluye "Operario *" (tercer nivel salarial que no existe en esta matriz de 2 categorías). Solo mira las últimas ~12 semanas cargadas (de cualquier proyecto), para no diluirse con historial de proyectos cerrados.
+- La tarifa es **semanal**, no mensual — se removió la conversión `× 4.345` tanto en la sugerencia como en `Total = cantidad × tarifa × semanas` (antes dividía por semanas/mes).
+- **Bug real corregido**: `Semanas`/`HitoSalidaId` se cargaban por FILA individual (por rol) en vez de por HITO — si un rol nunca se había guardado antes con ese hito, arrancaba en `semanas=0` y el Total daba 0 aunque tuviera cantidad y tarifa. Ahora todas las filas de un hito toman `semanas`/`hitoSalidaId` de cualquier fila ya guardada de ese hito (`construirFilasPersonal`).
+- **Bug real corregido**: `guardarPersonal()` exigía `costoMensual > 0` para guardar una fila — si la tarifa global todavía estaba en 0, se perdían Monitor/Vígia/Encapsulador enteros al guardar (solo Prevencionista tenía excepción). Ahora el filtro es solo `cantidad > 0`.
+- Prevencionista: costo forzado a 0 siempre (es solo el recordatorio de en qué etapa debe ingresar a la obra, no suma al presupuesto).
+
+**4) Vigilancia — precio real, no el promedio ruidoso de Ratios**
+- **Bug real corregido**: `VigilanciaHitoRepository` buscaba la família como `"Servicio de Vigilancia"` (case-sensitive `=`) pero en la base está guardada `"SERVICIO DE VIGILANCIA"` — nunca hacía match, precio siempre 0. Cambiado a `ILIKE`.
+- Con el match arreglado, el precio salía inflado (~S/8,444) porque el Kardex de Vigilancia siempre carga `cantidad=1` por línea sin importar cuántos turnos cubre la factura (verificado con data real: SAUCO factura consistente ~14,040.52 ≈ 4×3,500; LILAS/CAMELIA ~7,020.26 ≈ 2×3,500). Hasta que se corrija `cantidad_real` en el Kardex línea por línea (tarea de estandarización, no de código), se usa el precio real confirmado directo: `PrecioVigilanciaPorTurno = 3500m`, ya no se calcula de `ss_ratio_proyecto`.
+- **Bug real corregido**: igual que Personal, `fila.total` se cargaba una sola vez desde lo guardado y nunca se recalculaba cuando llegaba el precio (pedido en un request separado, async) — quedaba pegado en 0 o en el valor viejo.
+
+**5) Fix de doble conteo: generación automática de Presupuesto → Detalle**
+`PresupuestoService.GenerarAsync` armaba una línea por ratio para TODAS las famílias del catálogo SSOMA, sin excluir las que ya se cargan a mano por Personal/Vigilancia/Servicios/Kits — se sumaban dos veces en el total. `ObtenerRatiosRecomendadosAsync` ahora excluye: `variable_base = 'FIJO'` (Servicios), famílias con `nombre ILIKE '%vigilancia%'`, y famílias que estén en el BOM de algún kit (`NOT EXISTS ... ss_kit_item`). **Pendiente real detectado y sin resolver**: el filtro por receta de kit no alcanza — famílias del mismo tipo (Botiquín/Estación de Emergencia) que todavía no se agregaron a la receta de NINGÚN kit puntual (ej. Alcohol Galón, Dolocoladrán, Férula de mano) se siguen colando por ratio. La corrección discutida (excluir por `tipo_id` completo en vez de por receta) quedó revertida a pedido explícito del usuario para retomar en la próxima sesión — no aplicar sin confirmar de nuevo.
+
+**6) Otros bugs reales corregidos**
+- `PresupuestoRepository.CrearPresupuestoAsync` no seteaba `generado_en` (NOT NULL sin default) — "Generar presupuesto" tiraba 500 siempre. Agregado `now()`.
+- `PresupuestoTotalHelper` (antes solo sumaba 4 fuentes) ahora suma las 5: materiales, personal, vigilancia, servicios, kits.
+- Nuevo `ActualizarCantidadManualPorFamiliaAsync` + endpoint `PUT proyectos/{projectId}/familias/{familiaId}/cantidad-manual` — override manual de cantidad sin que el frontend necesite conocer el `lineaId` (usado por "Cálculo técnico → Marcelinos" en el frontend, familia_id 275 = Punto de Anclaje Textil, hardcodeada igual que `FamiliaVigilancia`).
+
+**7) Família de catálogo nueva (dato, no código)**
+"MARCELINOS" resultó ser el mismo material que "PUNTO DE ANCLAJE TEXTIL" (ya existía como ítem id 55 bajo esa família, con Kardex ya vinculado y estandarizado) — la família "MARCELINOS" creada por error durante el diagnóstico (id 479) quedó desactivada (`activo = false`).
+
+### Verificado
+`dotnet build` → 0 errores de código (solo warnings preexistentes + error de copia de `.exe` por tener el backend corriendo en paralelo, no relacionado al código).
+
+### Pendiente
+- Decidir y aplicar la exclusión por `tipo_id` completo (Botiquín/Estación de Emergencia/lo que sea "Antiderrame") en `ObtenerRatiosRecomendadosAsync` — revertida a pedido del usuario, retomar la próxima sesión.
+- Corregir `cantidad_real` en `ss_hh_carga_linea`/Kardex de Vigilancia para que refleje turnos reales por línea (hoy siempre 1) — permitiría volver a calcular el precio de Vigilancia desde Ratios en vez del valor fijo S/3,500.
+- Regenerar los presupuestos ya creados antes del fix de doble conteo (quedan con líneas duplicadas viejas).

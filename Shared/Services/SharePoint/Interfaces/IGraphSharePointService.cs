@@ -96,6 +96,8 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <summary>
         /// Descarga varios archivos de un drive de OneDrive convertidos a PDF (?format=pdf) usando
         /// el endpoint /$batch. Cada entrada indica si el archivo ya es PDF. Devuelve itemId → bytes.
+        /// Si Graph responde 406 (no puede convertir, típicamente porque el archivo ya era PDF pese
+        /// a que se pidió la conversión) ese archivo se reintenta una vez con descarga cruda.
         /// </summary>
         Task<Dictionary<string, byte[]>> DownloadMultipleAsPdfFromOneDriveAsync(
             string driveId,

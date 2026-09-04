@@ -44,6 +44,37 @@ public class SsomaPetItemSeleccionado
     public SsomaCatalogoItem? CatalogoItem { get; set; }
 }
 
+// Bloque de texto único por sección narrativa (Introducción, Alcance, Objetivo,
+// Definiciones, Restricciones) — a diferencia de Procedimiento/Responsabilidades,
+// estas secciones son prosa sin estructura real, así que no usan el árbol de
+// SsomaPetPaso. Una fila por (PetId, Seccion).
+public class SsomaPetSeccionTexto
+{
+    public int Id { get; set; }
+    public int PetId { get; set; }
+    public string Seccion { get; set; } = string.Empty;
+    public string Contenido { get; set; } = string.Empty;
+    public DateTime? UpdatedAt { get; set; }
+
+    public SsomaPet? Pet { get; set; }
+}
+
+// Elaborado por / Revisado por / Aprobado por — tal cual la tabla de firmas al pie
+// del PETS en Word. Una fila por (PetId, Rol).
+public class SsomaPetFirma
+{
+    public int Id { get; set; }
+    public int PetId { get; set; }
+    public string Rol { get; set; } = string.Empty;
+    public string? Nombre { get; set; }
+    public string? Cargo { get; set; }
+    public DateOnly? Fecha { get; set; }
+    public string? FirmaUrl { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+
+    public SsomaPet? Pet { get; set; }
+}
+
 public class SsomaPetAnexo
 {
     public int Id { get; set; }

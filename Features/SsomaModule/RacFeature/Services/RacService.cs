@@ -312,7 +312,7 @@ public class RacService : IRacService
                 .Where(w => w.Id == req.ReportanteId.Value)
                 .Select(w => new
                 {
-                    w.ApellidoNombre,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
                     Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                     Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null
                         ? null : w.PuestoCatalogo.Categoria.Nombre
@@ -320,7 +320,7 @@ public class RacService : IRacService
                 .FirstOrDefaultAsync();
             if (workerReportante is not null)
             {
-                reportanteNombre = workerReportante.ApellidoNombre;
+                reportanteNombre = workerReportante.Nombre;
                 reportanteCargo = !string.IsNullOrEmpty(req.ReportanteCargo)
                     ? req.ReportanteCargo
                     : (workerReportante.Puesto ?? workerReportante.Categoria);

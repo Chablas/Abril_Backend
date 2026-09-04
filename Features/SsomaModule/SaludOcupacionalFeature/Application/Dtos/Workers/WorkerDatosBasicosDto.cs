@@ -16,8 +16,8 @@
         public string? Categoria { get; set; }
         /// <summary>Nombre del puesto (campo de presentación), para mostrar.</summary>
         public string? Puesto { get; set; }
-        /// <summary>Nodo del árbol de áreas asignado al trabajador (workers.area_scope_id). Null = sin área.</summary>
-        public int? AreaScopeId { get; set; }
+        // El área no viaja en este DTO: se deriva de puesto.area_destino_scope_id, así que
+        // mandar el puesto es mandar el área.
         /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c>. Solo lectura.
         /// Null = sin puesto, o sea sin categoría.</summary>
         public int? CategoriaId { get; set; }

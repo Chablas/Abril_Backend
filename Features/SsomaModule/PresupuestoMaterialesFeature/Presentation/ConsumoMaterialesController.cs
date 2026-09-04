@@ -71,6 +71,22 @@ public class ConsumoMaterialesController : ControllerBase
     }
 
     /// <summary>
+    /// Proyecto donde el usuario logueado está actualmente vinculado como trabajador (su obra
+    /// real de RRHH) — para preseleccionarlo por defecto en pantallas como esta. Null si no tiene
+    /// vinculación activa (p. ej. personal de oficina sin ficha de trabajador).
+    /// </summary>
+    [HttpGet("proyectos/mi-actual")]
+    public async Task<IActionResult> ObtenerProyectoActual()
+    {
+        try
+        {
+            var projectId = await _consumoService.ObtenerProyectoActualDelUsuarioAsync(UsuarioId);
+            return Ok(new { projectId });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al obtener el proyecto actual." }); }
+    }
+
+    /// <summary>
     /// Asigna cada línea de consumo del proyecto al hito real del cronograma (/projects) que le
     /// corresponde según su fecha de guía. Se puede volver a correr cuando el cronograma cambie.
     /// </summary>
@@ -98,6 +114,16 @@ public class ConsumoMaterialesController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception) { return StatusCode(500, new { message = "Error en el proceso de estandarización." }); }
+    }
+
+    /// <summary>Progreso en vivo de la estandarización de una carga, para pantallas que la disparan
+    /// y quieren mostrar "línea X de Y" mientras corre (puede tardar minutos en lotes grandes).</summary>
+    [HttpGet("cargas/{cargaId}/progreso")]
+    public IActionResult ObtenerProgreso(int cargaId)
+    {
+        var progreso = _estandarizacionService.ObtenerProgreso(cargaId);
+        if (progreso == null) return Ok(new { enProceso = false });
+        return Ok(new { enProceso = true, procesadas = progreso.Value.Procesadas, total = progreso.Value.Total });
     }
 
     // ─── Revisión de materiales ───────────────────────────────────────────────

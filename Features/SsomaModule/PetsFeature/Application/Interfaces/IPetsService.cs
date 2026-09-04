@@ -14,6 +14,8 @@ public interface IPetsService
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
     Task<string> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName);
+    Task DesactivarSeccionAsync(int petId, string seccion);
+    Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido);
 
     // Catálogo (Marco Legal / EPP / Recursos)
     Task<List<CatalogoItemDto>> GetCatalogoAsync(string grupo, string? tipo);
@@ -26,4 +28,11 @@ public interface IPetsService
     // Anexos
     Task<string> SubirAnexoAsync(int petId, string nombre, Stream fileStream, string fileName);
     Task EliminarAnexoAsync(int petId, int anexoId);
+
+    // Firmas
+    Task UpsertFirmaAsync(int petId, string rol, string? nombre, string? cargo, DateOnly? fecha);
+    Task<string> SubirFirmaAsync(int petId, string rol, Stream fileStream, string fileName);
+
+    // Exportar
+    Task<byte[]> ExportarPdfAsync(int petId);
 }

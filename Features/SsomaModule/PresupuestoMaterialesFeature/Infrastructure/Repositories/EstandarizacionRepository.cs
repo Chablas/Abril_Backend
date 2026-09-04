@@ -77,10 +77,20 @@ public class EstandarizacionRepository : IEstandarizacionRepository
     public async Task CrearAliasAsync(string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal confianza)
     {
         using var conn = Conn();
+        // DO UPDATE (no DO NOTHING): esta función solo se llama cuando el matcher NO encontró
+        // un alias activo para este texto (ver EstandarizacionService/RevisionMaterialesService) —
+        // si ya existía una fila con este texto_crudo_norm, es porque estaba apuntando a un ítem
+        // descontinuado (no_usar/inactivo) y por eso era invisible para el match. Con DO NOTHING
+        // esa fila vieja bloqueaba para siempre la corrección (bug real: "BARRA RETRACTILES"
+        // quedó años apuntando a un ítem no_usar del SEED inicial sin que nada lo corrigiera).
         const string sql = """
             INSERT INTO ss_material_alias (texto_crudo, texto_crudo_norm, item_id, origen, confianza, creado_en)
             VALUES (@textoCrudo, @textoCrudoNorm, @itemId, @origen, @confianza, now())
-            ON CONFLICT (texto_crudo_norm) DO NOTHING
+            ON CONFLICT (texto_crudo_norm) DO UPDATE SET
+                item_id = EXCLUDED.item_id,
+                origen = EXCLUDED.origen,
+                confianza = EXCLUDED.confianza,
+                creado_en = now()
             """;
         await conn.ExecuteAsync(sql, new { textoCrudo, textoCrudoNorm, itemId, origen, confianza = (double)confianza });
     }
@@ -124,5 +134,81 @@ public class EstandarizacionRepository : IEstandarizacionRepository
             """;
         var resultados = await conn.QueryAsync<MatchResult>(sql, new { texto = textoNorm });
         return resultados.ToList();
+    }
+
+    public async Task<bool> ObtenerPerteneceSsomaDeItemAsync(int itemId)
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT f.pertenece_ssoma
+            FROM ss_material_item i
+            JOIN ss_material_familia f ON f.id = i.familia_id
+            WHERE i.id = @itemId
+            """;
+        return await conn.QueryFirstOrDefaultAsync<bool>(sql, new { itemId });
+    }
+
+    public async Task<HashSet<string>> ObtenerRechazosConocidosAsync()
+    {
+        using var conn = Conn();
+        var textos = await conn.QueryAsync<string>(
+            "SELECT texto_crudo_norm FROM ss_material_alias WHERE item_id IS NULL");
+        return textos.ToHashSet();
+    }
+
+    private record AliasRow(string Clave, int ItemId, string NombreItem, int FamiliaId,
+        string NombreFamilia, bool PerteneceSsoma, decimal FactorConversion);
+
+    public async Task<Dictionary<string, MatchResult>> ObtenerAliasesActivosAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT a.texto_crudo_norm AS Clave, i.id AS ItemId, i.nombre AS NombreItem,
+                   f.id AS FamiliaId, f.nombre AS NombreFamilia, f.pertenece_ssoma AS PerteneceSsoma,
+                   a.factor_conversion AS FactorConversion
+            FROM ss_material_alias a
+            JOIN ss_material_item i ON i.id = a.item_id
+            JOIN ss_material_familia f ON f.id = i.familia_id
+            WHERE i.no_usar = false AND i.activo = true
+            """;
+        var filas = await conn.QueryAsync<AliasRow>(sql);
+        var mapa = new Dictionary<string, MatchResult>();
+        foreach (var f in filas)
+        {
+            mapa[f.Clave] = new MatchResult
+            {
+                ItemId = f.ItemId, NombreItem = f.NombreItem, FamiliaId = f.FamiliaId,
+                NombreFamilia = f.NombreFamilia, PerteneceSsoma = f.PerteneceSsoma,
+                Score = 1.0m, Metodo = "ALIAS", FactorConversion = f.FactorConversion
+            };
+        }
+        return mapa;
+    }
+
+    private record NombreRow(string Clave, int ItemId, string NombreItem, int FamiliaId,
+        string NombreFamilia, bool PerteneceSsoma);
+
+    public async Task<Dictionary<string, MatchResult>> ObtenerNombresItemActivosAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT i.nombre_normalizado AS Clave, i.id AS ItemId, i.nombre AS NombreItem,
+                   f.id AS FamiliaId, f.nombre AS NombreFamilia, f.pertenece_ssoma AS PerteneceSsoma
+            FROM ss_material_item i
+            JOIN ss_material_familia f ON f.id = i.familia_id
+            WHERE i.no_usar = false AND i.activo = true
+            """;
+        var filas = await conn.QueryAsync<NombreRow>(sql);
+        var mapa = new Dictionary<string, MatchResult>();
+        foreach (var f in filas)
+        {
+            mapa[f.Clave] = new MatchResult
+            {
+                ItemId = f.ItemId, NombreItem = f.NombreItem, FamiliaId = f.FamiliaId,
+                NombreFamilia = f.NombreFamilia, PerteneceSsoma = f.PerteneceSsoma,
+                Score = 1.0m, Metodo = "EXACTO"
+            };
+        }
+        return mapa;
     }
 }

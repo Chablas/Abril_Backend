@@ -1,4 +1,4 @@
-using Abril_Backend.Application.DTOs;
+﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 
@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
         Task<ProjectEmailsDto?> GetEmails(int projectId);
         Task<bool?> ToggleArquitecturaComercial(int projectId);
-        Task<List<ResponsableLookupDto>> GetResponsables(string tipo);
+        Task<ProjectLookupsDto> GetLookups();
         Task<List<int>> GetMyProjectIds(int userId);
         Task<MyWorkerDto?> GetMyWorker(int userId);
     }

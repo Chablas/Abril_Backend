@@ -1,9 +1,11 @@
 ﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Shared;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
@@ -395,7 +397,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.FftPersonId,
                     EstadoRequerimiento = er.Codigo,
                     ResponsableGth = rp == null ? null
-                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : rp.Worker.ApellidoNombre),
+                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : null),
                 }).FirstOrDefaultAsync();
 
             if (raw == null) return null;
@@ -416,7 +418,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         .ThenByDescending(p => p.WorkersPeriodoLaboralId)
                         .Select(p => (DateOnly?)p.FechaIngreso)
                         .FirstOrDefault())
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado. Se llega por person_id, que es el unico
@@ -535,11 +537,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             Archivos                = x.Archivos,
         };
 
-        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
+        public async Task<ReclutamientoFormDataDto> GetFormData(int? userId, bool esGth)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var dto = new ReclutamientoFormDataDto { MaxVacantes = 10 };
+            var dto = new ReclutamientoFormDataDto
+            {
+                MaxVacantes = 10,
+                // El ingreso directo es de GTH y de nadie más (ver PuedePedirIngresoDirecto).
+                PuedePedirIngresoDirecto = esGth,
+            };
 
             if (userId.HasValue)
             {
@@ -550,7 +557,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 dto.CategoriaNombre = ficha.CategoriaNombre;
             }
 
-            dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId);
+            dto.Puestos = await QueryPuestosDelArea(ctx, dto.AreaScopeId, esGth);
 
             dto.TiposRequerimiento = await ctx.GthTipoRequerimiento
                 .Where(t => t.State && t.Active)
@@ -572,11 +579,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Tipos de documento del candidato de un ingreso directo FFT. Mismo catálogo que el
             // formulario del postulante: es la misma persona y termina en la misma columna de
             // `person`, así que ofrecer dos listas distintas dejaría documentos incomparables.
-            dto.TiposDocumento = await QueryTiposDocumento(ctx);
+            // Solo para quien puede pedir un ingreso directo: al resto el formulario ni le muestra
+            // el bloque, así que sería un roundtrip para una lista que nadie va a ver.
+            if (esGth) dto.TiposDocumento = await QueryTiposDocumento(ctx);
 
             // Candidatos a "trabajador reemplazado" del tipo Reemplazo. Sin área del solicitante no
             // hay subárbol que recorrer, así que la lista queda vacía y el campo deja de exigirse.
-            dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId);
+            // A GTH no se le recorta por área: pide puestos de toda la empresa, no de la suya.
+            dto.TrabajadoresArea = await QueryTrabajadoresDelArea(ctx, dto.AreaScopeId, esGth);
 
             return dto;
         }
@@ -622,12 +632,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Sin área del solicitante se cae al catálogo COMPLETO en vez de a una lista vacía: un
         /// usuario recién creado al que todavía no le asignaron área podría necesitar pedir
         /// personal, y dejarlo sin ningún puesto lo bloquearía del todo.
+        ///
+        /// <paramref name="esGth"/> = true (el área dueña del proceso) también abre el catálogo
+        /// completo, pero solo los puestos que TIENEN destino: GTH pide para toda la empresa, no
+        /// para su propia área, así que filtrar por "lo pide GTH" le dejaría a la vista un puñado
+        /// de puestos. Los que no dicen a dónde entra el contratado quedan fuera porque nadie
+        /// sabría de qué área es la vacante — al solicitante normal se le cae al área suya, pero
+        /// GTH no pide para sí. Es el mismo par de condiciones que la pantalla de puestos muestra
+        /// en «Estado» y «Va a»: lo que ahí no está activo o no tiene destino, acá no aparece.
         /// </summary>
-        private static async Task<List<PuestoOpcionDto>> QueryPuestosDelArea(AppDbContext ctx, int? areaScopeId)
+        private static async Task<List<PuestoOpcionDto>> QueryPuestosDelArea(
+            AppDbContext ctx, int? areaScopeId, bool esGth)
         {
             var puestos = ctx.Puesto.Where(p => p.State && p.Active);
 
-            if (areaScopeId.HasValue)
+            if (esGth)
+            {
+                // El mismo destino que se proyecta más abajo como AreaDestino: un puesto entra a la
+                // lista solo si su «Va a» se puede nombrar. Si el nodo o su área están dados de
+                // baja, el puesto no dice a dónde entra el contratado y no sirve para pedir.
+                puestos = puestos.Where(p => p.AreaDestinoScope != null && p.AreaDestinoScope.State
+                                          && p.AreaDestinoScope.AreaItem != null
+                                          && p.AreaDestinoScope.AreaItem.State);
+            }
+            else if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
                 puestos = puestos.Where(p => p.AreaSolicitanteScopeId != null
@@ -701,23 +729,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Incluye al solicitante: pedir el reemplazo de uno mismo por renuncia o promoción es un
         /// caso real. Una persona con varias fichas por reingreso aparece una sola vez, con la
         /// vigente — ver <c>workers</c> duplicadas por reingreso.
+        ///
+        /// <paramref name="esGth"/> = true no recorta por área: GTH pide puestos de toda la empresa
+        /// (ver <see cref="QueryPuestosDelArea"/>), así que el reemplazado tampoco puede salir de su
+        /// propia área — sería pedir el reemplazo de un residente eligiendo entre la gente de GTH.
+        /// Lo que SÍ se sigue exigiendo es tener área: los puestos que GTH puede pedir son todos de
+        /// oficina (son los únicos con destino), y sin área se colarían las ~2 100 fichas de obra
+        /// del padrón, que no reemplazan a nadie en un puesto de oficina.
         /// </summary>
-        private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(AppDbContext ctx, int? areaScopeId)
+        private static async Task<List<OpcionDto>> QueryTrabajadoresDelArea(
+            AppDbContext ctx, int? areaScopeId, bool esGth)
         {
-            if (!areaScopeId.HasValue) return new List<OpcionDto>();
+            if (!esGth && !areaScopeId.HasValue) return new List<OpcionDto>();
 
-            var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-
-            var raw = await ctx.Worker
-                // El estado se filtra por id y no con un join a workers_estado: la consulta no
-                // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
+            // El estado se filtra por id y no con un join a workers_estado: la consulta no
+            // necesita ninguna otra columna del catálogo (ver WorkersEstadoIds.EstanAdentro).
+            var query = ctx.Worker
                 .Where(w => WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
-                         && w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))
+                         && w.PuestoCatalogo!.AreaDestinoScopeId != null);
+
+            if (!esGth)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId!.Value);
+                query = query.Where(w => idsArea.Contains(w.PuestoCatalogo!.AreaDestinoScopeId!.Value));
+            }
+
+            var raw = await query
                 .Select(w => new
                 {
                     w.Id,
                     w.PersonId,
-                    Nombre = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
                     // Las dos fechas del último periodo laboral (ver WorkersPeriodoLaboral):
                     // antes eran columnas de `workers`. Solo se usan para elegir la ficha
                     // vigente entre las varias que puede tener una misma persona.
@@ -1075,7 +1117,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Nombre del solicitante para el cuerpo del correo (best-effort; no bloquea).
             var solicitanteNombre = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .Select(w => w.Person!.FullName)
                 .FirstOrDefaultAsync();
 
             await ctx.SaveChangesAsync();
@@ -1283,7 +1325,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                        : null,
                     ProyectoObra = pr.ProjectDescription,
                     TrabajadorReemplazado = wr == null ? null
-                        : (wr.Person != null ? wr.Person.FullName : wr.ApellidoNombre),
+                        : (wr.Person != null ? wr.Person.FullName : null),
                     r.SalarioBrutoMensual,
                     r.EsFft,
                     r.FftCandidatoNombre,
@@ -1310,7 +1352,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(rp => new OpcionDto
                 {
                     Id     = rp.GthResponsableProcesoId,
-                    Nombre = rp.Worker!.Person!.FullName ?? rp.Worker.ApellidoNombre ?? "",
+                    Nombre = rp.Worker!.Person!.FullName ?? "",
                 })
                 .OrderBy(o => o.Nombre)
                 .ToListAsync();
@@ -1509,6 +1551,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Quién obtuvo el puesto (null mientras el proceso no cierre con un seleccionado).
             var seleccionado = await QuerySeleccionado(ctx, requerimientoId);
 
+            // Carta oferta: el último paso del proceso. Se lee sobre este mismo contexto (ver
+            // CartaOfertaRepository.Leer) porque es una sección más del modal, no una pantalla
+            // aparte.
+            var cartaOferta = await CartaOfertaRepository.Leer(ctx, requerimientoId);
+
             return new DetalleRequerimientoGthDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -1544,6 +1591,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatosAprobados = candidatosAprobados,
                 CandidatosRechazados = candidatosRechazados,
                 Seleccionado         = seleccionado,
+                CartaOferta          = cartaOferta,
             };
         }
 
@@ -1729,6 +1777,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Puesto          = cand.Puesto,
                 Codigo          = cand.Codigo,
                 LugarMapsUrl    = lugar.MapsUrl,
+                LugarReferencia = lugar.Referencia,
                 Token           = nuevoToken,
                 Resumen = new EntrevistaResumenDto
                 {
@@ -1789,6 +1838,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Area = r.Solicitud!.AreaNombre,
                     LugarNombre = l != null ? l.Nombre : null,
                     LugarMapsUrl = l != null ? l.MapsUrl : null,
+                    LugarReferencia = l != null ? l.Referencia : null,
                     SolicitanteEmail  = u != null ? u.Email : null,
                     SolicitanteNombre = ps != null ? ps.FullName : null,
                 }).FirstOrDefaultAsync();
@@ -1818,6 +1868,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 SolicitanteEmail  = contexto.SolicitanteEmail,
                 SolicitanteNombre = contexto.SolicitanteNombre,
                 LugarMapsUrl      = contexto.LugarMapsUrl,
+                LugarReferencia   = contexto.LugarReferencia,
                 YaHabiaRespondidoLoMismo = repetida,
                 Resumen = new EntrevistaResumenDto
                 {
@@ -2336,20 +2387,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// devuelve null en vez de reventar: la decision del solicitante se registra igual y GTH
         /// vera el aviso de que falta el formulario.
         ///
-        /// <paramref name="areaScopeId"/> es el area a la que entra el seleccionado: la de DESTINO
-        /// del PUESTO que se pidio (<c>puesto.area_destino_scope_id</c>), no la del solicitante ni
-        /// la que puede pedir el puesto. La Gerencia Inmobiliaria pide un INGENIERO RESIDENTE y el
-        /// residente entra a Residencia. Cuando el puesto no tiene destino se cae al area del
-        /// solicitante.
-        /// Se graba en la ficha desde ya (y no recien en el onboarding) porque es lo que permite
-        /// resolver la jefatura del seleccionado — subiendo por el arbol de area_scope — al
-        /// programarle su EMO de ingreso, que ocurre antes de que exista contrato.
+        /// El area a la que entra el seleccionado ya no se graba: sale sola del PUESTO que se
+        /// pidio (<c>puesto.area_destino_scope_id</c>), y el puesto SI se graba. Es el area de
+        /// destino, no la del solicitante ni la que puede pedir el puesto: la Gerencia Inmobiliaria
+        /// pide un INGENIERO RESIDENTE y el residente entra a Residencia. Con eso la jefatura del
+        /// seleccionado se resuelve — subiendo por el arbol de area_scope — desde el momento en que
+        /// se le programa el EMO de ingreso, que ocurre antes de que exista contrato.
+        ///
+        /// Ojo con un caso que cambio al bajar <c>workers.area_scope_id</c>: cuando el puesto
+        /// pedido no tiene area de destino, el finalista queda SIN area. Antes se caia al area del
+        /// solicitante, pero ya no hay donde guardar ese respaldo — el arreglo es ponerle destino
+        /// al puesto en Configuracion → Categorias y Puestos.
         ///
         /// La entidad se agrega al ChangeTracker pero NO se guarda: la persiste el SaveChanges de
         /// quien llama, junto con el cambio de estado del requerimiento.
         /// </summary>
         private static async Task<Worker?> ResolverFichaFinalistaAsync(
-            AppDbContext ctx, int candidatoId, GthRequerimiento req, int? areaScopeId)
+            AppDbContext ctx, int candidatoId, GthRequerimiento req)
         {
             var personId = await ctx.GthPostulanteFormulario
                 .Where(f => f.GthCandidatoId == candidatoId && f.State && f.PersonId != null)
@@ -2371,16 +2425,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (existente != null)
             {
-                // El área de una ficha de pre-ingreso sale siempre del requerimiento que la aprobó
-                // (es lo unico que la puso ahi, y esta decision es la ultima). La de un trabajador
-                // real, en cambio, es su area de verdad: solo se llena si estaba vacia, para no
-                // moverlo de sitio en el arbol antes de que el contrato exista.
-                var puedeReasignarArea = existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
-                                      || existente.AreaScopeId == null;
-                if (areaScopeId != null && puedeReasignarArea && existente.AreaScopeId != areaScopeId)
+                // Una ficha de pre-ingreso se repunta al puesto del requerimiento que la aprobo:
+                // es lo unico que la puso ahi y esta decision es la ultima. Con eso se mueve
+                // tambien su area (y su categoria), que salen las dos del puesto.
+                //
+                // La ficha de un trabajador real NO se toca: su puesto es su puesto de verdad, y
+                // repuntarlo lo moveria de area y de categoria antes de que exista contrato. Antes
+                // se le llenaba el area si estaba vacia; eso ya no aplica, porque el area dejo de
+                // ser un dato propio de la ficha que pudiera estar vacio.
+                if (existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                    && req.PuestoId != null && existente.PuestoId != req.PuestoId)
                 {
-                    existente.AreaScopeId = areaScopeId;
-                    existente.UpdatedAt   = DateTimeOffset.UtcNow;
+                    existente.PuestoId  = req.PuestoId;
+                    existente.UpdatedAt = DateTimeOffset.UtcNow;
                 }
                 return existente;
             }
@@ -2402,10 +2459,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ContrataCasa       = ClasificacionPreIngreso.ContrataCasaPropia,
                 ObraOficinaStaffId = await ClasificacionPreIngreso
                     .ResolverObraOficinaStaffIdAsync(ctx, req.ProjectId),
-                // Area del puesto que se pidio: es a donde entra el seleccionado, y es lo que deja
-                // resolver su jefatura (subiendo por el arbol de area_scope) sin tener que esperar
-                // al onboarding — la programacion de su EMO de ingreso la necesita ya.
-                AreaScopeId     = areaScopeId,
+                // El area no se graba: sale del puesto de arriba (puesto.area_destino_scope_id).
+                // Es lo que deja resolver su jefatura (subiendo por el arbol de area_scope) sin
+                // esperar al onboarding — la programacion de su EMO de ingreso la necesita ya.
                 // Sin periodo laboral: todavia no ingreso. Se le abre uno cuando firme
                 // (ver WorkersPeriodoLaboral).
                 CreatedAt       = ahora,
@@ -2585,14 +2641,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Nombre del solicitante para el cuerpo del correo a GTH (best-effort; no bloquea).
             var solicitanteNombre = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .Select(w => w.Person!.FullName)
                 .FirstOrDefaultAsync();
 
             // Ficha de pre-ingreso del seleccionado: se agrega al mismo SaveChanges que la
-            // decision, para que no exista una sin la otra. Su area sale del puesto pedido, no del
-            // solicitante (ver ResolverAreaDestinoAsync).
+            // decision, para que no exista una sin la otra. Su area no se le pasa porque ya no se
+            // graba: sale del puesto del requerimiento, que es lo que la ficha si guarda.
             var fichaFinalista = aprobado
-                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req, areaDestino)
+                ? await ResolverFichaFinalistaAsync(ctx, candidatoId, head.Req)
                 : null;
 
             await ctx.SaveChangesAsync();
@@ -2619,8 +2675,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Área a la que entra el seleccionado, y que queda en <c>workers.area_scope_id</c> de su
-        /// ficha de pre-ingreso. Sale del PUESTO que se pidió
+        /// Área a la que entra el seleccionado, la misma que va a leerse en su ficha de
+        /// pre-ingreso (que no la guarda: la deriva). Sale del PUESTO que se pidió
         /// (<c>puesto.area_destino_scope_id</c>) y no del solicitante ni de una elección en
         /// pantalla: la Gerencia Inmobiliaria pide un INGENIERO RESIDENTE, y el residente entra a
         /// Residencia.
@@ -2918,52 +2974,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 EstadoCodigo = longList.Codigo,
                 EstadoNombre = longList.Nombre,
-            };
-        }
-
-        public async Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(
-            int requerimientoId, int? userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var req = await ctx.GthRequerimiento
-                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State)
-                ?? throw new AbrilException("Requerimiento no encontrado.", 404);
-
-            var estados = await ctx.GthEstadoRequerimiento
-                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.Cerrado
-                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
-                .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
-                .ToListAsync();
-
-            var actual = estados
-                .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
-
-            // El cierre es la salida de las dos fases de "el examen salió bien" y de ninguna otra.
-            // Desde EMO_OBSERVADO no se cierra (todavía no hay aptitud), desde EMO_NO_APTO tampoco
-            // (el candidato quedó fuera) y desde una fase anterior sería saltarse el examen.
-            if (!EstadoReclutamiento.EmoAptas.Contains(actual ?? string.Empty))
-                throw new AbrilException(
-                    "Solo se puede cerrar el proceso cuando el EMO de ingreso del seleccionado salió "
-                    + "Apto o Apto con Restricciones.", 409);
-
-            var cerrado = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.Cerrado)
-                ?? throw new AbrilException("No está configurado el estado CERRADO de reclutamiento.", 500);
-
-            // Nada más que la fase: el candidato ya está SELECCIONADO desde la decisión del área
-            // solicitante y su ficha de pre-ingreso ya existe. Cerrar es exactamente lo que hace que
-            // aparezca en Onboarding como candidato por ingresar (ver OnboardingRepository, que
-            // lista los SELECCIONADOS de requerimientos CERRADOS).
-            req.GthEstadoRequerimientoId = cerrado.GthEstadoRequerimientoId;
-            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
-            req.UpdatedUserId            = userId;
-
-            await ctx.SaveChangesAsync();
-
-            return new EstadoRequerimientoResultDto
-            {
-                EstadoCodigo = cerrado.Codigo,
-                EstadoNombre = cerrado.Nombre,
             };
         }
 
@@ -3378,6 +3388,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
+            var detalles = DetallesAprobacionVivos(ctx);
+
             // Cabecera del requerimiento (scope: el área del usuario, ver EnScope).
             var head = await (
                 from r in EnScope(ctx.GthRequerimiento, scope)
@@ -3387,12 +3399,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // LEFT: sin fila de detalle están los requerimientos anteriores a la aprobación y
+                // los ingresos directos de hoy, que no los firma nadie.
+                join d in detalles on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
                 select new
                 {
                     r.GthRequerimientoId,
                     r.Codigo,
                     Puesto            = p.Nombre,
                     Tipo              = t.Nombre,
+                    TipoCodigo        = t.Codigo,
                     Area              = r.Solicitud!.AreaNombre,
                     ProyectoObra      = pr.ProjectDescription,
                     r.GthSolicitudId,
@@ -3406,6 +3423,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoOrden       = e.Orden,
                     r.Solicitud.SustentoNombre,
                     r.Solicitud.SustentoUrl,
+                    TieneDetalle        = d != null,
+                    AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGth         = d != null ? d.AprobadoGth : null,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
@@ -3437,16 +3457,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // quitarles su fase actual daría el proceso por más avanzado de lo que está.
             if (head.EsFft)
             {
-                var tuvoAprobacionGg = await (
-                    from d in ctx.GthAprobacionGgDetalle
-                    where d.GthRequerimientoId == requerimientoId && d.State
-                    join a in ctx.GthAprobacionGg on d.GthAprobacionGgId equals a.GthAprobacionGgId
-                    where a.State
-                    select d.GthAprobacionGgDetalleId).AnyAsync();
-
                 fases.RemoveAll(f => f.Codigo != head.EstadoCodigo
                                   && (FftFlujo.FasesOmitidas.Contains(f.Codigo)
-                                   || (!tuvoAprobacionGg && f.Codigo == EstadoReclutamiento.AprobacionGg)));
+                                   || (!head.TieneDetalle && f.Codigo == EstadoReclutamiento.AprobacionGg)));
             }
 
             // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
@@ -3483,7 +3496,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 FftCandidatoNombre    = head.FftCandidatoNombre,
                 Enviado               = head.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo          = head.EstadoCodigo,
-                EstadoNombre          = head.EstadoNombre,
+                // El badge de "Estado actual" nombra a quien tiene que firmar ESTA vacante; la
+                // línea de tiempo de abajo sigue describiendo la fase entera, con sus dos caminos.
+                EstadoNombre          = EtiquetaEstado(
+                                            head.EstadoCodigo, head.EstadoNombre, head.EsFft, head.TipoCodigo,
+                                            head.TieneDetalle, head.AprobadoGerenteArea, head.AprobadoGth),
                 EstadoOrden           = head.EstadoOrden,
                 SustentoNombre        = head.SustentoNombre,
                 SustentoUrl           = head.SustentoUrl,
@@ -3507,8 +3524,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Qué le falta al requerimiento cuando ya está en una de las fases de resultado del EMO de
-        /// ingreso. Null si la fase no es una de esas, para que el llamador siga con la descripción
-        /// del catálogo.
+        /// ingreso, o cuando el candidato ya firmó su carta oferta. Null si no es ninguna de esas,
+        /// para que el llamador siga con la descripción del catálogo.
         ///
         /// Estas cuatro fases comparten el <c>orden</c> de <c>EMO_INGRESO</c> (es el paso vigente de
         /// la línea de tiempo), así que la descripción del catálogo diría que falta programar el
@@ -3517,11 +3534,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static string? SiguientePasoTrasEmo(string estadoCodigo) => estadoCodigo switch
         {
             EstadoReclutamiento.EmoApto =>
-                "El examen médico de ingreso salió Apto. GTH está cerrando el proceso para pasar al "
-                + "candidato a onboarding.",
+                "El examen médico de ingreso salió Apto. GTH está preparando la carta oferta del "
+                + "candidato, que es el último paso del proceso.",
             EstadoReclutamiento.EmoAptoRestricciones =>
-                "El examen médico de ingreso salió Apto con Restricciones. GTH está cerrando el "
-                + "proceso para pasar al candidato a onboarding.",
+                "El examen médico de ingreso salió Apto con Restricciones. GTH está preparando la "
+                + "carta oferta del candidato, que es el último paso del proceso.",
+            EstadoReclutamiento.CartaOfertaFirmada =>
+                "El candidato ya firmó su carta oferta. GTH la está revisando: al aprobarla, el "
+                + "proceso queda cerrado.",
             EstadoReclutamiento.EmoObservado =>
                 "El examen médico de ingreso quedó Observado: el candidato fue derivado a "
                 + "interconsulta y su aptitud se define con ese resultado.",
@@ -3539,16 +3559,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static async Task<List<SolicitudVacanteListItemDto>> ProjectRequerimientos(
             AppDbContext ctx, IQueryable<GthRequerimiento> reqs)
         {
+            var detalles = DetallesAprobacionVivos(ctx);
+
             var raw = await (
                 from r in reqs
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                // El tipo (NUEVO / REEMPLAZO) es la mitad de por dónde pasa la firma de la vacante;
+                // la otra mitad es es_fft. Con eso el badge dice a quién se está esperando.
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 // Quién lo pidió. Desde que la tabla muestra los requerimientos del área y no solo
                 // los propios, la fila tiene que decirlo: si no, no hay forma de distinguir el
                 // pedido de uno del pedido del vecino. LEFT porque el usuario puede no tener ficha.
                 join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into solicitanteJoin
                 from ps in solicitanteJoin.DefaultIfEmpty()
+                // LEFT: sin fila de detalle están los requerimientos anteriores a la aprobación y
+                // los ingresos directos de hoy, que no los firma nadie.
+                join d in detalles on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
+                from d in detalleJoin.DefaultIfEmpty()
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
                 select new
                 {
@@ -3562,6 +3591,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
                     Solicitante = ps != null ? ps.FullName : null,
+                    r.EsFft,
+                    TipoCodigo = t.Codigo,
+                    TieneDetalle = d != null,
+                    AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
+                    AprobadoGth = d != null ? d.AprobadoGth : null,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
@@ -3575,9 +3609,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra    = x.ProyectoObra,
                 Enviado         = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                 EstadoCodigo    = x.EstadoCodigo,
-                EstadoNombre    = x.EstadoNombre,
+                EstadoNombre    = EtiquetaEstado(
+                                      x.EstadoCodigo, x.EstadoNombre, x.EsFft, x.TipoCodigo,
+                                      x.TieneDetalle, x.AprobadoGerenteArea, x.AprobadoGth),
                 Solicitante     = x.Solicitante,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Filas de <c>gth_aprobacion_gg_detalle</c> que cuentan: las vivas de una aprobación viva.
+        /// A lo sumo hay una por requerimiento (una aprobación viva por solicitud y una fila viva
+        /// por par), así que sirve como LEFT JOIN sin multiplicar filas.
+        /// </summary>
+        private static IQueryable<GthAprobacionGgDetalle> DetallesAprobacionVivos(AppDbContext ctx) =>
+            ctx.GthAprobacionGgDetalle.Where(d => d.State
+                && ctx.GthAprobacionGg.Any(a => a.GthAprobacionGgId == d.GthAprobacionGgId && a.State));
+
+        /// <summary>
+        /// Nombre del estado tal como lo lee el solicitante. Es el del catálogo salvo en
+        /// <see cref="EstadoReclutamiento.AprobacionGg"/>, que es una sola fase para firmas de
+        /// distinta gente: ahí el badge dice de quién se está esperando la firma ahora mismo (ver
+        /// <see cref="EtiquetaAprobacion"/>).
+        /// </summary>
+        private static string EtiquetaEstado(
+            string estadoCodigo, string estadoNombre, bool esFft, string? tipoCodigo,
+            bool tieneDetalleAprobacion, bool? aprobadoGerenteArea, bool? aprobadoGth)
+        {
+            if (estadoCodigo != EstadoReclutamiento.AprobacionGg) return estadoNombre;
+
+            var ruta = RutaAprobacion.De(esFft, tipoCodigo, tieneDetalleAprobacion);
+            return EtiquetaAprobacion.DeLaVacante(ruta, aprobadoGerenteArea, aprobadoGth) ?? estadoNombre;
         }
 
         // ── Configuración de destinatarios del correo (por tipo: SOLICITUD / LONG_LIST) ─
@@ -3698,19 +3759,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //    roundtrip extra solo en leer su id.
             var candidatos = await (
                 from w in ctx.Worker.AsNoTracking()
-                where w.AreaScopeId != null && cadena.Contains(w.AreaScopeId.Value)
+                where w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.AreaDestinoScopeId != null
+                      && cadena.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                       && w.WorkersEstadoId == WorkersEstadoIds.Activo
                       && w.EmailCorporativo != null && w.EmailCorporativo.Contains("@")
-                      && w.PuestoCatalogo != null
                       && w.PuestoCatalogo.CategoriaId == CategoriaIds.Gerente
-                join s in ctx.AreaScope.AsNoTracking() on w.AreaScopeId equals s.AreaScopeId
+                join s in ctx.AreaScope.AsNoTracking() on w.PuestoCatalogo.AreaDestinoScopeId equals (int?)s.AreaScopeId
                 join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
                 select new
                 {
                     w.Id,
-                    AreaScopeId = w.AreaScopeId!.Value,
+                    AreaScopeId = w.PuestoCatalogo.AreaDestinoScopeId!.Value,
                     Email       = w.EmailCorporativo!,
-                    Nombre      = w.Person != null ? w.Person.FullName : w.ApellidoNombre,
+                    Nombre      = w.Person != null ? w.Person.FullName : null,
                     AreaNombre  = ai.AreaItemName,
                 }).ToListAsync();
 
@@ -3760,9 +3822,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(x => new
                 {
                     x.Id,
-                    x.AreaScopeId,
-                    // Sin puesto no hay categoría: una ficha con puesto_id null deja los dos
-                    // campos vacíos, y el formulario lo dice en vez de mostrar un hueco.
+                    // Sin puesto no hay categoría NI área: una ficha con puesto_id null deja los
+                    // tres campos vacíos, y el formulario lo dice en vez de mostrar un hueco.
+                    AreaScopeId = x.PuestoCatalogo != null ? x.PuestoCatalogo.AreaDestinoScopeId : null,
                     Puesto = x.PuestoCatalogo != null && x.PuestoCatalogo.State
                         ? x.PuestoCatalogo.Nombre
                         : null,
@@ -3948,7 +4010,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         public async Task<SolicitudPersonalCreateResultDto> Create(
-            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId)
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId, bool esGth)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -3987,12 +4049,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var projectIds = vacantes.Select(v => v.ProjectId).Distinct().ToList();
 
             // Se revalida contra la MISMA lista que ofrece el formulario (los puestos del área del
-            // solicitante y de sus áreas hijas): lo que no se ofrece tampoco se acepta.
-            var puestosDelArea = await QueryPuestosDelArea(ctx, solicitud.AreaScopeId);
+            // solicitante y de sus áreas hijas, o el catálogo completo con destino si es GTH): lo
+            // que no se ofrece tampoco se acepta.
+            var puestosDelArea = await QueryPuestosDelArea(ctx, solicitud.AreaScopeId, esGth);
             var puestosOk = puestosDelArea.Select(p => p.Id).ToHashSet();
             if (puestoIds.Any(id => !puestosOk.Contains(id)))
                 throw new AbrilException(
-                    "Uno o más puestos seleccionados no son válidos para tu área.", 400);
+                    esGth
+                        ? "Uno o más puestos seleccionados no están activos o no tienen área de destino."
+                        : "Uno o más puestos seleccionados no son válidos para tu área.", 400);
 
             // Nombre del puesto por id: es el snapshot que lleva la ficha del candidato FFT. Sale de
             // la lista que ya se trajo para validar, así que no cuesta un roundtrip nuevo.
@@ -4011,6 +4076,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Where(t => t.Codigo == TipoRequerimientoReclutamiento.Reemplazo)
                 .Select(t => t.GthTipoRequerimientoId)
                 .ToHashSet();
+
+            // Por dónde va a pasar cada vacante para quedar aprobada, sin repetir: es lo que le
+            // permite al mensaje de respuesta nombrar a quien de verdad la tiene (una nueva sube a
+            // Gerencia General, un reemplazo lo firma primero el gerente del área). Se calcula acá
+            // por lo mismo que las reglas de abajo: depende del código del tipo, que es lo que se
+            // acaba de traer, y volver a preguntarlo sería un roundtrip de más.
+            var codigoPorTipo   = tipos.ToDictionary(t => t.GthTipoRequerimientoId, t => t.Codigo);
+            var rutasAprobacion = vacantes
+                .Select(v => RutaAprobacion.De(v.EsFft, codigoPorTipo.GetValueOrDefault(v.TipoRequerimientoId)))
+                .Distinct()
+                .ToList();
 
             var projectsOk = await ctx.Project.CountAsync(p => projectIds.Contains(p.ProjectId) && p.State && p.Active);
             if (projectsOk != projectIds.Count)
@@ -4037,11 +4113,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (vacantes.Any(v => tiposReemplazo.Contains(v.TipoRequerimientoId)))
             {
                 // Se revalida contra la MISMA lista que ofrece el formulario (área del solicitante
-                // y áreas hijas, y solo quienes están adentro hoy): lo que no se ofrece tampoco se
-                // acepta. Si el solicitante no tiene area_scope la lista queda vacía y el campo no
-                // se exige — exigir algo que el formulario no puede ofrecer dejaría bloqueado el
-                // registro de la solicitud.
-                var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId))
+                // y áreas hijas, o toda la empresa si es GTH, y solo quienes están adentro hoy): lo
+                // que no se ofrece tampoco se acepta. Si el solicitante no tiene area_scope la
+                // lista queda vacía y el campo no se exige — exigir algo que el formulario no puede
+                // ofrecer dejaría bloqueado el registro de la solicitud.
+                var workerIdsArea = (await QueryTrabajadoresDelArea(ctx, solicitud.AreaScopeId, esGth))
                     .Select(t => t.Id).ToHashSet();
 
                 for (int i = 0; i < vacantes.Count; i++)
@@ -4059,7 +4135,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // adentro (retirado, o una ficha de pre-ingreso): el mensaje cubre los dos.
                     if (!workerIdsArea.Contains(v.ReemplazaWorkerId.Value))
                         throw new AbrilException(
-                            $"Vacante {i + 1}: el trabajador al que reemplaza debe ser alguien de tu área (o de un área hija) que trabaje actualmente en Abril.", 400);
+                            esGth
+                                ? $"Vacante {i + 1}: el trabajador al que reemplaza debe trabajar actualmente en Abril."
+                                : $"Vacante {i + 1}: el trabajador al que reemplaza debe ser alguien de tu área (o de un área hija) que trabaje actualmente en Abril.", 400);
                 }
             }
 
@@ -4208,8 +4286,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return new SolicitudPersonalCreateResultDto
             {
-                SolicitudId = solicitud.GthSolicitudId,
-                Codigos     = codigos,
+                SolicitudId     = solicitud.GthSolicitudId,
+                Codigos         = codigos,
+                RutasAprobacion = rutasAprobacion,
             };
         }
     }
@@ -4258,11 +4337,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string EmoIngreso        = "EMO_INGRESO";
 
         /// <summary>
-        /// El EMO de ingreso salió <b>Apto</b>. El proceso NO cierra solo: queda esperando a que GTH
-        /// lo cierre y lo pase a onboarding desde el detalle del requerimiento
-        /// (<c>cerrar-proceso</c>). Esa confirmación existe porque el cierre es lo que habilita al
-        /// candidato en Onboarding, y GTH tiene que poder ver el resultado del examen antes de dar
-        /// ese paso en vez de encontrarse el proceso cerrado por su cuenta.
+        /// El EMO de ingreso salió <b>Apto</b>. El proceso NO cierra acá: queda esperando a que GTH
+        /// le envíe la <b>carta oferta</b> al seleccionado desde el detalle del requerimiento, que
+        /// es el último paso (ver <see cref="CartaOferta"/>). Hasta que el candidato no firme y GTH
+        /// no apruebe esa carta, la vacante no está aceptada y no hay nada que cerrar.
         ///
         /// Sembrado con <c>active = false</c> y con el <c>orden</c> de <see cref="EmoIngreso"/>, por
         /// el mismo motivo que <see cref="EmoNoApto"/>: es un estado del requerimiento, no un paso
@@ -4272,8 +4350,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// El EMO de ingreso salió <b>Apto con Restricciones</b>. Vale exactamente lo mismo que
-        /// <see cref="EmoApto"/> —la persona puede entrar y GTH cierra el proceso— y es un estado
-        /// aparte solo para que el badge diga qué dijo la clínica sin tener que abrir la ficha.
+        /// <see cref="EmoApto"/> —la persona puede entrar y GTH le manda la carta oferta— y es un
+        /// estado aparte solo para que el badge diga qué dijo la clínica sin abrir la ficha.
         /// </summary>
         public const string EmoAptoRestricciones = "EMO_APTO_RESTRICCIONES";
 
@@ -4307,13 +4385,40 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string EmoNoApto         = "EMO_NO_APTO";
 
         /// <summary>
-        /// Estado final: GTH cerró el proceso desde <see cref="EmoApto"/> /
-        /// <see cref="EmoAptoRestricciones"/>. El reclutamiento termina y el seleccionado aparece en
-        /// Onboarding como candidato por ingresar (ver <c>OnboardingRepository</c>, que lista
-        /// exactamente los SELECCIONADOS de requerimientos CERRADOS).
+        /// GTH le envió la <b>carta oferta</b> al seleccionado y espera su firma. Es el ÚLTIMO paso
+        /// del proceso y la salida de <see cref="EmoApto"/> / <see cref="EmoAptoRestricciones"/>: la
+        /// carta se guarda en el file del colaborador y al candidato le llega un correo con el enlace
+        /// donde la lee y la firma en línea (ver <c>CartaOfertaService</c>).
         ///
-        /// Ni programar la cita ni el resultado del examen cierran el proceso por sí solos: lo
-        /// cierra GTH a mano, con el resultado del EMO ya a la vista.
+        /// Antes esta fase vivía en Onboarding, como su primer paso; se movió acá para que el
+        /// reclutamiento no termine hasta que la propuesta esté aceptada.
+        /// </summary>
+        public const string CartaOferta       = "CARTA_OFERTA";
+
+        /// <summary>
+        /// El candidato ya firmó su carta oferta —desde el enlace público o, de respaldo, en papel y
+        /// subida por GTH— y falta que GTH la revise y la apruebe. Aprobarla es lo que pasa el
+        /// requerimiento a <see cref="Cerrado"/>.
+        ///
+        /// Sembrado con <c>active = false</c> y con el <c>orden</c> de <see cref="CartaOferta"/>, por
+        /// el mismo motivo que <see cref="EmoApto"/>: es un estado del requerimiento, no un paso
+        /// propio de la línea de tiempo, y el paso vigente sigue siendo el de la carta oferta.
+        /// </summary>
+        public const string CartaOfertaFirmada = "CARTA_OFERTA_FIRMADA";
+
+        /// <summary>
+        /// Estado final: GTH aprobó la carta oferta firmada por el seleccionado. El reclutamiento
+        /// termina y el seleccionado aparece en Onboarding como candidato por ingresar (ver
+        /// <c>OnboardingRepository</c>, que lista exactamente los SELECCIONADOS de requerimientos
+        /// CERRADOS).
+        ///
+        /// Ni la cita del EMO, ni su resultado, ni la firma del candidato cierran el proceso por sí
+        /// solos: lo cierra GTH al aprobar la carta firmada, con el documento a la vista.
+        ///
+        /// En pantalla se llama <b>Finalizado</b>: el nombre visible vive en
+        /// <c>gth_estado_requerimiento.nombre</c> y GTH lo cambió ahí. Este código NO se renombra
+        /// —es la clave estable con la que lo buscan este archivo y <c>OnboardingRepository</c>—,
+        /// así que no sorprenda que el constante diga "Cerrado" y la pantalla "Finalizado".
         /// </summary>
         public const string Cerrado           = "CERRADO";
 
@@ -4332,8 +4437,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string CerradoSinCubrir  = "CERRADO_SIN_CUBRIR";
 
         /// <summary>
-        /// Las dos fases desde las que GTH puede cerrar el proceso y pasar el candidato a
-        /// onboarding: las que dicen que el examen médico salió bien.
+        /// Las dos fases desde las que GTH puede mandarle la carta oferta al seleccionado: las que
+        /// dicen que el examen médico salió bien.
         /// </summary>
         public static readonly HashSet<string> EmoAptas = new()
         {
@@ -4387,6 +4492,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             EmoAptoRestricciones,
             EmoObservado,
             EmoNoApto,
+            // La carta oferta también es trabajo de GTH: prepararla y enviarla es suyo, y revisar la
+            // firmada para cerrar el proceso también. Entre medio la pelota la tiene el candidato,
+            // pero eso no lo devuelve al solicitante — que es lo que estas tarjetas distinguen.
+            CartaOferta,
+            CartaOfertaFirmada,
         };
     }
 
@@ -4421,6 +4531,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                                       EstadoReclutamiento.EmoAptoRestricciones,
                                                       EstadoReclutamiento.EmoObservado,
                                                       EstadoReclutamiento.EmoNoApto }),
+            // La carta oferta es etapa propia por el mismo motivo que el EMO: un requerimiento
+            // puede quedarse días esperando que el candidato firme, y sin esta etapa sus dos fases
+            // no pertenecerían a ninguna y se caerían del embudo — y de "Vacantes abiertas", que se
+            // calcula recortando estas mismas etapas.
+            new("CARTA_OFERTA", "Carta oferta", new[] { EstadoReclutamiento.CartaOferta,
+                                                        EstadoReclutamiento.CartaOfertaFirmada }),
             // CERRADO_SIN_CUBRIR entra en la etapa de cierre porque el proceso terminó igual: si no,
             // "En proceso" (que es el total menos esta etapa) seguiría contando un requerimiento
             // que ya no tiene nada pendiente.

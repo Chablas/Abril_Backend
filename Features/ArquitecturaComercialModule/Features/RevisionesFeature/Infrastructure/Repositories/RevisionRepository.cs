@@ -107,7 +107,7 @@ public class RevisionRepository : IRevisionRepository
                 Estado = o.Estado,
                 Origen = o.Origen,
                 LevantaPorWorkerId = o.LevantaPorWorkerId,
-                LevantaPorNombre = o.LevantaPor != null ? o.LevantaPor.ApellidoNombre : null,
+                LevantaPorNombre = o.LevantaPor != null && o.LevantaPor.Person != null ? o.LevantaPor.Person.FullName : null,
                 Fotos = o.Fotos.Select(f => new RevisionObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
@@ -121,7 +121,7 @@ public class RevisionRepository : IRevisionRepository
         var o = await ctx.AcRevisionObservaciones
             .Include(x => x.Revision).ThenInclude(r => r!.Proyecto)
             .Include(x => x.Fotos)
-            .Include(x => x.LevantaPor)
+            .Include(x => x.LevantaPor).ThenInclude(w => w!.Person)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (o == null) return null;
 
@@ -141,7 +141,7 @@ public class RevisionRepository : IRevisionRepository
             Estado = o.Estado,
             Origen = o.Origen,
             LevantaPorWorkerId = o.LevantaPorWorkerId,
-            LevantaPorNombre = o.LevantaPor?.ApellidoNombre,
+            LevantaPorNombre = o.LevantaPor?.Person?.FullName,
             Fotos = o.Fotos.Select(f => new RevisionObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }

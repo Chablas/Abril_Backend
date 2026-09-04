@@ -9,7 +9,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
     ///   1) <c>workers_revisores</c>: el jefe personalizado del trabajador (el checkbox del
     ///      formulario de trabajadores guarda uno; la tabla admite n por prioridad).
     ///   2) <c>area_revisores</c>: n revisores por área, por prioridad, partiendo del
-    ///      nodo area_scope del trabajador (workers.area_scope_id) y subiendo por el
+    ///      nodo area_scope del trabajador (puesto.area_destino_scope_id) y subiendo por el
     ///      árbol hasta el primer nodo con revisores (los revisores se configuran solo
     ///      en el primer nodo "Área de Gerencia" y el primer "Área Estándar" de cada
     ///      rama, así que un trabajador cae en su área estándar y, si esa no tiene
@@ -54,7 +54,13 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             // y su nodo de área (paso 2). Se trae una sola vez y la usan los dos pasos.
             var fichas = (await ctx.Worker.AsNoTracking()
                     .Where(w => ids.Contains(w.Id))
-                    .Select(w => new { w.Id, w.PersonId, w.AreaScopeId })
+                    // El nodo de área sale del puesto: workers ya no lo guarda.
+                    .Select(w => new
+                    {
+                        w.Id,
+                        w.PersonId,
+                        AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                    })
                     .ToListAsync())
                 .ToDictionary(w => w.Id, w => (w.PersonId, w.AreaScopeId));
 

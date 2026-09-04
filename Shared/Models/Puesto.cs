@@ -55,8 +55,11 @@ namespace Abril_Backend.Shared.Models
         /// intermedia <c>puesto_area_scope</c> y un puesto podía estar en varias. Los que
         /// estaban en más de una se duplicaron, uno por área, así que un cargo que existe en
         /// dos áreas hoy son dos puestos con el mismo nombre — el índice
-        /// <c>ux_puesto_nombre_area_solicitante_vivo</c> es el que permite esa repetición y a
-        /// la vez prohíbe el nombre repetido DENTRO de un área.
+        /// <c>ux_puesto_nombre_categoria_area_solicitante_vivo</c> es el que permite esa
+        /// repetición. Ese índice lleva también la categoría desde
+        /// <c>Migrations_Manual/2026-09-02_puesto_nombre_unico_por_categoria.sql</c>: dentro de
+        /// una misma área el nombre se repite si la categoría cambia (MODELADOR BIM como
+        /// INGENIERO y como ARQUITECTO), y se prohíbe sólo cuando coinciden las tres.
         ///
         /// Nullable a propósito: el puesto sin área es un caso válido y no un pendiente. Los
         /// ~190 puestos de obra nunca la tuvieron (el padrón de GTH solo cubrió oficina) y
@@ -74,9 +77,14 @@ namespace Abril_Backend.Shared.Models
         public AreaScope? AreaSolicitanteScope { get; set; }
 
         /// <summary>
-        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista: es la que
-        /// queda en <c>workers.area_scope_id</c> de su ficha de pre-ingreso, y con ella se
+        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista, y con ella se
         /// resuelve después su jefatura.
+        ///
+        /// Desde el 2026-09-03 es EL área del trabajador, no solo la de su alta: <c>workers</c>
+        /// dejó de tener su propia <c>area_scope_id</c> y toda pantalla que muestre o filtre por
+        /// área de un trabajador llega hasta acá por <c>workers.puesto_id</c>. O sea que cambiar
+        /// esta columna mueve de área a TODOS los trabajadores del puesto de golpe — incluidos
+        /// sus aprobadores de salidas y sus revisores.
         ///
         /// No es lo mismo que <see cref="AreaSolicitanteScopeId"/> y por eso son dos columnas:
         /// INGENIERO RESIDENTE lo pide la Gerencia Inmobiliaria, pero el residente trabaja en

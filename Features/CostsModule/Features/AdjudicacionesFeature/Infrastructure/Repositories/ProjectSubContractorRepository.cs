@@ -5,6 +5,7 @@ using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.CostsModule.Shared.Constants;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Models;
@@ -432,6 +433,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cStatusId   = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
             string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
 
+            // ProjectSubContractorStepOption (opciones por paso — Configuración → Pasos)
+            string tStepOption        = ctx.Table<ProjectSubContractorStepOption>();
+            string cStepOptionKey     = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.OptionKey));
+            string cStepOptionEnabled = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Enabled));
+            string cStepOptionActive  = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Active));
+            string cStepOptionState   = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.State));
+
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
             string cContractorId        = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
@@ -528,15 +536,25 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                        {cContractorEmailEmail} AS email
                   FROM {tContractorEmail}
                  WHERE {cContractorEmailActive} = TRUE;
+
+                SELECT COALESCE((
+                         SELECT {cStepOptionEnabled}
+                           FROM {tStepOption}
+                          WHERE {cStepOptionKey} = @paso4OptionKey
+                            AND {cStepOptionState} = TRUE
+                            AND {cStepOptionActive} = TRUE
+                          LIMIT 1), FALSE) AS allow_regenerate;
             ";
 
-            // ----- Ejecutar y leer los 12 result sets -----
+            // ----- Ejecutar y leer los 14 result sets -----
 
             var connection = ctx.Database.GetDbConnection();
             if (connection.State != ConnectionState.Open)
                 await connection.OpenAsync();
 
-            using var multi = await connection.QueryMultipleAsync(sql);
+            using var multi = await connection.QueryMultipleAsync(
+                sql,
+                new { paso4OptionKey = CostsStepOptionKeys.Paso4PermitirRegenerarPaquete });
 
             var projects           = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
             var contractTypes      = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
@@ -551,6 +569,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var statuses           = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
             var emails             = (await multi.ReadAsync<(int ContractorId, string Email)>()).ToList();
+            var allowRegenerate    = await multi.ReadFirstAsync<bool>();
 
             // ----- Asociar emails a cada contratista -----
 
@@ -583,6 +602,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkSpecialties    = workSpecialties,
                 ProjectSubContractorStatuses = statuses,
                 Contributors       = contractors,
+                AllowRegenerateContractPackage = allowRegenerate,
             };
         }
 
@@ -1265,6 +1285,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cStatusId = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
             string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
 
+            // Opciones por paso (Configuración → Pasos)
+            string tStepOption = ctx.Table<ProjectSubContractorStepOption>();
+            string cStepOptionKey = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.OptionKey));
+            string cStepOptionEnabled = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Enabled));
+            string cStepOptionActive = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.Active));
+            string cStepOptionState = ctx.Col<ProjectSubContractorStepOption>(nameof(ProjectSubContractorStepOption.State));
+
             // Document tables
             string tContractDoc = ctx.Table<ProjectSubContractorContract>();
             string cContractDocId = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.ProjectSubContractorContractId));
@@ -1388,6 +1415,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var parameters = new DynamicParameters();
             parameters.Add("@PageSize", pageSize);
             parameters.Add("@PageOffset", offset);
+            parameters.Add("@Paso4OptionKey", CostsStepOptionKeys.Paso4PermitirRegenerarPaquete);
 
             var whereConditions = new List<string> { $"psc.{cPscState} = TRUE" };
 
@@ -1637,6 +1665,10 @@ SELECT {cQFId} AS ""FileId"", {cQFPscId} AS ""ProjectSubContractorId"", {cQFFile
 SELECT {cCFId} AS ""FileId"", {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
 SELECT {cSDPscId} AS ""ProjectSubContractorId"", {cSDSlot} AS ""Slot"", {cSDFileUrl} AS ""FileUrl"", {cSDFileName} AS ""OriginalFileName"" FROM {tScannedFile} WHERE {cSDState} = TRUE;
 SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
+
+-- 18. Opción del paso 4 (Configuración → Pasos): si está prendida, el paso 4 deja regenerar
+-- el contrato completo aunque la adjudicación ya haya avanzado.
+SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOptionKey} = @Paso4OptionKey AND {cStepOptionState} = TRUE AND {cStepOptionActive} = TRUE LIMIT 1), FALSE) AS allow_regenerate;
             ";
 
             using var multi = await connection.QueryMultipleAsync(sql, parameters);
@@ -1665,6 +1697,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var scannedFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
+            var allowRegenerate = await multi.ReadFirstAsync<bool>();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
             var quotationFiles = quotationFilesRaw.Select(f => new { FileId = (int)f.FileId, ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
@@ -1787,7 +1820,8 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 WorkItems = workItems,
                 WorkItemCategories = workItemCategories,
                 ProjectSubContractorStatuses = statuses,
-                Contributors = contractors
+                Contributors = contractors,
+                AllowRegenerateContractPackage = allowRegenerate
             };
 
             int totalPages = (totalRecords + pageSize - 1) / pageSize;
@@ -2326,6 +2360,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Contract:
                     psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorContract,
+                        projectSubContractorId,
                         psc.ProjectSubContractorContractId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorContract { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2335,6 +2370,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.SummarySheet:
                     psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSummarySheet,
+                        projectSubContractorId,
                         psc.ProjectSubContractorSummarySheetId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSummarySheet { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2344,6 +2380,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Budget:
                     psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorBudget,
+                        projectSubContractorId,
                         psc.ProjectSubContractorBudgetId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorBudget { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2353,6 +2390,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Schedule:
                     psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSchedule,
+                        projectSubContractorId,
                         psc.ProjectSubContractorScheduleId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSchedule { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2362,6 +2400,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.AttachedQuotation:
                     psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAttachedQuotation,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAttachedQuotationId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAttachedQuotation { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2371,6 +2410,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.ServiceOrder:
                     psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorServiceOrder,
+                        projectSubContractorId,
                         psc.ProjectSubContractorServiceOrderId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorServiceOrder { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2380,6 +2420,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.PromissoryNote:
                     psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPromissoryNote,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPromissoryNoteId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPromissoryNote { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2389,6 +2430,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.ContractPackage:
                     psc.ProjectSubContractorPackageId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPackage,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPackageId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPackage { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2398,6 +2440,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Instructivo:
                     psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorInstructivo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorInstructivoId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorInstructivo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2407,6 +2450,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.NonConformingOutput:
                     psc.ProjectSubContractorNonConformingOutputId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorNonConformingOutput,
+                        projectSubContractorId,
                         psc.ProjectSubContractorNonConformingOutputId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorNonConformingOutput { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2416,6 +2460,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.ToleranceChart:
                     psc.ProjectSubContractorToleranceChartId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorToleranceChart,
+                        projectSubContractorId,
                         psc.ProjectSubContractorToleranceChartId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorToleranceChart { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2425,6 +2470,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.FichaTecnica:
                     psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorFichaTecnica,
+                        projectSubContractorId,
                         psc.ProjectSubContractorFichaTecnicaId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorFichaTecnica { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2434,6 +2480,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Anexo:
                     psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAnexo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAnexoId,
                         e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAnexo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2482,6 +2529,94 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
             await _context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Elimina el documento vigente de la adjudicación: la fila se marca con
+        /// <c>state = false</c> (el archivo en OneDrive no se toca) y la adjudicación deja de
+        /// apuntarla, así que la pantalla ya no la ve. Devuelve false si no había nada que borrar.
+        /// </summary>
+        public async Task<bool> DeleteDocumentAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Da de baja la fila y suelta la FK de la adjudicación (la FK se limpia siempre,
+            // incluso si la fila ya no estaba: así no queda apuntando a un documento eliminado).
+            async Task<bool> Remove<T>(
+                Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
+                int? existingId,
+                Action clearForeignKey) where T : class, IAdjudicacionDocument
+            {
+                clearForeignKey();
+                if (!existingId.HasValue) return false;
+
+                var doc = await dbSet.FindAsync(existingId.Value);
+                if (doc is null || !doc.State) return false;
+
+                doc.ProjectSubContractorId ??= projectSubContractorId;
+                doc.State = false;
+                doc.UpdatedDatetime = now;
+                doc.UpdatedUserId = userId;
+                return true;
+            }
+
+            var removed = documentType switch
+            {
+                AdjudicacionDocumentType.Contract => await Remove(
+                    _context.ProjectSubContractorContract, psc.ProjectSubContractorContractId,
+                    () => psc.ProjectSubContractorContractId = null),
+
+                AdjudicacionDocumentType.SummarySheet => await Remove(
+                    _context.ProjectSubContractorSummarySheet, psc.ProjectSubContractorSummarySheetId,
+                    () => psc.ProjectSubContractorSummarySheetId = null),
+
+                AdjudicacionDocumentType.Budget => await Remove(
+                    _context.ProjectSubContractorBudget, psc.ProjectSubContractorBudgetId,
+                    () => psc.ProjectSubContractorBudgetId = null),
+
+                AdjudicacionDocumentType.Schedule => await Remove(
+                    _context.ProjectSubContractorSchedule, psc.ProjectSubContractorScheduleId,
+                    () => psc.ProjectSubContractorScheduleId = null),
+
+                AdjudicacionDocumentType.AttachedQuotation => await Remove(
+                    _context.ProjectSubContractorAttachedQuotation, psc.ProjectSubContractorAttachedQuotationId,
+                    () => psc.ProjectSubContractorAttachedQuotationId = null),
+
+                AdjudicacionDocumentType.ServiceOrder => await Remove(
+                    _context.ProjectSubContractorServiceOrder, psc.ProjectSubContractorServiceOrderId,
+                    () => psc.ProjectSubContractorServiceOrderId = null),
+
+                AdjudicacionDocumentType.PromissoryNote => await Remove(
+                    _context.ProjectSubContractorPromissoryNote, psc.ProjectSubContractorPromissoryNoteId,
+                    () => psc.ProjectSubContractorPromissoryNoteId = null),
+
+                AdjudicacionDocumentType.Instructivo => await Remove(
+                    _context.ProjectSubContractorInstructivo, psc.ProjectSubContractorInstructivoId,
+                    () => psc.ProjectSubContractorInstructivoId = null),
+
+                AdjudicacionDocumentType.FichaTecnica => await Remove(
+                    _context.ProjectSubContractorFichaTecnica, psc.ProjectSubContractorFichaTecnicaId,
+                    () => psc.ProjectSubContractorFichaTecnicaId = null),
+
+                AdjudicacionDocumentType.Anexo => await Remove(
+                    _context.ProjectSubContractorAnexo, psc.ProjectSubContractorAnexoId,
+                    () => psc.ProjectSubContractorAnexoId = null),
+
+                _ => throw new AbrilException("Este documento no se puede eliminar.", 400),
+            };
+
+            psc.UpdatedDateTime = now;
+            psc.UpdatedUserId = userId;
+            await _context.SaveChangesAsync();
+
+            return removed;
         }
 
         public async Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId)
@@ -2630,6 +2765,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Contract:
                     psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorContract,
+                        projectSubContractorId,
                         psc.ProjectSubContractorContractId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorContract { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2639,6 +2775,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.SummarySheet:
                     psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSummarySheet,
+                        projectSubContractorId,
                         psc.ProjectSubContractorSummarySheetId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSummarySheet { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2648,6 +2785,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Budget:
                     psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorBudget,
+                        projectSubContractorId,
                         psc.ProjectSubContractorBudgetId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorBudget { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2657,6 +2795,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Schedule:
                     psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSchedule,
+                        projectSubContractorId,
                         psc.ProjectSubContractorScheduleId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorSchedule { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2666,6 +2805,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.AttachedQuotation:
                     psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAttachedQuotation,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAttachedQuotationId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAttachedQuotation { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2675,6 +2815,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.ServiceOrder:
                     psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorServiceOrder,
+                        projectSubContractorId,
                         psc.ProjectSubContractorServiceOrderId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorServiceOrder { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2684,6 +2825,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.PromissoryNote:
                     psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPromissoryNote,
+                        projectSubContractorId,
                         psc.ProjectSubContractorPromissoryNoteId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorPromissoryNote { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2693,6 +2835,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Instructivo:
                     psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorInstructivo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorInstructivoId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorInstructivo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2713,6 +2856,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.FichaTecnica:
                     psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorFichaTecnica,
+                        projectSubContractorId,
                         psc.ProjectSubContractorFichaTecnicaId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorFichaTecnica { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -2722,6 +2866,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 case AdjudicacionDocumentType.Anexo:
                     psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAnexo,
+                        projectSubContractorId,
                         psc.ProjectSubContractorAnexoId,
                         e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
                         () => new ProjectSubContractorAnexo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
@@ -3022,21 +3167,32 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     x.ProjectSubContractorPromissoryNoteId,
                     x.ProjectSubContractorAnexoId,
                     x.ContractNumber,
+                    x.ProjectSubContractorStatusId,
                 })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("La adjudicación no existe.");
 
+            // Opción del paso 4: solo se mira cuando la adjudicación ya avanzó (ver el service).
+            var allowRegenerate = await ctx.ProjectSubContractorStepOption
+                .Where(o => o.OptionKey == CostsStepOptionKeys.Paso4PermitirRegenerarPaquete
+                         && o.State && o.Active)
+                .Select(o => o.Enabled)
+                .FirstOrDefaultAsync();
+
+            // Hoja resumen y contrato normalmente se generan (.xlsx / .docx), pero el paso 3 también
+            // permite subirlos a mano y en ese caso pueden llegar ya en PDF: por eso traen
+            // OriginalFileName, igual que los adjuntos.
             var summarySheet = ids.ProjectSubContractorSummarySheetId.HasValue
                 ? await ctx.ProjectSubContractorSummarySheet
                     .Where(x => x.ProjectSubContractorSummarySheetId == ids.ProjectSubContractorSummarySheetId.Value)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
             var contract = ids.ProjectSubContractorContractId.HasValue
                 ? await ctx.ProjectSubContractorContract
                     .Where(x => x.ProjectSubContractorContractId == ids.ProjectSubContractorContractId.Value)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3086,7 +3242,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 ? await ctx.ProjectSubContractorInstructivo
                     .Where(x => x.ProjectSubContractorInstructivoId == ids.ProjectSubContractorInstructivoId.Value
                              && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3094,7 +3250,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 ? await ctx.ProjectSubContractorPromissoryNote
                     .Where(x => x.ProjectSubContractorPromissoryNoteId == ids.ProjectSubContractorPromissoryNoteId.Value
                              && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -3114,8 +3270,10 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             {
                 SummarySheetUrl             = summarySheet?.FileUrl,
                 SummarySheetItemId          = summarySheet?.SharepointItemId,
+                SummarySheetFileName        = summarySheet?.OriginalFileName,
                 ContractUrl                 = contract?.FileUrl,
                 ContractItemId              = contract?.SharepointItemId,
+                ContractFileName            = contract?.OriginalFileName,
                 AttachedQuotationUrl        = attachedQuotation?.FileUrl,
                 AttachedQuotationItemId     = attachedQuotation?.SharepointItemId,
                 AttachedQuotationFileName   = attachedQuotation?.OriginalFileName,
@@ -3133,12 +3291,16 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 FinishProtectionApproved    = finishProtectionApproved,
                 InstructivoUrl              = instructivo?.FileUrl,
                 InstructivoItemId           = instructivo?.SharepointItemId,
+                InstructivoFileName         = instructivo?.OriginalFileName,
                 PromissoryNoteUrl           = promissoryNote?.FileUrl,
                 PromissoryNoteItemId        = promissoryNote?.SharepointItemId,
+                PromissoryNoteFileName      = promissoryNote?.OriginalFileName,
                 AnexoUrl                    = anexo?.FileUrl,
                 AnexoItemId                 = anexo?.SharepointItemId,
                 AnexoFileName               = anexo?.OriginalFileName,
                 ContractNumber              = ids.ContractNumber,
+                StatusId                    = ids.ProjectSubContractorStatusId,
+                AllowRegeneratePackage      = allowRegenerate,
             };
         }
 
@@ -3202,28 +3364,40 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             };
         }
 
+        /// <summary>
+        /// Crea o actualiza el documento vigente de la adjudicación y devuelve su id (el que
+        /// guarda la FK de <c>project_sub_contractor</c>). Un documento eliminado
+        /// (<c>State = false</c>) nunca se reutiliza: se crea una fila nueva y la eliminada queda
+        /// como está para la auditoría.
+        /// </summary>
         private async Task<int> UpsertDocumentAsync<T>(
             Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
+            int projectSubContractorId,
             int? existingId,
             Action<T> update,
             Func<T> create,
-            Func<T, int> getId) where T : class
+            Func<T, int> getId) where T : class, IAdjudicacionDocument
         {
             if (existingId.HasValue)
             {
                 var existing = await dbSet.FindAsync(existingId.Value)
                     ?? throw new AbrilException("El documento referenciado no existe.");
-                update(existing);
-                await _context.SaveChangesAsync();
-                return existingId.Value;
+
+                if (existing.State)
+                {
+                    // Las filas anteriores a la normalización no traen la adjudicación grabada.
+                    existing.ProjectSubContractorId = projectSubContractorId;
+                    update(existing);
+                    await _context.SaveChangesAsync();
+                    return existingId.Value;
+                }
             }
-            else
-            {
-                var newDoc = create();
-                dbSet.Add(newDoc);
-                await _context.SaveChangesAsync();
-                return getId(newDoc);
-            }
+
+            var newDoc = create();
+            newDoc.ProjectSubContractorId = projectSubContractorId;
+            dbSet.Add(newDoc);
+            await _context.SaveChangesAsync();
+            return getId(newDoc);
         }
     }
 }

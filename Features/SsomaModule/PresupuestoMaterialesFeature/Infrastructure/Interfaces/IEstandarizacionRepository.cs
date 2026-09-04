@@ -32,4 +32,21 @@ public interface IEstandarizacionRepository
     Task CrearAliasRechazoAsync(string textoCrudo, string textoCrudoNorm);
     /// <summary>Búsqueda manual del selector de revisión: substring + similarity trigram (más tolerante que un Contains exacto — "BARRA EXTENSIBLE" sí encuentra "BARRA EXPANDIBLE").</summary>
     Task<List<MatchResult>> BuscarItemsSimilaresAsync(string textoNorm);
+    /// <summary>PerteneceSsoma de la família de un ítem — para aplicar retroactivamente la misma decisión a otras líneas con el mismo texto crudo.</summary>
+    Task<bool> ObtenerPerteneceSsomaDeItemAsync(int itemId);
+
+    // ─── Precarga en lote para EstandarizarCargaAsync ──────────────────────────
+    // Un lote grande (miles de líneas) haciendo 3-5 consultas POR LÍNEA para las etapas 0-2
+    // (que son búsquedas exactas, no fuzzy) es innecesariamente lento y fragiliza el proceso
+    // completo ante cualquier corte breve de conexión. Estas tres cargan TODO el catálogo/alias
+    // una sola vez al inicio del lote; las etapas 0-2 pasan a ser lookups en memoria (O(1)).
+    // Solo la Etapa 4 (fuzzy/pg_trgm) sigue yendo a la base por línea, porque depende del motor
+    // de similitud de Postgres.
+
+    /// <summary>Textos ya confirmados como "no es SSOMA" (alias con item_id NULL) — Etapa 0.</summary>
+    Task<HashSet<string>> ObtenerRechazosConocidosAsync();
+    /// <summary>Alias texto_crudo_norm -> ítem, de aliases activos — Etapa 1.</summary>
+    Task<Dictionary<string, MatchResult>> ObtenerAliasesActivosAsync();
+    /// <summary>Nombre normalizado del ítem -> ítem, del catálogo activo — Etapas 2 y 3.</summary>
+    Task<Dictionary<string, MatchResult>> ObtenerNombresItemActivosAsync();
 }

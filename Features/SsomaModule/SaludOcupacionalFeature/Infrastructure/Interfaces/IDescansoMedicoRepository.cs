@@ -8,6 +8,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     public interface IDescansoMedicoRepository
     {
         Task<List<DescansoTipoDto>> GetTipos(bool soloMiSalud = false);
+        /// <summary>Catálogo workers_obra_oficina_staff — opciones del filtro "Obra / Oficina".</summary>
+        Task<List<ObraOficinaStaffOpcionDto>> GetObraOficinaStaff();
         Task<int> GetTipoIdPorNombre(string nombre);
         Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter);
         Task<DescansoMedicoDetalleDto> GetById(int id);

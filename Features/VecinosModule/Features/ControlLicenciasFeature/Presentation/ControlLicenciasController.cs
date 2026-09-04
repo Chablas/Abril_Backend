@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Interfaces;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -32,6 +33,15 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             return claim != null ? int.Parse(claim.Value) : 0;
         }
 
+        private static string EstadoFechaTexto(string? estado) => estado switch
+        {
+            VecinoLicenciaFechaEstado.NoSeCuenta => "No se cuenta",
+            VecinoLicenciaFechaEstado.Pendiente => "Pendiente",
+            VecinoLicenciaFechaEstado.Indeterminado => "Indeterminado",
+            VecinoLicenciaFechaEstado.NoRegistrada => "No registrada",
+            _ => string.Empty,
+        };
+
         /// <summary>Proyectos activos disponibles para Control de Licencias.</summary>
         [HttpGet("proyectos")]
         public async Task<IActionResult> GetProyectos()
@@ -60,6 +70,22 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR CONTROL LICENCIAS PLANTILLA GET: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Plantilla combinada de todos los proyectos (o los indicados por projectIds), para la vista "todos" de Plantilla.</summary>
+        [HttpGet("plantilla")]
+        public async Task<IActionResult> GetPlantillaTodos([FromQuery] List<int>? projectIds)
+        {
+            try
+            {
+                var result = await _service.GetPlantillaTodos(projectIds);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS PLANTILLA TODOS: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -121,6 +147,155 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR CONTROL LICENCIAS RECORDATORIO ADD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Agrega una fecha de visita al Anexo H de la licencia vigente de un tipo. Recordatorio fijo: 2 días antes.</summary>
+        [HttpPost("proyectos/{projectId:int}/tipos/{tipoId:int}/visitas")]
+        public async Task<IActionResult> AddVisita(int projectId, int tipoId, [FromBody] VecinoLicenciaVisitaCreateDto dto)
+        {
+            try
+            {
+                var visita = await _service.AddVisita(projectId, tipoId, dto, CurrentUserId());
+                return Ok(new { visita, message = "Visita registrada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS VISITA ADD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Edita las fechas ampliadas del dashboard (inscripción/inicio/renovación) y el flag Mes Activo.</summary>
+        [HttpPatch("proyectos/{projectId:int}/tipos/{tipoId:int}/fechas")]
+        public async Task<IActionResult> UpdateFechas(int projectId, int tipoId, [FromBody] VecinoLicenciaFechasUpdateDto dto)
+        {
+            try
+            {
+                await _service.UpdateFechas(projectId, tipoId, dto, CurrentUserId());
+                return Ok(new { message = "Fechas actualizadas." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS FECHAS UPDATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Dashboard gerencial: todos los proyectos (o los indicados por projectIds), ordenado de más a menos crítico.</summary>
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] List<int>? projectIds)
+        {
+            try
+            {
+                var result = await _service.GetDashboard(projectIds);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS DASHBOARD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Exporta el dashboard (todos los proyectos o los indicados) a Excel.</summary>
+        [HttpGet("dashboard/export")]
+        public async Task<IActionResult> ExportDashboard([FromQuery] List<int>? projectIds)
+        {
+            try
+            {
+                var dashboard = await _service.GetDashboard(projectIds);
+
+                using var workbook = new XLWorkbook();
+                var ws = workbook.AddWorksheet("Control de Licencias");
+
+                var headers = new[]
+                {
+                    "Proyecto", "Tipo de documento", "Estado", "Fecha inscripción", "Fecha inicio",
+                    "Fecha vencimiento", "Fecha renovación", "Mes activo", "Días para vencer", "Criticidad",
+                };
+
+                for (int col = 1; col <= headers.Length; col++)
+                {
+                    var cell = ws.Cell(1, col);
+                    cell.Value = headers[col - 1];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#0F6E56");
+                    cell.Style.Font.FontColor = XLColor.White;
+                    cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                }
+
+                int row = 2;
+                foreach (var item in dashboard.Items)
+                {
+                    ws.Cell(row, 1).Value = item.ProjectDescription;
+                    ws.Cell(row, 2).Value = item.TipoDescripcion;
+                    ws.Cell(row, 3).Value = item.EstadoDescripcion;
+                    ws.Cell(row, 4).Value = item.FechaInscripcion?.ToString("dd/MM/yyyy") ?? EstadoFechaTexto(item.FechaInscripcionEstado);
+                    ws.Cell(row, 5).Value = item.FechaInicio?.ToString("dd/MM/yyyy") ?? EstadoFechaTexto(item.FechaInicioEstado);
+                    ws.Cell(row, 6).Value = item.FechaVencimiento?.ToString("dd/MM/yyyy") ?? EstadoFechaTexto(item.FechaVencimientoEstado);
+                    ws.Cell(row, 7).Value = item.FechaRenovacion?.ToString("dd/MM/yyyy") ?? EstadoFechaTexto(item.FechaRenovacionEstado);
+                    ws.Cell(row, 8).Value = item.MesActivo ? "SI" : "NO";
+                    ws.Cell(row, 9).Value = item.DiasParaVencer?.ToString() ?? string.Empty;
+                    ws.Cell(row, 10).Value = item.Semaforo switch
+                    {
+                        "rojo" => "Crítico",
+                        "amarillo" => "Alerta",
+                        "verde" => "OK",
+                        _ => "No aplica",
+                    };
+
+                    var fillColor = item.Semaforo switch
+                    {
+                        "rojo" => XLColor.FromHtml("#FEE2E2"),
+                        "amarillo" => XLColor.FromHtml("#FEF3C7"),
+                        "verde" => XLColor.FromHtml("#D1FAE5"),
+                        _ => XLColor.FromHtml("#F3F4F6"),
+                    };
+                    ws.Range(row, 1, row, headers.Length).Style.Fill.BackgroundColor = fillColor;
+
+                    row++;
+                }
+
+                ws.Range(1, 1, row - 1, headers.Length).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                ws.Range(1, 1, row - 1, headers.Length).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+                ws.Columns().AdjustToContents();
+
+                using var ms = new MemoryStream();
+                workbook.SaveAs(ms);
+                var bytes = ms.ToArray();
+
+                var fileName = $"ControlLicencias_{DateTime.UtcNow.AddHours(-5):yyyyMMdd}.xlsx";
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS DASHBOARD EXPORT: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpDelete("visitas/{visitaId:int}")]
+        public async Task<IActionResult> DeleteVisita(int visitaId)
+        {
+            try
+            {
+                await _service.DeleteVisita(visitaId, CurrentUserId());
+                return Ok(new { message = "Visita eliminada." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS VISITA DELETE: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

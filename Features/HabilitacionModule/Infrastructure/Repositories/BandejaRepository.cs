@@ -77,6 +77,8 @@ SELECT
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id AND w.state
+-- El area del trabajador sale del destino de su puesto: workers ya no la guarda.
+LEFT JOIN puesto wpu ON wpu.puesto_id = w.puesto_id
 LEFT JOIN person per ON per.person_id = w.person_id
 LEFT JOIN LATERAL (
     SELECT empresa_id, proyecto_id
@@ -95,7 +97,7 @@ WHERE ht.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@AreaScopeIds::int[] IS NULL OR w.area_scope_id = ANY(@AreaScopeIds::int[]))
+  AND (@AreaScopeIds::int[] IS NULL OR wpu.area_destino_scope_id = ANY(@AreaScopeIds::int[]))
 
 UNION ALL
 
@@ -209,6 +211,8 @@ SELECT
     false as requiere_vigencia
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id AND w.state
+-- El area del trabajador sale del destino de su puesto: workers ya no la guarda.
+LEFT JOIN puesto wpu ON wpu.puesto_id = w.puesto_id
 LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
@@ -218,7 +222,7 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
-  AND (@AreaScopeIds::int[] IS NULL OR w.area_scope_id = ANY(@AreaScopeIds::int[]))
+  AND (@AreaScopeIds::int[] IS NULL OR wpu.area_destino_scope_id = ANY(@AreaScopeIds::int[]))
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(

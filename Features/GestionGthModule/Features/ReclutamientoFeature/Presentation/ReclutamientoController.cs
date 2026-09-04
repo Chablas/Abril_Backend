@@ -2,6 +2,7 @@
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -52,7 +53,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                var tipoCodigo = CorreoTipoGth.FromSlug(tipo);
                 if (tipoCodigo == null)
                     return BadRequest(new { message = "Tipo de correo no válido." });
 
@@ -77,7 +78,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                var tipoCodigo = CorreoTipoGth.FromSlug(tipo);
                 if (tipoCodigo == null)
                     return BadRequest(new { message = "Tipo de correo no válido." });
 
@@ -443,38 +444,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Vista de GTH: cierra el proceso y habilita el paso a onboarding. Solo se acepta con el
-        /// requerimiento en EMO_APTO o EMO_APTO_RESTRICCIONES — las fases a las que llega cuando el
-        /// EMO de ingreso del seleccionado sale Apto (con o sin restricciones).
-        /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
-        [HttpPost("requerimiento/{id:int}/cerrar-proceso")]
-        [RequireFeature("gestion-gth.reclutamiento")]
-        public async Task<IActionResult> CerrarProcesoDesdeEmoApto(int id)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
-                var estado = await _service.CerrarProcesoDesdeEmoApto(id, userId);
-                return Ok(new
-                {
-                    message = "Proceso cerrado. El seleccionado ya aparece en Onboarding como candidato por ingresar.",
-                    estado.EstadoCodigo,
-                    estado.EstadoNombre,
-                });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en ReclutamientoController.CerrarProcesoDesdeEmoApto");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
         /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
         /// invitación al correo que declaró en su formulario del postulante.
         /// </summary>
@@ -792,6 +761,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 var codigos = result.Codigos.Count == 1
                     ? $"Requerimiento generado: {result.Codigos[0]}."
                     : $"Se generaron {result.Codigos.Count} requerimientos: {string.Join(", ", result.Codigos)}.";
+
+                // A quién se le mandó la solicitud lo decide cada VACANTE y no la solicitud: una
+                // vacante nueva sube a Gerencia General y un reemplazo lo firma primero el gerente
+                // del área —cubrir a alguien que se va no crea plaza— y una misma solicitud puede
+                // traer de las dos (ver RutaAprobacion). Nombrar al que no es manda al solicitante
+                // a preguntarle por su solicitud a quien nunca la vio.
+                var vaAGerenciaGeneral = result.RutasAprobacion.Contains(RutaAprobacion.GerenciaGeneral);
+                var vaAGerenciaArea    = result.RutasAprobacion.Contains(RutaAprobacion.AreaYGth);
+                var destino = vaAGerenciaGeneral && vaAGerenciaArea
+                    ? "Gerencia General y a la Gerencia del Área"
+                    : vaAGerenciaArea
+                        ? "la Gerencia del Área"
+                        : "Gerencia General";
+
                 // Qué sigue depende de lo que traiga la solicitud, así que el mensaje lo dice
                 // explícitamente (y avisa si algún correo no pudo salir, porque entonces hay que
                 // reenviarlo). Un ingreso directo no tiene paso de aprobación: pasa derecho a GTH,
@@ -805,13 +788,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     : result.HayIngresoDirecto
                         ? result.CorreoGerenciaEnviado
                             ? $"Solicitud registrada. {codigos} El ingreso directo pasó a Gestión de Talento " +
-                              "Humano y el resto se envió para su aprobación."
+                              $"Humano y el resto se envió a {destino} para su aprobación."
                             : $"Solicitud registrada. {codigos} No se pudo enviar alguno de los correos: usa " +
                               "«Reenviar aprobación» en la tabla para reintentar el de aprobación."
                         : result.CorreoGerenciaEnviado
-                            ? $"Solicitud registrada y enviada a Gerencia General para su aprobación. {codigos}"
-                            : $"Solicitud registrada. {codigos} No se pudo enviar el correo a Gerencia General: " +
-                              "usa «Reenviar a Gerencia General» en la tabla para reintentarlo.";
+                            ? $"Solicitud registrada y enviada a {destino} para su aprobación. {codigos}"
+                            : $"Solicitud registrada. {codigos} No se pudo enviar el correo a {destino}: " +
+                              "usa «Reenviar aprobación» en la tabla para reintentarlo.";
                 return Ok(new
                 {
                     id = result.SolicitudId,

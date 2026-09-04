@@ -7,10 +7,16 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     /// <summary>
-    /// Configuración de los destinatarios de los 4 correos de EMO: programación
-    /// automática, programación manual, aceptada por la clínica y rechazada por la
-    /// clínica. Cada correo se configura por perfil de trabajador
-    /// (Oficina Central / Staff / Obra / Contratista).
+    /// Configuración de los destinatarios de los correos de EMO: programación automática,
+    /// programación manual, aceptada por la clínica, rechazada por la clínica y el resultado
+    /// del examen. Cada correo se configura por perfil de trabajador
+    /// (Oficina Central / Staff / Obra), y los que le hablan a las dos audiencias existen dos
+    /// veces —la versión del trabajador y la del postulante— como dos filas del catálogo
+    /// (ver <see cref="EmoCorreoEventoCodigo"/>).
+    ///
+    /// El catálogo de correos no está escrito acá: se lee de <c>ss_emo_correo_evento</c>. Agregar
+    /// un correo nuevo (o una versión nueva de uno existente) es una fila más en esa tabla con su
+    /// matriz de reglas; ni este servicio ni la pantalla se tocan.
     /// </summary>
     public class EmoCorreoConfigService : IEmoCorreoConfigService
     {

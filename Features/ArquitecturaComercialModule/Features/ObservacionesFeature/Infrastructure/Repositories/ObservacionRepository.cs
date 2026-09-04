@@ -13,6 +13,50 @@ public class ObservacionRepository : IObservacionRepository
 
     public ObservacionRepository(IDbContextFactory<AppDbContext> factory) => _factory = factory;
 
+    /// <summary>
+    /// Las columnas de fecha son timestamptz y guardan UTC
+    /// (Migrations/Manual/20260904_ObservacionesTimestamptz.sql), pero todo lo que entra y sale
+    /// por la API es hora de Lima: el usuario elige la fecha en un calendario peruano y la
+    /// pantalla la imprime tal cual. Toda la traducción vive en este par de helpers.
+    /// </summary>
+    private static readonly TimeZoneInfo LimaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+
+    /// <summary>UTC (como está en la BD) → hora de Lima, para servirla al frontend. El resultado
+    /// queda con Kind=Unspecified, así que se serializa sin la "Z" y el navegador lo muestra tal
+    /// cual en vez de volver a correrlo a la zona del cliente.</summary>
+    private static DateTime AHoraLima(DateTime utc)
+        => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), LimaZone);
+
+    private static DateTime? AHoraLima(DateTime? utc) => utc.HasValue ? AHoraLima(utc.Value) : null;
+
+    /// <summary>Hora de Lima (la que eligió el usuario) → UTC, para guardarla o comparar contra
+    /// la columna.</summary>
+    private static DateTime AUtc(DateTime horaLima)
+        => TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(horaLima, DateTimeKind.Unspecified), LimaZone);
+
+    private static DateTime? AUtc(DateTime? horaLima) => horaLima.HasValue ? AUtc(horaLima.Value) : null;
+
+    /// <summary>
+    /// Rango de fechas de los filtros (lista, dashboard y stats usan el mismo).
+    /// Los límites llegan como fechas de calendario (YYYY-MM-DD) elegidas en Lima, así que hay que
+    /// comparar contra el instante UTC de esa medianoche limeña. El tope va exclusivo — "hasta el
+    /// 11/09" incluye todo el 11/09 en vez de quedarse en su medianoche y dejar el día afuera.
+    /// </summary>
+    private static IQueryable<AcObservacion> FiltrarPorRangoDeFechas(IQueryable<AcObservacion> query, DateTime? desde, DateTime? hasta)
+    {
+        if (desde.HasValue)
+        {
+            var inicio = AUtc(desde.Value.Date);
+            query = query.Where(o => o.Fecha >= inicio);
+        }
+        if (hasta.HasValue)
+        {
+            var finExclusivo = AUtc(hasta.Value.Date.AddDays(1));
+            query = query.Where(o => o.Fecha < finExclusivo);
+        }
+        return query;
+    }
+
     public async Task<ObservacionListResponseDTO> GetObservaciones(int? proyectoId, string? estado, string? partida, DateTime? desde, DateTime? hasta, string? search, int pagina, int porPagina)
     {
         using var ctx = _factory.CreateDbContext();
@@ -22,8 +66,7 @@ public class ObservacionRepository : IObservacionRepository
         if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
         if (!string.IsNullOrWhiteSpace(estado)) query = query.Where(o => o.Estado == estado);
         if (!string.IsNullOrWhiteSpace(partida)) query = query.Where(o => o.PartidaReportada == partida);
-        if (desde.HasValue) query = query.Where(o => o.Fecha >= desde.Value);
-        if (hasta.HasValue) query = query.Where(o => o.Fecha <= hasta.Value);
+        query = FiltrarPorRangoDeFechas(query, desde, hasta);
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(o => o.Codigo.Contains(search) || o.Descripcion.Contains(search) || (o.PersonaReporta != null && o.PersonaReporta.Contains(search)));
 
@@ -52,10 +95,18 @@ public class ObservacionRepository : IObservacionRepository
                 Ejecutor = o.Ejecutor,
                 Origen = o.Origen,
                 LevantaPorWorkerId = o.LevantaPorWorkerId,
-                LevantaPorNombre = o.LevantaPor != null ? o.LevantaPor.ApellidoNombre : null,
+                LevantaPorNombre = o.LevantaPor != null && o.LevantaPor.Person != null ? o.LevantaPor.Person.FullName : null,
                 Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
+
+        // Fuera del Select porque TimeZoneInfo no se traduce a SQL; son como mucho `porPagina`
+        // filas ya materializadas.
+        foreach (var item in items)
+        {
+            item.Fecha = AHoraLima(item.Fecha);
+            item.PlazoLevantamiento = AHoraLima(item.PlazoLevantamiento);
+        }
 
         return new ObservacionListResponseDTO { Total = total, Pagina = pagina, PorPagina = porPagina, Items = items };
     }
@@ -63,7 +114,7 @@ public class ObservacionRepository : IObservacionRepository
     public async Task<ObservacionListItemDTO?> GetObservacionById(int id)
     {
         using var ctx = _factory.CreateDbContext();
-        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).Include(x => x.LevantaPor).FirstOrDefaultAsync(x => x.Id == id);
+        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).Include(x => x.LevantaPor).ThenInclude(w => w!.Person).FirstOrDefaultAsync(x => x.Id == id);
         if (o == null) return null;
 
         return new ObservacionListItemDTO
@@ -72,12 +123,12 @@ public class ObservacionRepository : IObservacionRepository
             ProyectoId = o.ProyectoId,
             ProyectoNombre = o.Proyecto?.ProjectDescription,
             Codigo = o.Codigo,
-            Fecha = o.Fecha,
+            Fecha = AHoraLima(o.Fecha),
             PersonaReporta = o.PersonaReporta,
             EmpresaReporta = o.EmpresaReporta,
             Lugar = o.Lugar,
             Descripcion = o.Descripcion,
-            PlazoLevantamiento = o.PlazoLevantamiento,
+            PlazoLevantamiento = AHoraLima(o.PlazoLevantamiento),
             PartidaReportada = o.PartidaReportada,
             Estado = o.Estado,
             TipoObservacion = o.TipoObservacion,
@@ -85,7 +136,7 @@ public class ObservacionRepository : IObservacionRepository
             Ejecutor = o.Ejecutor,
             Origen = o.Origen,
             LevantaPorWorkerId = o.LevantaPorWorkerId,
-            LevantaPorNombre = o.LevantaPor?.ApellidoNombre,
+            LevantaPorNombre = o.LevantaPor?.Person?.FullName,
             Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }
@@ -124,8 +175,7 @@ public class ObservacionRepository : IObservacionRepository
         using var ctx = _factory.CreateDbContext();
         var query = ctx.AcObservaciones.Include(o => o.Proyecto).AsQueryable();
 
-        if (desde.HasValue) query = query.Where(o => o.Fecha >= desde.Value);
-        if (hasta.HasValue) query = query.Where(o => o.Fecha <= hasta.Value);
+        query = FiltrarPorRangoDeFechas(query, desde, hasta);
         if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
 
         var registros = await query.ToListAsync();
@@ -165,8 +215,7 @@ public class ObservacionRepository : IObservacionRepository
         using var ctx = _factory.CreateDbContext();
         var query = ctx.AcObservaciones.AsQueryable();
 
-        if (desde.HasValue) query = query.Where(o => o.Fecha >= desde.Value);
-        if (hasta.HasValue) query = query.Where(o => o.Fecha <= hasta.Value);
+        query = FiltrarPorRangoDeFechas(query, desde, hasta);
         if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
 
         // Un solo round-trip con agregación condicional en vez de 4 CountAsync()
@@ -223,14 +272,16 @@ public class ObservacionRepository : IObservacionRepository
         {
             ProyectoId = body.ProyectoId,
             Codigo = codigo,
-            Fecha = DateTime.SpecifyKind(body.Fecha, DateTimeKind.Utc),
+            // body.Fecha es la fecha que eligió el usuario en el calendario (Lima); la columna
+            // guarda UTC. Ojo con el orden: el año del correlativo lo calcula ObservacionService
+            // ANTES de esto, sobre la fecha limeña — convertir primero le daría el año equivocado
+            // a una observación del 31 de diciembre.
+            Fecha = AUtc(body.Fecha),
             PersonaReporta = body.PersonaReporta,
             EmpresaReporta = body.EmpresaReporta,
             Lugar = body.Lugar,
             Descripcion = body.Descripcion,
-            PlazoLevantamiento = body.PlazoLevantamiento.HasValue
-                ? DateTime.SpecifyKind(body.PlazoLevantamiento.Value, DateTimeKind.Utc)
-                : (DateTime?)null,
+            PlazoLevantamiento = AUtc(body.PlazoLevantamiento),
             PartidaReportada = body.PartidaReportada,
             TipoObservacion = body.TipoObservacion,
             AreaResponsable = body.AreaResponsable,

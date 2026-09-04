@@ -44,6 +44,7 @@ public class RevisionMaterialesService : IRevisionMaterialesService
     {
         var resultado = new RevisionResultDto();
         var rechazadosPorProyecto = new Dictionary<int, List<(string RecursoCrudo, string? Motivo)>>();
+        List<MaterialPendienteGlobalDto>? pendientesSnapshot = null;
 
         foreach (var decision in decisiones)
         {
@@ -65,6 +66,10 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                         var textoNorm = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                         await _estandarizacionRepo.CrearAliasAsync(linea.RecursoCrudo, textoNorm,
                             decision.ItemIdConfirmado.Value, "FUZZY_CONFIRMADO", 1.0m);
+
+                        pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                        resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                            "AUTORIZADO", textoNorm, decision.LineaId, decision.ItemIdConfirmado, pendientesSnapshot);
                     }
                     resultado.Autorizados++;
                 }
@@ -75,6 +80,11 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                     // se rechaza solo, sin volver a pasar por Revisión.
                     var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                     await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
+
+                    pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                    resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                        "RECHAZADO", textoNormRechazo, decision.LineaId, null, pendientesSnapshot);
+
                     if (!rechazadosPorProyecto.TryGetValue(linea.ProjectId, out var lista))
                         rechazadosPorProyecto[linea.ProjectId] = lista = [];
                     lista.Add((linea.RecursoCrudo, decision.MotivoRechazo));
@@ -97,10 +107,44 @@ public class RevisionMaterialesService : IRevisionMaterialesService
         return resultado;
     }
 
+    /// <summary>
+    /// Otras líneas pendientes (cualquier proyecto, del snapshot tomado al inicio del lote) cuyo texto
+    /// crudo normaliza IGUAL al que el usuario acaba de decidir: aplicarles la misma decisión evita
+    /// pedirle que confirme/rechace el mismo material línea por línea cada vez que aparece repetido.
+    /// Nunca vuelve a notificar a Oficina Técnica por estas — ya se avisó con la línea original.
+    /// </summary>
+    private async Task<int> AplicarRetroactivamenteAsync(
+        string decision, string textoNorm, long lineaIdOrigen, int? itemIdConfirmado,
+        List<MaterialPendienteGlobalDto> pendientesSnapshot)
+    {
+        var afectadas = 0;
+        bool? perteneceSsoma = null;
+        foreach (var otra in pendientesSnapshot)
+        {
+            if (otra.LineaId == lineaIdOrigen) continue;
+            if (TextoNormalizador.Normalizar(otra.RecursoCrudo) != textoNorm) continue;
+
+            if (decision == "AUTORIZADO" && itemIdConfirmado.HasValue)
+            {
+                perteneceSsoma ??= await _estandarizacionRepo.ObtenerPerteneceSsomaDeItemAsync(itemIdConfirmado.Value);
+                await _consumoRepo.ActualizarLineaEstandarizadaAsync(
+                    otra.LineaId, itemIdConfirmado.Value, perteneceSsoma.Value, "ALIAS_RETROACTIVO", 1.0m, null);
+                afectadas++;
+            }
+            else if (decision == "RECHAZADO")
+            {
+                await _consumoRepo.ActualizarRevisionAsync(otra.LineaId, "RECHAZADO", null);
+                afectadas++;
+            }
+        }
+        return afectadas;
+    }
+
     public async Task<RevisionResultDto> ProcesarRevisionAsync(RevisionLoteDto dto, int usuarioId)
     {
         var resultado = new RevisionResultDto();
         var rechazadosParaNotificar = new List<(string RecursoCrudo, string? Motivo)>();
+        List<MaterialPendienteGlobalDto>? pendientesSnapshot = null;
 
         foreach (var decision in dto.Decisiones)
         {
@@ -123,6 +167,10 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                         var textoNorm = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                         await _estandarizacionRepo.CrearAliasAsync(linea.RecursoCrudo, textoNorm,
                             decision.ItemIdConfirmado.Value, "FUZZY_CONFIRMADO", 1.0m);
+
+                        pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                        resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                            "AUTORIZADO", textoNorm, decision.LineaId, decision.ItemIdConfirmado, pendientesSnapshot);
                     }
                     resultado.Autorizados++;
                 }
@@ -133,6 +181,11 @@ public class RevisionMaterialesService : IRevisionMaterialesService
                     // se rechaza solo, sin volver a pasar por Revisión.
                     var textoNormRechazo = TextoNormalizador.Normalizar(linea.RecursoCrudo);
                     await _estandarizacionRepo.CrearAliasRechazoAsync(linea.RecursoCrudo, textoNormRechazo);
+
+                    pendientesSnapshot ??= await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+                    resultado.AplicadosRetroactivamente += await AplicarRetroactivamenteAsync(
+                        "RECHAZADO", textoNormRechazo, decision.LineaId, null, pendientesSnapshot);
+
                     rechazadosParaNotificar.Add((linea.RecursoCrudo, decision.MotivoRechazo));
                     resultado.Rechazados++;
                 }

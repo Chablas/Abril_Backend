@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
         Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
         Task<DocumentUploadResponseDto> GenerateDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
+        Task DeleteDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
         Task SendAllLevantamientoEmailAsync(int projectSubContractorId, SendAllObservationsEmailDto dto, int userId);
         Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId);

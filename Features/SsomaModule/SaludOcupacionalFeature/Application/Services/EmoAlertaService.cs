@@ -1,4 +1,4 @@
-using Abril_Backend.Features.CostsModule.Shared.Models;
+﻿using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
@@ -128,8 +128,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Select(v => v.EmpresaId!.Value)
                 .Distinct().ToList();
 
+            // Include del coordinador administrativo: su correo sale de la ficha
+            // (project.workers_coord_admin_id → workers.email_corporativo) y se necesita en
+            // BuildDestinatarios. Va en el mismo roundtrip para no caer en N+1.
             var proyectosDict = await ctx.Project
                 .AsNoTracking()
+                .Include(p => p.CoordAdmin)
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId);
 
@@ -340,7 +344,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 raw.Add(proyecto.EmailResponsable);
                 raw.Add(proyecto.EmailRrhh);
                 raw.Add(proyecto.EmailCoordSsoma);
-                raw.Add(proyecto.EmailCoordAdmin);
+                raw.Add(proyecto.CoordAdmin?.EmailCorporativo);
             }
 
             return raw
@@ -355,7 +359,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         {
             if (proyecto == null) return new List<string>();
 
-            var raw = new List<string?> { residenteEmail, proyecto.EmailResponsable, proyecto.EmailRrhh, proyecto.EmailCoordSsoma, proyecto.EmailCoordAdmin };
+            var raw = new List<string?> { residenteEmail, proyecto.EmailResponsable, proyecto.EmailRrhh, proyecto.EmailCoordSsoma, proyecto.CoordAdmin?.EmailCorporativo };
 
             return raw
                 .Where(e => !string.IsNullOrWhiteSpace(e))

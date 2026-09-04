@@ -17,9 +17,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// escritos a mano, con alta, edición y baja.
     ///
     /// El <c>{modulo}</c> de la ruta dice qué pantalla es —<c>solicitud-personal</c> (flujo del
-    /// solicitante), <c>aprobaciones</c> (el aviso a GTH que dispara la decisión de Gerencia) o
-    /// <c>reclutamiento</c> (los correos que salen desde la bandeja de GTH)— y el servicio lo usa
-    /// para acotar los correos que puede leer y tocar cada una.
+    /// solicitante), <c>aprobaciones</c> (el aviso a GTH que dispara la decisión de Gerencia),
+    /// <c>reclutamiento</c> (los correos que salen desde la bandeja de GTH) u <c>onboarding</c>
+    /// (la carta oferta al colaborador)— y el servicio lo usa para acotar los correos que puede
+    /// leer y tocar cada una.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-gth/{modulo}/configuracion")]

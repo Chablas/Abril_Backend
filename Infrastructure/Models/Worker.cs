@@ -23,8 +23,8 @@ namespace Abril_Backend.Infrastructure.Models
         /*[Column("celular")]
         public string? Celular { get; set; }*/
 
-        [Column("apellido_nombre")]
-        public string? ApellidoNombre { get; set; }
+        // El nombre dejó de vivir aquí: es único en person.full_name, al que se llega
+        // por PersonId. La columna apellido_nombre se bajó de `workers`.
 
         /// <summary>Correo corporativo @abril.pe del trabajador (antes llamado email_personal).</summary>
         [Column("email_corporativo")]
@@ -117,12 +117,31 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("subarea")]
         public string? Subarea { get; set; }
 
-        /// <summary>
-        /// FK a <c>area_scope</c>. Reemplaza el uso de <see cref="Area"/>/<see cref="Subarea"/>
-        /// (texto plano) para resolver jefaturas vía el árbol jerárquico.
-        /// </summary>
-        [Column("area_scope_id")]
-        public int? AreaScopeId { get; set; }
+        // ── El área de la ficha ya no vive acá ─────────────────────────────────
+        // Había una columna `area_scope_id` con FK a `area_scope`. Era el MISMO
+        // dato que el área del puesto guardado dos veces, y las dos podían
+        // contradecirse. Desde el 2026-09-02 el área dejó de elegirse en las
+        // pantallas de Trabajadores (se muestra de solo lectura, derivada), y el
+        // 2026-09-03 se bajó la columna:
+        // `Migrations_Manual/2026-09-03_workers_drop_area_scope_id.sql`.
+        //
+        // El área de un trabajador se lee ahora por el puesto:
+        //
+        //     w.PuestoCatalogo!.AreaDestinoScopeId      (dentro de un IQueryable)
+        //     w.PuestoCatalogo?.AreaDestinoScopeId      (en memoria, con Include)
+        //
+        // Es el área a la que ENTRA quien ejerce el puesto, NO la que puede
+        // pedirlo (`AreaSolicitanteScopeId`) — ver Puesto. En SQL crudo:
+        //
+        //     LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
+        //     ... pu.area_destino_scope_id
+        //
+        // Consecuencia que hay que tener presente: cambiarle el área de destino a
+        // un puesto desde Configuración → Categorías y Puestos mueve de área a
+        // TODOS sus trabajadores de golpe. Antes era ficha por ficha.
+        //
+        // La foto de lo que decía cada ficha antes del corte quedó en
+        // `workers_area_scope_historico`.
 
         [Column("contrata_casa")]
         public string? ContrataCasa { get; set; }

@@ -5,14 +5,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     public interface IEmoCorreoConfigRepository
     {
         /// <summary>
-        /// Toda la matriz (perfiles + los 4 correos con sus destinatarios y celdas) en un
+        /// Toda la matriz (perfiles + los correos con sus destinatarios y celdas) en un
         /// solo roundtrip, para la pantalla de Configuración de EMOs.
         /// </summary>
         Task<EmoCorreosConfigDto> GetConfigAsync();
 
         /// <summary>
-        /// Da de alta un correo adicional y le crea sus celdas en los 4 correos × 4 perfiles.
-        /// Nace activo únicamente en los 4 perfiles del correo desde el que se agregó.
+        /// Da de alta un correo adicional y le crea sus celdas en todos los correos × perfiles.
+        /// Nace activo únicamente en los perfiles del correo desde el que se agregó.
         /// </summary>
         Task<int> CreateAdicionalAsync(string eventoCodigo, string tipoCodigo, string email, string? nombre);
 

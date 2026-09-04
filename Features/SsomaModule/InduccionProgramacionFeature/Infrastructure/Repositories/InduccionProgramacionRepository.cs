@@ -299,9 +299,17 @@ namespace Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infras
         {
             using var ctx = _factory.CreateDbContext();
 
+            // El coordinador administrativo es una FK a workers: su correo se lee de la ficha
+            // (project.workers_coord_admin_id → workers.email_corporativo), igual que el
+            // residente unas líneas más abajo.
             var proyecto = await ctx.Project
                 .Where(p => p.ProjectId == proyectoId)
-                .Select(p => new { p.EmailCoordAdmin, p.EmailCoordSsoma, p.ResidenteWorkersId })
+                .Select(p => new
+                {
+                    EmailCoordAdmin = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
+                    p.EmailCoordSsoma,
+                    p.ResidenteWorkersId
+                })
                 .FirstOrDefaultAsync();
 
             var residenteEmail = proyecto?.ResidenteWorkersId is int workerId

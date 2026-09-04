@@ -38,10 +38,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 }
             ).ToListAsync();
 
-            // Trabajadores activos asignados directamente a cada nodo (workers.area_scope_id).
+            // Trabajadores activos asignados directamente a cada nodo. El área sale del
+            // puesto (puesto.area_destino_scope_id), que es donde vive desde que se bajó
+            // workers.area_scope_id.
             var workerCounts = await _context.Worker
-                .Where(w => w.AreaScopeId != null && w.WorkersEstadoId == WorkersEstadoIds.Activo)
-                .GroupBy(w => w.AreaScopeId!.Value)
+                .Where(w => w.PuestoCatalogo!.AreaDestinoScopeId != null && w.WorkersEstadoId == WorkersEstadoIds.Activo)
+                .GroupBy(w => w.PuestoCatalogo!.AreaDestinoScopeId!.Value)
                 .Select(g => new { AreaScopeId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.AreaScopeId, g => g.Count);
 
@@ -62,18 +64,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
         {
             return await (
                 from w in _context.Worker
-                where w.AreaScopeId == areaScopeId && w.WorkersEstadoId == WorkersEstadoIds.Activo
+                where w.WorkersEstadoId == WorkersEstadoIds.Activo
                 join p in _context.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join pu in _context.Puesto on w.PuestoId equals pu.PuestoId into puj
                 from pu in puj.DefaultIfEmpty()
+                // El área del trabajador es la de destino de su puesto: el join ya está
+                // acá para la categoría, así que se filtra sobre él en vez de sumar otro.
+                where pu.AreaDestinoScopeId == areaScopeId
                 join wc in _context.Categoria on pu.CategoriaId equals wc.CategoriaId into wcj
                 from wc in wcj.DefaultIfEmpty()
-                orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
+                orderby p != null ? p.FullName : null
                 select new AreaScopeWorkerDto
                 {
                     WorkerId         = w.Id,
-                    FullName         = p != null && p.FullName != null ? p.FullName : w.ApellidoNombre,
+                    FullName         = p != null ? p.FullName : null,
                     EmailCorporativo = w.EmailCorporativo,
                     CategoryName     = wc != null ? wc.Nombre : null,
                 }

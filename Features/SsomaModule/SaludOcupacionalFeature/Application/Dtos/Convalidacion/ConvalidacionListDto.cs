@@ -26,9 +26,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public string? UrlResultado { get; set; }
         public string? UrlAptitud { get; set; }
         public string? UrlEmoCompleto { get; set; }
-        public string? InterconsultaEstado { get; set; }
-        public string? InterconsultaEspecialidad { get; set; }
-        public string? InterconsultaUrlInforme { get; set; }
+        /// <summary>Todas las interconsultas del trabajador, de la más reciente a la más
+        /// antigua. Van como documentos más del EMO en la pantalla de revisión.</summary>
+        public List<ConvalidacionInterconsultaDto> Interconsultas { get; set; } = new();
 
         // Cambio de puesto: datos y evaluación de riesgo (ver ObraOficinaStaffIds.RiesgoEmo).
         public string? PuestoOrigen { get; set; }

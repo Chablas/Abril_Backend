@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models
+﻿namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models
 {
     /// <summary>Catálogo de tipos de licencia: plantilla base (ProjectId null) o tipo propio de un proyecto.</summary>
     public class VecinoLicenciaControlTipo
@@ -43,6 +43,25 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public string? OriginalFileName { get; set; }
         public DateOnly? FechaVencimiento { get; set; }
 
+        /// <summary>Fecha en que se inscribió/tramitó el documento (dato informativo del dashboard).</summary>
+        public DateOnly? FechaInscripcion { get; set; }
+        /// <summary>Cuando no hay fecha real: NoSeCuenta/Pendiente/Indeterminado/NoRegistrada. Mutuamente excluyente con FechaInscripcion.</summary>
+        public string? FechaInscripcionEstado { get; set; }
+
+        /// <summary>Fecha de inicio de vigencia del documento.</summary>
+        public DateOnly? FechaInicio { get; set; }
+        public string? FechaInicioEstado { get; set; }
+
+        /// <summary>Cuando no hay fecha real de vencimiento: NoSeCuenta/Pendiente/Indeterminado/NoRegistrada.</summary>
+        public string? FechaVencimientoEstado { get; set; }
+
+        /// <summary>Fecha de renovación, si el documento es renovable (distinto de FechaVencimiento).</summary>
+        public DateOnly? FechaRenovacion { get; set; }
+        public string? FechaRenovacionEstado { get; set; }
+
+        /// <summary>SI/NO manual: si el documento está vigente/activo este mes, para el dashboard gerencial.</summary>
+        public bool MesActivo { get; set; } = true;
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
@@ -65,6 +84,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public DateTime? EnviadoDateTime { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
+        public bool Active { get; set; }
+        public bool State { get; set; }
+    }
+
+    /// <summary>
+    /// Una fecha de visita de la municipalidad registrada en el Anexo H de una licencia.
+    /// El recordatorio es fijo: 2 días antes de la fecha de visita, enviado a Residente y
+    /// Administrador del proyecto (project.residente_workers_id / project.workers_coord_admin_id).
+    /// </summary>
+    public class VecinoLicenciaControlVisita
+    {
+        public int VecinoLicenciaControlVisitaId { get; set; }
+        public int VecinoLicenciaControlId { get; set; }
+        public DateOnly FechaVisita { get; set; }
+        public string? Observacion { get; set; }
+        public DateOnly FechaRecordatorio { get; set; }
+        public DateTime? RecordatorioEnviadoDateTime { get; set; }
+        public DateTime CreatedDateTime { get; set; }
+        public int CreatedUserId { get; set; }
+        public DateTime? UpdatedDateTime { get; set; }
+        public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
         public bool State { get; set; }
     }

@@ -15,11 +15,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
         public AreaTypeController(IAreaTypeService service) => _service = service;
 
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] bool? active = null,
+            [FromQuery] string? search = null)
         {
             try
             {
-                var result = await _service.GetPaged(page, pageSize);
+                var result = await _service.GetPaged(new AreaTypeFilterDto
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    Active = active,
+                    Search = search
+                });
                 return Ok(result);
             }
             catch (Exception)

@@ -1194,7 +1194,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 select new { w, p };
 
             if (descendientes != null)
-                query = query.Where(x => x.w.AreaScopeId != null && descendientes.Contains(x.w.AreaScopeId.Value));
+                query = query.Where(x => x.w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                      && descendientes.Contains(x.w.PuestoCatalogo.AreaDestinoScopeId!.Value));
             if (puestoIds != null && puestoIds.Count > 0)
                 query = query.Where(x => x.w.PuestoId != null && puestoIds.Contains(x.w.PuestoId.Value));
             if (workerIdsDeProyecto != null)
@@ -1635,8 +1636,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                     ReunionAgendaItemId = a.ReunionAgendaItemId,
                     WorkerId = a.WorkerId,
                     WorkerNombre = p.FullName,
-                    SubareaDescripcion = w.AreaScopeId == null ? null : ctx.AreaScope
-                        .Where(s => s.AreaScopeId == w.AreaScopeId.Value)
+                    SubareaDescripcion = w.PuestoCatalogo!.AreaDestinoScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                         .Select(s => s.AreaItem!.AreaItemName)
                         .FirstOrDefault(),
                     Descripcion = a.Descripcion,
@@ -1688,8 +1689,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 select new
                 {
                     p.FullName,
-                    SubareaDescripcion = w.AreaScopeId == null ? null : ctx.AreaScope
-                        .Where(s => s.AreaScopeId == w.AreaScopeId.Value)
+                    SubareaDescripcion = w.PuestoCatalogo!.AreaDestinoScopeId == null ? null : ctx.AreaScope
+                        .Where(s => s.AreaScopeId == w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                         .Select(s => s.AreaItem!.AreaItemName)
                         .FirstOrDefault(),
                 }
@@ -2382,7 +2383,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             var query = ctx.Worker.Where(w => w.PuestoId != null && w.WorkersEstadoId == WorkersEstadoIds.Activo);
             if (descendientes != null)
-                query = query.Where(w => w.AreaScopeId != null && descendientes.Contains(w.AreaScopeId.Value));
+                query = query.Where(w => w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                      && descendientes.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value));
 
             var puestoIds = await query.Select(w => w.PuestoId!.Value).Distinct().ToListAsync();
 

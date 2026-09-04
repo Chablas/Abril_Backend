@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 throw new AbrilException("Este usuario no tiene acceso como obrero.", 403);
 
             var allowedFeatures = await GetFeatureKeysAsync(ctx, user.UserId);
-            var nombre = worker.ApellidoNombre ?? person.FullName ?? dni;
+            var nombre = person.FullName ?? dni;
 
             return GenerarTokenDto(user, worker.Id, nombre, rolObreroAsignado, allowedFeatures);
         }

@@ -1,4 +1,4 @@
-using Abril_Backend.Infrastructure.Interfaces;
+﻿using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces;
@@ -14,7 +14,7 @@ using Abril_Backend.Shared.Services.SharePoint.Options;
 using Microsoft.Extensions.Options;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
-using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
+using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Interfaces;
 using ClosedXML.Excel;
@@ -1290,6 +1290,43 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
         }
 
+        /// <summary>
+        /// Documentos del expediente que se pueden eliminar: los que se suben o se generan.
+        /// Quedan fuera los de plantilla (no tienen archivo propio) y el paquete del paso 4,
+        /// que se rehace regenerándolo.
+        /// </summary>
+        private static readonly HashSet<AdjudicacionDocumentType> DeletableDocuments =
+        [
+            AdjudicacionDocumentType.Contract,
+            AdjudicacionDocumentType.SummarySheet,
+            AdjudicacionDocumentType.Schedule,
+            AdjudicacionDocumentType.AttachedQuotation,
+            AdjudicacionDocumentType.ServiceOrder,
+            AdjudicacionDocumentType.PromissoryNote,
+            AdjudicacionDocumentType.Instructivo,
+            AdjudicacionDocumentType.FichaTecnica,
+            AdjudicacionDocumentType.Anexo,
+        ];
+
+        /// <summary>
+        /// Quita el documento del expediente. Es un soft delete: la fila queda con state = false
+        /// y el archivo en OneDrive se conserva.
+        /// </summary>
+        public async Task DeleteDocumentAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            int userId)
+        {
+            if (!DeletableDocuments.Contains(documentType))
+                throw new AbrilException("Este documento no se puede eliminar.", 400);
+
+            var removed = await _projectSubContractorRepository.DeleteDocumentAsync(
+                projectSubContractorId, documentType, userId);
+
+            if (!removed)
+                throw new AbrilException("El documento ya no tiene archivo.", 404);
+        }
+
         // ── Generación de documentos ─────────────────────────────────────────
 
         public async Task<DocumentUploadResponseDto> GenerateDocumentAsync(
@@ -2022,6 +2059,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var docs = await _projectSubContractorRepository.GetContractPackageUrlsAsync(projectSubContractorId);
 
+            // Generar el paquete es parte del paso 4. Volver a generarlo DESPUÉS (la adjudicación
+            // ya avanzó) solo se permite si está prendida la opción del paso 4 en
+            // Configuración de Costos → Pasos. El correo al SC no se reabre en ningún caso: esto
+            // solo regenera el archivo.
+            const int PasoPorEnviarAlSc = 4;
+            if (docs.StatusId != PasoPorEnviarAlSc && !docs.AllowRegeneratePackage)
+                throw new AbrilException(
+                    "La adjudicación ya pasó el paso 4. Para volver a generar el contrato completo, " +
+                    "active la opción en Configuración → Pasos.", 409);
+
             // Validar solo el caso legacy: archivo existe pero le falta el ItemId de SharePoint.
             // Si no hay archivo (marcado como "No aplica" en paso 3) se omite sin error.
             if (!string.IsNullOrEmpty(docs.SummarySheetUrl) && string.IsNullOrEmpty(docs.SummarySheetItemId))
@@ -2045,18 +2092,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar de
             // N requests secuenciales. Para cada archivo se decide si ya es PDF (descarga directa)
             // o necesita conversión (?format=pdf) según la extensión de su OriginalFileName.
+            //
+            // OJO: esto aplica a TODOS los documentos, no solo a los adjuntos. Aunque el contrato,
+            // la hoja resumen y el pagaré se suelen generar (.docx/.xlsx), el paso 3 permite subir
+            // cualquiera de ellos a mano y a veces llegan ya en PDF; el instructivo siempre se sube.
+            // Pedirle a Graph que convierta un PDF a PDF devuelve 406 (Not Acceptable) y tumbaba
+            // la generación del paquete completo.
             static bool IsPdf(string? fileName) =>
                 (fileName ?? "").EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
 
             var downloads = new List<(string ItemId, bool AlreadyPdf)>();
-            if (!string.IsNullOrEmpty(docs.SummarySheetItemId))         downloads.Add((docs.SummarySheetItemId,         AlreadyPdf: false));
-            if (!string.IsNullOrEmpty(docs.ContractItemId))             downloads.Add((docs.ContractItemId,             AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.SummarySheetItemId))         downloads.Add((docs.SummarySheetItemId,         AlreadyPdf: IsPdf(docs.SummarySheetFileName)));
+            if (!string.IsNullOrEmpty(docs.ContractItemId))             downloads.Add((docs.ContractItemId,             AlreadyPdf: IsPdf(docs.ContractFileName)));
             if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))    downloads.Add((docs.AttachedQuotationItemId,    AlreadyPdf: IsPdf(docs.AttachedQuotationFileName)));
             if (!string.IsNullOrEmpty(docs.FichaTecnicaItemId))         downloads.Add((docs.FichaTecnicaItemId,         AlreadyPdf: IsPdf(docs.FichaTecnicaFileName)));
             if (!string.IsNullOrEmpty(docs.ServiceOrderItemId))         downloads.Add((docs.ServiceOrderItemId,         AlreadyPdf: IsPdf(docs.ServiceOrderFileName)));
             if (!string.IsNullOrEmpty(docs.ScheduleItemId))             downloads.Add((docs.ScheduleItemId,             AlreadyPdf: IsPdf(docs.ScheduleFileName)));
-            if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
-            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: IsPdf(docs.InstructivoFileName)));
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: IsPdf(docs.PromissoryNoteFileName)));
             if (!string.IsNullOrEmpty(docs.AnexoItemId))                downloads.Add((docs.AnexoItemId,                AlreadyPdf: IsPdf(docs.AnexoFileName)));
 
             if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved && !docs.FinishProtectionApproved)
@@ -2211,8 +2264,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int? markerPageIndex = null;
 
             // PdfPig sirve solo para leer texto; no toca la estructura del PDF.
-            using (var pigDoc = UglyToad.PdfPig.PdfDocument.Open(basePdf))
+            //
+            // El contrato base no siempre es el .docx generado por el sistema: en el paso 3 se puede
+            // subir un PDF a mano (escaneado, firmado, exportado por el contratista). Ahí no hay
+            // marcadores que encontrar y además la extracción de texto puede fallar. Cualquier fallo
+            // de lectura se trata como "marcador ausente" y cae al fallback de concatenar al final,
+            // en vez de tumbar la generación del paquete completo.
+            try
             {
+                using var pigDoc = UglyToad.PdfPig.PdfDocument.Open(basePdf);
                 int idx = 0;
                 foreach (var page in pigDoc.GetPages())
                 {
@@ -2223,6 +2283,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     }
                     idx++;
                 }
+            }
+            catch (Exception)
+            {
+                markerPageIndex = null;
             }
 
             var outputDoc = new PdfDocument();

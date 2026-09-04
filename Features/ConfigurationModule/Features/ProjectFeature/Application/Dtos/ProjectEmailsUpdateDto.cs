@@ -3,8 +3,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
     /// <summary>
     /// Correos SSOMA de un proyecto que se editan en Configuración → Proyectos.
     ///
-    /// El residente ya no es un correo escrito a mano sino una referencia al trabajador
-    /// (<see cref="ResidenteWorkersId"/>): su correo se lee de
+    /// Ni el residente ni el coordinador administrativo son correos escritos a mano:
+    /// son referencias al trabajador (<see cref="ResidenteWorkersId"/> y
+    /// <see cref="WorkersCoordAdminId"/>). Su correo se lee de
     /// <c>workers.email_corporativo</c> al enviar, así no queda una segunda copia que se
     /// desactualiza cuando la persona cambia de correo.
     /// </summary>
@@ -17,13 +18,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         /// </summary>
         public int? ResidenteWorkersId { get; set; }
 
+        /// <summary>
+        /// Trabajador que es coordinador administrativo, o null para dejarlo sin
+        /// coordinador. Misma semántica que <see cref="ResidenteWorkersId"/>: null limpia.
+        /// </summary>
+        public int? WorkersCoordAdminId { get; set; }
+
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }
-        public string? EmailCoordAdmin { get; set; }
     }
 
-    /// <summary>Un trabajador elegible como residente, para el desplegable del formulario.</summary>
+    /// <summary>
+    /// Un trabajador elegible como residente o coordinador administrativo, para los
+    /// desplegables del formulario.
+    /// </summary>
     public class ResidenteOptionDto
     {
         public int WorkerId { get; set; }
@@ -32,9 +41,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
     }
 
     /// <summary>
-    /// Respuesta única del formulario de correos del proyecto: los valores actuales, el
-    /// correo del residente ya resuelto (solo lectura) y los trabajadores elegibles, en
-    /// una sola petición.
+    /// Respuesta única del formulario de correos del proyecto: los valores actuales, los
+    /// correos del residente y del coordinador administrativo ya resueltos (solo lectura)
+    /// y los trabajadores elegibles, en una sola petición.
     /// </summary>
     public class ProjectEmailsDto
     {
@@ -44,10 +53,15 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         /// <summary>Correo corporativo del residente actual — el que realmente se va a usar.</summary>
         public string? ResidenteEmail { get; set; }
 
+        public int? WorkersCoordAdminId { get; set; }
+        /// <summary>Nombre del coordinador administrativo actual.</summary>
+        public string? CoordAdminNombre { get; set; }
+        /// <summary>Correo corporativo del coordinador administrativo actual — el que realmente se va a usar.</summary>
+        public string? CoordAdminEmail { get; set; }
+
         public string? EmailResponsable { get; set; }
         public string? EmailRrhh { get; set; }
         public string? EmailCoordSsoma { get; set; }
-        public string? EmailCoordAdmin { get; set; }
 
         public List<ResidenteOptionDto> Residentes { get; set; } = new();
     }

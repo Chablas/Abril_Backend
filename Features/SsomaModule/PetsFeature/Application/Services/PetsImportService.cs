@@ -18,7 +18,28 @@ namespace Abril_Backend.Features.SsomaModule.PetsFeature.Application.Services;
 // aceptable que el sistema adivine mal en silencio.
 public class PetsImportService : IPetsImportService
 {
-    private const string MarcadorInicio = "PROCEDIMIENTO DE TRABAJO";
+    // Títulos de sección conocidos, en el orden en que normalmente aparecen en la
+    // plantilla — el orden real en el documento no importa, se detectan por texto.
+    // SeccionArbol != null -> Procedimiento/Responsabilidades (van a ssoma_pet_paso).
+    // SeccionTexto != null -> narrativas (van a ssoma_pet_seccion_texto, texto plano).
+    // Ambos null -> el título sirve solo de LÍMITE (Marco Legal, Gestión de personal,
+    // Anexos): son catálogo/archivos, no párrafos, así que su contenido no se
+    // importa automáticamente todavía — pero reconocer el título evita que su
+    // contenido se cuele dentro de la sección anterior.
+    private static readonly (string Marcador, string? SeccionTexto, string? SeccionArbol)[] Marcadores =
+    [
+        ("INTRODUCCION", "introduccion", null),
+        ("ALCANCE", "alcance", null),
+        ("OBJETIVO", "objetivo", null),
+        ("OBJETIVOS", "objetivo", null),
+        ("MARCO LEGAL", null, null),
+        ("DEFINICIONES", "definiciones", null),
+        ("RESPONSABILIDADES", null, "responsabilidades"),
+        ("GESTION DE PERSONAL", null, null),
+        ("PROCEDIMIENTO", null, "procedimiento"),
+        ("RESTRICCIONES", "restricciones", null),
+        ("ANEXOS", null, null),
+    ];
 
     private readonly IPetsService _petsService;
 
@@ -44,33 +65,58 @@ public class PetsImportService : IPetsImportService
         var todos = AnotarParrafos(paragraphs, styleNames, mainPart);
         var todosDto = todos.Select(ToPublicDto).ToList();
 
-        // Marcador de inicio: se busca sobre el TEXTO (independiente del tipo ya
+        // Cada marcador conocido se busca sobre el TEXTO (independiente del tipo ya
         // clasificado) — el título puede o no estar en un estilo "heading" real.
-        var marcador = -1;
-        for (var i = 0; i < paragraphs.Count; i++)
+        // Solo se toma la PRIMERA aparición de cada uno.
+        var limites = new List<(int Indice, string? SeccionTexto, string? SeccionArbol)>();
+        foreach (var m in Marcadores)
         {
-            if (EsTituloDeSeccion(GetParagraphText(paragraphs[i]), MarcadorInicio))
+            for (var i = 0; i < paragraphs.Count; i++)
             {
-                marcador = i;
-                break;
+                var styleId = paragraphs[i].ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+                var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
+                if (EsTituloDeSeccion(GetParagraphText(paragraphs[i]), styleName, m.Marcador))
+                {
+                    limites.Add((i, m.SeccionTexto, m.SeccionArbol));
+                    break;
+                }
             }
         }
+        limites = limites.OrderBy(l => l.Indice).ToList();
 
-        if (marcador == -1)
+        if (limites.Count == 0)
             return new PetsImportPreviewDto { SeccionEncontrada = false, TodosLosParrafos = todosDto };
 
-        // Fin de la sección: el siguiente subtítulo de nivel 1 (un "Heading 1" real,
-        // como "CONTROLES ESPECIFICOS") después del marcador. Los Heading 2+ de en
-        // medio son subtítulos DENTRO del procedimiento, no el final de la sección.
-        var finIndice = todos.FirstOrDefault(p => p.Indice > marcador && p.Tipo == "subtitulo" && p.Nivel <= 1)?.Indice
-            ?? int.MaxValue;
+        var seccionesArbol = new Dictionary<string, List<ImportPasoPreviewDto>>();
+        var seccionesTexto = new Dictionary<string, string>();
 
-        var pasos = todos
-            .Where(p => p.Indice > marcador && p.Indice < finIndice)
-            .Select(ToPublicDto)
-            .ToList();
+        for (var i = 0; i < limites.Count; i++)
+        {
+            var (indice, seccionTexto, seccionArbol) = limites[i];
+            var finIndice = i + 1 < limites.Count ? limites[i + 1].Indice : int.MaxValue;
 
-        return new PetsImportPreviewDto { SeccionEncontrada = true, Pasos = pasos, TodosLosParrafos = todosDto };
+            var enTramo = todos.Where(p => p.Indice > indice && p.Indice < finIndice).ToList();
+            if (enTramo.Count == 0) continue;
+
+            if (seccionArbol != null)
+            {
+                seccionesArbol[seccionArbol] = enTramo.Select(ToPublicDto).ToList();
+            }
+            else if (seccionTexto != null)
+            {
+                var texto = string.Join("\n\n", enTramo.Where(p => !string.IsNullOrWhiteSpace(p.Texto)).Select(p => p.Texto));
+                if (!string.IsNullOrWhiteSpace(texto)) seccionesTexto[seccionTexto] = texto;
+            }
+            // ambos null (Marco Legal, Gestión de personal, Anexos): solo delimitaba, se descarta.
+        }
+
+        return new PetsImportPreviewDto
+        {
+            SeccionEncontrada = true,
+            SeccionesArbol = seccionesArbol,
+            SeccionesTexto = seccionesTexto,
+            TodosLosParrafos = todosDto
+        };
     }
 
     private static ImportPasoPreviewDto ToPublicDto(ParrafoAnotado p) => new()
@@ -153,36 +199,53 @@ public class PetsImportService : IPetsImportService
 
     public async Task ConfirmarImportacionAsync(int petId, ConfirmarImportacionRequest request)
     {
-        // Mapea el "Indice" del preview (posición original en el Word) al id REAL
-        // que le asigna la base de datos al crearlo, para poder resolver ParentId
-        // conforme se van creando — el padre siempre se crea antes que su hijo
-        // porque el documento se recorre en el mismo orden en que aparece.
-        var idPorIndice = new Dictionary<int, int>();
-
-        foreach (var paso in request.Pasos)
+        foreach (var (seccion, pasos) in request.SeccionesArbol)
         {
-            if (string.IsNullOrWhiteSpace(paso.Texto)) continue;
+            if (pasos.Count == 0) continue;
 
-            int? parentIdReal = null;
-            if (paso.ParentIndice.HasValue && idPorIndice.TryGetValue(paso.ParentIndice.Value, out var pid))
-                parentIdReal = pid;
+            // Reimportando una versión corregida del mismo documento: se limpia la
+            // sección vigente antes de insertar, para no duplicar todo lo que ya estaba.
+            if (request.Reemplazar)
+                await _petsService.DesactivarSeccionAsync(petId, seccion);
 
-            var pasoId = await _petsService.AgregarPasoAsync(petId, new CrearPetPasoRequest
+            // Mapea el "Indice" del preview (posición original en el Word) al id REAL
+            // que le asigna la base de datos al crearlo, para poder resolver ParentId
+            // conforme se van creando — el padre siempre se crea antes que su hijo
+            // porque el documento se recorre en el mismo orden en que aparece.
+            var idPorIndice = new Dictionary<int, int>();
+
+            foreach (var paso in pasos)
             {
-                Descripcion = paso.Texto,
-                ParentId = parentIdReal,
-                Tipo = paso.Tipo,
-            });
+                if (string.IsNullOrWhiteSpace(paso.Texto)) continue;
 
-            idPorIndice[paso.Indice] = pasoId;
+                int? parentIdReal = null;
+                if (paso.ParentIndice.HasValue && idPorIndice.TryGetValue(paso.ParentIndice.Value, out var pid))
+                    parentIdReal = pid;
 
-            if (!string.IsNullOrEmpty(paso.ImagenBase64))
-            {
-                var base64 = paso.ImagenBase64.Contains(',') ? paso.ImagenBase64.Split(',')[1] : paso.ImagenBase64;
-                var bytes = Convert.FromBase64String(base64);
-                using var ms = new MemoryStream(bytes);
-                await _petsService.SubirImagenPasoAsync(petId, pasoId, ms, "importado.png");
+                var pasoId = await _petsService.AgregarPasoAsync(petId, new CrearPetPasoRequest
+                {
+                    Descripcion = paso.Texto,
+                    Seccion = seccion,
+                    ParentId = parentIdReal,
+                    Tipo = paso.Tipo,
+                });
+
+                idPorIndice[paso.Indice] = pasoId;
+
+                if (!string.IsNullOrEmpty(paso.ImagenBase64))
+                {
+                    var base64 = paso.ImagenBase64.Contains(',') ? paso.ImagenBase64.Split(',')[1] : paso.ImagenBase64;
+                    var bytes = Convert.FromBase64String(base64);
+                    using var ms = new MemoryStream(bytes);
+                    await _petsService.SubirImagenPasoAsync(petId, pasoId, ms, "importado.png");
+                }
             }
+        }
+
+        foreach (var (seccion, contenido) in request.SeccionesTexto)
+        {
+            if (string.IsNullOrWhiteSpace(contenido)) continue;
+            await _petsService.UpsertSeccionTextoAsync(petId, seccion, contenido);
         }
     }
 
@@ -205,10 +268,31 @@ public class PetsImportService : IPetsImportService
     // instrucciones de la plantilla, que explican qué hace este marcador). Por eso
     // se exige igualdad después de quitar un posible número/punto inicial, en vez de
     // un simple "contains".
-    private static bool EsTituloDeSeccion(string texto, string marcador)
+    //
+    // Los PETS reales no siempre usan el texto exacto de la plantilla (ej.
+    // "Procedimiento (Paso a paso)" en vez de "Procedimiento de Trabajo"), así que
+    // si no hay igualdad exacta se acepta una coincidencia flexible: el párrafo debe
+    // tener estilo de encabezado (Heading/Título), ser corto (no un párrafo de
+    // cuerpo) y EMPEZAR con el marcador seguido de un separador no alfanumérico
+    // (espacio, paréntesis, coma...). Eso evita falsos positivos como "Procedimientos
+    // internos..." (texto de cuerpo que empieza con la misma palabra en plural).
+    private static bool EsTituloDeSeccion(string texto, string? styleName, string marcador)
     {
         var limpio = Regex.Replace(texto.Trim(), @"^\d+[\.\)]?\s*-?\s*", "").TrimEnd('.', ':', ' ');
-        return Normalizar(limpio) == Normalizar(marcador);
+        var limpioNorm = Normalizar(limpio);
+        var marcadorNorm = Normalizar(marcador);
+
+        if (limpioNorm == marcadorNorm) return true;
+
+        // "tulo" (no "t[ií]tulo") a propósito: algunos documentos exportados desde
+        // LibreOffice pierden la tilde del nombre de estilo ("Título1" -> "Ttulo1"),
+        // así que exigir la í rompía la detección. "tulo" sigue siendo específico
+        // (no aparece en otros nombres de estilo) y cubre Título/Titulo/Ttulo/Subtítulo.
+        var esEncabezado = styleName != null && Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase);
+        if (!esEncabezado || limpio.Length > 60 || !limpioNorm.StartsWith(marcadorNorm)) return false;
+
+        var siguiente = limpioNorm.Length > marcadorNorm.Length ? limpioNorm[marcadorNorm.Length] : ' ';
+        return !char.IsLetterOrDigit(siguiente);
     }
 
     private static Dictionary<string, string> LoadStyleNames(MainDocumentPart mainPart)

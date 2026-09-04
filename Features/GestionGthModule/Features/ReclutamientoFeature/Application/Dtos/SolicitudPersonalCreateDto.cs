@@ -106,5 +106,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// tiene que contar: solo vacantes normales, solo ingresos directos, o las dos cosas.
         /// </summary>
         public bool HayIngresoDirecto { get; set; }
+
+        /// <summary>
+        /// Rutas de aprobación (<see cref="RutaAprobacion"/>) que trae la solicitud, sin repetir.
+        /// Quién firma lo decide cada VACANTE y no la solicitud, así que una misma solicitud puede
+        /// traer más de una: las nuevas suben a Gerencia General y los reemplazos los firma primero
+        /// el gerente del área. Es lo que le permite al mensaje de respuesta nombrar a quien de
+        /// verdad tiene la solicitud en su bandeja. Los ingresos directos aportan
+        /// <see cref="RutaAprobacion.Ninguna"/>: no los firma nadie.
+        /// </summary>
+        public List<string> RutasAprobacion { get; set; } = new();
     }
 }

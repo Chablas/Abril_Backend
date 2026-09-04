@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
     /// configurable en /ssoma/salud-ocupacional/emos/configuracion
     /// (correo × perfil del trabajador × destinatario).
     ///
-    /// Lo consumen los 4 envíos y la vista previa del modal "Programar EMO con clínica",
+    /// Lo consumen todos los envíos y la vista previa del modal "Programar EMO con clínica",
     /// así que lo que el usuario ve antes de guardar es literalmente lo que se va a enviar.
     /// </summary>
     public interface IEmoDestinatariosResolver

@@ -634,7 +634,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             string? revisorNombre = userId.HasValue
                 ? await ctx.Worker
                     .Where(w => w.Person != null && w.Person.UserId == userId.Value)
-                    .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                    .Select(w => w.Person!.FullName)
                     .FirstOrDefaultAsync()
                 : null;
 

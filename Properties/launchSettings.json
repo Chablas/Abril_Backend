@@ -16,7 +16,7 @@
       "launchBrowser": false,
       "applicationUrl": "http://localhost:5236",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Demo"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       }
     },
     "http": {

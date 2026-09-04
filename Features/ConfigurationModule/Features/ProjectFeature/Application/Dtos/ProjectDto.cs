@@ -35,6 +35,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? ResponsablePlaneamientoBim { get; set; }
         public int? ResponsablePlaneamientoBimId { get; set; }
 
+        // Coordinador administrativo (FK a workers; el correo se resuelve en vivo)
+        public int? WorkersCoordAdminId { get; set; }
+        /// <summary>Nombre del coordinador administrativo, para pintarlo en el modal sin buscarlo en la lista.</summary>
+        public string? CoordAdminNombre { get; set; }
+
         // Fechas
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }

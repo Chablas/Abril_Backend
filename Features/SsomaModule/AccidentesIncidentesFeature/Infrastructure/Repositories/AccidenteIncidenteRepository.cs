@@ -827,9 +827,9 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<List<string>> GetDestinatariosFlashReportAsync()
     {
         // "w.area ILIKE '%proyecto%'" dependía del texto legacy workers.area, que puede quedar
-        // vacío aunque el trabajador tenga bien resuelto workers.area_scope_id (el árbol de áreas,
-        // que es la fuente de verdad real y lo que muestra la ficha del trabajador). Caso real:
-        // COORDINADOR SSOMA con area_scope_id apuntando a "Ssoma" (colgado de "Gerencia de
+        // vacío aunque el trabajador tenga bien resuelta su área (el árbol de áreas, que es la
+        // fuente de verdad real y lo que muestra la ficha del trabajador; hoy sale del destino de
+        // su puesto). Caso real: COORDINADOR SSOMA cuya área es "Ssoma" (colgado de "Gerencia de
         // Proyectos") pero area='' -> nunca entraba por el filtro de texto. Por eso el área se
         // resuelve subiendo por area_scope_parent_id hasta encontrar un nodo "%proyecto%", en vez
         // de depender de que el texto legacy esté sincronizado.
@@ -862,7 +862,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
               AND w.email_corporativo <> ''
               AND (
                   w.area     ILIKE '%proyecto%'
-                  OR w.area_scope_id IN (SELECT origen_id FROM area_scope_proyectos)
+                  OR pu.area_destino_scope_id IN (SELECT origen_id FROM area_scope_proyectos)
                   OR w.subarea  ILIKE '%talento%'
                   OR w.subarea  ILIKE '%humano%'
                   OR w.subarea  ILIKE '%gth%'

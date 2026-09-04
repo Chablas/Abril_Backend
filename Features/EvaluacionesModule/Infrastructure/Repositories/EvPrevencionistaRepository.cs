@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
-                  WHERE w.state AND w.contrata_casa = 'Casa' AND wv.proyecto_id = ANY(@ProyectoIds)",
+                  WHERE w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */ AND wv.proyecto_id = ANY(@ProyectoIds)",
                 new {
                     ProyectoIds = proyectoIds.ToArray(),
                     CategoriaCoordinadorSsoma = CategoriaIds.CoordinadorSsoma,
@@ -148,7 +148,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM app_user au
                   JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                   LIMIT 1",
                 new { UserId = userId });
         }
@@ -163,7 +163,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });

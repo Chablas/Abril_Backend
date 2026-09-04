@@ -95,6 +95,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var empresaHabilitadaMap = EmpresaHabilitacionHelper.CalcularHabilitadas(habEmpresaRowsSsoma, itemsSsomaEmpresaIds);
 
+            // Día calendario (no instante) para los chequeos de "ya venció" — comparar contra
+            // DateTime.UtcNow (con hora) marcaba un documento vigente "hasta hoy" como vencido
+            // desde la medianoche UTC del mismo día, aunque su día de vigencia no hubiera
+            // terminado (mismo bug ya corregido en ControlAccesoRepository, caso Mego Lozano).
+            var hoyCalendario = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
+
             var empresasNoHabilitadasKeys = empresaHabilitadaMap
                 .Where(kv => !kv.Value)
                 .Select(kv => (long)kv.Key.EmpresaId * 100000L + kv.Key.ProyectoId)
@@ -147,8 +153,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              //    Bloquea SOLO si la vigencia anterior (conservada en Vigencia) ya venció o
                              //    no existe; mientras siga vigente, el trabajador se mantiene habilitado
                              //    aunque la renovación esté pendiente de aprobación.
+                             //  - Aprobado con vigencia ya pasada: el cron de VigenciaRevisionService recién
+                             //    marca esto "Falta"/"Vencido" una vez al día — sin este chequeo en vivo,
+                             //    un documento vencido seguía mostrando "Habilitado" en la ficha hasta que
+                             //    corriera el cron, aunque Control de Acceso (que sí compara vigencia en
+                             //    vivo) ya lo mostrara "No Autorizado" — caso Mego Lozano (Vida ley vencida).
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
-                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
+                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoyCalendario)) ||
+                              (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < hoyCalendario)) &&
                              // Antes se excluía el ítem EMO (id 4) para "Casa" acá, confiando SOLO
                              // en el chequeo de WorkerEmo.Estado de la línea de abajo como única
                              // fuente de verdad. Si ese estado quedaba desincronizado (p.ej. el job
@@ -240,7 +252,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (areaScopeId.HasValue)
             {
                 var idsArea = await ctx.ResolveDescendantsAsync(areaScopeId.Value);
-                baseQuery = baseQuery.Where(x => x.Worker.AreaScopeId != null && idsArea.Contains(x.Worker.AreaScopeId.Value));
+                baseQuery = baseQuery.Where(x => x.Worker.PuestoCatalogo!.AreaDestinoScopeId != null
+                                              && idsArea.Contains(x.Worker.PuestoCatalogo.AreaDestinoScopeId!.Value));
             }
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
@@ -472,8 +485,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, categoriaWorker))
                 .ToList();
 
+            // "Lectura de EMO" (ítem 25) entra acá igual que el Certificado de Aptitud: su estado
+            // se DERIVA de worker_emos, no de la copia en ss_hab_trabajador. Esa copia solo la
+            // escribían Create()/Update() del EMO, así que subir la lectura por el portal de
+            // clínicas (POST emos/{id}/documentos) o convalidar un EMO la dejaban en "Falta" para
+            // siempre — 94 trabajadores Casa con el PDF de lectura ya cargado la mostraban
+            // pendiente, contradiciendo al filtro "Sin Lectura EMO (evidencia)" de esta misma
+            // pantalla, que siempre leyó worker_emos.
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
-                                          && i.Id != HabItemIds.LecturaEmo
                                           && esCasa).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
@@ -526,6 +545,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         vigenciaEmo = fechaVenc.Value.ToDateTime(TimeOnly.MinValue);
                 }
 
+                // Vencimiento del EMO al margen de "vigente": lo usa el ítem "Lectura de EMO", que
+                // solo depende de que exista el archivo y de que el EMO no esté vencido. Que la
+                // aptitud esté "Pendiente" de convalidar o con una interconsulta abierta es asunto
+                // del Certificado de Aptitud — el informe leído sigue existiendo igual (caso Patala
+                // Román: EMO "Pendiente" por cambio de puesto, con su PDF de lectura ya cargado).
+                var fechaVencEmo = ultimoEmo?.FechaVencimientoCalculada ?? ultimoEmo?.FechaVencimiento;
+                var hoyEmo = DateOnly.FromDateTime(DateTime.Today);
+
                 // El ítem CertAptitud es el que Cambiar obra/puesto/razón social pone en
                 // "Pendiente" o "Falta" (ver CambiarObraAsync) cuando hay que revisar el EMO —
                 // ese estado vive en ss_hab_trabajador, no se puede seguir derivando solo de
@@ -547,6 +574,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             Vigencia = habCertAptitud.Vigencia,
                             ArchivoUrl = habCertAptitud.ArchivoUrl,
                             ObsAbril = "Gestionado por módulo SSOMA",
+                            ObsContratista = null,
+                            RequiereVigencia = item.RequiereVigencia,
+                            EsSctrVidaley = item.EsSctrVidaley,
+                            Responsable = item.Responsable
+                        });
+                        continue;
+                    }
+
+                    // La lectura se da por hecha cuando existe su ARCHIVO (worker_emos.url_resultado):
+                    // el PDF firmado es la evidencia, y es el mismo criterio que ya usan el filtro
+                    // "Sin Lectura EMO (evidencia)" de esta pantalla y el modal de convalidación.
+                    // La fecha_lectura sola no basta — hay EMOs importados con fecha y sin ningún
+                    // documento que la respalde.
+                    if (item.Id == HabItemIds.LecturaEmo)
+                    {
+                        var tieneLectura = !string.IsNullOrWhiteSpace(ultimoEmo?.UrlResultado)
+                                        && (!fechaVencEmo.HasValue || fechaVencEmo.Value >= hoyEmo);
+                        entregables.Add(new WorkerEntregableDto
+                        {
+                            Id = 0,
+                            ItemId = item.Id,
+                            NombreItem = item.Nombre,
+                            Estado = tieneLectura ? "Aprobado" : "Falta",
+                            Vigencia = tieneLectura && fechaVencEmo.HasValue
+                                ? fechaVencEmo.Value.ToDateTime(TimeOnly.MinValue)
+                                : null,
+                            ArchivoUrl = tieneLectura ? ultimoEmo!.UrlResultado : null,
+                            // ObsAbril se deja en null a propósito: el panel ya sale de solo lectura
+                            // por esEmo() + workerEsCasa(), y poner el texto "Gestionado por módulo
+                            // SSOMA" haría que se apilen dos avisos donde hoy hay uno.
+                            ObsAbril = null,
                             ObsContratista = null,
                             RequiereVigencia = item.RequiereVigencia,
                             EsSctrVidaley = item.EsSctrVidaley,
@@ -738,6 +796,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var userIds = versiones
                 .Where(v => v.SubidoPorUserId.HasValue)
                 .Select(v => v.SubidoPorUserId!.Value)
+                .Concat(versiones.Where(v => v.AprobadoPorUserId.HasValue).Select(v => v.AprobadoPorUserId!.Value))
                 .Distinct()
                 .ToList();
 
@@ -771,6 +830,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ProyectoId = v.ProyectoId,
                 EmpresaId = v.EmpresaId,
                 AprobadoPorUserId = v.AprobadoPorUserId,
+                AprobadoPorNombre = v.AprobadoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.AprobadoPorUserId.Value, out var aprobadoNombre)
+                    ? aprobadoNombre
+                    : null,
                 MotivoRechazo = v.MotivoRechazo,
                 CreatedAt = v.CreatedAt
             }).ToList();
@@ -902,7 +964,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Se resuelve acá (antes de calcular la clasificación) porque el proyecto destino
             // "Oficina Central" determina la clasificación automáticamente — ver más abajo.
             var proyectoDestino = esCambioProyecto
-                ? await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId)
+                ? await ctx.Project.Include(p => p.CoordAdmin)
+                    .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId)
                 : null;
 
             var currentObraOficinaStaffId = worker.ObraOficinaStaffId;
@@ -981,6 +1044,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var pidParaEmail = (int?)dto.NuevoProyectoId ?? currentProyectoId;
                     if (pidParaEmail.HasValue)
                         proyectoDestino = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
                 }
 
@@ -989,7 +1053,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (esCambioEmpresa)
                 {
-                    var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                    var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                     if (!string.IsNullOrWhiteSpace(emailSctr))
                         pendingEmails.Add((
                             [emailSctr!],
@@ -997,7 +1061,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                         ));
 
-                    var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                    var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                     if (!string.IsNullOrWhiteSpace(emailVidaLey))
                         pendingEmails.Add((
                             [emailVidaLey!],
@@ -1383,6 +1447,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (esCambioProyecto)
             {
                 proyectoDestino = await ctx.Project
+                    .Include(p => p.CoordAdmin)
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
 
                 itemsToReset.Add(HabItemIds.InduccionObra);
@@ -1408,13 +1473,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var pidParaEmail = dto.NuevoProyectoId ?? currentProyectoId;
                     if (pidParaEmail.HasValue)
                         proyectoDestino = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
                 }
 
                 var esOficinaOStaff =
                     ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
 
-                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
@@ -1422,7 +1488,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
-                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.CoordAdmin?.EmailCorporativo;
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
@@ -1966,8 +2032,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
             if (dto.ObraOficinaStaffId.HasValue) w.ObraOficinaStaffId = dto.ObraOficinaStaffId;
-            // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
-            w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea);
+            // El área ya no se deriva del texto capturado ni se guarda en la ficha: sale del
+            // puesto (puesto.area_destino_scope_id). Area/Subarea siguen siendo texto legacy.
             if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
             // El DTO sigue recibiendo el codigo en texto por compatibilidad con quien ya
             // llamaba al endpoint; se traduce al catalogo y un valor desconocido se ignora
@@ -2048,11 +2114,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     if (proyectoActualId.HasValue)
                     {
                         var proyectoActual = await ctx.Project
+                            .Include(p => p.CoordAdmin)
                             .FirstOrDefaultAsync(p => p.ProjectId == proyectoActualId.Value);
-                        if (!string.IsNullOrWhiteSpace(proyectoActual?.EmailCoordAdmin))
+                        if (!string.IsNullOrWhiteSpace(proyectoActual?.CoordAdmin?.EmailCorporativo))
                         {
                             cambioObraOficinaDestino = "Staff";
-                            cambioObraOficinaEmail = proyectoActual.EmailCoordAdmin;
+                            cambioObraOficinaEmail = proyectoActual.CoordAdmin!.EmailCorporativo;
                         }
                     }
                 }
@@ -2159,7 +2226,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Categoria = w.PuestoCatalogo?.Categoria?.Nombre,
             PuestoId = w.PuestoId,
             Puesto = w.PuestoCatalogo?.Nombre,
-            AreaScopeId = w.AreaScopeId,
+            AreaScopeId = w.PuestoCatalogo?.AreaDestinoScopeId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,

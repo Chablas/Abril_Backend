@@ -28,11 +28,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<List<DescansoTipoDto>> GetTipos() => _repo.GetTipos();
 
-        /// <summary>Carga inicial de la pantalla: catálogo de tipos + primera página, en una sola llamada.</summary>
+        /// <summary>Carga inicial de la pantalla: catálogos de los filtros + primera página, en
+        /// una sola llamada.</summary>
         public async Task<DescansosInicioDto> GetInicio(DescansoMedicoFilterDto filter) => new()
         {
-            Tipos     = await _repo.GetTipos(),
-            Descansos = await _repo.ListPaged(filter),
+            Tipos            = await _repo.GetTipos(),
+            ObraOficinaStaff = await _repo.GetObraOficinaStaff(),
+            Descansos        = await _repo.ListPaged(filter),
         };
 
         public Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter) =>

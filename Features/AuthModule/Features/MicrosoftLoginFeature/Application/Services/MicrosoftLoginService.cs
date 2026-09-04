@@ -16,6 +16,15 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
         /// </summary>
         private const int RoleIdUsuarioRevisorSalidas = 78;
 
+        /// <summary>
+        /// Mensaje del acceso denegado cuando ningún registro de <c>workers</c> tiene este correo
+        /// en <c>email_corporativo</c>. Genérico a propósito: no dice si el correo existe en el
+        /// tenant, si la ficha existe o si el trabajador está retirado — solo a quién acudir.
+        /// </summary>
+        private const string MensajeSinFichaDeTrabajador =
+            "Tu cuenta todavía no está habilitada en el sistema. Comunícate con Gestión del " +
+            "Talento Humano para que registren tu correo corporativo en tu ficha de trabajador.";
+
         private readonly IMicrosoftProfileService _profileService;
         private readonly IMicrosoftLoginRepository _repository;
         private readonly IJWTService _jwtService;
@@ -58,10 +67,18 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 
             if (user is null)
             {
-                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email);
-                user = existingPerson is not null
-                    ? await _repository.CreateUserAndLinkPersonAsync(profile, existingPerson.PersonId)
-                    : await _repository.CreateUserFromGraphAsync(profile);
+                // Primer login. La cuenta nace de la ficha del trabajador y solo de ahí: si
+                // ningún registro de workers tiene este correo en email_corporativo no se crea
+                // NADA (ni app_user ni person) y el acceso se deniega con un mensaje que manda a
+                // GTH. Antes se creaba la person con los datos de Graph, y así entraba al sistema
+                // gente sin ficha: una person nueva, sin DNI y sin worker, que nadie podía cruzar
+                // después con su trabajador (ni para permisos por área, ni para el boletín, ni
+                // para las aprobaciones). El correo se asigna en la ficha (Gestión de Ingresos →
+                // Trabajadores) y en el siguiente intento el login ya vincula esa person.
+                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email)
+                    ?? throw new AbrilException(MensajeSinFichaDeTrabajador, 403);
+
+                user = await _repository.CreateUserAndLinkPersonAsync(profile, existingPerson.PersonId);
 
                 // Primer login: si el correo es del tenant @abril.pe, asignar rol "USUARIO ABRIL" (RoleId = 12).
                 if (!string.IsNullOrWhiteSpace(email)
@@ -108,10 +125,14 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
             }
             else if (user.Person is null || user.Person.PersonId == 0)
             {
-                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email);
-                user.Person = existingPerson is not null
-                    ? await _repository.LinkPersonToUserAsync(user.UserId, existingPerson.PersonId, email)
-                    : await _repository.CreatePersonForUserAsync(user.UserId, profile);
+                // Usuario ya creado pero sin person vinculada (filas legadas: hoy toda alta de
+                // usuario crea o vincula una). Misma regla que en el primer login: la person sale
+                // de la ficha del trabajador, nunca de Graph.
+                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email)
+                    ?? throw new AbrilException(MensajeSinFichaDeTrabajador, 403);
+
+                user.Person = await _repository.LinkPersonToUserAsync(
+                    user.UserId, existingPerson.PersonId, email);
             }
 
             var accessToken     = _jwtService.GenerateToken(user);

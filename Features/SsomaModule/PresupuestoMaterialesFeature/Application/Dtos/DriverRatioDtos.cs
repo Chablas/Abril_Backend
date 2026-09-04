@@ -13,8 +13,28 @@ public class RatioDriverProyectoDto
     public string CicloVida { get; set; } = null!;
     public int DiasRegistrados { get; set; }
     public decimal AreaTechada { get; set; }
+    /// <summary>Valor "oficial" (manual si existe, si no el calculado) — el que entra a la
+    /// mediana. Mantenido por compatibilidad; para distinguir las fuentes usar
+    /// CantidadCalculado / CantidadManual.</summary>
     public decimal Cantidad { get; set; }
     public decimal Ratio { get; set; }
+    /// <summary>Acumulado real calculado desde Tareo/planilla (HH) o worker_vinculaciones
+    /// (TRABAJADORES) — "en vivo", puede estar incompleto si el proyecto sigue activo o si la
+    /// fuente no está bien cargada para ese proyecto (ver caso SAUCO).</summary>
+    public decimal CantidadCalculado { get; set; }
+    /// <summary>Valor REAL final tipeado a mano en Datos Base — solo cuando HhFuente es
+    /// HH_REAL (obra ya cerrada, dato confirmado). Null si el proyecto todavía no lo tiene
+    /// cargado o si lo que hay es solo un proyectado/estimado.</summary>
+    public decimal? CantidadManual { get; set; }
+    /// <summary>Valor PROYECTADO/estimado tipeado a mano en Datos Base — solo cuando HhFuente
+    /// es HH_PROYECTADO o HH_CALCULADO_MEDIANA (obra sin cerrar, no es un dato real).</summary>
+    public decimal? CantidadProyectado { get; set; }
+    /// <summary>Cuál de los 3 valores eligió el responsable para Cantidad/Ratio:
+    /// CALCULADO | MANUAL | PROYECTADO | null (ninguno, excluido).</summary>
+    public string? FuenteCantidad { get; set; }
+    /// <summary>Solo informativo para HH: HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA — de
+    /// dónde salió el valor manual, si lo hay.</summary>
+    public string? HhFuente { get; set; }
     public bool EsOutlier { get; set; }
     /// <summary>Unica autoridad real sobre si este proyecto entra al calculo del ratio
     /// recomendado — el responsable decide por criterio propio, no se filtra
@@ -42,6 +62,13 @@ public class CalcularRatiosDriversResultDto
 public class ActualizarIncluidoManualDriverDto
 {
     public bool Incluir { get; set; }
+}
+
+/// <summary>Fuente elegida por el responsable para un proyecto: CALCULADO | MANUAL | PROYECTADO,
+/// o null para "ninguno" (excluye el proyecto de este driver).</summary>
+public class ActualizarFuenteCantidadDriverDto
+{
+    public string? Fuente { get; set; }
 }
 
 public class RatioDriverRecomendadoDto

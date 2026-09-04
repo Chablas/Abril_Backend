@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
@@ -113,6 +114,31 @@ public class ConsumoRepository : IConsumoRepository
         linea.EstadoRevision = "RECHAZADO";
         linea.PerteneceSsoma = false;
         linea.MetodoMatch = "ALIAS_RECHAZO";
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task AplicarResultadosEstandarizacionAsync(List<ResultadoLineaParaGuardar> resultados)
+    {
+        if (resultados.Count == 0) return;
+        using var ctx = _factory.CreateDbContext();
+        var ids = resultados.Select(r => r.LineaId).ToList();
+        var lineasPorId = await ctx.SsConsumoLinea.Where(l => ids.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+
+        foreach (var r in resultados)
+        {
+            if (!lineasPorId.TryGetValue(r.LineaId, out var linea)) continue;
+            linea.Estandarizado = r.Estandarizado;
+            linea.ItemId = r.ItemId;
+            linea.PerteneceSsoma = r.PerteneceSsoma;
+            linea.MetodoMatch = r.MetodoMatch;
+            linea.ScoreMatch = r.ScoreMatch;
+            linea.EstadoRevision = r.EstadoRevision;
+            if (r.Estandarizado)
+            {
+                linea.CantidadReal = linea.Cantidad * r.FactorConversion;
+                linea.PrecioUnitarioReal = linea.CantidadReal > 0 ? linea.PrecioTotal / linea.CantidadReal : 0;
+            }
+        }
         await ctx.SaveChangesAsync();
     }
 
@@ -295,5 +321,23 @@ public class ConsumoRepository : IConsumoRepository
             linea.PrecioUnitarioReal = linea.Cantidad > 0 ? linea.PrecioTotal / linea.Cantidad : 0;
         }
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int?> ObtenerProyectoActualDelUsuarioAsync(int usuarioId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await ctx.Database.OpenConnectionAsync();
+        var conn = ctx.Database.GetDbConnection();
+        return await conn.QueryFirstOrDefaultAsync<int?>(
+            """
+            SELECT wv.proyecto_id
+            FROM app_user au
+            JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+            JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+            WHERE au.user_id = @UsuarioId
+            ORDER BY wv.id DESC
+            LIMIT 1
+            """,
+            new { UsuarioId = usuarioId });
     }
 }

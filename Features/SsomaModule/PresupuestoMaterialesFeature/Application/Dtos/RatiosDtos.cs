@@ -11,6 +11,13 @@ public class CalcularRatiosResultDto
     public List<string> Advertencias { get; set; } = [];
 }
 
+/// <summary>Resultado de calcular ratios de todos los proyectos con consumo estandarizado de una vez.</summary>
+public class CalcularRatiosTodosResultDto
+{
+    public int TotalProyectosProcesados { get; set; }
+    public List<CalcularRatiosResultDto> Proyectos { get; set; } = [];
+}
+
 public class RatioProyectoDto
 {
     public int Id { get; set; }
@@ -63,6 +70,11 @@ public class ActualizarIncluidoManualDto
     public bool Incluir { get; set; }
     /// <summary>RATIO | PRECIO — cuál cálculo afecta esta inclusión/exclusión.</summary>
     public string Campo { get; set; } = "RATIO";
+}
+
+public class ActualizarActivoFamiliaDto
+{
+    public bool Activo { get; set; }
 }
 
 public class FamiliaConRatioDto

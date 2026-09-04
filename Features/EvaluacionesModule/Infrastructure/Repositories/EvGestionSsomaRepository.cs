@@ -246,42 +246,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             List<(int? plantillaId, string criterio, int puntaje)> detalles, decimal nota)
         {
             using var ctx = _factory.CreateDbContext();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-            try
-            {
-                ctx.EvEvaluacionesGestionSsoma.Add(new EvEvaluacionGestionSsoma
-                {
-                    PeriodoId = periodoId,
-                    EvaluadorUserId = null,
-                    EvaluadorRol = Roles.Prevencionista,
-                    EvaluadoUserId = evaluadoUserId,
-                    EvaluadoRol = Roles.CoordinadorSsoma,
-                    ProyectoId = proyectoId,
-                    Nota = nota,
-                    Fortalezas = fortalezas,
-                    OportunidadesMejora = oportunidadesMejora,
-                    Detalles = detalles.Select(d => new EvEvaluacionGestionSsomaDetalle
-                    {
-                        PlantillaId = d.plantillaId,
-                        Criterio = d.criterio,
-                        Puntaje = d.puntaje
-                    }).ToList()
-                });
 
-                ctx.EvEvaluacionesGestionSsomaCumplimiento.Add(new EvEvaluacionGestionSsomaCumplimiento
-                {
-                    PeriodoId = periodoId,
-                    EvaluadorUserId = evaluadorUserId
-                });
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-            }
-            catch
+            // Sin transacción manual — mismo motivo que EvJefeSsomaRepository.RegistrarAsync:
+            // Program.cs tiene EnableRetryOnFailure para Npgsql, incompatible con
+            // BeginTransactionAsync() manual (EF Core lo rechaza en tiempo de ejecución).
+            // Los dos Add() ya se guardan atómicamente en un solo SaveChangesAsync().
+            ctx.EvEvaluacionesGestionSsoma.Add(new EvEvaluacionGestionSsoma
             {
-                await tx.RollbackAsync();
-                throw;
-            }
+                PeriodoId = periodoId,
+                EvaluadorUserId = null,
+                EvaluadorRol = Roles.Prevencionista,
+                EvaluadoUserId = evaluadoUserId,
+                EvaluadoRol = Roles.CoordinadorSsoma,
+                ProyectoId = proyectoId,
+                Nota = nota,
+                Fortalezas = fortalezas,
+                OportunidadesMejora = oportunidadesMejora,
+                Detalles = detalles.Select(d => new EvEvaluacionGestionSsomaDetalle
+                {
+                    PlantillaId = d.plantillaId,
+                    Criterio = d.criterio,
+                    Puntaje = d.puntaje
+                }).ToList()
+            });
+
+            ctx.EvEvaluacionesGestionSsomaCumplimiento.Add(new EvEvaluacionGestionSsomaCumplimiento
+            {
+                PeriodoId = periodoId,
+                EvaluadorUserId = evaluadorUserId
+            });
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<bool> ExisteAsync(int periodoId, int evaluadorUserId, int evaluadoUserId)
@@ -512,13 +507,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND w.contrata_casa = 'Casa'
-                    AND w.puesto_id = @PuestoJefeSsoma
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy,
-                new { PuestoJefeSsoma = PuestoIds.JefeSsoma });
+                    AND w.workers_estado_id = @WorkersEstadoActivo
+                    AND w.puesto_id = @PuestoJefeSsoma",
+                new { PuestoJefeSsoma = PuestoIds.JefeSsoma, WorkersEstadoActivo = WorkersEstadoIds.Activo });
 
             return rows.ToList();
         }
@@ -540,13 +535,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN person p ON p.person_id = w.person_id
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id = @CategoriaId
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                  LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND w.contrata_casa = 'Casa'
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    AND w.workers_estado_id = @WorkersEstadoActivo
                     " + filtroProyecto,
-                new { CategoriaId = categoriaId, ProyectoIds = proyectoIds?.ToArray() ?? [] });
+                new { CategoriaId = categoriaId, ProyectoIds = proyectoIds?.ToArray() ?? [], WorkersEstadoActivo = WorkersEstadoIds.Activo });
 
             return rows.ToList();
         }
@@ -565,7 +560,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM app_user au
                   JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                   LIMIT 1",
                 new { UserId = userId });
 
@@ -578,19 +573,23 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa'
+                    WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
                       AND w.puesto_id = @PuestoJefeSsoma
                   )",
                 new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
 
+        // Matchea por email (au.email = w.email_corporativo), el MISMO criterio que
+        // ObtenerCategoriaDeAsync/EsJefeSsomaAsync — no por person.user_id, que no está
+        // sincronizado para todas las cuentas (mismo bug real que hacía que José Albines
+        // apareciera bien en los reportes pero no pudiera acceder a "Evaluar Jefe SSOMA").
         private static async Task<List<int>> ObtenerProyectosDeAsync(System.Data.IDbConnection conn, int userId)
         {
             var proyectos = await conn.QueryAsync<int>(
                 @"SELECT DISTINCT wv.proyecto_id
-                  FROM workers w
-                  JOIN person p ON p.person_id = w.person_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                  WHERE w.state AND p.user_id = @UserId",
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */",
                 new { UserId = userId });
             return proyectos.ToList();
         }

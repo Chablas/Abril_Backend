@@ -39,21 +39,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.I
                 join rp in ctx.GthResponsableProceso.Where(r => r.State)
                     on w.Id equals rp.WorkerId into rpJoin
                 from rp in rpJoin.DefaultIfEmpty()
+                // El área del trabajador sale de su puesto (puesto.area_destino_scope_id): el
+                // puesto se joinea explícito porque de él salen las dos cosas que se muestran,
+                // el nombre del puesto y el área.
+                join pu in ctx.Puesto on w.PuestoId equals (int?)pu.PuestoId into puestoJoin
+                from pu in puestoJoin.DefaultIfEmpty()
                 // El área se trae para explicar las filas de fuera del equipo (y solo para eso).
-                join s in ctx.AreaScope on w.AreaScopeId equals (int?)s.AreaScopeId into areaJoin
+                join s in ctx.AreaScope on pu.AreaDestinoScopeId equals (int?)s.AreaScopeId into areaJoin
                 from s in areaJoin.DefaultIfEmpty()
                 where rp != null
-                   || (w.AreaScopeId == AreaGth
+                   || (pu.AreaDestinoScopeId == AreaGth
                        && (w.WorkersEstadoId == WorkersEstadoIds.Activo
                         || w.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma))
                 select new
                 {
                     w.Id,
                     w.PersonId,
-                    w.AreaScopeId,
+                    AreaScopeId = pu != null ? pu.AreaDestinoScopeId : null,
                     w.WorkersEstadoId,
-                    Nombre = w.Person!.FullName ?? w.ApellidoNombre ?? "",
-                    Puesto = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null,
+                    Nombre = w.Person!.FullName ?? "",
+                    Puesto = pu != null ? pu.Nombre : null,
                     Activo = rp != null && rp.Active,
                     Area   = s != null && s.AreaItem != null ? s.AreaItem.AreaItemName : null,
                 })
@@ -89,9 +94,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutadoresFeature.I
                 .Select(w => new
                 {
                     w.Id,
-                    w.AreaScopeId,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     w.WorkersEstadoId,
-                    Nombre = w.Person!.FullName ?? w.ApellidoNombre,
+                    Nombre = w.Person!.FullName,
                 })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No encontramos la ficha de ese trabajador.", 404);

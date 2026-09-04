@@ -62,6 +62,19 @@ public class RatioMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al calcular ratios." }); }
     }
 
+    /// <summary>Calcula ratios de TODOS los proyectos con consumo SSOMA estandarizado de una sola vez
+    /// (en vez de entrar proyecto por proyecto) — útil tras estandarizar varios históricos seguidos.</summary>
+    [HttpPost("proyectos/calcular-todos")]
+    public async Task<IActionResult> CalcularTodos()
+    {
+        try
+        {
+            var resultado = await _ratioService.CalcularRatiosTodosLosProyectosAsync();
+            return Ok(resultado);
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al calcular ratios de todos los proyectos." }); }
+    }
+
     /// <summary>Obtiene los ratios calculados de un proyecto.</summary>
     [HttpGet("proyectos/{projectId}")]
     public async Task<IActionResult> ObtenerPorProyecto(int projectId)
@@ -104,6 +117,22 @@ public class RatioMaterialesController : ControllerBase
             return Ok(new { familiaId, projectId, incluido = dto.Incluir, campo = dto.Campo });
         }
         catch (Exception) { return StatusCode(500, new { message = "Error al actualizar inclusión." }); }
+    }
+
+    /// <summary>
+    /// Activa/desactiva una familia directamente desde la pantalla de Ratios (mismo flag que
+    /// "Activo" en Catálogo) — al desactivarla deja de considerarse para el ratio y el presupuesto
+    /// de proyectos nuevos, sin tocar el histórico ya calculado.
+    /// </summary>
+    [HttpPatch("familias/{familiaId}/activo")]
+    public async Task<IActionResult> ActualizarActivoFamilia(int familiaId, [FromBody] ActualizarActivoFamiliaDto dto)
+    {
+        try
+        {
+            await _ratioService.ActualizarActivoFamiliaAsync(familiaId, dto.Activo);
+            return Ok(new { familiaId, activo = dto.Activo });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al actualizar el estado de la familia." }); }
     }
 
     /// <summary>Resumen general de todos los proyectos con ratios calculados.</summary>

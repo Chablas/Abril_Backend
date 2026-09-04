@@ -251,7 +251,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
         /// <summary>
         /// Trabajadores designables de una asignación: para una asignación por proyecto son los
         /// trabajadores que pertenecen a ese proyecto (ga_salidas_workers_project); para una
-        /// asignación de área son los trabajadores cuyo area_scope_id cae en el subárbol del nodo.
+        /// asignación de área son los trabajadores cuya área (la de destino de su puesto) cae en
+        /// el subárbol del nodo.
         /// En ambos casos con correo @abril.pe y ordenados por nombre.
         /// </summary>
         private static async Task<List<DelegacionOptionDto>> GetOptionsAsync(
@@ -274,7 +275,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
             var subarbol = DescendantsInclusive(areaScopeId, childrenByParent);
             return await (
                 from w in ctx.Worker
-                where w.AreaScopeId != null && subarbol.Contains(w.AreaScopeId.Value)
+                where w.PuestoCatalogo!.AreaDestinoScopeId != null
+                      && subarbol.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)
                       && w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains(EmailDomainCorp)
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.State == true

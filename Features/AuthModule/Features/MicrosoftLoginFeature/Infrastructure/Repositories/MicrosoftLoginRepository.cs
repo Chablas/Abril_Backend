@@ -161,36 +161,6 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
             };
         }
 
-        public async Task<PersonDTO> CreatePersonForUserAsync(int userId, MicrosoftProfileDto profile)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var person = new Person
-            {
-                UserId                 = userId,
-                DocumentIdentityTypeId = null,
-                DocumentIdentityCode   = null,
-                FirstNames             = profile.GivenName?.ToUpper(),
-                FirstLastName          = profile.Surname?.ToUpper(),
-                FullName               = profile.DisplayName?.ToUpper() ?? string.Empty,
-                Active                 = true,
-                State                  = true,
-                CreatedDateTime        = DateTime.UtcNow,
-                CreatedUserId          = null
-            };
-
-            ctx.Person.Add(person);
-            await ctx.SaveChangesAsync();
-
-            return new PersonDTO
-            {
-                PersonId             = person.PersonId,
-                DocumentIdentityCode = null,
-                FullName             = person.FullName,
-                Email                = profile.Mail ?? profile.UserPrincipalName ?? string.Empty
-            };
-        }
-
         public async Task<RoleSimpleDTO?> AssignRoleAsync(int userId, int roleId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -248,64 +218,5 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
             ).AnyAsync();
         }
 
-        public async Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile)
-        {
-            using var ctx = _factory.CreateDbContext();
-            var strategy = ctx.Database.CreateExecutionStrategy();
-
-            return await strategy.ExecuteAsync(async () =>
-            {
-                await using var transaction = await ctx.Database.BeginTransactionAsync();
-
-                var email = profile.Mail ?? profile.UserPrincipalName;
-
-                var user = new User
-                {
-                    Email = email,
-                    Password = null,
-                    EmailConfirmed = true,
-                    Active = true,
-                    State = true,
-                    CreatedDateTime = DateTime.UtcNow,
-                    CreatedUserId = null
-                };
-
-                ctx.User.Add(user);
-                await ctx.SaveChangesAsync();
-
-                var person = new Person
-                {
-                    UserId = user.UserId,
-                    DocumentIdentityTypeId = null,
-                    DocumentIdentityCode = null,
-                    FirstNames = profile.GivenName?.ToUpper(),
-                    FirstLastName = profile.Surname?.ToUpper(),
-                    FullName = profile.DisplayName.ToUpper(),
-                    Active = true,
-                    State = true,
-                    CreatedDateTime = DateTime.UtcNow,
-                    CreatedUserId = null
-                };
-
-                ctx.Person.Add(person);
-                await ctx.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-
-                return new UserDTO
-                {
-                    UserId = user.UserId,
-                    Active = user.Active,
-                    Person = new PersonDTO
-                    {
-                        PersonId = person.PersonId,
-                        DocumentIdentityCode = null,
-                        FullName = person.FullName,
-                        Email = email
-                    },
-                    Roles = new()
-                };
-            });
-        }
     }
 }

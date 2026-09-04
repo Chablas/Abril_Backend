@@ -2,10 +2,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
 {
     public class ContractPackageUrlsDto
     {
-        public string? SummarySheetUrl     { get; init; }
-        public string? SummarySheetItemId  { get; init; }
-        public string? ContractUrl         { get; init; }
-        public string? ContractItemId      { get; init; }
+        /// <summary>Hoja resumen. Normalmente se genera (.xlsx) pero también se puede subir a mano,
+        /// por lo que OriginalFileName define si ya es PDF o necesita conversión.</summary>
+        public string? SummarySheetUrl      { get; init; }
+        public string? SummarySheetItemId   { get; init; }
+        public string? SummarySheetFileName { get; init; }
+        /// <summary>Contrato. Normalmente se genera (.docx) pero también se puede subir a mano,
+        /// por lo que OriginalFileName define si ya es PDF o necesita conversión.</summary>
+        public string? ContractUrl          { get; init; }
+        public string? ContractItemId       { get; init; }
+        public string? ContractFileName     { get; init; }
         /// <summary>Cotización adjunta del paso 3. Se inserta dentro del contrato, después del marcador
         /// &lt;&lt;INSERTAR_COTIZACION_AQUI&gt;&gt;. OriginalFileName se usa para saber si ya es PDF o necesita conversión.</summary>
         public string? AttachedQuotationUrl         { get; init; }
@@ -35,11 +41,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         /// <summary>Protección de Acabados: documento de plantilla fijo (sin archivo).
         /// True cuando el estado es "Sí aplica" (4) → se incluye en el paquete después de Cuadro de Tolerancias.</summary>
         public bool FinishProtectionApproved { get; init; }
+        /// <summary>Instructivo: siempre se sube a mano, así que puede llegar en PDF o en Word.
+        /// OriginalFileName define si ya es PDF o necesita conversión.</summary>
         public string? InstructivoUrl            { get; init; }
         public string? InstructivoItemId         { get; init; }
-        /// <summary>Presente solo cuando la adjudicación tiene contrato con adelanto.</summary>
-        public string? PromissoryNoteUrl    { get; init; }
-        public string? PromissoryNoteItemId { get; init; }
+        public string? InstructivoFileName       { get; init; }
+        /// <summary>Presente solo cuando la adjudicación tiene contrato con adelanto. Normalmente se
+        /// genera (.docx) pero también se puede subir a mano, por lo que OriginalFileName define si
+        /// ya es PDF o necesita conversión.</summary>
+        public string? PromissoryNoteUrl      { get; init; }
+        public string? PromissoryNoteItemId   { get; init; }
+        public string? PromissoryNoteFileName { get; init; }
         /// <summary>Anexo del paso 3 (en la práctica, la Vigencia de Poder). Va al final del paquete,
         /// después del pagaré. OriginalFileName se usa para saber si ya es PDF o necesita conversión.</summary>
         public string? AnexoUrl      { get; init; }
@@ -47,5 +59,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? AnexoFileName { get; init; }
         /// <summary>Número de contrato para armar el nombre del archivo (ej. 17 → _C017).</summary>
         public int? ContractNumber { get; init; }
+        /// <summary>Paso en el que está la adjudicación. Sirve para saber si se está generando el
+        /// paquete en su momento (paso 4) o regenerándolo después.</summary>
+        public int StatusId { get; init; }
+        /// <summary>Opción "Permitir volver a generar el contrato completo" del paso 4
+        /// (Configuración de Costos → Pasos). Solo hace falta cuando la adjudicación ya pasó el paso 4.</summary>
+        public bool AllowRegeneratePackage { get; init; }
     }
 }

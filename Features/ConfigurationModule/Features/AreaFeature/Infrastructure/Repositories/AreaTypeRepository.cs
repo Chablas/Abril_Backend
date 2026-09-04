@@ -17,14 +17,25 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
             _context = context;
         }
 
-        public async Task<PagedResult<AreaTypeDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<AreaTypeDto>> GetPaged(AreaTypeFilterDto filter)
         {
-            var query = _context.AreaType.Where(t => t.State).OrderBy(t => t.AreaTypeName);
-            var totalRecords = await query.CountAsync();
+            var query = _context.AreaType.Where(t => t.State);
 
-            var data = await query
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
+            if (filter.Active.HasValue)
+                query = query.Where(t => t.Active == filter.Active.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var s = filter.Search.Trim().ToLower();
+                query = query.Where(t => t.AreaTypeName.ToLower().Contains(s));
+            }
+
+            var ordered = query.OrderBy(t => t.AreaTypeName);
+            var totalRecords = await ordered.CountAsync();
+
+            var data = await ordered
+                .Skip((filter.Page - 1) * filter.PageSize)
+                .Take(filter.PageSize)
                 .Select(t => new AreaTypeDto
                 {
                     AreaTypeId = t.AreaTypeId,
@@ -35,10 +46,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
             return new PagedResult<AreaTypeDto>
             {
-                Page = page,
-                PageSize = pageSize,
+                Page = filter.Page,
+                PageSize = filter.PageSize,
                 TotalRecords = totalRecords,
-                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)filter.PageSize),
                 Data = data
             };
         }

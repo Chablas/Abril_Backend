@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
     /// nodo de su mismo tipo en su rama del árbol area_scope (si un Área Estándar tiene
     /// como hijo otro Área Estándar, el hijo no se lista), junto a sus n revisores
     /// (area_revisores) ordenados por prioridad. Los revisores del área aplican a los
-    /// trabajadores cuyo workers.area_scope_id cae en el subárbol del nodo, cuando el
+    /// trabajadores cuyo puesto.area_destino_scope_id cae en el subárbol del nodo, cuando el
     /// trabajador no tiene revisores propios en workers_revisores.
     /// </summary>
     public class AreaRevisorItemDto

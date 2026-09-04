@@ -39,6 +39,11 @@ public class PetsService : IPetsService
 
     public Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request) => _repo.ReordenarPasosAsync(petId, request);
 
+    public Task DesactivarSeccionAsync(int petId, string seccion) => _repo.DesactivarSeccionAsync(petId, seccion);
+
+    public Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido)
+        => _repo.UpsertSeccionTextoAsync(petId, seccion, contenido);
+
     public async Task<string> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName)
     {
         var urls = await _storage.UploadFilesAsync([(fileStream, fileName)], ContainerName);
@@ -76,4 +81,25 @@ public class PetsService : IPetsService
     }
 
     public Task EliminarAnexoAsync(int petId, int anexoId) => _repo.EliminarAnexoAsync(petId, anexoId);
+
+    public Task UpsertFirmaAsync(int petId, string rol, string? nombre, string? cargo, DateOnly? fecha)
+        => _repo.UpsertFirmaAsync(petId, rol, nombre, cargo, fecha);
+
+    private const string ContainerNameFirmas = "ssoma-pets-firmas";
+
+    public async Task<string> SubirFirmaAsync(int petId, string rol, Stream fileStream, string fileName)
+    {
+        var urls = await _storage.UploadFilesAsync([(fileStream, fileName)], ContainerNameFirmas);
+        var url = urls.FirstOrDefault()
+            ?? throw new AbrilException("No se pudo subir la firma.", 500);
+
+        await _repo.SetFirmaUrlAsync(petId, rol, url);
+        return url;
+    }
+
+    public async Task<byte[]> ExportarPdfAsync(int petId)
+    {
+        var pet = await GetDetalleAsync(petId);
+        return await PetsPdfService.GenerarPdfAsync(pet);
+    }
 }

@@ -76,11 +76,11 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
                 x.a.Id,
                 x.a.Fecha,
                 AuditorWorkerId = x.auditor.Id,
-                AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
+                AuditorNombre = (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
                 AuditorCategoria = x.auditor.PuestoCatalogo == null || x.auditor.PuestoCatalogo.Categoria == null ? null : x.auditor.PuestoCatalogo.Categoria.Nombre,
                 AuditorOcupacion = x.auditor.PuestoCatalogo == null ? null : x.auditor.PuestoCatalogo.Nombre,
                 AuditadoWorkerId = x.auditado.Id,
-                AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
+                AuditadoNombre = (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
                 AuditadoCategoria = x.auditado.PuestoCatalogo == null || x.auditado.PuestoCatalogo.Categoria == null ? null : x.auditado.PuestoCatalogo.Categoria.Nombre,
                 AuditadoOcupacion = x.auditado.PuestoCatalogo == null ? null : x.auditado.PuestoCatalogo.Nombre,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
@@ -154,7 +154,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Where(w => w.Id == auditoria.AuditorWorkerId)
             .Select(w => new
             {
-                Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                Nombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
                 Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })
@@ -164,7 +164,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Where(w => w.Id == auditoria.AuditadoWorkerId)
             .Select(w => new
             {
-                Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                Nombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
                 Categoria = w.PuestoCatalogo == null || w.PuestoCatalogo.Categoria == null ? null : w.PuestoCatalogo.Categoria.Nombre,
                 Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })

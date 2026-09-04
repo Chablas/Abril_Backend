@@ -20,9 +20,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private readonly IEmoRepository _repo;
 
-        public EmoService(IEmoRepository repo)
+        /// <summary>
+        /// El correo que avisa el resultado del examen (médico ocupacional, GTH y jefatura o
+        /// solicitante). Va acá y no en el repositorio para que el envío ocurra con el EMO ya
+        /// guardado: el servicio lee de la base lo que acaba de quedar escrito.
+        /// </summary>
+        private readonly IEmoResultadoNotificacionService _notificacionResultado;
+
+        public EmoService(IEmoRepository repo, IEmoResultadoNotificacionService notificacionResultado)
         {
             _repo = repo;
+            _notificacionResultado = notificacionResultado;
         }
 
         public Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter) => _repo.ListPaged(filter);
@@ -33,10 +41,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId) => _repo.GetHistorialByWorker(workerId);
 
-        public Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId)
+        public async Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId)
         {
             ValidarComun(dto.WorkerId, dto.TipoEmoId, dto.Aptitud, dto.RequiereInterconsulta);
-            return _repo.Create(dto, userId);
+            var resultado = await _repo.Create(dto, userId);
+
+            // Aviso del resultado. El servicio decide solo si corresponde enviarlo (solo con un
+            // veredicto cerrado: Apto, Apto con Restricciones o No Apto) y nunca lanza: un correo
+            // que no sale no puede tumbar el registro de un examen que ya está guardado.
+            await _notificacionResultado.NotificarAsync(resultado.EmoId);
+
+            return resultado;
         }
 
         public Task Update(int id, EmoUpdateDto dto, int? userId)

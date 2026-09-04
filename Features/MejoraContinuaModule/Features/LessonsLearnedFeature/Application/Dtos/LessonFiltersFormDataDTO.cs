@@ -32,7 +32,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public int? DefaultObraOficinaStaffId { get; set; }
         /// <summary>
         /// Área sugerida en el formulario, resuelta desde el nodo del árbol que tiene
-        /// asignado el trabajador (<c>workers.area_scope_id</c>). Permite que la cascada
+        /// asignado el trabajador (<c>puesto.area_destino_scope_id</c>). Permite que la cascada
         /// de área llegue preseleccionada y el usuario solo tenga que elegir el proyecto.
         /// null = no se pudo resolver y el usuario la elige a mano.
         /// </summary>

@@ -19,6 +19,15 @@
         /// <summary>Categoría a la que pertenece el puesto. Obligatoria: es de acá de donde
         /// sale la categoría de un trabajador.</summary>
         public int CategoriaId { get; set; }
+
+        /// <summary>
+        /// Área a la que ENTRA quien ejerce el puesto (<c>puesto.area_destino_scope_id</c>), no la
+        /// que puede pedirlo. Viaja con el catálogo porque el formulario de trabajadores ya no
+        /// deja elegir el área: la deriva del puesto sin volver al servidor. Null = el puesto no
+        /// tiene área de destino configurada (caso válido: los puestos de obra no tienen ninguna),
+        /// y entonces el formulario conserva el área que la ficha ya tuviera.
+        /// </summary>
+        public int? AreaDestinoScopeId { get; set; }
     }
 
     public class CatCategoriaAdminDto

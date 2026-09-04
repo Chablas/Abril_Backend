@@ -36,6 +36,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         public Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId) => _repository.GetPlantilla(projectId);
 
+        public Task<VecinoLicenciaPlantillaResponseDto> GetPlantillaTodos(List<int>? projectIds) => _repository.GetPlantillaTodos(projectIds);
+
         public async Task<VecinoLicenciaTipoDto> AddTipo(int projectId, VecinoLicenciaTipoCreateDto dto, int userId)
         {
             var descripcion = (dto.Descripcion ?? string.Empty).Trim();
@@ -152,6 +154,39 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         public Task DeleteDestinatario(int destinatarioId, int userId) => _repository.DeleteDestinatario(destinatarioId, userId);
 
+        public async Task<VecinoLicenciaVisitaDto> AddVisita(int projectId, int tipoId, VecinoLicenciaVisitaCreateDto dto, int userId)
+        {
+            if (!await _repository.TipoAplicaAProyecto(projectId, tipoId))
+                throw new AbrilException("El tipo de licencia no corresponde a este proyecto.", 400);
+            if (dto.FechaVisita == default)
+                throw new AbrilException("Debe indicar la fecha de visita.", 400);
+
+            return await _repository.AddVisita(projectId, tipoId, dto.FechaVisita, dto.Observacion?.Trim(), userId);
+        }
+
+        public Task DeleteVisita(int visitaId, int userId) => _repository.DeleteVisita(visitaId, userId);
+
+        public async Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId)
+        {
+            if (!await _repository.TipoAplicaAProyecto(projectId, tipoId))
+                throw new AbrilException("El tipo de licencia no corresponde a este proyecto.", 400);
+
+            ValidarEstadoFecha(dto.FechaInscripcionEstado);
+            ValidarEstadoFecha(dto.FechaInicioEstado);
+            ValidarEstadoFecha(dto.FechaVencimientoEstado);
+            ValidarEstadoFecha(dto.FechaRenovacionEstado);
+
+            await _repository.UpdateFechas(projectId, tipoId, dto, userId);
+        }
+
+        private static void ValidarEstadoFecha(string? estado)
+        {
+            if (estado != null && !VecinoLicenciaFechaEstado.Validos.Contains(estado))
+                throw new AbrilException($"Estado de fecha inválido: '{estado}'.", 400);
+        }
+
+        public Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds) => _repository.GetDashboard(projectIds);
+
         public async Task<RecordatoriosResultDto> ProcesarRecordatorios()
         {
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
@@ -209,7 +244,54 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 }
             }
 
+            await ProcesarRecordatoriosVisita(hoy, result);
+
             return result;
+        }
+
+        /// <summary>
+        /// Recordatorios de visitas de Anexo H (fijo: 2 días antes), enviados solo a Residente
+        /// y Administración del proyecto — nunca a los destinatarios adicionales a mano.
+        /// </summary>
+        private async Task ProcesarRecordatoriosVisita(DateOnly hoy, RecordatoriosResultDto result)
+        {
+            var pendientes = await _repository.GetPendientesVisita(hoy);
+            var emailsPorProyecto = new Dictionary<int, List<string>>();
+
+            foreach (var visita in pendientes)
+            {
+                try
+                {
+                    if (!emailsPorProyecto.TryGetValue(visita.ProjectId, out var emails))
+                    {
+                        emails = await _repository.ResolverDestinatariosVisita(visita.ProjectId);
+                        emailsPorProyecto[visita.ProjectId] = emails;
+                    }
+
+                    if (emails.Count == 0)
+                        continue; // Proyecto sin Residente/Administración resueltos: no hay a quién avisar.
+
+                    var subject = $"Recordatorio: visita de {visita.TipoDescripcion} el {visita.FechaVisita:dd/MM/yyyy}";
+                    var body = $"""
+                        <p>Estimados,</p>
+                        <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
+                        <p>Hay una visita de <b>{visita.TipoDescripcion}</b> programada para el <b>{visita.FechaVisita:dd/MM/yyyy}</b>.</p>
+                        <p>Puede revisarla en la intranet:
+                        <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
+                        <p>Este es un mensaje automático, por favor no responder.</p>
+                        """;
+
+                    await _emailService.SendAsync(emails, subject, body, isHtml: true);
+                    await _repository.MarcarVisitaRecordatorioEnviado(visita.VecinoLicenciaControlVisitaId);
+
+                    result.LicenciasProcesadas++;
+                    result.CorreosEnviados += emails.Count;
+                }
+                catch (Exception ex)
+                {
+                    result.Errores.Add($"Visita {visita.VecinoLicenciaControlVisitaId} (proyecto {visita.ProjectId}): {ex.Message}");
+                }
+            }
         }
     }
 }

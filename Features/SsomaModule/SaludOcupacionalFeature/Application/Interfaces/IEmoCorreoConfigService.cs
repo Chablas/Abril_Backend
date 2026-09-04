@@ -4,7 +4,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
 {
     public interface IEmoCorreoConfigService
     {
-        /// <summary>Toda la matriz de los 4 correos en una sola petición.</summary>
+        /// <summary>Toda la matriz de los correos de EMO en una sola petición.</summary>
         Task<EmoCorreosConfigDto> GetConfig();
 
         Task<int> CrearAdicional(EmoCorreoAdicionalCreateDto dto);

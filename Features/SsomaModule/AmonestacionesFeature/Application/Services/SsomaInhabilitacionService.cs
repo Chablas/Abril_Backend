@@ -181,7 +181,7 @@ public class SsomaInhabilitacionService
             {
                 x.i.Id, x.i.WorkerId, x.i.Tipo, x.i.Motivo, x.i.PuntosAlMomento, x.i.FechaInicio,
                 WorkerDni    = x.p != null ? x.p.DocumentIdentityCode : null,
-                WorkerNombre = x.w.ApellidoNombre ?? "",
+                WorkerNombre = x.p != null ? x.p.FullName : "",
             })
             .ToListAsync();
 

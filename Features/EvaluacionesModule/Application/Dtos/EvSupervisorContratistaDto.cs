@@ -50,6 +50,19 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public string ProyectoNombre { get; set; } = string.Empty;
         public bool YaEvalue { get; set; }
         public decimal? NotaPrevia { get; set; }
+
+        // Para poder editarla mientras el período siga abierto (ver EvSupervisorContratistaController.Update).
+        public int? EvaluacionId { get; set; }
+        public string? ComentarioPrevio { get; set; }
+        public List<EvSupervisorContratistaDetallePrevioDto> DetallesPrevios { get; set; } = [];
+    }
+
+    public class EvSupervisorContratistaDetallePrevioDto
+    {
+        public int? PlantillaId { get; set; }
+        public string Criterio { get; set; } = string.Empty;
+        public int? Puntaje { get; set; }
+        public bool EsNa { get; set; }
     }
 
     // ─── MI PERFIL (el propio supervisor/prevencionista de la contratista — sin

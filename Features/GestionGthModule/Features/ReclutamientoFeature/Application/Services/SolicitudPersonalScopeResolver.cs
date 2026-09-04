@@ -21,7 +21,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// La visibilidad NO mira la categoría a propósito: el requerimiento es del área, así que
     /// cualquiera de ella tiene que poder seguirlo aunque quien lo registró ya no esté en la
     /// empresa. Lo que sí mira la categoría es <c>PuedeGestionar</c> — registrar y avanzar el
-    /// proceso son de la jefatura.
+    /// proceso son de la jefatura, con una excepción: GTH lo hace sin importar su categoría,
+    /// porque es el área dueña del proceso y no puede depender de que su gente sea jefatura.
     ///
     /// Una persona puede tener más de una ficha (reingreso): se suman los alcances de todas las
     /// vigentes, igual que en <see cref="AprobacionScopeResolver"/>. Y como allá, la categoría se
@@ -54,23 +55,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from w in ctx.Worker.AsNoTracking()
                 join p in ctx.Person.AsNoTracking() on w.PersonId equals p.PersonId
                 where p.UserId == userId && w.WorkersEstadoId == WorkersEstadoIds.Activo
-                // La categoría sale del puesto: workers ya no la guarda.
+                // La categoría y el área salen del puesto: workers ya no las guarda.
                 select new
                 {
                     CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
-                    w.AreaScopeId
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
                 }
             ).ToListAsync();
 
             if (fichas.Count == 0) return SolicitudPersonalScope.SoloLoSuyo(userId);
 
-            var puedeGestionar = fichas.Any(f => f.CategoriaId.HasValue
-                                                 && CategoriasQueGestionan.Contains(f.CategoriaId.Value));
+            // GTH: el área dueña del proceso. Pide y mueve requerimientos sin importar la categoría
+            // de su puesto —un asistente de GTH registra solicitudes igual que un jefe de otra
+            // área— y es la única que puede pedir un ingreso directo FFT.
+            var esGth = fichas.Any(f => f.AreaScopeId == AreaScopeIds.GestionDelTalentoHumano);
+
+            var puedeGestionar = esGth
+                                 || fichas.Any(f => f.CategoriaId.HasValue
+                                                    && CategoriasQueGestionan.Contains(f.CategoriaId.Value));
 
             // Los que ven todo: no hace falta ni cargar el árbol.
-            if (fichas.Any(f => f.CategoriaId == CategoriaIds.GerenteGeneral
-                                || f.AreaScopeId == AreaScopeIds.GestionDelTalentoHumano))
-                return new SolicitudPersonalScope(userId, true, new HashSet<int>(), puedeGestionar);
+            if (esGth || fichas.Any(f => f.CategoriaId == CategoriaIds.GerenteGeneral))
+                return new SolicitudPersonalScope(userId, true, new HashSet<int>(), puedeGestionar, esGth);
 
             var nodosPropios = fichas
                 .Where(f => f.AreaScopeId.HasValue)
@@ -80,7 +86,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Sin área asignada no se hereda el alcance de nadie: ve solo lo que registró él.
             if (nodosPropios.Count == 0)
-                return new SolicitudPersonalScope(userId, false, new HashSet<int>(), puedeGestionar);
+                return new SolicitudPersonalScope(userId, false, new HashSet<int>(), puedeGestionar, esGth);
 
             // El árbol es una tabla chica: se arma en memoria, igual que en AprobacionScopeResolver
             // y en SalidaVisibilityResolver.
@@ -103,7 +109,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 AgregarDescendientes(nodo, hijosPorPadre, visibles);
             }
 
-            return new SolicitudPersonalScope(userId, false, visibles, puedeGestionar);
+            return new SolicitudPersonalScope(userId, false, visibles, puedeGestionar, esGth);
         }
 
         /// <summary>Agrega recursivamente todos los descendientes de un nodo al conjunto.</summary>

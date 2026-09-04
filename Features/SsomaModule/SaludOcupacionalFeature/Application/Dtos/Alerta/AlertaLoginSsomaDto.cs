@@ -1,9 +1,9 @@
-namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta
+﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta
 {
     /// <summary>
     /// Aviso que se muestra al Administrador/Coordinador SSOMA de un proyecto cuando ingresa al
     /// sistema: interconsultas pendientes y EMOs vencidos de los trabajadores actualmente en SUS
-    /// proyectos (los que tiene cargados como <c>EmailCoordAdmin</c>/<c>EmailCoordSsoma</c>).
+    /// proyectos (aquellos donde figura como <c>WorkersCoordAdminId</c>/<c>EmailCoordSsoma</c>).
     /// Se calcula en vivo en cada login — no se persiste ni se repite por cron.
     /// </summary>
     public class AlertaLoginSsomaResultDto

@@ -9,7 +9,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     ///      se sobrepone al revisor del área.
     ///   2) Los revisores del área del trabajador en <c>area_revisores</c>
     ///      (/configuracion/revisores-areas): se parte
-    ///      de su nodo workers.area_scope_id y se sube por el árbol hasta el primer
+    ///      de su nodo puesto.area_destino_scope_id y se sube por el árbol hasta el primer
     ///      nodo con un revisor vivo + activo con correo válido (por prioridad).
     ///   3) Fallback: el área de GTH — nodo <c>area_scope</c> del área
     ///      "Gestión del Talento Humano" con <c>email</c> configurado.

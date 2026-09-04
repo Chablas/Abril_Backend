@@ -8,9 +8,9 @@
     {
         public int RequerimientoId { get; set; }
         public string Codigo { get; set; } = string.Empty;
-        /// <summary>Puesto solicitado (columna "Posición").</summary>
+        /// <summary>Puesto solicitado (columna "Puesto").</summary>
         public string Puesto { get; set; } = string.Empty;
-        /// <summary>Justificación general de la solicitud (subtítulo bajo la posición).</summary>
+        /// <summary>Justificación general de la solicitud (subtítulo bajo el puesto).</summary>
         public string? Justificacion { get; set; }
         /// <summary>Área del solicitante (snapshot al registrar).</summary>
         public string? Area { get; set; }

@@ -123,6 +123,29 @@ public class InspeccionController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error crear inspeccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpPut("{id:int}")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> Editar(int id, [FromBody] EditarInspeccionRequest request)
+    {
+        try
+        {
+            if (request.TipoId <= 0)
+                return BadRequest(new { message = "El tipo de inspección es requerido." });
+            if (request.ProyectoId <= 0)
+                return BadRequest(new { message = "El proyecto es requerido." });
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var detalle = await _service.GetDetalleAsync(id);
+                if (detalle.EmpresaId != empresaId.Value && detalle.EmpresaInspectoraId != empresaId.Value) return Forbid();
+            }
+            await _service.EditarInspeccionAsync(id, request);
+            return Ok(new { message = "Inspección actualizada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error editar inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPatch("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}/cerrar")]
     [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> CerrarHallazgo(int id, [FromBody] CerrarHallazgoRequest request)
@@ -156,7 +179,7 @@ public class InspeccionController : ControllerBase
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
                 if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
-            await _service.EditarHallazgoAsync(id, request);
+            await _service.EditarHallazgoAsync(id, request, GetUserId(), EsContratista());
             return Ok(new { message = "Hallazgo actualizado correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -175,7 +198,7 @@ public class InspeccionController : ControllerBase
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
                 if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
-            await _service.EliminarHallazgoAsync(id);
+            await _service.EliminarHallazgoAsync(id, GetUserId(), EsContratista());
             return Ok(new { message = "Hallazgo eliminado correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -20,5 +20,8 @@ public class EstandarizacionLoteResultDto
     public int AutoRechazadas { get; set; }
     public int EnRevision { get; set; }
     public int SinMatch { get; set; }
+    /// <summary>Líneas que fallaron por un error transitorio (ej. corte de conexión a la base) durante
+    /// el proceso — quedan sin tocar, no se pierden; "Re-estandarizar" las vuelve a intentar.</summary>
+    public int ConError { get; set; }
     public List<EstandarizacionLineaDto> Detalles { get; set; } = [];
 }

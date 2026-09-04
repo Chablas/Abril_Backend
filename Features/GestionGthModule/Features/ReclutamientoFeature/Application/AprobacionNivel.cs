@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// llegue a verla.
         ///
         /// De los requerimientos nuevos solo se entera: los decide Gerencia General y a él le
-        /// llega un correo informativo (<see cref="CorreoTipoReclutamiento.AvisoGerenteArea"/>)
+        /// llega un correo informativo (<see cref="CorreoTipoGth.AvisoGerenteArea"/>)
         /// que no lo mete en «Aprobaciones».
         /// </summary>
         public const string GerenteArea = "GERENTE_AREA";

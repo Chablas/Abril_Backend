@@ -1,4 +1,5 @@
-﻿namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>Opción genérica {id, nombre} para desplegables del formulario.</summary>
     public class OpcionDto
@@ -73,6 +74,14 @@
         /// lo ocupe. Ya no se pregunta el área: al elegir el puesto queda decidida.
         /// </summary>
         public List<PuestoOpcionDto> Puestos { get; set; } = new();
+
+        /// <summary>
+        /// ¿Este solicitante puede marcar una vacante como ingreso directo <b>FFT</b>? Solo GTH:
+        /// un FFT se salta el proceso entero (no se aprueba, no se publica y nace con su candidato
+        /// ya seleccionado), así que la casilla es del área dueña del proceso y de nadie más. false
+        /// para el resto, y el formulario ni les muestra el bloque — el backend igual lo rechaza.
+        /// </summary>
+        public bool PuedePedirIngresoDirecto { get; set; }
         public List<TipoRequerimientoOpcionDto> TiposRequerimiento { get; set; } = new();
         public List<OpcionDto> Proyectos { get; set; } = new();
 
@@ -108,9 +117,12 @@
 
         /// <summary>
         /// A quién le llegaría el aviso a GTH de una vacante de ingreso directo <b>FFT</b> (correo
-        /// <c>FFT_SOLICITUD_GG</c>). Un ingreso directo no lo aprueba nadie —lo pida quien lo pida—
-        /// así que su aviso reemplaza al de <see cref="Destinatarios"/> en esas vacantes, y una
-        /// solicitud que mezcle las dos clases manda los dos correos.
+        /// <c>FFT_SOLICITUD_GG</c>). Un ingreso directo no lo aprueba nadie, así que su aviso
+        /// reemplaza al de <see cref="Destinatarios"/> en esas vacantes, y una solicitud que mezcle
+        /// las dos clases manda los dos correos.
+        ///
+        /// Null cuando <see cref="PuedePedirIngresoDirecto"/> es false: sin la casilla no hay
+        /// ingreso directo posible y resolverlo sería un roundtrip para un aviso que no se muestra.
         /// </summary>
         public SolicitudDestinatariosDto? DestinatariosFft { get; set; }
     }

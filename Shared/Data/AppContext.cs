@@ -33,6 +33,9 @@ using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastru
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models;
+using Abril_Backend.Features.AlmacenModule.Features.MaterialesFeature.Infrastructure.Models;
+using Abril_Backend.Features.AlmacenModule.Features.OrdenesCompraFeature.Infrastructure.Models;
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
@@ -119,6 +122,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
+        public DbSet<ProjectSubContractorStepOption> ProjectSubContractorStepOption { get; set; }
         public DbSet<ProjectSubContractorContract> ProjectSubContractorContract { get; set; }
         public DbSet<ProjectSubContractorSummarySheet> ProjectSubContractorSummarySheet { get; set; }
         public DbSet<ProjectSubContractorBudget> ProjectSubContractorBudget { get; set; }
@@ -322,6 +326,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
         public DbSet<SsomaCatalogoItem> SsomaCatalogoItem { get; set; }
         public DbSet<SsomaPetItemSeleccionado> SsomaPetItemSeleccionado { get; set; }
+        public DbSet<SsomaPetSeccionTexto> SsomaPetSeccionTexto { get; set; }
+        public DbSet<SsomaPetFirma> SsomaPetFirma { get; set; }
         public DbSet<SsomaPetAnexo> SsomaPetAnexo { get; set; }
         public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
         public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
@@ -407,6 +413,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlHistorial> VecinoLicenciaControlHistorial => Set<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlHistorial>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlDestinatario> VecinoLicenciaControlDestinatario => Set<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlDestinatario>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlRecordatorio> VecinoLicenciaControlRecordatorio => Set<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlRecordatorio>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlVisita> VecinoLicenciaControlVisita => Set<Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Models.VecinoLicenciaControlVisita>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis> ProjectCroquis => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote> ProjectCroquisLote => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo> VecinoRequisitoTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo>();
@@ -505,6 +512,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcRevision> AcRevisiones => Set<AcRevision>();
         public DbSet<AcRevisionObservacion> AcRevisionObservaciones => Set<AcRevisionObservacion>();
         public DbSet<AcRevisionObservacionFoto> AcRevisionObservacionFotos => Set<AcRevisionObservacionFoto>();
+        // ── Costos (Arquitectura Comercial): conteo semanal + proyección mensual ──
+        public DbSet<AcCostoRegistro> AcCostoRegistros => Set<AcCostoRegistro>();
+        public DbSet<AcCostoProyeccion> AcCostoProyecciones => Set<AcCostoProyeccion>();
+        public DbSet<AcCostoMetaMensual> AcCostoMetaMensuales => Set<AcCostoMetaMensual>();
+        // ── Almacén (Logística): módulo nuevo e independiente ─────────────
+        public DbSet<AlmacenMaterial> AlmacenMateriales => Set<AlmacenMaterial>();
+        public DbSet<AlmacenMovimiento> AlmacenMovimientos => Set<AlmacenMovimiento>();
+        public DbSet<AlmacenOrdenCompra> AlmacenOrdenesCompra => Set<AlmacenOrdenCompra>();
 
         public DbSet<DecolectaToken> DecolectaToken => Set<DecolectaToken>();
 
@@ -553,11 +568,20 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg> GthAprobacionGg => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGg>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle> GthAprobacionGgDetalle => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthAprobacionGgDetalle>();
 
+        // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────────
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta> GthCartaOferta => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>();
+
+        // Las viñetas del bloque de condiciones de contrato que imprime la carta, una fila por viñeta.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion> GthCartaOfertaCondicion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion>();
+
+        // Biblioteca del file de colaboradores: la abre la carta oferta y la sigue usando Onboarding,
+        // así que el modelo vive en el Shared/ del módulo.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Shared.Models.GthCartaOfertaFolder>();
+
         // ── Gestión GTH · Onboarding (la fase que sigue a Reclutamiento) ────────
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase> GthOnboardingFase => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
-        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder> GthCartaOfertaFolder => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthCartaOfertaFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
@@ -782,6 +806,15 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(p => p.ContributorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Coordinador administrativo del proyecto. Se declara explícita (y no por
+            // convención) porque Worker no tiene navegación de vuelta hacia Project: sin
+            // esto EF podría inventarse una FK sombra en vez de usar workers_coord_admin_id.
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.CoordAdmin)
+                .WithMany()
+                .HasForeignKey(p => p.WorkersCoordAdminId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<ProjectSubContractor>()
                 .HasOne(s => s.Contract)
                 .WithMany()
@@ -859,6 +892,16 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(s => s.Package)
                 .WithMany()
                 .HasForeignKey(s => s.ProjectSubContractorPackageId)
+                .IsRequired(false);
+
+            // Era la única navegación de documento que se resolvía por convención. Desde que las
+            // tablas de documento guardan project_sub_contractor_id, la convención ve un candidato
+            // de FK en ambos lados, se rinde e inventa una FK sombra
+            // (instructivo_project_sub_contractor_instructivo_id) que no existe en la BD.
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Instructivo)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorInstructivoId)
                 .IsRequired(false);
 
             modelBuilder.Entity<ProjectSubContractor>()
@@ -1044,6 +1087,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaPetItemSeleccionado>()
                 .HasOne(x => x.CatalogoItem).WithMany().HasForeignKey(x => x.CatalogoItemId)
                 .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SsomaPetSeccionTexto>().ToTable("ssoma_pet_seccion_texto");
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetSeccionTexto>()
+                .HasIndex(x => new { x.PetId, x.Seccion }).IsUnique();
+            modelBuilder.Entity<SsomaPetFirma>().ToTable("ssoma_pet_firma");
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetFirma>()
+                .HasIndex(x => new { x.PetId, x.Rol }).IsUnique();
             modelBuilder.Entity<SsomaPetAnexo>().ToTable("ssoma_pet_anexo");
             modelBuilder.Entity<SsomaPetAnexo>()
                 .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
@@ -1095,6 +1148,19 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaAuditoriaAtsRespuesta>().ToTable("ssoma_auditoria_ats_respuesta")
                 .HasIndex(r => new { r.AuditoriaId, r.PreguntaId }).IsUnique();
             modelBuilder.Entity<SsomaAuditoriaAtsFoto>().ToTable("ssoma_auditoria_ats_foto");
+
+            // ── Costos (Arquitectura Comercial) ─────────────────────────────
+            modelBuilder.Entity<AcCostoRegistro>()
+                .HasIndex(r => new { r.ProyectoId, r.Anio, r.Mes, r.Semana, r.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoProyeccion>()
+                .HasIndex(p => new { p.ProyectoId, p.Anio, p.Mes, p.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoMetaMensual>()
+                .HasIndex(m => new { m.Anio, m.Mes }).IsUnique();
+
+            // ── Almacén (Logística) ──────────────────────────────────────────
+            modelBuilder.Entity<AlmacenMaterial>().HasIndex(m => m.Codigo).IsUnique();
+            modelBuilder.Entity<AlmacenMovimiento>().HasIndex(m => new { m.ProyectoId, m.MaterialId });
+            modelBuilder.Entity<AlmacenOrdenCompra>().HasIndex(o => o.ProyectoId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -1136,6 +1202,13 @@ namespace Abril_Backend.Infrastructure.Data
             // guardando UTC — arreglarlo acá y no en cada asignación cubre también las que se
             // agreguen después. Se aplica solo al lado de escritura; al leer, el valor vuelve tal
             // cual (Kind=Unspecified, que es lo que ya devolvía la columna).
+            //
+            // ac_observaciones / ac_observacion_fotos tenían el mismo problema y NO están acá a
+            // propósito: el 2026-09-04 se migraron sus columnas a timestamptz de verdad
+            // (Migrations/Manual/20260904_ObservacionesTimestamptz.sql), que es el estándar del
+            // proyecto, así que el mapeo por defecto de Npgsql ya es el correcto para ellas. Este
+            // bloque es deuda a saldar de la misma forma en las demás tablas que lista, no el
+            // patrón a seguir para una tabla nueva.
             var utcSinZona = new ValueConverter<DateTime, DateTime>(
                 v => DateTime.SpecifyKind(v, DateTimeKind.Unspecified),
                 v => v);
@@ -1155,6 +1228,60 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.FechaLevantamiento).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
             });
             modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacionFoto>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoRegistro>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoProyeccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoMetaMensual>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+
+            modelBuilder.Entity<AlmacenMaterial>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<AlmacenMovimiento>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<AlmacenOrdenCompra>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+
+            // Mismo problema que arriba (Revisiones): las tablas nuevas de Evaluaciones
+            // (2026-08-20_evaluaciones_ssoma_supervisores_jefe_prevencionistas.sql) se crearon
+            // con columnas "timestamp" (sin zona) pero los modelos inicializan con
+            // DateTime.UtcNow (Kind=Utc) — cualquier INSERT/UPDATE tira 500 aunque las
+            // lecturas funcionen. Se aplica el mismo conversor a las 3 evaluaciones nuevas.
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionJefeSsoma>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionJefeSsomaCumplimiento>(entity =>
+            {
+                entity.Property(e => e.CompletadoAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionSupervisorContratista>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionPrevencionista>(entity =>
             {
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
@@ -1748,11 +1875,6 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasIndex(o => o.GthCandidatoId).IsUnique().HasFilter("state = true");
                 e.HasIndex(o => o.PersonId);
 
-                // El token del enlace público es la única credencial de la página donde el postulante
-                // firma su carta oferta: no puede repetirse entre onboardings vigentes.
-                e.HasIndex(o => o.CartaOfertaToken).IsUnique()
-                 .HasFilter("state = true AND carta_oferta_token IS NOT NULL");
-
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
                  .WithMany().HasForeignKey(o => o.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Person>()
@@ -1761,6 +1883,35 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(o => o.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                  .WithMany().HasForeignKey(o => o.GthOnboardingEstadoId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>(e =>
+            {
+                // Una sola carta oferta "viva" (state = true) por candidato seleccionado.
+                e.HasIndex(c => c.GthCandidatoId).IsUnique().HasFilter("state = true");
+                e.HasIndex(c => c.PersonId);
+
+                // El token del enlace público es la única credencial de la página donde el candidato
+                // firma su carta oferta: no puede repetirse entre cartas vigentes.
+                e.HasIndex(c => c.Token).IsUnique()
+                 .HasFilter("state = true AND token IS NOT NULL");
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
+                 .WithMany().HasForeignKey(c => c.GthCandidatoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Person>()
+                 .WithMany().HasForeignKey(c => c.PersonId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Las condiciones de contrato que imprime la carta: una fila por viñeta.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOfertaCondicion>(e =>
+            {
+                // Se leen SIEMPRE por carta y en orden, que es como se imprimen.
+                e.HasIndex(c => new { c.GthCartaOfertaId, c.Orden });
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCartaOferta>()
+                 .WithMany(c => c.Condiciones)
+                 .HasForeignKey(c => c.GthCartaOfertaId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Notificaciones in-app (campanita del encabezado) ────────────────

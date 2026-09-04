@@ -427,10 +427,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         /// <see cref="GetPuestosTodosAsync"/> las cuenta (todas las fichas, sin filtrar por
         /// estado): así la lista siempre cuadra con el número que muestra la fila.
         ///
-        /// El nombre se lee de <c>person.full_name</c>; se cae a <c>workers.apellido_nombre</c>
-        /// solo si la ficha no tiene persona (la FK es nullable) o la persona no lo tiene.
-        /// El join va por la navegación (LEFT JOIN) justamente para no perder esas fichas y
-        /// desalinear el conteo.
+        /// El nombre se lee de <c>person.full_name</c>. El join va por la navegación
+        /// (LEFT JOIN) para no perder las fichas sin persona (la FK es nullable) y
+        /// desalinear el conteo: esas salen sin nombre, pero salen.
         /// </summary>
         public async Task<List<PuestoTrabajadorDto>> GetTrabajadoresPorPuestoAsync(int puestoId)
         {
@@ -438,12 +437,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await ctx.Worker
                 .AsNoTracking()
                 .Where(w => w.PuestoId == puestoId)
-                .OrderBy(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .OrderBy(w => w.Person!.FullName)
                 .ThenBy(w => w.Id)
                 .Select(w => new PuestoTrabajadorDto
                 {
                     WorkerId = w.Id,
-                    NombreCompleto = (w.Person!.FullName ?? w.ApellidoNombre) ?? "",
+                    NombreCompleto = w.Person!.FullName ?? "",
                     EmailCorporativo = w.EmailCorporativo
                 })
                 .ToListAsync();
@@ -457,7 +456,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ValidarCategoriaAsync(ctx, categoriaId);
             var solicitante = await ValidarAreaAsync(ctx, areaSolicitanteScopeId, "que puede pedir el puesto");
             var destino = await ValidarAreaAsync(ctx, areaDestinoScopeId, "de destino");
-            await ValidarNombreLibreAsync(ctx, nombreNorm, solicitante, null);
+            await ValidarNombreLibreAsync(ctx, nombreNorm, categoriaId, solicitante, null);
 
             var maxOrden = await ctx.Puesto.MaxAsync(x => (int?)x.Orden) ?? 0;
             var puesto = new Puesto
@@ -486,7 +485,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ValidarCategoriaAsync(ctx, categoriaId);
             var solicitante = await ValidarAreaAsync(ctx, areaSolicitanteScopeId, "que puede pedir el puesto");
             var destino = await ValidarAreaAsync(ctx, areaDestinoScopeId, "de destino");
-            await ValidarNombreLibreAsync(ctx, nombreNorm, solicitante, id);
+            await ValidarNombreLibreAsync(ctx, nombreNorm, categoriaId, solicitante, id);
 
             puesto.Nombre = nombreNorm;
             puesto.CategoriaId = categoriaId;
@@ -499,24 +498,36 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         /// <summary>
-        /// El nombre del puesto es único DENTRO del área que puede pedirlo, no en todo el
-        /// catálogo: un mismo cargo que existe en dos áreas son dos puestos con el mismo
-        /// nombre (CHOFER en Logística y CHOFER en Gerencia General).
+        /// El nombre del puesto no es único en todo el catálogo: se puede repetir si cambia la
+        /// CATEGORÍA o si cambia el ÁREA que puede pedirlo, y sólo se bloquea cuando coinciden
+        /// las tres cosas — que ahí ya es la misma fila dos veces.
         ///
-        /// El área de DESTINO no entra en la regla: dos puestos distintos pueden mandar a la
-        /// misma área (INGENIERO y ASISTENTE DE PRODUCCIÓN van los dos a Producción), y lo que
-        /// desambigua un nombre repetido es quién lo pide, que es lo que ve el solicitante.
+        /// La categoría entra en la regla porque es lo que distingue dos cargos que se llaman
+        /// igual: MODELADOR BIM existe como INGENIERO y como ARQUITECTO, y son dos puestos
+        /// distintos que la misma área pide por separado. Sin ella, el segundo no se podía
+        /// guardar aunque no hubiera nada duplicado.
+        ///
+        /// El área que puede pedirlo entra porque es lo que filtra el desplegable de Solicitud
+        /// de Personal: un cargo que piden dos áreas necesita una fila por área (CHOFER en
+        /// Logística y CHOFER en Gerencia General son dos puestos).
+        ///
+        /// El área de DESTINO no entra: dos puestos distintos pueden mandar a la misma área
+        /// (INGENIERO y ASISTENTE DE PRODUCCIÓN van los dos a Producción), y lo que desambigua
+        /// un nombre repetido es su categoría y quién lo pide.
         ///
         /// Los puestos sin área solicitante cuentan como un área más para esto: el índice
-        /// <c>ux_puesto_nombre_area_solicitante_vivo</c> es <c>NULLS NOT DISTINCT</c>, así que
-        /// tampoco deja dos «ALMACENERO» sueltos. Sin el <c>== null</c> explícito acá, la
-        /// comparación en SQL sería <c>NULL = NULL</c> y la validación dejaría pasar justo ese
-        /// caso, para que después reventara el índice con un 23505 ilegible.
+        /// <c>ux_puesto_nombre_categoria_area_solicitante_vivo</c> es <c>NULLS NOT DISTINCT</c>,
+        /// así que tampoco deja dos «ALMACENERO» sueltos de la misma categoría. Sin el
+        /// <c>== null</c> explícito acá, la comparación en SQL sería <c>NULL = NULL</c> y la
+        /// validación dejaría pasar justo ese caso, para que después reventara el índice con un
+        /// 23505 ilegible.
         /// </summary>
-        private static async Task ValidarNombreLibreAsync(AppDbContext ctx, string nombreNorm, int? areaSolicitanteScopeId, int? puestoIdActual)
+        private static async Task ValidarNombreLibreAsync(
+            AppDbContext ctx, string nombreNorm, int categoriaId, int? areaSolicitanteScopeId, int? puestoIdActual)
         {
             var repetido = await ctx.Puesto.AnyAsync(x => x.State
                                                        && x.Nombre == nombreNorm
+                                                       && x.CategoriaId == categoriaId
                                                        && (areaSolicitanteScopeId == null
                                                                ? x.AreaSolicitanteScopeId == null
                                                                : x.AreaSolicitanteScopeId == areaSolicitanteScopeId)
@@ -524,8 +535,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (repetido)
                 throw new AbrilException(
                     areaSolicitanteScopeId == null
-                        ? "Ya existe un puesto con ese nombre sin área que lo pida."
-                        : "Ya existe un puesto con ese nombre en esa área.",
+                        ? "Ya existe un puesto con ese nombre y esa categoría sin área que lo pida."
+                        : "Ya existe un puesto con ese nombre y esa categoría en esa área.",
                     400);
         }
 

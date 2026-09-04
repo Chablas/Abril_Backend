@@ -20,8 +20,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             using var ctx = _factory.CreateDbContext();
             var hoy = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Utc);
 
+            // El ítem 25 ("Lectura de EMO") queda fuera: su estado y su vigencia ya no salen de
+            // ss_hab_trabajador sino del propio EMO (worker_emos), así que vencer la fila vieja
+            // solo mueve data que nadie lee. Ver HabTrabajadorRepository.GetEntregablesWorkerAsync.
+            // Para "Aprobado" un Vigencia null es siempre el bug (todo ítem sin vigencia real usa
+            // fecha centinela 2040-12-31, ver HabilitacionDateHelper) — nunca vigente de verdad,
+            // así que se vence igual que si la fecha ya hubiera pasado. Para "En plazo"/"En
+            // revision" un Vigencia null SÍ puede ser legítimo (primera revisión que todavía no
+            // tiene fecha asignada), así que ahí se mantiene la comparación estricta de antes.
             var trabajadores = await ctx.SsHabTrabajador
-                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo" || h.Estado == "En revision") && h.Vigencia < hoy)
+                .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
+                            ((h.Estado == "Aprobado" && (h.Vigencia == null || h.Vigencia < hoy)) ||
+                             ((h.Estado == "En plazo" || h.Estado == "En revision") && h.Vigencia < hoy)))
                 .ToListAsync();
 
             foreach (var h in trabajadores)
@@ -30,11 +40,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 h.UpdatedAt = DateTime.UtcNow;
             }
 
+            // Excluye TODOS los ítems Centinela (documentos de una sola vez, vigencia sintética
+            // 2040-12-31 — ver HabilitacionDateHelper.ItemsCentinela) y SCTR/Vida Ley (11 es el
+            // ítem legado de SCTR en Empresa; 15/16 son los actuales), no solo un subconjunto
+            // hardcodeado. Antes esta lista {11,12,13,15} dejaba fuera a 14/17/18/19/21/23/24/25,
+            // así que un registro con vigencia vieja e incorrecta de esos ítems sí podía vencer.
+            var itemsExcluidos = Abril_Backend.Features.Habilitacion.Infrastructure.Helpers.HabilitacionDateHelper.ItemsCentinela;
             var empresas = await ctx.SsHabEmpresa
-                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo")
-                         && h.Vigencia < hoy
-                         && h.ItemId != 12 && h.ItemId != 13
-                         && h.ItemId != 15 && h.ItemId != 11)
+                .Where(h => h.ItemId != 11 && h.ItemId != 15 && h.ItemId != 16
+                         && !itemsExcluidos.Contains(h.ItemId)
+                         && ((h.Estado == "Aprobado" && (h.Vigencia == null || h.Vigencia < hoy)) ||
+                             (h.Estado == "En plazo" && h.Vigencia < hoy)))
                 .ToListAsync();
 
             foreach (var h in empresas)

@@ -16,7 +16,10 @@ ALTER TABLE gth_estado_requerimiento
 INSERT INTO gth_estado_requerimiento (codigo, nombre, descripcion, orden, created_date_time, active, state)
 VALUES
     ('NUEVO',              'Nuevo / Solicitud',            'El área solicitante registra puesto, proyecto, cantidad, fecha requerida, justificación y adjunto de sustento.', 1, now(), true, true),
-    ('APROBACION_GG',      'Aprobación Gerencia General',  'Solo aplica cuando es puesto nuevo o perfil fuera del catálogo aprobado.',                                       2, now(), true, true),
+    -- Una sola fase para dos caminos de firma (nuevo → Gerencia General; reemplazo → gerente del
+    -- área y después GTH). El badge de cada vacante lo rotula el backend con quién tiene el turno;
+    -- este nombre es el de la fase. Ver 2026-08-31_gth_fase_aprobacion_dos_caminos.sql.
+    ('APROBACION_GG',      'Aprobación Gerencia General / Gerencia del Área', 'Las vacantes nuevas las aprueba Gerencia General; los reemplazos, el gerente del área y luego GTH.',   2, now(), true, true),
     ('VALIDACION_GTH',     'Validación GTH',               'GTH valida el perfil, la base maestra, contrato/duración y datos mínimos.',                                      3, now(), true, true),
     ('PUBLICACION',        'Publicación de vacante',       'GTH publica la vacante en canales internos o externos y marca el check al publicarla.',                          4, now(), true, true),
     ('LONG_LIST',          'Long list / CVs',              'GTH carga o adjunta la long list de candidatos y CVs para revisión del cliente interno.',                        5, now(), true, true),

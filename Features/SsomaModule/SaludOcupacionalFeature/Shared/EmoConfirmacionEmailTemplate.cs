@@ -4,7 +4,11 @@ using System.Text;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
 {
     /// <summary>
-    /// Arma el HTML del correo "EMO Confirmado" (programación aceptada por la clínica).
+    /// Arma el HTML del correo "EMO Confirmado" (programación aceptada por la clínica), tanto la
+    /// versión del trabajador como la del postulante: es el mismo correo y solo cambia cómo se le
+    /// llama a la persona citada (ver <see cref="EmoExaminadoTexto"/>). Quién lo recibe en cada
+    /// caso NO se decide acá, sale de la matriz de Configuración de EMOs — son dos secciones
+    /// distintas, <c>ACEPTADA</c> y <c>ACEPTADA_POSTULANTE</c>.
     ///
     /// Restricciones de correo que explican por qué el markup se ve así — no "limpiar" esto:
     /// - Todo el layout va en tablas anidadas con estilos inline. Outlook de escritorio usa el
@@ -40,14 +44,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
         private const string AvisoTexto = "#0B5C97";
 
         /// <summary>Datos que se listan en la tarjeta central del correo.</summary>
+        /// <param name="Examinado">Nombre de la persona citada (trabajador o postulante).</param>
+        /// <param name="EsPostulante">
+        /// true = la ficha todavía es de pre-ingreso, así que el correo lo llama "postulante" en
+        /// vez de "trabajador" (ver <see cref="EmoExaminadoTexto"/>). Cambia la etiqueta de la
+        /// tarjeta y el aviso del pie, nada más: la cita es la misma.
+        /// </param>
         public sealed record Datos(
-            string Trabajador,
+            string Examinado,
             string TipoEmo,
             string Fecha,
             string Hora,
             string Proyecto,
             string Clinica,
-            string? Direccion);
+            string? Direccion,
+            bool EsPostulante);
 
         /// <param name="assetsUrl">
         /// Base pública desde donde se sirven las imágenes (App:EmailAssetsUrl). Tiene que ser
@@ -62,7 +73,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
 
             var filas = new List<(string Icono, string Etiqueta, string Valor)>
             {
-                ("emo-trabajador", "Trabajador", datos.Trabajador),
+                ("emo-trabajador", EmoExaminadoTexto.Capitalizada(datos.EsPostulante), datos.Examinado),
                 ("emo-tipo",       "Tipo EMO",   datos.TipoEmo),
                 ("emo-fecha",      "Fecha",      datos.Fecha),
                 ("emo-hora",       "Hora",       datos.Hora),
@@ -132,7 +143,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
 <table role='presentation' cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse'>
 <tr>
 <td width='54' valign='middle' style='width:54px'><img src='{iconos}/emo-aviso.png' width='40' height='40' alt='' style='display:block;width:40px;height:40px;border:0;outline:none;text-decoration:none' /></td>
-<td valign='middle' bgcolor='{AvisoFondo}' style='background-color:{AvisoFondo};border-radius:10px;padding:14px 18px;font-family:{Fuente};font-size:14px;line-height:20px;color:{AvisoTexto}'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas. Ese mismo día se le brindarán los resultados.</td>
+<td valign='middle' bgcolor='{AvisoFondo}' style='background-color:{AvisoFondo};border-radius:10px;padding:14px 18px;font-family:{Fuente};font-size:14px;line-height:20px;color:{AvisoTexto}'>{Esc(EmoExaminadoTexto.ConArticulo(datos.EsPostulante))} debe presentarse en la clínica en la fecha y hora indicadas. Ese mismo día se le brindarán los resultados.</td>
 </tr>
 </table>
 </td>

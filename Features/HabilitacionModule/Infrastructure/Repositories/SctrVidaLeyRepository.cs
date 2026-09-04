@@ -126,6 +126,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var item = sctrItems.FirstOrDefault(i =>
                 i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
+            // Para empresas Abril el worker entra directo "Aprobado" — si el ítem requiere
+            // vigencia, exigir fecha (igual que AprobarAsync/UpdateAsync) para no dejarlo
+            // "Aprobado" con Vigencia null.
+            if (esAbril && item is not null && item.RequiereVigencia && workersDistinct.Count > 0 && !vigenciaHab.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
+
             if (item is not null)
             {
                 var hoyUtc = DateTime.UtcNow.Date;
@@ -322,6 +328,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (item is not null)
             {
+                // Para empresas Abril, un worker nuevo entra directo "Aprobado" — si el ítem
+                // requiere vigencia, tiene que traer fecha, igual que en AprobarAsync, o queda
+                // "Aprobado" con Vigencia null (bug: ControlAccesoRepository lo trata como
+                // habilitado para siempre).
+                if (esAbril && item.RequiereVigencia && workerIdsAgregar.Count > 0 && !dto.Vigencia.HasValue)
+                    throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
+
+                var vigenciaNuevoWorker = esAbril ? HabilitacionDateHelper.AsUtc(dto.Vigencia) : null;
+
                 // Propagar estado a ss_hab_trabajador para nuevos workers
                 foreach (var workerInput in workersDistinct.Where(w => workerIdsAgregar.Contains(w.WorkerId)))
                 {
@@ -336,6 +351,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             WorkerId = workerInput.WorkerId,
                             ItemId = item.Id,
                             Estado = estadoNuevoWorker,
+                            Vigencia = vigenciaNuevoWorker,
                             ArchivoUrl = dto.ArchivoUrl,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
@@ -348,6 +364,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         if (hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
                         {
                             hab.Estado = estadoNuevoWorker;
+                            hab.Vigencia = vigenciaNuevoWorker;
                             hab.ArchivoUrl = dto.ArchivoUrl;
                             hab.UpdatedAt = DateTime.UtcNow;
                         }
@@ -474,6 +491,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var aprobados = dto.WorkerIdsAprobados.Distinct().ToList();
             var rechazados = dto.WorkerIdsRechazados.Distinct().ToList();
             var afectados = aprobados.Concat(rechazados).Distinct().ToList();
+
+            // Igual que HabTrabajadorRepository.UpdateEntregableAsync: si el ítem requiere
+            // vigencia, no se puede aprobar sin fecha — evita que la fila quede "Aprobado" con
+            // Vigencia null (mostrado como habilitado para siempre por ControlAccesoRepository).
+            if (item is not null && item.RequiereVigencia && aprobados.Count > 0 && !dto.Vigencia.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
 
             if (item is not null && afectados.Count > 0)
             {
@@ -681,7 +704,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // COALESCE equivalente: habX != null ? habX.Estado : "Falta"
             var habQuery =
                 from w in ctx.Worker.Where(w => workerIds.Contains(w.Id)
-                    && (idsArea == null || (w.AreaScopeId != null && idsArea.Contains(w.AreaScopeId.Value))))
+                    && (idsArea == null || (w.PuestoCatalogo!.AreaDestinoScopeId != null
+                                            && idsArea.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))))
                 join p in ctx.Person on w.PersonId equals (int?)p.PersonId into pg
                 from person in pg.DefaultIfEmpty()
                 join hs in ctx.SsHabTrabajador.Where(h => h.ItemId == itemSctrId)
@@ -724,16 +748,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var rowWorkerIds = rows.Select(r => r.WorkerId).ToList();
 
-            var vinculaciones = await ctx.WorkerVinculacion
+            var vinculacionesTodas = await ctx.WorkerVinculacion
                 .Where(wv => rowWorkerIds.Contains(wv.WorkerId) && wv.FechaFin == null)
-                .GroupBy(wv => wv.WorkerId)
-                .Select(g => g.OrderByDescending(wv => wv.Id).First())
                 .ToListAsync();
 
-            var vinMap = vinculaciones.ToDictionary(v => v.WorkerId);
+            // Si hay filtro de proyecto, mostrar la vinculación de ESE proyecto cuando exista
+            // (el trabajador puede tener otra vinculación más reciente en otro proyecto vía
+            // WorkerProyecto/multi-proyecto Casa, y no debe mostrarse ese otro proyecto).
+            var vinMap = vinculacionesTodas
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => proyectoId.HasValue
+                        ? (g.FirstOrDefault(v => v.ProyectoId == proyectoId.Value) ?? g.OrderByDescending(v => v.Id).First())
+                        : g.OrderByDescending(v => v.Id).First());
 
-            var empIds  = vinculaciones.Where(v => v.EmpresaId  != null).Select(v => v.EmpresaId!.Value).Distinct().ToList();
-            var proyIds = vinculaciones.Where(v => v.ProyectoId != null).Select(v => v.ProyectoId!.Value).Distinct().ToList();
+            var empIds  = vinculacionesTodas.Where(v => v.EmpresaId  != null).Select(v => v.EmpresaId!.Value).Distinct().ToList();
+            var proyIds = vinculacionesTodas.Where(v => v.ProyectoId != null).Select(v => v.ProyectoId!.Value).Distinct().ToList();
 
             var empMap = await ctx.Contributor
                 .Where(c => empIds.Contains(c.ContributorId))

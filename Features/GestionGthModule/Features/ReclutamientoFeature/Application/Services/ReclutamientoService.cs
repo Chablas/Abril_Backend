@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using Abril_Backend.Features.GestionGthModule.Shared.Correos;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
@@ -96,18 +97,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
         {
-            var dto = await _repo.GetFormData(userId);
+            // Abrir el formulario ya es "gestionar": la pantalla solo ofrece el botón a quien puede
+            // registrar. El alcance se resuelve igual para saber si es GTH, que es lo que decide qué
+            // puestos se le ofrecen y si puede pedir un ingreso directo.
+            var scope = await ResolverScope(userId, paraGestionar: true);
+
+            var dto = await _repo.GetFormData(userId, scope.EsGth);
 
             // Aviso "a quién le llegará esta solicitud" del modal. Va en la misma petición que los
             // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
             // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
             dto.Destinatarios = await _destinatarios.ResolverAsync(
-                CorreoTipoReclutamiento.AprobacionGg, dto.AreaScopeId);
+                CorreoTipoGth.AprobacionGg, dto.AreaScopeId);
 
             // Una vacante de ingreso directo no la aprueba nadie: su aviso va derecho a GTH y con
-            // otros destinatarios. Se resuelve siempre —cualquiera puede marcar la casilla FFT— para
-            // que el formulario pueda decir a quién le llegará cada cosa en cuanto la marquen.
-            dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FftSolicitudGg);
+            // otros destinatarios. Solo para quien puede marcar la casilla —GTH— porque al resto el
+            // formulario ni le muestra el bloque y sería un roundtrip por un aviso que no se ve.
+            if (dto.PuedePedirIngresoDirecto)
+                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoGth.FftSolicitudGg);
 
             return dto;
         }
@@ -175,7 +182,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongListDecision);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.LongListDecision);
                 if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
@@ -343,7 +350,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task NotificarCandidatoRetomadoAlSolicitanteAsync(RetomarCandidatoContextoDto ctx)
         {
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.CandidatoRetomado);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.CandidatoRetomado);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
@@ -395,7 +402,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             return l.Documento(
                 new Layout.Cabecera(
-                    "req-candidatos", "El Proceso Continúa",
+                    "req-candidatos", "Proceso retomado",
                     $"<b>{nombre}</b> vuelve al proceso de <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Franja("req-aviso", Layout.Tono.Info,
                     $"El candidato seleccionado no pasó su examen médico de ingreso. El proceso se retoma "
@@ -422,10 +429,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             int requerimientoId, int? userId) =>
             _repo.VolverALongListDesdeEmoNoApto(requerimientoId, userId);
 
-        public Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(
-            int requerimientoId, int? userId) =>
-            _repo.CerrarProcesoDesdeEmoApto(requerimientoId, userId);
-
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
         {
@@ -446,7 +449,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Destinatarios: el principal (Para) es SIEMPRE el postulante citado; la configuración
             // del correo de ENTREVISTA solo aporta principales adicionales y copias.
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Entrevista);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.Entrevista);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Resumen.CorreoEnvio, dest);
 
             // Sin nadie a quien mandársela no hay envío que intentar: pasa cuando el postulante
@@ -498,24 +501,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// «Rechazar» y eso es todo lo que hay que saber (mismo criterio editorial que el resto de
         /// la familia, ver <see cref="Layout"/>).
         ///
-        /// El lugar lleva debajo el enlace al mapa cuando el lugar lo tiene cargado. Es un enlace y
-        /// no un mapa embebido a propósito: Outlook bloquea las imágenes remotas de terceros y una
-        /// imagen estática de Google Maps necesita una API key, así que el mapa saldría roto justo
-        /// donde más importa.
+        /// El lugar lleva debajo la referencia para ubicarlo y el enlace al mapa, cuando el lugar
+        /// los tiene cargados (ver <see cref="Textos.Lugar"/>, que arma la misma fila para el aviso
+        /// al solicitante).
         /// </summary>
         private string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
         {
             var l = Layout.Desde(_configuration);
             var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : ctx.CandidatoNombre;
 
-            var lugar = Textos.OGuion(ctx.Resumen.LugarNombre);
-            if (!string.IsNullOrWhiteSpace(ctx.LugarMapsUrl))
-                lugar += $"<br />{Textos.Enlace(ctx.LugarMapsUrl!, "Ver en Google Maps")}";
+            var lugar = Textos.Lugar(ctx.Resumen.LugarNombre, ctx.LugarReferencia, ctx.LugarMapsUrl);
 
             return l.Documento(
                 new Layout.Cabecera(
                     "req-entrevista", "Invitación a Entrevista",
-                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la posición <b>{Layout.Esc(ctx.Puesto)}</b>."),
+                    $"Estimado(a) {Layout.Esc(nombre)}: te esperamos para la entrevista del puesto <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Tarjeta(new List<Layout.Fila>
                 {
                     new("req-fecha", "Fecha", ctx.Resumen.Fecha.ToString("dd/MM/yyyy")),
@@ -592,6 +592,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Fecha           = ctx.Resumen.Fecha,
                 Hora            = ctx.Resumen.Hora,
                 LugarNombre     = ctx.Resumen.LugarNombre,
+                // La página de confirmación repite la dirección con su referencia y su enlace al
+                // mapa: el postulante suele leerla desde el celular y en ese momento es cuando
+                // necesita saber cómo llegar, no cuando archivó el correo.
+                LugarReferencia = ctx.LugarReferencia,
+                LugarMapsUrl    = ctx.LugarMapsUrl,
             };
         }
 
@@ -606,7 +611,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private async Task NotificarRespuestaEntrevistaAGthAsync(EntrevistaRespuestaContextoDto ctx)
         {
             var emailGth = await _correoConfig.GetEmailAreaGthAsync();
-            var dest     = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.EntrevistaRespuesta);
+            var dest     = await _destinatarios.ResolverAsync(CorreoTipoGth.EntrevistaRespuesta);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(emailGth, dest);
 
             if (principales.Count == 0)
@@ -693,7 +698,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private async Task NotificarEntrevistaConfirmadaAlSolicitanteAsync(EntrevistaRespuestaContextoDto ctx)
         {
             var dest = await _destinatarios.ResolverAsync(
-                CorreoTipoReclutamiento.EntrevistaConfirmadaSolicitante);
+                CorreoTipoGth.EntrevistaConfirmadaSolicitante);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
             if (principales.Count == 0)
@@ -740,13 +745,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 new("req-candidato", "Candidato", Textos.OGuion(ctx.CandidatoNombre)),
                 new("req-fecha", "Fecha", cita.Fecha.ToString("dd/MM/yyyy")),
                 new("req-hora", "Hora", Textos.OGuion(cita.Hora)),
-                // El lugar con su enlace al mapa cuando lo tiene cargado: quien va a la entrevista
-                // puede no conocer la dirección.
-                new("req-lugar", "Lugar", string.IsNullOrWhiteSpace(ctx.LugarMapsUrl)
-                    ? Textos.OGuion(cita.LugarNombre)
-                    : Textos.Enlace(ctx.LugarMapsUrl!, string.IsNullOrWhiteSpace(cita.LugarNombre)
-                        ? "Ver ubicación"
-                        : cita.LugarNombre)),
+                // El lugar con su referencia y su enlace al mapa cuando los tiene cargados: quien
+                // va a la entrevista puede no conocer la dirección. Misma fila que la invitación
+                // del postulante (ver Textos.Lugar).
+                new("req-lugar", "Lugar",
+                    Textos.Lugar(cita.LugarNombre, ctx.LugarReferencia, ctx.LugarMapsUrl)),
             };
 
             return l.Documento(
@@ -901,7 +904,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaEnvio);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FinalistaEnvio);
                 var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
 
                 if (principales.Count == 0)
@@ -1071,7 +1074,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private async Task<bool> EnviarAgradecimientoAsync(AgradecimientoEnvioContextoDto ctx)
         {
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.Agradecimiento);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.Agradecimiento);
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.Correo, dest);
 
             if (principales.Count == 0)
@@ -1222,7 +1225,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             try
             {
-                var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.FinalistaDecision);
+                var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.FinalistaDecision);
                 if (dest.Para.Count == 0)
                 {
                     _logger.LogWarning(
@@ -1383,7 +1386,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 2) Destinatarios del correo de long list.
             //    El destinatario PRINCIPAL (Para/To) es SIEMPRE el solicitante que registró la
             //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
-            var dest = await _destinatarios.ResolverAsync(CorreoTipoReclutamiento.LongList);
+            var dest = await _destinatarios.ResolverAsync(CorreoTipoGth.LongList);
 
             // Para = solicitante primero + principales configurados; CC = copias que no estén en Para.
             var (principales, copias) = CorreoDestinatariosCombinador.Combinar(ctx.SolicitanteEmail, dest);
@@ -1647,12 +1650,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public async Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento)
         {
             // Pedir personal es de la jefatura del área: misma regla que para avanzar el proceso.
-            await ResolverScope(userId, paraGestionar: true);
+            var scope = await ResolverScope(userId, paraGestionar: true);
 
             if (dto?.Vacantes == null || dto.Vacantes.Count == 0)
                 throw new AbrilException("Debe registrar al menos una vacante.", 400);
             if (dto.Vacantes.Count > 10)
                 throw new AbrilException("Una solicitud permite un máximo de 10 vacantes.", 400);
+
+            // El ingreso directo FFT es de GTH y de nadie más: se salta el proceso completo (nadie
+            // lo aprueba, la vacante no se publica y el candidato nace seleccionado con su ficha de
+            // pre-ingreso abierta), así que solo el área dueña del proceso puede pedirlo. El
+            // formulario ni le muestra la casilla al resto; esto es lo que la hace regla.
+            if (!scope.EsGth && dto.Vacantes.Any(v => v.EsFft))
+                throw new AbrilException(
+                    "Solo Gestión del Talento Humano puede registrar un ingreso directo (FFT).", 403);
 
             // La justificación es el sustento que leen el gerente del área y Gerencia General para
             // aprobar, así que sin ella la solicitud no se registra.
@@ -1777,7 +1788,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var hayFft        = dto.Vacantes.Any(v => v.EsFft);
             var hayAprobables = dto.Vacantes.Any(v => !v.EsFft);
 
-            var result = await _repo.Create(solicitud, dto.Vacantes, userId);
+            var result = await _repo.Create(solicitud, dto.Vacantes, userId, scope.EsGth);
             result.AprobacionGgOmitida = !hayAprobables;
             result.HayIngresoDirecto   = hayFft;
 

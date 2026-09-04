@@ -24,7 +24,7 @@
         public int? OcupacionId { get; set; }
         /// <summary>Puesto final del trabajador (para prellenar el modal de edición).</summary>
         public string? Puesto { get; set; }
-        /// <summary>Nodo del árbol de áreas asignado (workers.area_scope_id, para prellenar el modal de edición).</summary>
+        /// <summary>Nodo del árbol de áreas asignado (puesto.area_destino_scope_id, para prellenar el modal de edición).</summary>
         public int? AreaScopeId { get; set; }
         /// <summary>FK a <c>categoria</c>, derivada de <c>puesto.categoria_id</c>, para prellenar
         /// el filtro de categoría del modal de edición. Solo lectura.</summary>

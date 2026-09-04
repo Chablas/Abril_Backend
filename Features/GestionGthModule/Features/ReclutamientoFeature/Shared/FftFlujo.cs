@@ -375,15 +375,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             if (existente != null)
             {
-                // El área de una ficha de pre-ingreso sale siempre del requerimiento que la puso
-                // ahí. La de un trabajador real es su área de verdad: solo se llena si estaba vacía,
-                // para no moverlo de sitio en el árbol antes de que exista el contrato.
-                var puedeReasignarArea = existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
-                                      || existente.AreaScopeId == null;
-                if (areaDestino != null && puedeReasignarArea && existente.AreaScopeId != areaDestino)
+                // Una ficha de pre-ingreso se repunta al puesto del requerimiento que la puso ahí:
+                // con eso se mueve también su área (y su categoría), que salen las dos del puesto.
+                // La ficha de un trabajador real NO se toca: repuntarle el puesto lo movería de
+                // área y de categoría antes de que exista el contrato.
+                if (existente.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                    && req.PuestoId != null && existente.PuestoId != req.PuestoId)
                 {
-                    existente.AreaScopeId = areaDestino;
-                    existente.UpdatedAt   = now;
+                    existente.PuestoId  = req.PuestoId;
+                    existente.UpdatedAt = now;
                 }
                 return existente;
             }
@@ -392,10 +392,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 PersonId        = personId,
                 WorkersEstadoId = WorkersEstadoIds.FinalistaAprobado,
-                // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id.
+                // Solo el puesto: la categoría de la ficha sale de puesto.categoria_id, y su área
+                // de puesto.area_destino_scope_id. Ninguna de las dos se guarda en la ficha.
                 PuestoId        = req.PuestoId,
                 ContributorId   = req.ContributorId,
-                AreaScopeId     = areaDestino,
                 // Clasificación desde ya, no en el onboarding: es lo que hace que los correos de
                 // EMO encuentren su columna en la matriz de Configuración de EMOs cuando GTH le
                 // programa el examen de ingreso. Ver ClasificacionPreIngreso.

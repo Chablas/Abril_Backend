@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
@@ -20,6 +21,63 @@ public class RatioService : IRatioService
     }
 
     public async Task<CalcularRatiosResultDto> CalcularRatiosProyectoAsync(int projectId)
+    {
+        var familiaIdsAfectadas = new HashSet<int>();
+        var resultado = await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsAfectadas);
+
+        // Detectar outliers con IQR comparando la MISMA familia entre todos los proyectos
+        // (no familias distintas dentro de este proyecto — eso comparaba peras con manzanas),
+        // en un solo lote (antes era una consulta + guardado por familia).
+        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.ToList());
+
+        return resultado;
+    }
+
+    /// <summary>
+    /// Calcula ratios de TODOS los proyectos que tengan consumo SSOMA estandarizado, de una sola vez
+    /// — antes había que entrar a la ficha de cada proyecto y darle "Calcular" uno por uno, algo que
+    /// hay que repetir cada vez que cambia el Kardex de cualquier histórico. La detección de outliers
+    /// corre una sola vez al final, sobre todas las familias que se tocaron en el lote entero (no una
+    /// vez por proyecto), que es más rápido y da el mismo resultado porque solo mira el estado final.
+    /// </summary>
+    public async Task<CalcularRatiosTodosResultDto> CalcularRatiosTodosLosProyectosAsync()
+    {
+        var proyectos = await _repo.ObtenerProyectosConConsumoEstandarizadoAsync();
+        var resultado = new CalcularRatiosTodosResultDto { TotalProyectosProcesados = proyectos.Count };
+        var familiaIdsAfectadas = new ConcurrentDictionary<int, byte>();
+        var resultadosPorProyecto = new ConcurrentBag<CalcularRatiosResultDto>();
+
+        // Cada proyecto abre su propia conexión (IDbContextFactory / pool de Npgsql), así que
+        // procesarlos en paralelo es seguro — antes se hacía uno por uno y con ~15-20 proyectos
+        // el tiempo total se sumaba secuencialmente. familiaIdsAfectadas es local por proyecto y
+        // se combina al final en un diccionario concurrente (HashSet no es thread-safe).
+        await Parallel.ForEachAsync(proyectos, new ParallelOptions { MaxDegreeOfParallelism = 5 },
+            async (proyecto, _) =>
+            {
+                var (projectId, projectDescription) = proyecto;
+                var familiaIdsLocal = new HashSet<int>();
+                try
+                {
+                    resultadosPorProyecto.Add(await CalcularRatiosProyectoInternoAsync(projectId, familiaIdsLocal));
+                }
+                catch (AbrilException ex)
+                {
+                    resultadosPorProyecto.Add(new CalcularRatiosResultDto
+                    {
+                        ProjectId = projectId,
+                        ProjectDescription = projectDescription,
+                        Advertencias = [ex.Message]
+                    });
+                }
+                foreach (var id in familiaIdsLocal) familiaIdsAfectadas.TryAdd(id, 0);
+            });
+
+        resultado.Proyectos.AddRange(resultadosPorProyecto);
+        await RecalcularOutliersDeFamiliasAsync(familiaIdsAfectadas.Keys.ToList());
+        return resultado;
+    }
+
+    private async Task<CalcularRatiosResultDto> CalcularRatiosProyectoInternoAsync(int projectId, HashSet<int> familiaIdsAfectadas)
     {
         using var ctx = _factory.CreateDbContext();
         var proyecto = await ctx.Project.FindAsync(projectId)
@@ -73,10 +131,14 @@ public class RatioService : IRatioService
         // Una sola conexion para todas las familias (antes se abria una por familia).
         await _repo.UpsertRatiosBulkAsync(itemsAGuardar);
 
-        // Detectar outliers con IQR comparando la MISMA familia entre todos los proyectos
-        // (no familias distintas dentro de este proyecto — eso comparaba peras con manzanas),
-        // en un solo lote (antes era una consulta + guardado por familia).
-        await RecalcularOutliersDeFamiliasAsync(itemsAGuardar.Select(i => i.FamiliaId).Distinct().ToList());
+        var familiaIdsVigentes = itemsAGuardar.Select(i => i.FamiliaId).Distinct().ToList();
+        // Limpia familias que ya no tienen consumo vigente en este proyecto (ej. se fusionaron a
+        // otro ítem) — si no, quedan filas "fantasma" con el último ratio calculado antes de mover
+        // los datos, y la pantalla sigue mostrando una familia como si tuviera consumo real.
+        await _repo.EliminarRatiosObsoletosAsync(projectId, familiaIdsVigentes);
+
+        foreach (var id in familiaIdsVigentes)
+            familiaIdsAfectadas.Add(id);
 
         return resultado;
     }
@@ -125,6 +187,9 @@ public class RatioService : IRatioService
 
     public Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo) =>
         _repo.ActualizarIncluidoManualAsync(familiaId, projectId, incluir, campo);
+
+    public Task ActualizarActivoFamiliaAsync(int familiaId, bool activo) =>
+        _repo.ActualizarActivoFamiliaAsync(familiaId, activo);
 
     public Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync() =>
         _repo.ListarFamiliasConRatioAsync();

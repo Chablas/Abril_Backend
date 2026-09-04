@@ -31,28 +31,31 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         }
 
         /// <summary>
-        /// Área a persistir.
+        /// Textos legacy de área a persistir (<c>workers.area</c> / <c>subarea</c> / <c>jefatura</c>).
         ///
-        /// Si el formulario mandó el nodo del árbol, ese es la fuente de verdad y los campos legacy
-        /// que hayan llegado en null se derivan de él (dirección nueva). Los que lleguen con valor se
-        /// respetan: así un formulario que muestra los desplegables de área manda los tres en null y
-        /// deja que se deriven, y uno que no los muestra puede reenviar intactos los que ya estaban
-        /// guardados sin que se reescriban.
+        /// El NODO del árbol ya no se persiste: el área de un trabajador es la de destino de su
+        /// puesto (<c>puesto.area_destino_scope_id</c>). Lo que sigue vivo son estas tres columnas
+        /// de texto, que varias pantallas todavía muestran, y que se derivan de ese nodo — por eso
+        /// <paramref name="areaScopeId"/> es ahora el área del PUESTO y no algo que mande el
+        /// formulario.
         ///
-        /// Si no vino nodo se conserva el comportamiento viejo: se guardan los textos capturados y se
-        /// intenta derivar el nodo a partir de la subárea (dirección original de AreaScopeMatcher).
+        /// Los campos que llegan con valor se respetan y solo se derivan los que vienen en null:
+        /// así un formulario que no muestra los textos los manda en null y deja que se deriven, y
+        /// uno que sí los captura puede reenviarlos intactos sin que se reescriban.
+        ///
+        /// Sin nodo (puesto sin destino, o ficha sin puesto) se guardan tal cual los textos
+        /// capturados, que es lo único que hay.
         /// </summary>
-        private async Task<(int? AreaScopeId, string? Area, string? Subarea, string? Jefatura)> ResolverAreaAsync(
+        private async Task<(string? Area, string? Subarea, string? Jefatura)> ResolverTextosAreaAsync(
             int? areaScopeId, string? area, string? subarea, string? jefatura)
         {
             if (areaScopeId is > 0)
             {
                 var eq = await _areaLegacyResolver.ResolveAsync(areaScopeId);
-                return (areaScopeId, area ?? eq?.Area, subarea ?? eq?.Subarea, jefatura ?? eq?.Jefatura);
+                return (area ?? eq?.Area, subarea ?? eq?.Subarea, jefatura ?? eq?.Jefatura);
             }
 
-            return (Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(area, subarea),
-                    area, subarea, jefatura);
+            return (area, subarea, jefatura);
         }
 
         public async Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null)
@@ -355,24 +358,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // vino uno: un campo vacío no borra el dato que ya estaba registrado.
             if (dto.EmailPersonal is not null) person.Email = dto.EmailPersonal;
 
-            var areaResuelta = await ResolverAreaAsync(
-                dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
-
-            // La categoría del trabajador es la de su puesto: se lee acá para poder congelarla
-            // en la vinculación de alta más abajo.
-            var categoriaDelPuesto = dto.PuestoId.HasValue
+            // La categoría y el área del trabajador son las de su puesto: se leen juntas en un
+            // solo roundtrip. La categoría se congela en la vinculación de alta más abajo, y el
+            // área alimenta los textos legacy (workers.area / subarea / jefatura).
+            var datosDelPuesto = dto.PuestoId.HasValue
                 ? await ctx.Puesto
                     .Where(pu => pu.PuestoId == dto.PuestoId.Value)
-                    .Select(pu => (int?)pu.CategoriaId)
+                    .Select(pu => new { pu.CategoriaId, pu.AreaDestinoScopeId })
                     .FirstOrDefaultAsync()
                 : null;
+
+            var categoriaDelPuesto = datosDelPuesto?.CategoriaId;
+
+            var areaResuelta = await ResolverTextosAreaAsync(
+                datosDelPuesto?.AreaDestinoScopeId, dto.Area, dto.Subarea, dto.Jefatura);
 
             var worker = new Worker
             {
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
                 PuestoId = dto.PuestoId,
-                AreaScopeId = areaResuelta.AreaScopeId,
                 Area = areaResuelta.Area,
                 Subarea = areaResuelta.Subarea,
                 ContrataCasa = dto.ContrataCasa,
@@ -483,14 +488,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaIngreso.HasValue)
                 await WorkersPeriodoLaboralHelper.SetFechaIngresoAsync(
                     ctx, worker.Id, dto.FechaIngreso.Value, DateTimeOffset.UtcNow);
-            // Obra, razón social, puesto (categoría/ocupación) y clasificación (Obra/Staff/
-            // Oficina Central) NO se tocan desde esta edición general — deliberado. Cambiarlas
-            // acá bypaseaba por completo el flujo de "Cambiar obra / puesto de trabajo"
-            // (CambiarObraAsync): no reseteaba el certificado de aptitud, no dejaba auditoría
-            // (WorkerEvento), no bloqueaba la subida de riesgo Oficina Central → Staff/Obra, y
-            // encima MUTABA la vinculación vigente en vez de cerrarla y abrir una nueva,
-            // corrompiendo el historial. Esos cinco campos ahora son de solo lectura en el
-            // formulario de edición; el único camino soportado es CambiarObraAsync.
+            // Obra, razón social y clasificación (Obra/Staff/Oficina Central) NO se tocan desde
+            // esta edición general — deliberado. Cambiarlas acá bypaseaba por completo el flujo
+            // de "Cambiar obra / puesto de trabajo" (CambiarObraAsync): no reseteaba el
+            // certificado de aptitud, no dejaba auditoría (WorkerEvento), no bloqueaba la subida
+            // de riesgo Oficina Central → Staff/Obra, y encima MUTABA la vinculación vigente en
+            // vez de cerrarla y abrir una nueva, corrompiendo el historial. Esos campos son de
+            // solo lectura en el formulario de edición; el único camino soportado es
+            // CambiarObraAsync. El puesto sí se guarda desde acá, pero solo donde el formulario
+            // lo ofrece editable — ver el bloque que sigue a la asignación de clasificación.
             //
             // ÚNICA excepción: ASIGNAR la clasificación a una ficha que no tiene ninguna. No es
             // un cambio de clasificación — no hay origen del que salir, así que no hay aptitud
@@ -503,9 +509,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (worker.ObraOficinaStaffId is null && dto.ObraOficinaStaffId.HasValue)
                 worker.ObraOficinaStaffId = dto.ObraOficinaStaffId;
 
-            var areaResuelta = await ResolverAreaAsync(
-                dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
-            worker.AreaScopeId = areaResuelta.AreaScopeId;
+            // Puesto. Sí se cambia desde esta edición general, pero solo en las clasificaciones
+            // donde el formulario lo ofrece editable: Staff, Oficina Central y Personal Externo
+            // (ver `puestoEditable` en worker-create-edit.ts). En Obra sigue siendo exclusivo de
+            // CambiarObraAsync, el único camino que revisa si el EMO vigente sigue valiendo para
+            // el puesto nuevo (mismo protocolo de riesgo) y que deja auditoría del cambio.
+            // Manda la clasificación que quedó después del bloque de arriba, para que asignarle
+            // clasificación y puesto a una ficha en el mismo guardado funcione.
+            //
+            // Sin valor no se hace nada: el formulario omite el campo cuando no lo gestiona, y un
+            // null borraría el puesto — que es el único camino a la categoría, así que la ficha
+            // quedaría fuera de todo filtro y de toda regla (ver Worker.PuestoId).
+            //
+            // La vinculación vigente NO se toca: su `puesto` y `categoria_id` son el snapshot
+            // congelado del momento del cambio de obra (los lee ConvalidacionRepository para
+            // reconstruir el puesto/categoría de origen de un EMO), no el valor vigente.
+            if (dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId)
+            {
+                if (worker.ObraOficinaStaffId == ObraOficinaStaffIds.Obra)
+                    throw new AbrilException(
+                        "El puesto de un trabajador de Obra se cambia con \"Cambiar obra / puesto " +
+                        "de trabajo\", que es donde se revisa su certificado de aptitud.", 400);
+
+                // Un puesto de baja dejaría al trabajador sin categoría legible: se valida igual
+                // que en UpdateDatosBasicos y en CambiarObraAsync.
+                var existePuesto = await ctx.Puesto
+                    .AnyAsync(pu => pu.PuestoId == dto.PuestoId.Value && pu.State);
+                if (!existePuesto)
+                    throw new AbrilException("El puesto seleccionado no existe.", 400);
+
+                worker.PuestoId = dto.PuestoId;
+            }
+
+            // El nodo de área no se guarda: es el destino del puesto que quedó arriba. De ahí se
+            // derivan los textos legacy que sí siguen viviendo en la ficha.
+            var areaDelPuesto = worker.PuestoId.HasValue
+                ? await ctx.Puesto
+                    .Where(pu => pu.PuestoId == worker.PuestoId.Value)
+                    .Select(pu => pu.AreaDestinoScopeId)
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var areaResuelta = await ResolverTextosAreaAsync(
+                areaDelPuesto, dto.Area, dto.Subarea, dto.Jefatura);
             worker.Area = areaResuelta.Area;
             worker.Subarea = areaResuelta.Subarea;
             worker.ContrataCasa = dto.ContrataCasa;
@@ -576,14 +622,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             worker.PuestoId = dto.PuestoId;
 
-            if (dto.AreaScopeId.HasValue && dto.AreaScopeId != worker.AreaScopeId)
-            {
-                var existeNodo = await ctx.AreaScope
-                    .AnyAsync(s => s.AreaScopeId == dto.AreaScopeId.Value && s.State);
-                if (!existeNodo)
-                    throw new AbrilException("El área seleccionada no existe en la jerarquía de áreas.", 400);
-            }
-            worker.AreaScopeId = dto.AreaScopeId;
+            // El área ya no se elige ni se valida acá: sale del puesto que se acaba de guardar
+            // (puesto.area_destino_scope_id), así que ponerle puesto es ponerle área.
 
             // Ambos correos llegan ya normalizados y validados (formato, existencia en el tenant,
             // unicidad del corporativo y "al menos uno") por WorkerEmailValidator; aquí solo se persisten.

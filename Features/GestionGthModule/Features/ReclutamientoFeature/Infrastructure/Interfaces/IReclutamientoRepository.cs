@@ -1,12 +1,22 @@
 ﻿using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
+using Abril_Backend.Features.GestionGthModule.Shared.Correos;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces
 {
     public interface IReclutamientoRepository
     {
-        Task<ReclutamientoFormDataDto> GetFormData(int? userId);
+        /// <summary>
+        /// Catálogos y ficha del solicitante que necesita el formulario «Nueva solicitud de
+        /// personal», en una sola petición.
+        /// </summary>
+        /// <param name="esGth">
+        /// ¿El solicitante es de GTH (<see cref="SolicitudPersonalScope.EsGth"/>)? Le abre el
+        /// catálogo completo de puestos —solo los activos y con área de destino— y la casilla de
+        /// ingreso directo FFT, que es exclusiva del área dueña del proceso.
+        /// </param>
+        Task<ReclutamientoFormDataDto> GetFormData(int? userId, bool esGth);
 
         /// <summary>
         /// Catálogo de tipos de documento (DNI / CE) con su código estable. Lo necesita la
@@ -38,8 +48,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// pre-ingreso abierta— porque no las aprueba nadie. Lo decide la vacante y no la solicitud:
         /// una misma solicitud puede traer de las dos.
         /// </summary>
+        /// <param name="esGth">
+        /// El mismo de <see cref="GetFormData"/>: decide contra qué lista de puestos y de
+        /// trabajadores se revalida lo que llegó, porque es la que el formulario ofreció.
+        /// </param>
         Task<SolicitudPersonalCreateResultDto> Create(
-            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
+            GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId, bool esGth);
 
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
@@ -181,15 +195,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
 
         /// <summary>
-        /// Cierra el proceso de reclutamiento desde EMO_APTO / EMO_APTO_RESTRICCIONES: pasa el
-        /// requerimiento a CERRADO, que es lo que hace aparecer al seleccionado en Onboarding como
-        /// candidato por ingresar. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el requerimiento
-        /// no existe y 409 si no está en una de esas dos fases.
-        /// </summary>
-        Task<EstadoRequerimientoResultDto> CerrarProcesoDesdeEmoApto(int requerimientoId, int? userId);
-
-        /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO: crea o
         /// actualiza su única fila vigente en <c>gth_entrevista</c> y resuelve el correo del
         /// postulante al que se envía la invitación. Lanza
@@ -282,7 +287,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 
         /// <summary>
-        /// Gerente del área de un solicitante: parte de su <c>workers.area_scope_id</c> y sube por
+        /// Gerente del área de un solicitante: parte de su <c>puesto.area_destino_scope_id</c> y sube por
         /// el árbol de áreas hasta el primer nodo con un trabajador ACTIVO de categoría GERENTE.
         /// Sube por el árbol porque los gerentes están registrados en el nodo "Área de Gerencia"
         /// y no en el área estándar de la que cuelga el solicitante. null si no hay ninguno.

@@ -34,7 +34,11 @@
         /// <summary>"Evaluaciones · Programadas": entrevistas agendadas cuyo resultado GTH aún no cierra.</summary>
         public int EvaluacionesProgramadas { get; set; }
 
-        /// <summary>"Procesos cerrados · Este período": requerimientos cerrados en el año en curso.</summary>
+        /// <summary>
+        /// "Procesos finalizados · Este período": requerimientos que llegaron al estado final
+        /// (código CERRADO, que en pantalla se llama "Finalizado") en el año en curso. El nombre
+        /// de la propiedad no se renombra: es el contrato del endpoint con la bandeja.
+        /// </summary>
         public int ProcesosCerrados { get; set; }
 
         /// <summary>

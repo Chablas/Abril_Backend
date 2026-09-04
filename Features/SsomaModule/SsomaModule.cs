@@ -127,12 +127,16 @@ namespace Abril_Backend.Features.Ssoma
             // Auto-programación EMO (cron)
             services.AddScoped<IEmoAutoProgramacionService, EmoAutoProgramacionService>();
 
-            // Configuración de EMOs — matriz de destinatarios de los 4 correos de EMO
+            // Configuración de EMOs — matriz de destinatarios de los correos de EMO
             // (correo × perfil del trabajador × destinatario) y el resolver que la
             // aplica: única fuente de verdad de a quién le llega cada correo.
             services.AddScoped<IEmoCorreoConfigRepository, EmoCorreoConfigRepository>();
             services.AddScoped<IEmoCorreoConfigService, EmoCorreoConfigService>();
             services.AddScoped<IEmoDestinatariosResolver, EmoDestinatariosResolver>();
+
+            // Aviso del resultado del EMO (evento RESULTADO de esa misma matriz): sale al
+            // registrar el examen, solo con un veredicto cerrado.
+            services.AddScoped<IEmoResultadoNotificacionService, EmoResultadoNotificacionService>();
 
             // Resumen diario EMO (cron 4:30pm)
             services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();
@@ -243,6 +247,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
             services.AddScoped<IPersonalHitoRepository, PersonalHitoRepository>();
             services.AddScoped<IPersonalHitoService, PersonalHitoService>();
+            services.AddScoped<IVigilanciaHitoRepository, VigilanciaHitoRepository>();
+            services.AddScoped<IVigilanciaHitoService, VigilanciaHitoService>();
+            services.AddScoped<IServicioFijoRepository, ServicioFijoRepository>();
+            services.AddScoped<IServicioFijoService, ServicioFijoService>();
             services.AddScoped<IKitRepository, KitRepository>();
             services.AddScoped<IKitService, KitService>();
             services.AddScoped<IRatioDriverRepository, RatioDriverRepository>();

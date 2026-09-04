@@ -10,12 +10,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
     }
 
     /// <summary>
-    /// Códigos del catálogo <c>ss_emo_correo_evento</c>: los 4 correos de EMO cuyos
+    /// Códigos del catálogo <c>ss_emo_correo_evento</c>: los correos de EMO cuyos
     /// destinatarios se configuran en /ssoma/salud-ocupacional/emos/configuracion.
+    ///
+    /// Cada correo que puede hablarle a las dos audiencias existe DOS veces: la versión
+    /// del trabajador y la del postulante (sufijo <c>_POSTULANTE</c>). No es duplicación
+    /// por gusto: a un postulante no le escribe la misma gente que a un trabajador de
+    /// casa (a él le habla el solicitante de la vacante, no su jefe, que todavía no tiene)
+    /// y el texto lo llama por lo que es. Al ser dos filas del catálogo, cada versión
+    /// aparece como su propia sección en la pantalla de Configuración y se prende y apaga
+    /// por separado — la pantalla las descubre solas, no hay nada que tocar en el
+    /// frontend al agregar una.
+    ///
+    /// Cuál de las dos se usa lo decide <see cref="Para"/>, nunca el llamador a mano.
     /// </summary>
     public static class EmoCorreoEventoCodigo
     {
-        /// <summary>Resumen del cron diario de programación automática por vencimiento.</summary>
+        /// <summary>
+        /// Resumen del cron diario de programación automática por vencimiento.
+        ///
+        /// No tiene versión de postulante y no puede tenerla: el cron programa por
+        /// vencimiento de un EMO anterior y exige vinculación vigente, así que solo
+        /// alcanza a trabajadores que ya están adentro.
+        /// </summary>
         public const string ProgramacionAutomatica = "PROGRAMACION_AUTOMATICA";
         /// <summary>Se programó un EMO a mano desde EMOs o Programaciones.</summary>
         public const string ProgramacionManual     = "PROGRAMACION_MANUAL";
@@ -23,6 +40,45 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         public const string Aceptada               = "ACEPTADA";
         /// <summary>La clínica rechazó la cita.</summary>
         public const string Rechazada              = "RECHAZADA";
+        /// <summary>
+        /// Se registró el resultado del examen. Solo sale con un veredicto cerrado —Apto,
+        /// Apto con Restricciones o No Apto—; "Observado" no envía nada porque todavía no
+        /// hay resultado que comunicar (ver <c>EmoResultadoNotificacionService</c>).
+        /// </summary>
+        public const string Resultado              = "RESULTADO";
+
+        /// <summary>
+        /// Sufijo de la versión del correo que le habla a un postulante. Se construye por
+        /// concatenación y no como cinco constantes sueltas para que agregar un correo
+        /// nuevo con sus dos versiones no exija recordar declarar la segunda.
+        /// </summary>
+        public const string SufijoPostulante = "_POSTULANTE";
+
+        public const string ProgramacionManualPostulante = ProgramacionManual + SufijoPostulante;
+        public const string AceptadaPostulante           = Aceptada           + SufijoPostulante;
+        public const string RechazadaPostulante          = Rechazada          + SufijoPostulante;
+        public const string ResultadoPostulante          = Resultado          + SufijoPostulante;
+
+        /// <summary>
+        /// La versión del correo que le corresponde a esta ficha.
+        ///
+        /// El discriminante es el estado de la ficha (pre-ingreso o no), NO el tipo de EMO.
+        /// En la práctica coinciden —el EMO de Ingreso que GTH programa desde Reclutamiento
+        /// es siempre de una ficha de pre-ingreso—, pero elegir por tipo se rompe en el caso
+        /// que sí pasa: el EMO de Ingreso de alguien que ya trabaja acá (un reingreso, o un
+        /// primer examen registrado tarde) saldría llamándolo "postulante". Y sobre todo,
+        /// pre-ingreso es el mismo corte que usa <see cref="EmoCorreoDestinatarioCodigo.Jefe"/>
+        /// vs <see cref="EmoCorreoDestinatarioCodigo.Solicitante"/> en el resolver: si el
+        /// texto y los destinatarios se decidieran con criterios distintos, el correo podría
+        /// terminar tratándolo de postulante mientras le escribe a su jefe.
+        /// </summary>
+        public static string Para(string baseCodigo, bool esPostulante) =>
+            esPostulante ? baseCodigo + SufijoPostulante : baseCodigo;
+
+        /// <inheritdoc cref="Para(string, bool)"/>
+        /// <param name="workersEstadoId"><c>workers.workers_estado_id</c> de la ficha.</param>
+        public static string ParaFicha(string baseCodigo, int workersEstadoId) =>
+            Para(baseCodigo, WorkersEstadoIds.PreIngreso.Contains(workersEstadoId));
     }
 
     /// <summary>
@@ -74,8 +130,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         // ── Dinámicos: el correo no está guardado, se resuelve al enviar ──
         /// <summary>Correos de contacto de la clínica de la programación.</summary>
         public const string Clinica            = "CLINICA";
-        /// <summary>Jefe personalizado del trabajador o, si no tiene, el revisor de su área.</summary>
+        /// <summary>
+        /// Jefe ACTUAL de alguien que ya trabaja en Abril: su jefe personalizado o, si no tiene,
+        /// el revisor de su área.
+        ///
+        /// No aporta a nadie cuando la ficha todavía es de pre-ingreso
+        /// (<c>workers.workers_estado_id</c> en <c>WorkersEstadoIds.PreIngreso</c>): esa persona
+        /// no es trabajador de nadie todavía, así que el revisor del área a la que va a entrar no
+        /// es su jefe sino, a lo sumo, su futuro jefe — y a ese le habla
+        /// <see cref="Solicitante"/>, no este destinatario.
+        /// </summary>
         public const string Jefe               = "JEFE";
+        /// <summary>
+        /// Quien pidió la vacante en Solicitud de Personal: un jefe o gerente que sí trabaja en
+        /// Abril y que, normalmente, será el futuro jefe del postulante.
+        ///
+        /// Es el reverso exacto de <see cref="Jefe"/>: solo aporta cuando la ficha es de
+        /// pre-ingreso (<c>WorkersEstadoIds.PreIngreso</c>), y nunca cae al jefe del trabajador.
+        /// Así cada correo de EMO elige a quién le habla —a la jefatura de un trabajador o al
+        /// área que pidió la vacante— en vez de recibir uno u otro según el estado de la ficha.
+        /// </summary>
+        public const string Solicitante        = "SOLICITANTE";
         /// <summary>Correo corporativo del propio trabajador.</summary>
         public const string Trabajador         = "TRABAJADOR";
         /// <summary>Residente del proyecto donde está vinculado el trabajador.</summary>
@@ -168,7 +243,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
 
     /// <summary>
     /// Respuesta única de la pantalla de Configuración de EMOs: los perfiles (columnas)
-    /// y los 4 correos con su matriz completa, en una sola petición.
+    /// y los correos con su matriz completa, en una sola petición.
     /// </summary>
     public class EmoCorreosConfigDto
     {
@@ -180,7 +255,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
 
     public class EmoCorreoAdicionalCreateDto
     {
-        /// <summary>Correo desde cuya sección se está agregando: nace activo en sus 4 perfiles.</summary>
+        /// <summary>Correo desde cuya sección se está agregando: nace activo en todos sus perfiles.</summary>
         public string EventoCodigo { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? Nombre { get; set; }

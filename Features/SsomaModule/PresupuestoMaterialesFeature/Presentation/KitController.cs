@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
@@ -21,6 +22,8 @@ public class KitController : ControllerBase
 {
     private readonly IKitService _service;
     public KitController(IKitService service) => _service = service;
+
+    private int UsuarioId => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
     [HttpGet]
     public async Task<IActionResult> Listar([FromQuery] int? tipoId)
@@ -60,5 +63,40 @@ public class KitController : ControllerBase
         try { return Ok(await _service.CalcularAsync(kitId, cantidadKits)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception) { return StatusCode(500, new { message = "Error al calcular el kit." }); }
+    }
+
+    /// <summary>Todos los kits guardados en el presupuesto de este proyecto (puede haber varios tipos
+    /// a la vez — ej. Botiquín y Estación de Emergencia simultáneamente).</summary>
+    [HttpGet("~/api/v1/ssoma/presupuesto-materiales/proyectos/{projectId}/kits")]
+    public async Task<IActionResult> ObtenerGuardados(int projectId)
+    {
+        try { return Ok(await _service.ObtenerGuardadosPorProyectoAsync(projectId)); }
+        catch (Exception) { return StatusCode(500, new { message = "Error al obtener los kits guardados del proyecto." }); }
+    }
+
+    /// <summary>Guarda (reemplaza) UN kit del proyecto por su kitId y lo suma al presupuesto real —
+    /// no borra otros kits ya guardados con distinto kitId.</summary>
+    [HttpPut("~/api/v1/ssoma/presupuesto-materiales/proyectos/{projectId}/kits")]
+    public async Task<IActionResult> Guardar(int projectId, [FromBody] KitProyectoGuardarDto dto)
+    {
+        try
+        {
+            await _service.GuardarEnProyectoAsync(projectId, dto, UsuarioId);
+            return Ok(new { message = "Kit guardado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception) { return StatusCode(500, new { message = "Error al guardar el kit." }); }
+    }
+
+    /// <summary>Quita un kit guardado del presupuesto del proyecto.</summary>
+    [HttpDelete("~/api/v1/ssoma/presupuesto-materiales/proyectos/{projectId}/kits/{kitId}")]
+    public async Task<IActionResult> Eliminar(int projectId, int kitId)
+    {
+        try
+        {
+            await _service.EliminarDelProyectoAsync(projectId, kitId);
+            return Ok(new { message = "Kit quitado del presupuesto." });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al quitar el kit del proyecto." }); }
     }
 }

@@ -1214,6 +1214,13 @@ namespace Abril_Backend.Infrastructure.Data
             // guardando UTC — arreglarlo acá y no en cada asignación cubre también las que se
             // agreguen después. Se aplica solo al lado de escritura; al leer, el valor vuelve tal
             // cual (Kind=Unspecified, que es lo que ya devolvía la columna).
+            //
+            // ac_observaciones / ac_observacion_fotos tenían el mismo problema y NO están acá a
+            // propósito: el 2026-09-04 se migraron sus columnas a timestamptz de verdad
+            // (Migrations/Manual/20260904_ObservacionesTimestamptz.sql), que es el estándar del
+            // proyecto, así que el mapeo por defecto de Npgsql ya es el correcto para ellas. Este
+            // bloque es deuda a saldar de la misma forma en las demás tablas que lista, no el
+            // patrón a seguir para una tabla nueva.
             var utcSinZona = new ValueConverter<DateTime, DateTime>(
                 v => DateTime.SpecifyKind(v, DateTimeKind.Unspecified),
                 v => v);

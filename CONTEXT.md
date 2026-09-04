@@ -5995,3 +5995,35 @@ Bug real encontrado y corregido: `GetDetalleAsync` hacía `.Select(x => MapSelec
 - 7 mejoras de usabilidad de PETS identificadas y sin construir (la más urgente: el botón "Importar desde Word" vive solo en la pestaña Procedimiento pero ahora importa TODAS las secciones).
 - Poblar el catálogo global de Marco Legal/EPP/Recursos — sigue vacío.
 - Estándares e IPERC: cero código, reusar el mismo patrón (catálogo + árbol) que PETS.
+
+## Sesión 2026-09-03 — Presupuesto Materiales: Vigilancia por hito + Dotación con etapa de salida + fix correo bloqueante
+
+### Contexto
+Diagnóstico y ampliación del módulo Presupuesto de Materiales SSOMA para armar el presupuesto real de Sauce Zen: faltaba (1) un cálculo de dotación de personal (Monitor/Vigía/Encapsulador) que entrara/saliera según etapas reales del cronograma en vez de "semanas" tipeadas a mano, y (2) un servicio de vigilancia externa (facturado por punto/turno, no por vigilante) con precio tomado del histórico de Ratios.
+
+### Cambios
+
+**1) Dotación de personal — etapa de salida (`PersonalHitoDtos.cs`, `PersonalHitoRepository.cs`)**
+- Nuevo campo opcional `HitoSalidaId` en `PersonalHitoDto`/`PersonalHitoItemInputDto` — si viene, el backend calcula `Semanas` desde la diferencia real de fechas entre el hito de ingreso y el de salida (`cronograma_vigente`), en vez de usar el valor tipeado. Sin `HitoSalidaId`, sigue funcionando como antes (semanas manual).
+- `ObtenerPorProyectoAsync`: join adicional a `cronograma_vigente` (alias `cv2`) para traer descripción/fecha del hito de salida y recalcular `Semanas` vía `CASE`.
+- `GuardarAsync`: recalcula `Semanas` server-side con las fechas reales antes de persistir, igual criterio que el `SELECT`.
+- Migración manual ya corrida por el usuario: `ALTER TABLE ss_presupuesto_personal_hito ADD COLUMN hito_salida_id integer NULL REFERENCES milestone_schedule(milestone_schedule_id)`.
+
+**2) Vigilancia por hito (nuevo feature completo)** — mismo patrón que PersonalHito, en `PresupuestoMaterialesFeature`:
+- `SsPresupuestoVigilanciaHito.cs`, `VigilanciaHitoDtos.cs`, `IVigilanciaHitoRepository.cs`/`VigilanciaHitoRepository.cs`, `IVigilanciaHitoService.cs`/`VigilanciaHitoService.cs`, `VigilanciaHitoController.cs` (rutas `GET vigilancia/precio-actual`, `GET/PUT proyectos/{projectId}/vigilancia-hitos`), registrado en `SsomaModule.cs`.
+- Se factura por **punto/turno** (no por vigilante) — cantidad de puntos × precio unitario × semanas. El precio unitario **no se tipea a mano**: es el promedio de `ss_ratio_proyecto.precio_unitario_promedio` para la família de Catálogo `"Servicio de Vigilancia"` (mismos filtros `incluido_manual_precio` que ya usa el resto de materiales) — snapshot al guardar.
+- Tabla nueva `ss_presupuesto_vigilancia_hito` — SQL en `Migrations_Manual/2026-09-03_presupuesto_vigilancia_hito.sql` (ya corrida).
+
+**3) Separación de Barra FRP 25mm/21mm (dato, no código)**
+Diagnosticado vía SQL directo que la família única "BARRA FRP" (id 262) mezclaba 25mm y 21mm — confirmado con evidencia real del Kardex de Máximo Abril (`recurso_crudo` decía "25 MM"/"21 MM" pero el ítem viejo decía "20MM"). Se crearon las familias `BARRA FRP 25MM`/`BARRA FRP 21MM` y se reasignaron los 3 ítems existentes (`UPDATE ss_material_item SET familia_id = ...`) — el histórico de consumo se conserva porque cuelga de `item_id`, no de texto. Malla Raschell **no** se tocó: ya estaba correctamente unificada en una sola família con ítems por densidad (70/80/90/95%), que es justo el comportamiento que el usuario quería (ratio agregado sin importar densidad).
+
+**4) Bug real encontrado y corregido: correo bloqueante en `MilestoneScheduleHistoryController.Create`**
+El endpoint hacía `await _emailService.SendAsync(...)` dentro del propio request al guardar el cronograma (notificación de cambios) — si el proveedor de correo no respondía (típico en dev), la petición completa se quedaba colgada indefinidamente, y el frontend ("Guardar cronograma") nunca recibía respuesta. Cambiado a fire-and-forget (`_ = EnviarNotificacionCambiosAsync(body)`, con try/catch + `ILogger` interno) — la respuesta al usuario ya no depende del correo.
+
+### Verificado
+`dotnet build` → 0 errores (solo warnings preexistentes, ninguno en archivos tocados).
+
+### Pendiente
+- Correr en prod la migración SQL de `ss_presupuesto_vigilancia_hito` (dev ya corrida por el usuario).
+- Probar en navegador el flujo completo de Vigilancia (guardar, recargar, ver totales) contra el backend real.
+- El bug de freeze reportado durante la sesión ("Cargando dotación/vigilancia" nunca desaparece) resultó ser 100% frontend (ver CONTEXT.md de Abril-Frontend) — no requirió cambios en este repo más allá del fix de correo bloqueante de arriba.

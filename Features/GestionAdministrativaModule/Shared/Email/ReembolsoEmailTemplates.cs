@@ -9,7 +9,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     public sealed class ReembolsoCorreoDatos
     {
         public int SolicitudId { get; set; }
-        /// <summary>Correlativo de la solicitud DENTRO del trabajador (el "#3" que ve él, no el id).</summary>
         /// <summary>Código SOL-AAAA-NNNN de la solicitud (o "#N" en las anteriores al código).</summary>
         public string Codigo { get; set; } = string.Empty;
         public string Trabajador { get; set; } = string.Empty;

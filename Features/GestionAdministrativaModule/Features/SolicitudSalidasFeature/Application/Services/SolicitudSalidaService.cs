@@ -419,24 +419,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return RenderResultPage("Enlace inválido o expirado", "El enlace ya no es válido.", isSuccess: false);
 
             var safeToken = WebUtility.HtmlEncode(token);
-            return $@"<!DOCTYPE html>
-<html lang=""es""><head><meta charset=""utf-8""><title>Rechazar solicitud</title>
-<style>
-  body {{ font-family: Segoe UI, Arial, sans-serif; background:#f5f5f5; margin:0; padding:40px; }}
-  .card {{ max-width:520px; margin:0 auto; background:#fff; padding:32px; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.06); }}
-  h1 {{ color:#D30000; margin-top:0; }}
-  textarea {{ width:100%; min-height:120px; padding:12px; border:1px solid #E2E2E2; border-radius:8px; font:inherit; box-sizing:border-box; }}
-  button {{ margin-top:16px; background:#D30000; color:#fff; border:0; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; }}
-  button:hover {{ background:#a50000; }}
-</style></head><body><div class=""card"">
-  <h1>Rechazar solicitud #{payload.SolicitudId}</h1>
-  <p>Indica el motivo del rechazo (opcional):</p>
+            return RenderPaginaRevisor(
+                "Rechazar solicitud",
+                $@"<p style=""margin:0 0 14px;font-size:15px"">Indica el motivo del rechazo (opcional):</p>
   <form method=""post"" action=""rechazar"">
     <input type=""hidden"" name=""token"" value=""{safeToken}"" />
     <textarea name=""motivoRechazo"" placeholder=""Ej: La fecha coincide con una reunión importante...""></textarea>
     <button type=""submit"">Confirmar rechazo</button>
-  </form>
-</div></body></html>";
+  </form>",
+                "#991B1B");
         }
 
         // ── Helpers internos ─────────────────────────────────────────────────
@@ -533,8 +524,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var urlAprobar  = $"{backendUrl}{basePath}/aprobar?token={WebUtility.UrlEncode(tokenAprobar)}";
             var urlRechazar = $"{backendUrl}{basePath}/rechazar?token={WebUtility.UrlEncode(tokenRechazar)}";
 
-            var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, mostrarRecordatorio, urlAprobar, urlRechazar);
-            var subject = $"Solicitud de salida - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var datos = DatosCorreo(solicitud.Id, solicitud.Codigo, nombreSolicitante,
+                                    solicitud.FechaSalida, trayectos, mostrarRecordatorio);
+            var body    = SolicitudSalidaEmailTemplates.PorAprobar(
+                SalidaEmailLayout.Desde(_configuration), datos,
+                urlAprobar, urlRechazar, SalidaEnlaces.Gestion(_configuration, solicitud.Id));
+            var subject = $"Solicitud de salida {datos.Codigo} - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -614,8 +609,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, solicitud.WorkerId, solicitud.Id);
 
-            var body    = BuildEmailConfirmacionSolicitante(
-                nombreSolicitante, codigoSolicitud, solicitud.FechaSalida, trayectos, mostrarRecordatorio,
+            var datos = DatosCorreo(solicitud.Id, codigoSolicitud, nombreSolicitante,
+                                    solicitud.FechaSalida, trayectos, mostrarRecordatorio);
+            var body    = SolicitudSalidaEmailTemplates.EnRevision(
+                SalidaEmailLayout.Desde(_configuration), datos,
+                SalidaEnlaces.Autoservicio(_configuration, solicitud.Id),
                 enviadoRevisorA, aprobadorEmail);
             var subject = $"Tu solicitud de salida {codigoSolicitud} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
@@ -673,17 +671,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return $"#{numero}";
         }
 
-        /// <summary>
-        /// Una fila de la tabla de trayecto en los correos. Devuelve "" cuando el dato no aplica
-        /// — los motivos con pide_horas_lugares = false no traen horas ni lugares — para que el
-        /// bloque no muestre filas vacías.
-        /// </summary>
-        private static string FilaTrayectoEmail(string etiqueta, string? valor)
-        {
-            if (string.IsNullOrWhiteSpace(valor)) return "";
-            return $@"<tr><td style=""padding:3px 0;color:#777;width:40%"">{WebUtility.HtmlEncode(etiqueta)}</td><td style=""padding:3px 0;color:#222"">{WebUtility.HtmlEncode(valor)}</td></tr>";
-        }
-
         private static async Task<string> ResolveLugarDisplay(AppDbContext ctx, int? lugarId, string? lugarLibre)
         {
             if (!string.IsNullOrWhiteSpace(lugarLibre)) return lugarLibre.Trim();
@@ -706,150 +693,77 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return lugar.Nombre ?? "—";
         }
 
-        private static string BuildEmailBody(
-            string nombre, DateOnly fechaSalida,
+        /// <summary>
+        /// Empaqueta lo que ya tiene el servicio en memoria para las plantillas de correo. Está
+        /// acá y no en cada punto de envío porque los cuatro correos arman exactamente los mismos
+        /// datos y una diferencia entre ellos se leería como dos solicitudes distintas.
+        /// </summary>
+        private static SalidaCorreoDatos DatosCorreo(
+            int solicitudId, string? codigo, string solicitante, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio,
-            string urlAprobar, string urlRechazar)
+            bool mostrarRecordatorio) => new()
         {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
-                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
-                           : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#64BC04;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
-                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
-                      {FilaTrayectoEmail("Motivo", t.Motivo)}
-                      {FilaTrayectoEmail("Origen", t.Origen)}
-                      {FilaTrayectoEmail("Destino", t.Destino)}
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#64BC04;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">Nueva solicitud de salida</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px""><b>{esc(nombre)}</b> ha registrado una solicitud de salida que requiere tu aprobación:</p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <div style=""text-align:center;margin-top:18px"">
-        <a href=""{urlAprobar}"" style=""display:inline-block;background:#009C87;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Aprobar</a>
-        <a href=""{urlRechazar}"" style=""display:inline-block;background:#D30000;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Rechazar</a>
-      </div>
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Los enlaces son válidos por 30 días.</p>
-    </div>
-  </div>
-</body></html>";
-        }
+            SolicitudId         = solicitudId,
+            // El correo al revisor sale al crear la solicitud, así que el código siempre existe;
+            // el fallback es por si un flujo futuro arma el correo sobre una fila anterior a la
+            // columna, donde el id es el único identificador a mano.
+            Codigo              = string.IsNullOrWhiteSpace(codigo) ? $"#{solicitudId}" : codigo,
+            Solicitante         = solicitante,
+            FechaSalida         = fechaSalida,
+            Trayectos           = trayectos
+                .Select(t => new SalidaCorreoTrayecto(t.Orden, t.HoraSalida, t.HoraRetorno, t.Motivo, t.Origen, t.Destino))
+                .ToList(),
+            MostrarRecordatorio = mostrarRecordatorio,
+        };
 
         /// <summary>
-        /// Recordatorio que va en los correos de solicitud/aprobación (al solicitante y al revisor).
-        /// Solo aplica a solicitudes con al menos un trayecto de hora exacta: si TODOS los motivos
-        /// son de hora estimada, el bloque se omite (ver ResolveTrayectosForEmailAsync).
+        /// Página que ve el revisor después de aprobar o rechazar desde el correo. Es la única
+        /// pantalla del flujo que no está en la intranet (el revisor llega sin sesión, con el token
+        /// del correo), así que lleva el mismo azul y la misma barra lima del correo para que no
+        /// parezca de otra aplicación.
         /// </summary>
-        private const string RecordatorioRecuperacionHtml =
-            @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
-                 <b>Recuerda:</b> no olvides coordinar la recuperación de las horas dentro del mes calendario.
-               </p>";
+        private string RenderResultPage(string title, string message, bool isSuccess) =>
+            RenderPaginaRevisor(
+                title,
+                $@"<p style=""color:#3F4A44;line-height:1.6;margin:0;font-size:15px"">{WebUtility.HtmlEncode(message)}</p>",
+                isSuccess ? "#166534" : "#991B1B");
 
         /// <summary>
-        /// Cuerpo del correo de confirmación al solicitante. <paramref name="enviadoRevisorA"/> son
-        /// los correos a los que realmente salió la solicitud para revisión (vacío si ese correo
-        /// está apagado) y <paramref name="aprobadorAsignado"/> el revisor que la tiene asignada
-        /// aunque no le haya llegado el correo: sin eso el aviso diría que se envió a alguien que
-        /// nunca lo recibió.
+        /// Chrome de las dos páginas del revisor: tarjeta blanca sobre el lienzo verdoso, título en
+        /// el color del desenlace, barra lima y el logo al pie. Mismos colores que
+        /// <see cref="AbrilEmailLayout"/> — están escritos acá y no tomados de esa clase porque
+        /// esto es una página web normal (con &lt;style&gt;), no el HTML de tablas del correo.
         /// </summary>
-        private static string BuildEmailConfirmacionSolicitante(
-            string nombre, string codigoSolicitud, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio,
-            List<string> enviadoRevisorA,
-            string? aprobadorAsignado)
+        private string RenderPaginaRevisor(string titulo, string cuerpoHtml, string colorTitulo)
         {
-            string esc(string s) => WebUtility.HtmlEncode(s);
+            var assets = (_configuration["App:EmailAssetsUrl"]
+                          ?? _configuration["App:FrontendUrl"]
+                          ?? "https://intranet.abril.pe").TrimEnd('/');
 
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
-                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
-                           : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#0086A5;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
-                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
-                      {FilaTrayectoEmail("Motivo", t.Motivo)}
-                      {FilaTrayectoEmail("Origen", t.Origen)}
-                      {FilaTrayectoEmail("Destino", t.Destino)}
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            var aprobadorBloque =
-                enviadoRevisorA.Count > 0
-                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
-                          Tu solicitud fue enviada a
-                          <b style=""color:#0086A5"">{esc(string.Join(", ", enviadoRevisorA))}</b>
-                          para su revisión.
-                        </p>"
-                : !string.IsNullOrWhiteSpace(aprobadorAsignado)
-                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
-                          Tu solicitud quedó asignada a
-                          <b style=""color:#0086A5"">{esc(aprobadorAsignado)}</b>
-                          para su revisión.
-                        </p>"
-                    : @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
-                         Aún no se identificó a tu jefatura inmediata. El equipo administrativo será notificado para asignarla.
-                       </p>";
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#0086A5;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">Tu solicitud está en revisión</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Recibimos tu solicitud de salida <b>{codigoSolicitud}</b> y está pendiente de aprobación.
-        Te notificaremos por correo cuando sea aprobada o rechazada.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {aprobadorBloque}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
-
-        private static string RenderResultPage(string title, string message, bool isSuccess)
-        {
-            var color = isSuccess ? "#009C87" : "#D30000";
-            return $@"<!DOCTYPE html><html lang=""es""><head><meta charset=""utf-8""><title>{WebUtility.HtmlEncode(title)}</title>
+            return $@"<!DOCTYPE html>
+<html lang=""es""><head><meta charset=""utf-8"" /><meta name=""viewport"" content=""width=device-width, initial-scale=1"" />
+<title>{WebUtility.HtmlEncode(titulo)}</title>
 <style>
-  body {{ font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:60px 20px;text-align:center; }}
-  .card {{ max-width:500px;margin:0 auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.06); }}
-  h1 {{ color:{color};margin:0 0 16px; }}
-  p {{ color:#444;line-height:1.6;margin:0; }}
-</style></head><body><div class=""card"">
-  <h1>{WebUtility.HtmlEncode(title)}</h1><p>{WebUtility.HtmlEncode(message)}</p>
-</div></body></html>";
+  body {{ font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#F4F8F4;margin:0;padding:40px 16px;color:#3F4A44; }}
+  .card {{ max-width:560px;margin:0 auto;background:#fff;border:1px solid #E6EDE7;border-radius:16px;padding:36px 34px;text-align:center; }}
+  h1 {{ color:{colorTitulo};margin:0 0 10px;font-size:24px;letter-spacing:-0.4px; }}
+  .bar {{ width:84px;height:4px;background:#64BC04;border-radius:2px;margin:0 auto 22px; }}
+  .body {{ text-align:left; }}
+  .logo {{ display:block;width:150px;margin:28px auto 0; }}
+  .pie {{ margin:12px 0 0;font-size:11px;color:#9AA8A0; }}
+  textarea {{ width:100%;min-height:120px;padding:12px;border:1px solid #E6EDE7;border-radius:10px;font:inherit;box-sizing:border-box;color:#3F4A44; }}
+  textarea:focus {{ outline:none;border-color:#005D9D; }}
+  button {{ margin-top:16px;background:#991B1B;color:#fff;border:0;padding:13px 28px;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;font-family:inherit; }}
+  button:hover {{ background:#7F1D1D; }}
+</style></head><body>
+<div class=""card"">
+  <h1>{WebUtility.HtmlEncode(titulo)}</h1>
+  <div class=""bar""></div>
+  <div class=""body"">{cuerpoHtml}</div>
+  <img class=""logo"" src=""{assets}/images/emails/abril-logo.png"" alt=""ABRIL Grupo Inmobiliario"" />
+  <p class=""pie"">Correo automático de Abril One · Gestión Administrativa · Salidas.</p>
+</div>
+</body></html>";
         }
 
         // ── Detalle + capturas ──────────────────────────────────────────────
@@ -1146,7 +1060,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailAprobacionSolicitante(info.Nombre, codigoSolicitud, info.FechaSalida, resueltos, mostrarRecordatorio);
+                var datos   = DatosCorreo(info.Id, codigoSolicitud, info.Nombre,
+                                          info.FechaSalida, resueltos, mostrarRecordatorio);
+                var body    = SolicitudSalidaEmailTemplates.Aprobada(
+                    SalidaEmailLayout.Desde(_configuration), datos,
+                    SalidaEnlaces.Autoservicio(_configuration, info.Id));
                 var subject = $"Solicitud de salida {codigoSolicitud} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
@@ -1224,7 +1142,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailRechazoSolicitante(info.Nombre, codigoSolicitud, info.FechaSalida, resueltos, info.MotivoRechazo);
+                var datos   = DatosCorreo(info.Id, codigoSolicitud, info.Nombre,
+                                          info.FechaSalida, resueltos, mostrarRecordatorio: false);
+                var body    = SolicitudSalidaEmailTemplates.Rechazada(
+                    SalidaEmailLayout.Desde(_configuration), datos, info.MotivoRechazo,
+                    SalidaEnlaces.Autoservicio(_configuration, info.Id));
                 var subject = $"Solicitud de salida {codigoSolicitud} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
@@ -1240,104 +1162,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
         }
 
-        private static string BuildEmailRechazoSolicitante(
-            string nombre, string codigoSolicitud, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            string? motivoRechazo)
-        {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
-                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
-                           : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#D30000;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
-                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
-                      {FilaTrayectoEmail("Motivo", t.Motivo)}
-                      {FilaTrayectoEmail("Origen", t.Origen)}
-                      {FilaTrayectoEmail("Destino", t.Destino)}
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            var motivoBloque = string.IsNullOrWhiteSpace(motivoRechazo)
-                ? ""
-                : $@"<p style=""margin:14px 0 0;color:#991B1B;font-size:13px;background:#FEE2E2;padding:10px 14px;border-radius:8px"">
-                      <b>Motivo del rechazo:</b> {esc(motivoRechazo.Trim())}
-                    </p>";
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#D30000;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">✕ Tu solicitud fue rechazada</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>{codigoSolicitud}</b> fue <b style=""color:#D30000"">rechazada</b>.
-        Si tienes dudas, coordina directamente con tu jefatura.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {motivoBloque}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
-
-        private static string BuildEmailAprobacionSolicitante(
-            string nombre, string codigoSolicitud, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio)
-        {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                // Sin horario ni lugares no hay desplazamiento que titular: es una ausencia.
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}"
-                           : string.IsNullOrWhiteSpace(t.HoraSalida) ? "Detalle"
-                           : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#009C87;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      {FilaTrayectoEmail("Hora de salida", t.HoraSalida)}
-                      {FilaTrayectoEmail("Hora de retorno", t.HoraRetorno)}
-                      {FilaTrayectoEmail("Motivo", t.Motivo)}
-                      {FilaTrayectoEmail("Origen", t.Origen)}
-                      {FilaTrayectoEmail("Destino", t.Destino)}
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#009C87;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">✓ Tu solicitud fue aprobada</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>{codigoSolicitud}</b> fue <b style=""color:#009C87"">aprobada</b>.
-        Recuerda subir las capturas de movilidad (imagen + monto) por cada trayecto para que la rendición pueda procesarse.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
     }
 }

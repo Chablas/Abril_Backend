@@ -1,4 +1,4 @@
-﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -30,9 +30,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             _logger = logger;
         }
 
-        public async Task<ConsolidadoS10Dto> Upload(
-            int solicitudId,
-            ConsolidadoS10Ambito ambito,
+        public async Task<ConsolidadoS10Dto> UploadParaRendicion(
+            int rendicionId,
             IFormFile file,
             int userId,
             int? ownerUserId = null)
@@ -46,29 +45,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             using var ctx = _factory.CreateDbContext();
 
-            var solicitud = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(s => s.Id == solicitudId)
-                ?? throw new AbrilException("La solicitud de salida no existe.", 404);
+            var existe = await ctx.GaRendicion.AnyAsync(r => r.Id == rendicionId);
+            if (!existe)
+                throw new AbrilException("La planilla de rendición no existe.", 404);
 
-            if (solicitud.EstadoRendicionId != EstadosSalida.Rendicion.Rendido)
-                throw new AbrilException("Solo se puede adjuntar el Consolidado del S10 a salidas ya rendidas.", 400);
-
-            // Guard de propiedad (autoservicio): la salida debe ser del trabajador del usuario.
+            // Guard de propiedad (autoservicio): la planilla tiene que incluir alguna salida del
+            // trabajador de ese usuario. Una planilla puede agrupar a varios trabajadores cuando la
+            // genera el revisor desde Gestión de Salidas, así que basta con tener una adentro.
             if (ownerUserId.HasValue)
             {
                 var esPropia = await (
-                    from w in ctx.Worker
+                    from s in ctx.GaSolicitudSalida
+                    join w in ctx.Worker on s.WorkerId equals w.Id
                     join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                    where w.Id == solicitud.WorkerId && per.UserId == ownerUserId.Value
-                    select w.Id
+                    where s.RendicionId == rendicionId && per.UserId == ownerUserId.Value
+                    select s.Id
                 ).AnyAsync();
                 if (!esPropia)
-                    throw new AbrilException("Solo puedes adjuntar el Consolidado del S10 de tus propias salidas.", 403);
+                    throw new AbrilException(
+                        "Solo puedes adjuntar el Consolidado del S10 de tus propias planillas.", 403);
             }
-
-            if (ambito == ConsolidadoS10Ambito.Rendicion && solicitud.RendicionId == null)
-                throw new AbrilException(
-                    "La salida está rendida pero no tiene planilla de rendición asociada. " +
-                    "Adjunta el consolidado solo a esta salida.", 409);
 
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var folderUrl = await ctx.GaRendicionFolder
@@ -86,9 +82,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 throw new AbrilException("No se pudo resolver la carpeta de consolidados del S10 en SharePoint.", 502);
 
             var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            var filename = ambito == ConsolidadoS10Ambito.Rendicion
-                ? $"Consolidado_S10_r{solicitud.RendicionId}_{stamp}.pdf"
-                : $"Consolidado_S10_s{solicitud.Id}_{stamp}.pdf";
+            var filename = $"Consolidado_S10_r{rendicionId}_{stamp}.pdf";
 
             string pdfUrl;
             string? pdfItemId;
@@ -109,25 +103,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló la subida del Consolidado del S10 (solicitud={SolicitudId}, ambito={Ambito})", solicitudId, ambito);
+                _logger.LogError(ex, "Falló la subida del Consolidado del S10 (rendicion={RendicionId})", rendicionId);
                 throw new AbrilException("Error al subir el Consolidado del S10 a SharePoint.", 502);
             }
 
             // ── Persistir: el anterior vigente pasa a state = false (auditoría) ──
             var now = DateTimeOffset.UtcNow;
-            var esRendicion = ambito == ConsolidadoS10Ambito.Rendicion;
-            var rendicionId = esRendicion ? solicitud.RendicionId : null;
 
             var vigentes = await ctx.GaConsolidadoS10
-                .Where(c => c.State && (esRendicion
-                    ? c.RendicionId == rendicionId
-                    : c.SolicitudId == solicitudId))
+                .Where(c => c.State && c.RendicionId == rendicionId)
                 .ToListAsync();
 
             var nuevo = new GaConsolidadoS10
             {
                 RendicionId  = rendicionId,
-                SolicitudId  = esRendicion ? null : solicitudId,
+                SolicitudId  = null,
                 PdfUrl       = pdfUrl,
                 PdfItemId    = pdfItemId,
                 PdfDriveId   = carpeta.DriveId,
@@ -142,17 +132,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             // vuelve a Pendiente y le reaparece al revisor. La observación NO se borra: sigue
             // siendo lo que se observó y el jefe la necesita para contrastar.
             //
-            // Con ámbito Rendición el archivo cubre TODA la planilla, así que reabre todas las
-            // salidas rechazadas de esa planilla, no solo la que se estaba mirando.
-            var reabrir = esRendicion
-                ? await ctx.GaSolicitudSalida
-                    .Where(x => x.RendicionId == rendicionId
-                             && x.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado)
-                    .ToListAsync()
-                : await ctx.GaSolicitudSalida
-                    .Where(x => x.Id == solicitudId
-                             && x.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado)
-                    .ToListAsync();
+            // El archivo cubre TODA la planilla, así que reabre todas sus salidas rechazadas.
+            var reabrir = await ctx.GaSolicitudSalida
+                .Where(x => x.RendicionId == rendicionId
+                         && x.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado)
+                .ToListAsync();
 
             var strategy = ctx.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
@@ -193,7 +177,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             using var ctx = _factory.CreateDbContext();
 
-            // rendicion_id de cada solicitud, para resolver el consolidado heredado de la planilla.
+            // rendicion_id de cada solicitud, para resolver el consolidado de la planilla.
             var rendicionPorSolicitud = await ctx.GaSolicitudSalida
                 .Where(s => ids.Contains(s.Id))
                 .Select(s => new { s.Id, s.RendicionId })
@@ -201,6 +185,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             return await ConsolidadoS10Loader.LoadAsync(
                 ctx, rendicionPorSolicitud.ToDictionary(x => x.Id, x => x.RendicionId));
+        }
+
+        public async Task<Dictionary<int, ConsolidadoS10Dto>> GetForRendiciones(IEnumerable<int> rendicionIds)
+        {
+            var ids = rendicionIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+            return await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, ids);
         }
 
         private static ConsolidadoS10Dto ToDto(GaConsolidadoS10 c) => ConsolidadoS10Loader.ToDto(c);

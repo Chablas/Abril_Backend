@@ -225,10 +225,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             }
             var hoyPeru = MesAnteriorPeru.HoyPeru();
 
-            // Consolidado del S10 vigente por solicitud (propio o heredado de su planilla).
-            var consolidados = await ConsolidadoS10Loader.LoadAsync(
-                ctx, solicitudes.ToDictionary(x => x.Id, x => x.RendicionId));
-
+            // El Consolidado del S10 no se consulta acá: es de la planilla y vive en Mis
+            // Rendiciones, que es donde se adjunta y desde donde se le avisa al revisor. Esta
+            // tabla llega hasta rendir.
             var result = new List<SolicitudSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
             {
@@ -285,25 +284,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
                     ObservacionReembolso = s.ObservacionReembolso,
-                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                 });
-
-                if (consolidados.TryGetValue(s.Id, out var cons))
-                {
-                    var item = result[^1];
-                    item.ConsolidadoS10Url      = cons.PdfUrl;
-                    item.ConsolidadoS10Filename = cons.PdfFilename;
-                    item.ConsolidadoS10Ambito   = cons.Ambito;
-                }
-
-                // Avisar al revisor tiene sentido solo cuando ya hay algo que revisar: la salida
-                // rendida, el Consolidado del S10 adjunto y el reembolso todavía abierto. Después
-                // de aprobado (o firmado, o pagado) el botón no aporta nada.
-                result[^1].PuedeNotificarRevisor =
-                    s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                    && consolidados.ContainsKey(s.Id)
-                    && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                     || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado);
             }
 
             // El recorte a "solo aptas" va al final y no en la consulta: la aptitud depende de las

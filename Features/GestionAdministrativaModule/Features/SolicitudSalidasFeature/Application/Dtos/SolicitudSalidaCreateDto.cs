@@ -1,4 +1,6 @@
-﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+
+namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
 {
     public class SolicitudSalidaCapturaDto
     {
@@ -162,8 +164,11 @@
         public DateOnly FechaLimite { get; set; }
     }
 
-    /// <summary>Números de las tarjetas del encabezado, sobre TODAS las solicitudes del trabajador
-    /// (no sobre los filtros de la tabla): son su bandeja pendiente, no el resultado de la búsqueda.</summary>
+    /// <summary>
+    /// Números de las tarjetas del encabezado. Se cuentan sobre EL MISMO conjunto que muestra la
+    /// tabla (los filtros ya aplicados), así que acompañan a la búsqueda en vez de quedarse en un
+    /// total fijo. Por eso viajan en la respuesta del listado y no en <c>filter-data</c>.
+    /// </summary>
     public class ResumenRendicionDto
     {
         /// <summary>Aprobadas, no rendidas, con trayectos cubiertos y motivo reembolsable.</summary>
@@ -172,6 +177,27 @@
         public int CapturasIncompletas { get; set; }
         /// <summary>Reembolsos rechazados: esperan que el trabajador subsane.</summary>
         public int Observadas { get; set; }
+
+        /// <summary>
+        /// Cuenta las tres bandejas sobre las solicitudes recibidas. Cada tarjeta conserva su
+        /// definición (es lo que dice su etiqueta); lo que cambia con los filtros es el universo
+        /// sobre el que se cuenta. Se calcula en memoria sobre la lista que el repositorio ya
+        /// devolvió: no cuesta una consulta más.
+        /// </summary>
+        public static ResumenRendicionDto De(IEnumerable<SolicitudSalidaListItemDto> solicitudes)
+        {
+            var lista = solicitudes as ICollection<SolicitudSalidaListItemDto> ?? solicitudes.ToList();
+            return new ResumenRendicionDto
+            {
+                AptasParaRendir     = lista.Count(x => x.AptaParaRendir),
+                // AptaParaRendir ya exige aprobada + no rendida; acá se piden explícitas porque
+                // esta tarjeta cuenta justo a las que NO llegan a aptas por falta de captura.
+                CapturasIncompletas = lista.Count(x => !x.PuedeRendirse
+                                                    && x.EstadoAprobacion == EstadosSalida.Aprobacion.NombreAprobado
+                                                    && x.EstadoRendicion  == EstadosSalida.Rendicion.NombreNoRendido),
+                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+            };
+        }
     }
 
     public class LugarProyectoOptionDto
@@ -186,8 +212,16 @@
 
         /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
         public List<MesRendicionDto> MesesRendicion { get; set; } = new();
+    }
 
-        /// <summary>Números de las tarjetas del encabezado.</summary>
+    /// <summary>
+    /// Respuesta del listado: las filas y los números de las tarjetas, contados sobre ese mismo
+    /// conjunto filtrado. Van juntos para que un cambio de filtro se resuelva en una sola petición
+    /// y la tabla y las tarjetas no puedan discrepar.
+    /// </summary>
+    public class SolicitudSalidaListResultDto
+    {
+        public List<SolicitudSalidaListItemDto> Data { get; set; } = new();
         public ResumenRendicionDto Resumen { get; set; } = new();
     }
 }

@@ -8,8 +8,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters);
 
-        /// <summary>Tabla ordenada y paginada (la vista principal de gestión de salidas).</summary>
-        Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters);
+        /// <summary>
+        /// Tabla ordenada y paginada (la vista principal de gestión de salidas), más los números de
+        /// las tarjetas contados sobre todo el conjunto filtrado.
+        /// </summary>
+        Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters);
         /// <summary>
         /// Datos de los filtros. El árbol de áreas se recorta al alcance de visibilidad del
         /// usuario: quien ve todo (GTH / recepción) recibe el árbol completo; un gerente recibe
@@ -51,10 +54,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida ya rendida desde Gestión
-        /// de Salidas. El ámbito decide si cubre toda la planilla de rendición o solo esa salida.
+        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de la PLANILLA a la que pertenece esa
+        /// salida. Lanza 409 si la salida todavía no está rendida (no tiene planilla).
         /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId);
+        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, IFormFile file, int userId);
 
         /// <summary>Detalle de una solicitud para el modal — devuelve null si no existe.</summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id);

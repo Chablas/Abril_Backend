@@ -63,7 +63,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await _repo.GetAll(filters);
         }
 
-        public async Task<Abril_Backend.Application.DTOs.PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        public async Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters)
         {
             await ApplyVisibilityAsync(filters);
             return await _repo.GetPaged(filters);
@@ -96,12 +96,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
             data.EsTesorero = esTesorero;
 
-            // Meses del desplegable "Mes a rendir" + números de las tarjetas. Van acá y no en el
-            // listado porque son del alcance completo del usuario, no del filtro de la tabla: si
-            // cambiaran al filtrar dejarían de servir como bandeja pendiente. La pantalla vuelve a
-            // pedir filter-data después de cada acción que los mueve (rendir, aprobar, decidir).
-            // En modo TESORERÍA no se calcula nada: esa bandeja no rinde ni revisa capturas, su
-            // pantalla esconde toda la sección de rendición y las dos consultas serían tiradas.
+            // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
+            // tarjetas— porque son las opciones de un control: se arman con el alcance completo del
+            // usuario, si no el propio filtro de mes iría borrando los meses que ofrece. La
+            // pantalla vuelve a pedir filter-data después de cada acción que los mueve (rendir,
+            // aprobar, decidir). En modo TESORERÍA no se calcula nada: esa bandeja no rinde, su
+            // pantalla esconde toda la sección de rendición y la consulta sería tirada.
             if (!esTesorero)
             {
                 var scope = new GestionSalidaFiltersDto
@@ -110,23 +110,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     SeesAll             = seesAll,
                     VisibleAreaScopeIds = visibleIds,
                 };
-                (data.MesesRendicion, data.Resumen) = await ResumirRendicionAsync(scope);
+                data.MesesRendicion = await MesesRendicionAsync(scope);
             }
 
             return data;
         }
 
         /// <summary>
-        /// Arma los meses del desplegable y los números de las tarjetas a partir de las dos únicas
-        /// bandejas que importan: lo aprobado sin rendir (de ahí salen las aptas, las que están
-        /// esperando capturas y los meses) y los reembolsos rechazados (las observadas).
+        /// Arma los meses del desplegable a partir de la única bandeja que importa: lo aprobado sin
+        /// rendir, de donde salen las salidas aptas.
         ///
         /// Se apoya en <c>_repo.GetAll</c> en vez de armar SQL propio para que la definición de
-        /// "apta para rendir" viva en un solo lugar. Son dos consultas acotadas a trabajo pendiente,
+        /// "apta para rendir" viva en un solo lugar. Es una consulta acotada a trabajo pendiente,
         /// no a la tabla entera.
         /// </summary>
-        private async Task<(List<MesRendicionDto> Meses, ResumenRendicionDto Resumen)> ResumirRendicionAsync(
-            GestionSalidaFiltersDto scope)
+        private async Task<List<MesRendicionDto>> MesesRendicionAsync(GestionSalidaFiltersDto scope)
         {
             var pendientes = await _repo.GetAll(new GestionSalidaFiltersDto
             {
@@ -136,15 +134,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 EsTesorero          = scope.EsTesorero,
                 EstadoAprobacion    = EstadosSalida.Aprobacion.NombreAprobado,
                 EstadoRendicion     = EstadosSalida.Rendicion.NombreNoRendido,
-            });
-
-            var observadas = await _repo.GetAll(new GestionSalidaFiltersDto
-            {
-                CurrentUserId       = scope.CurrentUserId,
-                SeesAll             = scope.SeesAll,
-                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
-                EsTesorero          = scope.EsTesorero,
-                EstadoReembolso     = EstadosSalida.Reembolso.NombreRechazado,
             });
 
             var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
@@ -183,12 +172,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 meses = meses.OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes).ToList();
             }
 
-            return (meses, new ResumenRendicionDto
-            {
-                AptasParaRendir     = aptas.Count,
-                CapturasIncompletas = pendientes.Count(x => !x.PuedeRendirse),
-                Observadas          = observadas.Count,
-            });
+            return meses;
         }
 
         /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>
@@ -499,9 +483,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await RendirYGenerarPlanilla(ids, userId);
         }
 
-        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
-            // Sin guard de propiedad: en Gestión de Salidas se administran las salidas de otros.
-            => _consolidadoService.Upload(solicitudId, ambito, file, userId);
+        /// <summary>
+        /// El revisor adjunta el consolidado desde la fila de una salida, pero el archivo es de su
+        /// PLANILLA: se resuelve acá qué planilla es. Sin guard de propiedad, porque en Gestión de
+        /// Salidas se administran las salidas de otros.
+        /// </summary>
+        public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, IFormFile file, int userId)
+        {
+            var rendicionId = await _repo.GetRendicionIdDeSolicitud(solicitudId)
+                ?? throw new AbrilException(
+                    "La salida todavía no está rendida: el Consolidado del S10 se adjunta a la planilla de rendición.",
+                    409);
+
+            return await _consolidadoService.UploadParaRendicion(rendicionId, file, userId);
+        }
 
         public Task<GestionSalidaDetalleDto?> GetDetalle(int id)
             => _repo.GetDetalle(id);
@@ -681,7 +676,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
                 var layout = SalidaEmailLayout.Desde(_configuration);
                 var datos  = ToCorreoDatos(info);
-                var url    = SalidaEnlaces.Autoservicio(_configuration, solicitudId);
+                // El botón lleva a Mis Rendiciones: subsanar es volver a adjuntar el Consolidado
+                // del S10, que es de la planilla. Solo cae a la salida si (por datos viejos) la
+                // salida no tiene planilla, para no dejar el correo sin destino.
+                var url    = info.RendicionId.HasValue
+                    ? SalidaEnlaces.Rendiciones(_configuration, info.RendicionId.Value)
+                    : SalidaEnlaces.Autoservicio(_configuration, solicitudId);
 
                 var body = aprobado
                     ? ReembolsoEmailTemplates.Aprobado(layout, datos, url)

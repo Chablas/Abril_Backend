@@ -1,4 +1,7 @@
-﻿namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos
+﻿using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+
+namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos
 {
     public class GestionSalidaListItemDto
     {
@@ -253,9 +256,12 @@
         public DateOnly FechaLimite { get; set; }
     }
 
-    /// <summary>Los números de las tarjetas del encabezado. Se calculan sobre todo el alcance del
-    /// usuario (no sobre la página ni sobre los filtros de la tabla), así que no cambian al
-    /// filtrar: son la bandeja pendiente, no el resultado de la búsqueda.</summary>
+    /// <summary>
+    /// Los números de las tarjetas del encabezado. Se cuentan sobre EL MISMO conjunto filtrado que
+    /// alimenta la tabla —todas las páginas, no solo la visible—, así que acompañan a la búsqueda
+    /// en vez de quedarse en un total fijo. Por eso viajan en la respuesta del listado y no en
+    /// <c>filter-data</c>.
+    /// </summary>
     public class ResumenRendicionDto
     {
         /// <summary>Aprobadas, no rendidas, con trayectos cubiertos y motivo reembolsable.</summary>
@@ -264,6 +270,37 @@
         public int CapturasIncompletas { get; set; }
         /// <summary>Reembolsos rechazados: esperan que el trabajador subsane.</summary>
         public int Observadas { get; set; }
+
+        /// <summary>
+        /// Cuenta las tres bandejas sobre las salidas recibidas. Cada tarjeta conserva su
+        /// definición (es lo que dice su etiqueta); lo que cambia con los filtros es el universo
+        /// sobre el que se cuenta. Se calcula en memoria sobre la lista completa que el
+        /// repositorio ya tenía en la mano para paginar: no cuesta una consulta más.
+        /// </summary>
+        public static ResumenRendicionDto De(IEnumerable<GestionSalidaListItemDto> salidas)
+        {
+            var lista = salidas as ICollection<GestionSalidaListItemDto> ?? salidas.ToList();
+            return new ResumenRendicionDto
+            {
+                AptasParaRendir     = lista.Count(x => x.AptaParaRendir),
+                // AptaParaRendir ya exige aprobada + no rendida; acá se piden explícitas porque
+                // esta tarjeta cuenta justo a las que NO llegan a aptas por falta de captura.
+                CapturasIncompletas = lista.Count(x => !x.PuedeRendirse
+                                                    && x.EstadoAprobacion == EstadosSalida.Aprobacion.NombreAprobado
+                                                    && x.EstadoRendicion  == EstadosSalida.Rendicion.NombreNoRendido),
+                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+            };
+        }
+    }
+
+    /// <summary>
+    /// Respuesta del listado paginado más los números de las tarjetas, contados sobre todo el
+    /// conjunto filtrado (no sobre la página). Van juntos para que un cambio de filtro se resuelva
+    /// en una sola petición y la tabla y las tarjetas no puedan discrepar.
+    /// </summary>
+    public class GestionSalidaPagedDto : PagedResult<GestionSalidaListItemDto>
+    {
+        public ResumenRendicionDto Resumen { get; set; } = new();
     }
 
     public class MarcarRendidasBulkDto
@@ -325,6 +362,12 @@
         public DateOnly FechaSalida { get; set; }
         /// <summary>Numero de planilla formateado ("TI: 000123"), o null si no tiene planilla.</summary>
         public string? NumeroPlanilla { get; set; }
+        /// <summary>
+        /// Planilla a la que pertenece la salida. Es el destino del boton del correo: lo que el
+        /// trabajador tiene que hacer despues de una decision (subsanar volviendo a adjuntar el
+        /// Consolidado del S10) vive en Mis Rendiciones, no en la salida.
+        /// </summary>
+        public int? RendicionId { get; set; }
         public int TrayectosCount { get; set; }
         public decimal MontoTotal { get; set; }
         public string EstadoReembolso { get; set; } = string.Empty;
@@ -363,9 +406,6 @@
 
         /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
         public List<MesRendicionDto> MesesRendicion { get; set; } = new();
-
-        /// <summary>Números de las tarjetas del encabezado.</summary>
-        public ResumenRendicionDto Resumen { get; set; } = new();
     }
 
     /// <summary>Nodo del árbol area_scope (lista plana; el frontend arma la jerarquía). </summary>

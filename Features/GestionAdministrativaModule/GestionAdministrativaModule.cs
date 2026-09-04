@@ -2,6 +2,10 @@
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Interfaces;
@@ -59,6 +63,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // services.AddScoped<IApproverResolver, ApproverResolver>();
             services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
+
+            // Mis Rendiciones (autoservicio sobre las planillas ya rendidas: Consolidado del S10,
+            // aviso al revisor y seguimiento del reembolso — todo lo que va después de rendir)
+            services.AddScoped<IRendicionRepository, RendicionRepository>();
+            services.AddScoped<IRendicionService, RendicionService>();
 
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();

@@ -28,6 +28,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
+    /// Lo que necesita el aviso al revisor, que es de una PLANILLA entera y no de una salida: el
+    /// Consolidado del S10 cubre la planilla, así que el correo sale una vez por planilla.
+    /// </summary>
+    public sealed class ReembolsoPlanillaCorreoDatos
+    {
+        public int RendicionId { get; set; }
+        public string Trabajador { get; set; } = string.Empty;
+        public string? Area { get; set; }
+        /// <summary>Número de la planilla ("TI: 000123"), o null si la planilla no lo tiene.</summary>
+        public string? NumeroPlanilla { get; set; }
+        /// <summary>Periodo que cubre la planilla ("Agosto 2026", o un rango si cruza meses).</summary>
+        public string? Periodo { get; set; }
+        /// <summary>Cuántas salidas del trabajador entran en la planilla.</summary>
+        public int SalidasCount { get; set; }
+        /// <summary>Suma de lo rendido por el trabajador en esa planilla, en soles.</summary>
+        public decimal MontoTotal { get; set; }
+    }
+
+    /// <summary>
     /// Los tres correos que cierran el ciclo de la rendición, todos con el mismo chrome de la
     /// intranet (<see cref="SalidaEmailLayout"/>):
     ///
@@ -61,24 +80,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaDecision   = "req-vistobueno";
 
         /// <summary>
-        /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 y su reembolso
-        /// está esperando revisión. El botón abre Gestión de Salidas en esa solicitud.
+        /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 de su PLANILLA y
+        /// el reembolso está esperando revisión. El aviso es por planilla (no por salida) porque el
+        /// consolidado cubre la planilla entera; el botón abre Gestión de Salidas en una de sus
+        /// salidas, desde donde el revisor ve el resto.
         /// </summary>
-        public static string RevisionPendiente(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlRevisar) =>
-            l.Documento(
+        public static string RevisionPendiente(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlRevisar)
+        {
+            var cuantas = d.SalidasCount == 1
+                ? "de una salida"
+                : $"de sus <b>{d.SalidasCount} salidas</b>";
+
+            return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoRevisar,
                     "Reembolso por revisar",
-                    $"<b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> adjuntó el Consolidado del S10 de su salida del "
-                    + $"<b>{d.FechaSalida:dd/MM/yyyy}</b>."),
-                l.Tarjeta(FilasBase(d)),
+                    $"<b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> adjuntó el Consolidado del S10 de su planilla "
+                    + $"{cuantas}."),
+                l.Tarjeta(FilasPlanilla(d)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
                     "La rendición ya está completa: falta tu visto bueno para que pase a firma y a tesorería."),
                 l.Boton("Revisar el reembolso", urlRevisar),
                 l.EnlaceDirecto(urlRevisar));
+        }
 
         /// <summary>
-        /// Al solicitante: su reembolso quedó aprobado. El botón abre su solicitud en la intranet.
+        /// Al solicitante: su reembolso quedó aprobado. El botón abre su planilla en Mis
+        /// Rendiciones, que es donde vive el expediente completo (planilla, S10, copia firmada).
         /// </summary>
         public static string Aprobado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlVer) =>
             l.Documento(
@@ -92,7 +120,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                         ? "Aprobado por tu jefatura."
                         : $"Aprobado por <b>{AbrilEmailLayout.Esc(d.DecididoPor)}</b>."),
                 l.Tarjeta(FilasBase(d)),
-                l.Boton("Ver mi solicitud", urlVer),
+                l.Boton("Ver mi rendición", urlVer),
                 l.EnlaceDirecto(urlVer));
 
         /// <summary>
@@ -119,8 +147,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Las filas comunes a los tres correos. Las que no tienen dato no se agregan: una tarjeta
-        /// con "—" repetidos no informa nada.
+        /// Filas del aviso al revisor, que habla de la PLANILLA entera: en vez de una fecha de
+        /// salida suelta muestra el periodo que cubre y cuántas salidas trae.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasPlanilla(ReembolsoPlanillaCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>
+            {
+                new(FilaTrabajador, "Trabajador", AbrilEmailLayout.Esc(d.Trabajador)),
+            };
+
+            if (!string.IsNullOrWhiteSpace(d.Area))
+                filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
+
+            var salidas = d.SalidasCount == 1 ? "1 salida" : $"{d.SalidasCount} salidas";
+            filas.Add(new(FilaFecha, "Periodo",
+                string.IsNullOrWhiteSpace(d.Periodo) ? salidas : $"{AbrilEmailLayout.Esc(d.Periodo)} · {salidas}"));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
+                filas.Add(new(FilaPlanilla, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
+
+            if (d.MontoTotal > 0m)
+                filas.Add(new(FilaMonto, "Monto rendido",
+                    $"S/ {d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Las filas comunes a los correos de decisión (aprobado/rechazado), que sí son de UNA
+        /// salida. Las que no tienen dato no se agregan: una tarjeta con "—" repetidos no informa
+        /// nada.
         /// </summary>
         private static List<AbrilEmailLayout.Fila> FilasBase(ReembolsoCorreoDatos d)
         {

@@ -8,8 +8,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     {
         Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters);
 
-        /// <summary>Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado.</summary>
-        Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters);
+        /// <summary>
+        /// Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado, más los
+        /// números de las tarjetas contados sobre todo el conjunto filtrado.
+        /// </summary>
+        Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters);
         /// <summary>
         /// Datos de los filtros (trabajadores, lugares y árbol de áreas). Cuando
         /// <paramref name="seesAll"/> es false, tanto los trabajadores como el árbol de áreas se
@@ -78,6 +81,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Detalle completo (cabecera + trayectos con capturas + rendición si existe).</summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id);
+
+        /// <summary>Planilla de rendición a la que pertenece la salida. Null si aún no está rendida.</summary>
+        Task<int?> GetRendicionIdDeSolicitud(int solicitudId);
 
         /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
         Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);

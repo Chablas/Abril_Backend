@@ -29,7 +29,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private readonly IConfiguration                _configuration;
         private readonly ILogger<SolicitudSalidaService> _logger;
         private readonly IGraphSharePointService        _sharePointService;
-        private readonly IConsolidadoS10Service         _consolidadoService;
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
@@ -40,8 +39,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             IDbContextFactory<AppDbContext> factory,
             IConfiguration configuration,
             ILogger<SolicitudSalidaService> logger,
-            IGraphSharePointService sharePointService,
-            IConsolidadoS10Service consolidadoService)
+            IGraphSharePointService sharePointService)
         {
             _repo             = repo;
             _revisorResolver  = revisorResolver;
@@ -52,7 +50,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             _configuration    = configuration;
             _logger           = logger;
             _sharePointService = sharePointService;
-            _consolidadoService = consolidadoService;
         }
 
         public async Task<SolicitudSalidaFormDataDto> GetFormData(int? userId)
@@ -99,17 +96,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return data;
         }
 
-        public Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null) =>
-            _repo.GetByUserId(userId, filters);
+        public async Task<SolicitudSalidaListResultDto> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null)
+        {
+            // Las tarjetas se cuentan sobre lo mismo que muestra la tabla, así que salen de esta
+            // lista y no de una consulta aparte: el listado no está paginado, ya viene entero.
+            var data = await _repo.GetByUserId(userId, filters);
+            return new SolicitudSalidaListResultDto
+            {
+                Data    = data,
+                Resumen = ResumenRendicionDto.De(data),
+            };
+        }
 
         public async Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId)
         {
             var data = await _repo.GetFilterData(userId);
 
-            // Meses del desplegable "Mes a rendir" + números de las tarjetas. Van acá y no en el
-            // listado porque son de TODAS las solicitudes del trabajador, no del filtro de la
-            // tabla: si cambiaran al filtrar dejarían de servir como bandeja pendiente. La pantalla
-            // vuelve a pedir filter-data después de cada acción que los mueve.
+            // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
+            // tarjetas— porque son las opciones de un control: se arman con TODAS las solicitudes
+            // del trabajador, si no el propio filtro de mes iría borrando los meses que ofrece. La
+            // pantalla vuelve a pedir filter-data después de cada acción que los mueve.
             var pendientes = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
             {
                 EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
@@ -152,20 +158,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
                     .ToList();
             }
-
-            // Las observadas están en otro eje de estado (reembolso rechazado sobre una salida ya
-            // rendida), así que no salen del set anterior y se piden aparte, ya filtradas.
-            var observadas = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
-            {
-                EstadoReembolso = EstadosSalida.Reembolso.NombreRechazado,
-            });
-
-            data.Resumen = new ResumenRendicionDto
-            {
-                AptasParaRendir     = aptas.Count,
-                CapturasIncompletas = pendientes.Count(x => !x.PuedeRendirse),
-                Observadas          = observadas.Count,
-            };
 
             return data;
         }
@@ -960,115 +952,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return ids;
         }
 
-        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
-            // ownerUserId = userId: en el autoservicio solo se adjunta a salidas propias.
-            => _consolidadoService.Upload(solicitudId, ambito, file, userId, ownerUserId: userId);
-
         private static string SanitizeFilename(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "captura";
             var invalid = Path.GetInvalidFileNameChars().Concat(new[] { ' ', '#', '%', '&', '+' }).ToHashSet();
             var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
             return clean.Length > 60 ? clean.Substring(0, 60) : clean;
-        }
-
-        // ── Aviso al revisor de que el S10 ya está adjunto ───────────────────
-
-        public async Task<string> NotificarRevisorS10(int solicitudId, int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var info = await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId
-                select new
-                {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    s.FechaSalida, s.EstadoRendicionId, s.EstadoReembolsoId, s.RendicionId,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    EsPropia   = per != null && per.UserId == userId,
-                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
-                }
-            ).FirstOrDefaultAsync()
-              ?? throw new AbrilException("La solicitud de salida no existe.", 404);
-
-            if (!info.EsPropia)
-                throw new AbrilException("Solo puedes avisar al revisor de tus propias salidas.", 403);
-
-            if (info.EstadoRendicionId != EstadosSalida.Rendicion.Rendido)
-                throw new AbrilException("La salida todavía no está rendida.", 400);
-
-            if (info.EstadoReembolsoId != EstadosSalida.Reembolso.Pendiente
-                && info.EstadoReembolsoId != EstadosSalida.Reembolso.Rechazado)
-                throw new AbrilException(
-                    "El reembolso de esta salida ya fue revisado: no hace falta volver a avisar.", 400);
-
-            var consolidado = await _consolidadoService.GetForSolicitud(solicitudId);
-            if (consolidado == null)
-                throw new AbrilException(
-                    "Primero adjunta el Consolidado del S10: es lo que el revisor tiene que mirar.", 400);
-
-            var revisor = await _revisorResolver.ResolveAsync(info.WorkerInternalId);
-            if (string.IsNullOrWhiteSpace(revisor?.Email))
-                throw new AbrilException(
-                    "No se pudo determinar el correo de tu jefe/revisor. Avisa a Gestión del Talento Humano.", 409);
-
-            var envio = await _correoResolver.ResolveEnvioAsync(
-                CorreoEventoCodigos.S10Revisor,
-                new List<string> { revisor!.Email! });
-
-            if (!envio.Enviar)
-                throw new AbrilException(
-                    "El aviso al revisor está desactivado en la configuración de correos de Gestión Administrativa.",
-                    409);
-
-            // Monto rendido y cantidad de trayectos, para que el correo diga de cuánto se trata.
-            var trayectoIds = await ctx.GaSolicitudTrayecto
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => t.Id)
-                .ToListAsync();
-            var monto = trayectoIds.Count == 0
-                ? 0m
-                : await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
-
-            var datos = new ReembolsoCorreoDatos
-            {
-                SolicitudId    = info.Id,
-                Codigo         = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id),
-                Trabajador     = info.Trabajador,
-                Area           = await ResolveAreaNombreAsync(ctx, info.AreaScopeId),
-                FechaSalida    = info.FechaSalida,
-                NumeroPlanilla = info.NumeroPlanilla.HasValue ? $"TI: {info.NumeroPlanilla.Value:D6}" : null,
-                TrayectosCount = trayectoIds.Count,
-                MontoTotal     = monto,
-            };
-
-            var url  = SalidaEnlaces.Gestion(_configuration, solicitudId);
-            var body = ReembolsoEmailTemplates.RevisionPendiente(SalidaEmailLayout.Desde(_configuration), datos, url);
-
-            await _emailService.SendAsync(
-                to: envio.Para,
-                subject: $"Reembolso por revisar - {info.Trabajador} - {info.FechaSalida:dd/MM/yyyy}",
-                body: body,
-                isHtml: true,
-                cc: envio.Copia.Count > 0 ? envio.Copia : null);
-
-            var solicitud = await ctx.GaSolicitudSalida.FirstAsync(x => x.Id == solicitudId);
-            solicitud.RevisorNotificadoAt    = DateTimeOffset.UtcNow;
-            solicitud.RevisorNotificadoPorId = userId;
-            solicitud.UpdatedAt              = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
-
-            var nombre = string.IsNullOrWhiteSpace(revisor.Nombre) ? "tu revisor" : revisor.Nombre;
-            return $"Se le avisó a {nombre}.";
         }
 
         /// <summary>Nombre del área a la que apunta el nodo (el más bajo del árbol). Null si no tiene.</summary>

@@ -461,14 +461,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida ya rendida.
-        /// <c>ambito</c>: "Rendicion" (cubre toda la planilla, es el default de la pantalla) o
-        /// "Solicitud" (cubre solo esta salida).
+        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de la PLANILLA a la que pertenece esa
+        /// salida. El id sigue siendo el de la salida porque es lo que la tabla del revisor tiene a
+        /// mano; el archivo cubre la planilla entera (ya no se asocia a una salida suelta).
         /// </summary>
         [HttpPost("{id:int}/consolidado-s10")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB
-        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file, [FromForm] string? ambito)
+        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file)
         {
             try
             {
@@ -477,13 +477,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                ConsolidadoS10Ambito ambitoEnum;
-                if (string.IsNullOrWhiteSpace(ambito))
-                    ambitoEnum = ConsolidadoS10Ambito.Rendicion;
-                else if (!Enum.TryParse(ambito.Trim(), ignoreCase: true, out ambitoEnum) || !Enum.IsDefined(ambitoEnum))
-                    return BadRequest(new { message = "Ámbito inválido: usa \"Rendicion\" o \"Solicitud\"." });
-
-                return Ok(await _service.UploadConsolidadoS10(id, ambitoEnum, file, userId.Value));
+                return Ok(await _service.UploadConsolidadoS10(id, file, userId.Value));
             }
             catch (AbrilException ex)
             {

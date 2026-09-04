@@ -32,7 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// estable: los empates conservan el orden original (fecha de salida descendente, luego las
         /// registradas más recientemente).
         /// </summary>
-        public async Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        public async Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters)
         {
             var all = await GetAll(filters);
             var sorted = ApplySort(all, filters);
@@ -40,13 +40,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var totalRecords = sorted.Count;
             var page = filters.Page < 1 ? 1 : filters.Page;
 
-            return new PagedResult<GestionSalidaListItemDto>
+            return new GestionSalidaPagedDto
             {
                 Page = page,
                 PageSize = PageSize,
                 TotalRecords = totalRecords,
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)PageSize),
                 Data = sorted.Skip((page - 1) * PageSize).Take(PageSize).ToList(),
+                // Las tarjetas cuentan TODO lo filtrado, no la página: `all` ya está acá, así que
+                // sale gratis y no puede discrepar de lo que la tabla está mostrando.
+                Resumen = ResumenRendicionDto.De(all),
             };
         }
 
@@ -625,6 +628,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return values.First();
         }
 
+        public async Task<int?> GetRendicionIdDeSolicitud(int solicitudId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GaSolicitudSalida
+                .Where(s => s.Id == solicitudId)
+                .Select(s => s.RendicionId)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<string?> GetRendicionFolderUrl()
         {
             using var ctx = _factory.CreateDbContext();
@@ -1113,39 +1125,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     r.Item.Area = nombreArea;
             }
 
-            // Importe por trayecto (suma de capturas)
-            var trayectoIds = rowsRaw.Select(r => r.Item.Id).ToList();
-            var importesCapturas = await ctx.GaSolicitudCaptura
-                .Where(c => trayectoIds.Contains(c.TrayectoId))
-                .GroupBy(c => c.TrayectoId)
-                .Select(g => new { TrayectoId = g.Key, Total = g.Sum(x => x.Monto) })
-                .ToDictionaryAsync(x => x.TrayectoId, x => x.Total);
-
-            // Catálogo: necesario para los trayectos sin capturas cuyo worker es TI
-            var necesitaCatalogo = rowsRaw.Any(r =>
-                string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
-                !importesCapturas.ContainsKey(r.Item.Id));
-            var catalogoMap = necesitaCatalogo ? await CargarCatalogoTrayectosAsync(ctx) : new();
+            // Importe por trayecto: capturas, o catálogo si el trabajador es de TI. La regla vive
+            // en ImporteRendidoLoader porque Mis Rendiciones muestra ese mismo monto y las dos
+            // vistas no pueden discrepar del importe que se imprime acá.
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                rowsRaw.Select(r => new ImporteRendidoLoader.TrayectoParaImporte(
+                    r.Item.Id, r.Subarea, r.LugarOrigenId, r.LugarDestinoId)).ToList());
 
             foreach (var r in rowsRaw)
             {
-                if (importesCapturas.TryGetValue(r.Item.Id, out var sumCap) && sumCap > 0m)
-                {
-                    r.Item.Importe    = sumCap;
-                    r.Item.EsCatalogo = false;
-                }
-                else if (string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
-                         r.LugarOrigenId.HasValue && r.LugarDestinoId.HasValue &&
-                         catalogoMap.TryGetValue((r.LugarOrigenId.Value, r.LugarDestinoId.Value), out var montoCat))
-                {
-                    r.Item.Importe    = montoCat;
-                    r.Item.EsCatalogo = true;
-                }
-                else
-                {
-                    r.Item.Importe    = 0m;
-                    r.Item.EsCatalogo = false;
-                }
+                if (!importes.TryGetValue(r.Item.Id, out var imp)) continue;
+                r.Item.Importe    = imp.Importe;
+                r.Item.EsCatalogo = imp.EsCatalogo;
             }
 
             return rowsRaw.Select(r => r.Item).ToList();
@@ -1388,6 +1380,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
                     Email = u != null ? u.Email : null,
                     s.FechaSalida, s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
+                    s.RendicionId,
                     NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
                 }
             ).FirstOrDefaultAsync();
@@ -1440,6 +1433,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 Area                 = AreaMasBaja(head.AreaScopeId, arbolAreas),
                 FechaSalida          = head.FechaSalida,
                 NumeroPlanilla       = head.NumeroPlanilla.HasValue ? $"TI: {head.NumeroPlanilla.Value:D6}" : null,
+                RendicionId          = head.RendicionId,
                 TrayectosCount       = trayectoIds.Count,
                 MontoTotal           = monto,
                 EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),

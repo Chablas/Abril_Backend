@@ -1,12 +1,15 @@
-﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces
 {
     public interface ISolicitudSalidaService
     {
         Task<SolicitudSalidaFormDataDto> GetFormData(int? userId);
-        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+        /// <summary>
+        /// Listado de las solicitudes del trabajador ya filtrado, junto con los números de las
+        /// tarjetas contados sobre ese mismo conjunto.
+        /// </summary>
+        Task<SolicitudSalidaListResultDto> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
         /// <summary>
         /// Crea la solicitud. <paramref name="adjuntos"/> trae los documentos adjuntos por índice
@@ -37,29 +40,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// </summary>
         Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes);
 
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida. El
-        /// ámbito decide si el archivo cubre toda la planilla de rendición o solo esa salida.
-        /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId);
+        // El Consolidado del S10 y el aviso al revisor ya no viven acá: son de la PLANILLA de
+        // rendición y los expone IRendicionService (Mis Rendiciones). Esta pantalla llega hasta
+        // rendir.
 
         /// <summary>Envía email de confirmación al solicitante de que su solicitud fue aprobada. Best-effort, no lanza.</summary>
         Task NotifySolicitanteAprobada(int solicitudId);
 
         /// <summary>Envía email al solicitante de que su solicitud fue rechazada (mismos destinatarios/copias que el de aprobación). Best-effort, no lanza.</summary>
         Task NotifySolicitanteRechazada(int solicitudId);
-
-        /// <summary>
-        /// El trabajador avisa a su jefe/revisor que ya adjuntó el Consolidado del S10 y su
-        /// reembolso está listo para revisión. Solo funciona sobre salidas SUYAS que estén
-        /// rendidas, con el consolidado adjunto y con el reembolso todavía abierto.
-        ///
-        /// El correo lleva un botón que abre Gestión de Salidas en esa solicitud. Respeta la
-        /// configuración de correos: si el correo está apagado, no se envía y se avisa al usuario
-        /// (a diferencia del resto de correos del flujo, este lo dispara una persona apretando un
-        /// botón, así que el resultado tiene que ser visible).
-        /// </summary>
-        /// <returns>Mensaje para mostrar en la pantalla.</returns>
-        Task<string> NotificarRevisorS10(int solicitudId, int userId);
     }
 }

@@ -22,9 +22,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         /// <summary>
         /// Solicitud de Salidas (el autoservicio del trabajador) abierta en esa solicitud — es
-        /// donde ve el resultado y donde vuelve a adjuntar el Consolidado del S10 para subsanar.
+        /// donde ve el detalle de la salida en sí.
         /// </summary>
         public static string Autoservicio(IConfiguration configuration, int solicitudId) =>
             $"{Base(configuration)}/gestion-administrativa/solicitud-salidas?solicitud={solicitudId}";
+
+        /// <summary>
+        /// Mis Rendiciones abierta en esa planilla — es donde el trabajador adjunta (o vuelve a
+        /// adjuntar, para subsanar) el Consolidado del S10 y avisa a su revisor. Todo lo que va
+        /// después de rendir vive ahí, así que es el destino de los correos del reembolso.
+        /// </summary>
+        public static string Rendiciones(IConfiguration configuration, int rendicionId) =>
+            $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
     }
 }

@@ -29,4 +29,17 @@ public class KitService : IKitService
             throw new AbrilException("La cantidad de kits debe ser mayor a 0.", 400);
         return _repo.CalcularAsync(kitId, cantidadKits);
     }
+
+    public Task<List<KitProyectoGuardadoDto>> ObtenerGuardadosPorProyectoAsync(int projectId)
+        => _repo.ObtenerGuardadosPorProyectoAsync(projectId);
+
+    public Task GuardarEnProyectoAsync(int projectId, KitProyectoGuardarDto dto, int userId)
+    {
+        if (dto.CantidadKits <= 0)
+            throw new AbrilException("La cantidad de kits debe ser mayor a 0.", 400);
+        return _repo.GuardarEnProyectoAsync(projectId, dto.KitId, dto.CantidadKits, userId);
+    }
+
+    public Task EliminarDelProyectoAsync(int projectId, int kitId)
+        => _repo.EliminarDelProyectoAsync(projectId, kitId);
 }

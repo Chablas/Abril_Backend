@@ -5,12 +5,17 @@ using Npgsql;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
 
-/// <summary>Nombre de la família de Catálogo cuyo ratio de precio alimenta el costo del servicio de
-/// vigilancia externa — el mismo mecanismo de Ratios que usan los demás materiales, no un costo tipeado
-/// a mano por fila (a diferencia de "S/ mes" en Dotación de personal).</summary>
+/// <summary>Precio del servicio de vigilancia externa por punto/turno.
+/// El Kardex de "SC VIGILANCIA"/"VIGILANCIA" trae SIEMPRE cantidad=1 por línea sin importar cuántos
+/// turnos cubre esa factura — SAUCO factura consistentemente ~14,040.52 (≈4 turnos), LILAS/CAMELIA
+/// ~7,020.26 (≈2 turnos), verificado contra el precio real confirmado por SSOMA (S/3,500/turno). Como
+/// nadie corrigió `cantidad_real` línea por línea en el Kardex, promediar `precio_unitario_promedio`
+/// desde Ratios mezcla facturas de 1/2/4 turnos sin normalizar y da un precio inflado (~S/8,400).
+/// Hasta que se limpie esa data en Kardex (tarea de estandarización, no de este código), se usa el
+/// valor real confirmado directamente en vez del promedio ruidoso de Ratios.</summary>
 public class VigilanciaHitoRepository : IVigilanciaHitoRepository
 {
-    private const string FamiliaVigilancia = "Servicio de Vigilancia";
+    private const decimal PrecioVigilanciaPorTurno = 3500m;
 
     private readonly IConfiguration _config;
     public VigilanciaHitoRepository(IConfiguration config) => _config = config;
@@ -38,17 +43,7 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
         public DateOnly? Fecha { get; set; }
     }
 
-    public async Task<decimal?> ObtenerPrecioUnitarioActualAsync()
-    {
-        using var conn = Conn();
-        const string sql = """
-            SELECT AVG(r.precio_unitario_promedio)
-            FROM ss_ratio_proyecto r
-            JOIN ss_material_familia f ON f.id = r.familia_id
-            WHERE f.nombre = @familia AND r.incluido_manual_precio = true
-            """;
-        return await conn.QuerySingleOrDefaultAsync<decimal?>(sql, new { familia = FamiliaVigilancia });
-    }
+    public Task<decimal?> ObtenerPrecioUnitarioActualAsync() => Task.FromResult<decimal?>(PrecioVigilanciaPorTurno);
 
     public async Task<List<VigilanciaHitoDto>> ObtenerPorProyectoAsync(int projectId)
     {
@@ -112,16 +107,9 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
             "DELETE FROM ss_presupuesto_vigilancia_hito WHERE presupuesto_id = @presupuestoId",
             new { presupuestoId }, tx);
 
-        // Precio unitario vigente del servicio de vigilancia — mismo mecanismo de Ratios que los
-        // demás materiales, snapshot al momento de guardar (igual que "S/ mes" en Dotación de personal).
-        const string precioSql = """
-            SELECT AVG(r.precio_unitario_promedio)
-            FROM ss_ratio_proyecto r
-            JOIN ss_material_familia f ON f.id = r.familia_id
-            WHERE f.nombre = @familia AND r.incluido_manual_precio = true
-            """;
-        var precioUnitario = await conn.QuerySingleOrDefaultAsync<decimal?>(
-            precioSql, new { familia = FamiliaVigilancia }, tx) ?? 0m;
+        // Precio del servicio de vigilancia — valor real confirmado (ver comentario de la clase),
+        // no el promedio de Ratios (que hoy sale inflado por el problema de cantidad=1 en Kardex).
+        var precioUnitario = PrecioVigilanciaPorTurno;
 
         // Fechas del cronograma vigente — para recalcular Semanas cuando la fila trae un hito de salida.
         var fechasSql = $"""
@@ -160,6 +148,8 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
                 (presupuesto_id, hito_id, hito_salida_id, cantidad_puntos, semanas, precio_unitario, total)
             VALUES (@presupuestoId, @HitoId, @HitoSalidaId, @CantidadPuntos, @Semanas, @PrecioUnitario, @Total)
             """, filas, tx);
+
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId.Value, tx);
 
         await tx.CommitAsync();
     }

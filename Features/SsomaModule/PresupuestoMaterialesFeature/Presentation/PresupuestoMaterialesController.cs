@@ -73,6 +73,22 @@ public class PresupuestoMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al actualizar línea." }); }
     }
 
+    /// <summary>Override manual de cantidad por família del proyecto (sin necesitar el lineaId) — lo
+    /// usa "Cálculo técnico" (ej. Marcelinos/Punto de Anclaje Textil) para escribir directo en la
+    /// línea real del presupuesto vigente en vez de quedarse solo en localStorage.</summary>
+    [HttpPut("proyectos/{projectId}/familias/{familiaId}/cantidad-manual")]
+    public async Task<IActionResult> ActualizarCantidadManualPorFamilia(
+        int projectId, int familiaId, [FromBody] ActualizarCantidadManualDto dto)
+    {
+        try
+        {
+            await _service.ActualizarCantidadManualPorFamiliaAsync(projectId, familiaId, dto.CantidadManual);
+            return Ok(new { message = "Cantidad actualizada en el presupuesto." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception)         { return StatusCode(500, new { message = "Error al actualizar la cantidad." }); }
+    }
+
     /// <summary>Aprueba el presupuesto (cambia estado de BORRADOR a APROBADO).</summary>
     [HttpPost("{presupuestoId}/aprobar")]
     public async Task<IActionResult> Aprobar(int presupuestoId)

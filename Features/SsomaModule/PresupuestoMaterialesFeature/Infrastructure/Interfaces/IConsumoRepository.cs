@@ -42,4 +42,10 @@ public interface IConsumoRepository
     Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId);
     Task ActualizarRevisionAsync(long lineaId, string decision, int? itemIdConfirmado);
     Task<int> AsignarHitosPorFechaAsync(int projectId);
+    /// <summary>Resuelve el proyecto donde el usuario logueado está actualmente vinculado como
+    /// trabajador (obra real de RRHH), matcheando por correo entre workers y app_user — mismo
+    /// criterio que InspeccionRepository.EsJefeSsomaAsync — en vez de person.user_id porque no
+    /// todos los trabajadores tienen ese campo poblado. Null si no tiene vinculación activa
+    /// (p. ej. personal de oficina sin ficha de trabajador).</summary>
+    Task<int?> ObtenerProyectoActualDelUsuarioAsync(int usuarioId);
 }

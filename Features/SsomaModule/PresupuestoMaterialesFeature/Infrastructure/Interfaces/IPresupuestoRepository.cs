@@ -14,4 +14,5 @@ public interface IPresupuestoRepository
     Task<List<PresupuestoResumenDto>> ObtenerPorProyectoAsync(int projectId);
     Task ActualizarLineaAsync(int lineaId, decimal? cantidadManual, decimal? precioManual, string? notas);
     Task<string> AprobarAsync(int presupuestoId);
+    Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual);
 }

@@ -119,7 +119,9 @@ public class PersonalHitoRepository : IPersonalHitoRepository
         var fechas = (await conn.QueryAsync<FechaHitoRow>(fechasSql, new { projectId }, tx))
             .ToDictionary(f => f.HitoId, f => f.Fecha);
 
-        const decimal semanasPorMes = 4.345m;
+        // La tarifa ("costo_mensual" en la columna, por compatibilidad de esquema) se calcula y se
+        // carga en la práctica por SEMANA, igual que la planilla real (ss_hh_carga_linea) — no se
+        // convierte a mensual. Total = cantidad × tarifa semanal × semanas, directo.
         var filas = items.Select(i =>
         {
             var semanas = i.Semanas;
@@ -139,7 +141,7 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                 i.Cantidad,
                 Semanas = semanas,
                 i.CostoMensual,
-                Total = i.Cantidad * i.CostoMensual * (semanas / semanasPorMes),
+                Total = i.Cantidad * i.CostoMensual * semanas,
             };
         });
 
@@ -150,6 +152,50 @@ public class PersonalHitoRepository : IPersonalHitoRepository
             VALUES (@presupuestoId, @HitoId, @HitoSalidaId, @Rol, @Cantidad, @Semanas, @CostoMensual, @Total)
             """, filas, tx);
 
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId.Value, tx);
+
         await tx.CommitAsync();
+    }
+
+    /// <summary>Estima el "S/ semana" de Oficial/Peón desde el pago REAL registrado en la planilla
+    /// semanal de Horas Hombre (tabla ss_hh_carga_linea, la que llena "Subir Excel de Horas Hombre" en
+    /// Cargar Consumos) — ahí sí hay plata real pagada por trabajador/semana/ocupación, a diferencia de
+    /// ss_presupuesto_personal_hito que recién se empieza a usar y está vacío.
+    /// La planilla real (verificado con datos de producción) NUNCA usa la palabra "Peón" — el nivel
+    /// equivalente ahí es "Ayudante *" (Ayudante albañil/carpintero/etc., misma banda salarial).
+    /// "Oficial" sí aparece literal ("Oficial albañil/carpintero/fierrero/agregados"). Se excluye
+    /// "Operario *" a propósito: es un tercer nivel salarial más alto que no existe en esta matriz de
+    /// solo 2 categorías, mezclarlo infllaría la sugerencia de "Oficial".
+    /// Suma el pago semanal por trabajador (puede tener varias partidas la misma semana) y devuelve
+    /// ese promedio TAL CUAL — Personal se carga y calcula por semana (no se convierte a mensual, para
+    /// que coincida con cómo se arma el presupuesto acá). Solo mira las últimas ~12 semanas cargadas
+    /// (de cualquier proyecto) — así siempre jala de los proyectos actuales/activos, no se diluye con
+    /// data vieja de proyectos ya cerrados. Es un punto de partida sugerido, siempre editable.</summary>
+    public async Task<PersonalTarifasSugeridasDto> ObtenerTarifasSugeridasAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            WITH limite AS (
+                SELECT MAX(anio * 52 + semana_num) AS max_semana FROM ss_hh_carga_linea WHERE activo = true
+            ),
+            base AS (
+                SELECT
+                    CASE WHEN ocupacion ILIKE '%OFICIAL%' THEN 'OFICIAL'
+                         WHEN ocupacion ILIKE 'AYUDANTE%' THEN 'PEON' END AS categoria,
+                    project_id, trabajador, anio, semana_num,
+                    SUM(parcial) AS pago_semana
+                FROM ss_hh_carga_linea, limite
+                WHERE activo = true
+                  AND parcial IS NOT NULL
+                  AND (ocupacion ILIKE '%OFICIAL%' OR ocupacion ILIKE 'AYUDANTE%')
+                  AND (anio * 52 + semana_num) >= limite.max_semana - 12
+                GROUP BY categoria, project_id, trabajador, anio, semana_num
+            )
+            SELECT
+                COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'OFICIAL'), 0) AS Oficial,
+                COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'PEON'), 0) AS Peon
+            """;
+        var result = await conn.QuerySingleAsync<PersonalTarifasSugeridasDto>(sql);
+        return result;
     }
 }

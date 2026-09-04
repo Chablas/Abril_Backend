@@ -63,6 +63,7 @@ public class DashboardPresupuestoDto
     public int      SemanasRegistradas { get; set; }
     public int      FamiliasEnAlerta   { get; set; }
     public int      FamiliasEnAdvertencia { get; set; }
+    public int      FamiliasFueraDePresupuesto { get; set; }
     public List<DashboardTipoDto> Tipos { get; set; } = [];
 }
 
@@ -76,6 +77,38 @@ public class DashboardTipoDto
     public decimal  PctConsumido       => TotalPresupuestado > 0
                                           ? Math.Round(100 * TotalConsumido / TotalPresupuestado, 1) : 0;
     public List<DashboardLineaDto> Familias { get; set; } = [];
+}
+
+// ── Dashboard acumulado (todos los proyectos con presupuesto) — vista gerencial ────────────────
+
+public class DashboardAcumuladoProyectoDto
+{
+    public int      PresupuestoId      { get; set; }
+    public int      ProjectId          { get; set; }
+    public string   ProjectDescription { get; set; } = null!;
+    public int      Version            { get; set; }
+    public decimal  TotalPresupuestado { get; set; }
+    public decimal  TotalConsumido     { get; set; }
+    public decimal  TotalSaldo         => TotalPresupuestado - TotalConsumido;
+    public decimal  PctConsumido       => TotalPresupuestado > 0
+                                          ? Math.Round(100 * TotalConsumido / TotalPresupuestado, 1) : 0;
+    /// <summary>OK | ADVERTENCIA (≥80%) | ALERTA (≥100%) | SIN_PRESUPUESTO</summary>
+    public string   Semaforo           { get; set; } = null!;
+    public int      FamiliasFueraDePresupuesto { get; set; }
+}
+
+public class DashboardAcumuladoDto
+{
+    public int      TotalProyectos     { get; set; }
+    public decimal  TotalPresupuestado { get; set; }
+    public decimal  TotalConsumido     { get; set; }
+    public decimal  TotalSaldo         => TotalPresupuestado - TotalConsumido;
+    public decimal  PctConsumido       => TotalPresupuestado > 0
+                                          ? Math.Round(100 * TotalConsumido / TotalPresupuestado, 1) : 0;
+    public int      ProyectosEnAlerta          { get; set; }
+    public int      ProyectosEnAdvertencia     { get; set; }
+    public int      ProyectosConFueraDePresupuesto { get; set; }
+    public List<DashboardAcumuladoProyectoDto> Proyectos { get; set; } = [];
 }
 
 public class DashboardLineaDto
@@ -94,6 +127,9 @@ public class DashboardLineaDto
     public decimal  TotalSaldo         => TotalPresupuestado - TotalConsumido;
     public decimal  PctConsumido       => CantidadPresupuestada > 0
                                           ? Math.Round(100 * CantidadConsumida / CantidadPresupuestada, 1) : 0;
-    /// <summary>OK | ADVERTENCIA (≥80%) | ALERTA (≥100%) | SIN_PRESUPUESTO</summary>
+    /// <summary>OK | ADVERTENCIA (≥80%) | ALERTA (≥100%) | SIN_PRESUPUESTO | FUERA_DE_PRESUPUESTO</summary>
     public string   Semaforo           { get; set; } = null!;
+    /// <summary>Hubo consumo real de esta família pero el presupuesto no tenía una línea para
+    /// ella (se pidió por fuera, sin planificar) — se resalta distinto en la UI.</summary>
+    public bool     FueraDePresupuesto { get; set; }
 }

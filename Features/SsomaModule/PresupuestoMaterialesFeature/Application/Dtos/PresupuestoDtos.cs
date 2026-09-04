@@ -18,6 +18,11 @@ public class ActualizarLineaPresupuestoDto
     public string?  NotasLinea      { get; set; }
 }
 
+public class ActualizarCantidadManualDto
+{
+    public decimal? CantidadManual { get; set; }
+}
+
 // ── Response ──────────────────────────────────────────────────────────────────
 
 public class PresupuestoResumenDto

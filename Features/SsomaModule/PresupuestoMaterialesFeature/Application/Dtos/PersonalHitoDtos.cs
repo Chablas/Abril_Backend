@@ -45,3 +45,11 @@ public class PersonalHitoGuardarDto
 {
     public List<PersonalHitoItemInputDto> Items { get; set; } = [];
 }
+
+/// <summary>Tarifa mensual sugerida por categoría (Oficial/Peón), estimada desde lo cargado en
+/// otros proyectos recientemente — un punto de partida editable, no un valor fijo.</summary>
+public class PersonalTarifasSugeridasDto
+{
+    public decimal Oficial { get; set; }
+    public decimal Peon { get; set; }
+}

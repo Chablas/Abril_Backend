@@ -31,11 +31,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
 
         /// <summary>
-        /// Ids de las salidas PROPIAS del mes anterior (por fecha de salida, en hora de Perú) que
-        /// están listas para rendir: aprobadas, no rendidas y con todos sus trayectos cubiertos.
-        /// Lanza 400 si no hay ninguna.
+        /// Ids de las salidas PROPIAS del mes indicado (sin año/mes, el anterior; por fecha de
+        /// salida en hora de Perú) que están aptas para rendir: aprobadas, no rendidas, con todos
+        /// sus trayectos cubiertos y con un motivo reembolsable. Lanza 400 si no hay ninguna.
         /// </summary>
-        Task<List<int>> GetIdsRendiblesMesAnterior(int userId);
+        Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes);
 
         /// <summary>
         /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida. El

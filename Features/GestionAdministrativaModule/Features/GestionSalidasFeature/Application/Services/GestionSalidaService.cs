@@ -95,7 +95,108 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
             data.EsTesorero = esTesorero;
+
+            // Meses del desplegable "Mes a rendir" + números de las tarjetas. Van acá y no en el
+            // listado porque son del alcance completo del usuario, no del filtro de la tabla: si
+            // cambiaran al filtrar dejarían de servir como bandeja pendiente. La pantalla vuelve a
+            // pedir filter-data después de cada acción que los mueve (rendir, aprobar, decidir).
+            // En modo TESORERÍA no se calcula nada: esa bandeja no rinde ni revisa capturas, su
+            // pantalla esconde toda la sección de rendición y las dos consultas serían tiradas.
+            if (!esTesorero)
+            {
+                var scope = new GestionSalidaFiltersDto
+                {
+                    CurrentUserId       = currentUserId,
+                    SeesAll             = seesAll,
+                    VisibleAreaScopeIds = visibleIds,
+                };
+                (data.MesesRendicion, data.Resumen) = await ResumirRendicionAsync(scope);
+            }
+
             return data;
+        }
+
+        /// <summary>
+        /// Arma los meses del desplegable y los números de las tarjetas a partir de las dos únicas
+        /// bandejas que importan: lo aprobado sin rendir (de ahí salen las aptas, las que están
+        /// esperando capturas y los meses) y los reembolsos rechazados (las observadas).
+        ///
+        /// Se apoya en <c>_repo.GetAll</c> en vez de armar SQL propio para que la definición de
+        /// "apta para rendir" viva en un solo lugar. Son dos consultas acotadas a trabajo pendiente,
+        /// no a la tabla entera.
+        /// </summary>
+        private async Task<(List<MesRendicionDto> Meses, ResumenRendicionDto Resumen)> ResumirRendicionAsync(
+            GestionSalidaFiltersDto scope)
+        {
+            var pendientes = await _repo.GetAll(new GestionSalidaFiltersDto
+            {
+                CurrentUserId       = scope.CurrentUserId,
+                SeesAll             = scope.SeesAll,
+                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+                EsTesorero          = scope.EsTesorero,
+                EstadoAprobacion    = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion     = EstadosSalida.Rendicion.NombreNoRendido,
+            });
+
+            var observadas = await _repo.GetAll(new GestionSalidaFiltersDto
+            {
+                CurrentUserId       = scope.CurrentUserId,
+                SeesAll             = scope.SeesAll,
+                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+                EsTesorero          = scope.EsTesorero,
+                EstadoReembolso     = EstadosSalida.Reembolso.NombreRechazado,
+            });
+
+            var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
+
+            // Los meses vencidos no aparecen: `AptaParaRendir` ya los descarta fila por fila, así
+            // que un periodo cerrado se queda sin aptas y cae solo del desplegable.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var meses = aptas
+                .GroupBy(x => (x.FechaSalida.Year, x.FechaSalida.Month))
+                .Select(g => new MesRendicionDto
+                {
+                    Anio        = g.Key.Year,
+                    Mes         = g.Key.Month,
+                    Label       = EtiquetaMes(g.Key.Year, g.Key.Month),
+                    Cantidad    = g.Count(),
+                    FechaLimite = calendario.LimiteDeRendicion(g.Key.Year, g.Key.Month),
+                })
+                .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                .ToList();
+
+            // El mes anterior se agrega aunque no tenga nada —es el periodo que se rinde por
+            // defecto— pero SOLO si su plazo sigue abierto: ofrecer un periodo cerrado sería
+            // ofrecer una acción que el backend va a rechazar.
+            var (desdeMesAnterior, _) = MesAnteriorPeru.Rango();
+            if (!calendario.PlazoVencido(desdeMesAnterior.Year, desdeMesAnterior.Month)
+                && !meses.Any(m => m.Anio == desdeMesAnterior.Year && m.Mes == desdeMesAnterior.Month))
+            {
+                meses.Add(new MesRendicionDto
+                {
+                    Anio        = desdeMesAnterior.Year,
+                    Mes         = desdeMesAnterior.Month,
+                    Label       = EtiquetaMes(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                    Cantidad    = 0,
+                    FechaLimite = calendario.LimiteDeRendicion(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                });
+                meses = meses.OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes).ToList();
+            }
+
+            return (meses, new ResumenRendicionDto
+            {
+                AptasParaRendir     = aptas.Count,
+                CapturasIncompletas = pendientes.Count(x => !x.PuedeRendirse),
+                Observadas          = observadas.Count,
+            });
+        }
+
+        /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>
+        private static string EtiquetaMes(int anio, int mes)
+        {
+            var cultura = CultureInfo.GetCultureInfo("es-PE");
+            var nombre  = cultura.DateTimeFormat.GetMonthName(mes);
+            return $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]} {anio}";
         }
 
         /// <summary>
@@ -271,6 +372,42 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "(o, para trabajadores de Tecnología de la Información, que el trayecto esté registrado en el catálogo).",
                     400);
 
+            // 1.b.bis. Bloqueo: una planilla de rendición es de UN SOLO MES. Mezclar meses rompe la
+            //          rendición mensual (el plazo, el correlativo y el propio documento son por
+            //          periodo), así que se corta acá aunque la pantalla ya lo impida al seleccionar.
+            var meses = await _repo.GetMesesDeSolicitudes(elegiblesIds);
+            if (meses.Count > 1)
+            {
+                var listado = string.Join(", ", meses.Select(m => $"{m.Mes:D2}/{m.Anio}"));
+                throw new AbrilException(
+                    $"No se pueden rendir salidas de meses distintos en una sola planilla (se seleccionaron {listado}). " +
+                    "Rinde un mes a la vez.", 400);
+            }
+
+            // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros 7 días
+            //          hábiles del mes siguiente, sin sábados, domingos ni los feriados de
+            //          Configuración → Feriados. Vencido, la salida solo se puede ver.
+            if (meses.Count == 1)
+            {
+                var calendario = await _repo.GetCalendarioNoLaborable();
+                var limite     = calendario.LimiteDeRendicion(meses[0].Anio, meses[0].Mes);
+                if (MesAnteriorPeru.HoyPeru() > limite)
+                    throw new AbrilException(
+                        $"El plazo para rendir las salidas de {meses[0].Mes:D2}/{meses[0].Anio} venció el " +
+                        $"{limite:dd/MM/yyyy} (7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+            }
+
+            // 1.c. Bloqueo: la salida tiene que llevar al menos un motivo marcado como reembolsable
+            //       en Configuración → Motivos. Sin eso no hay gasto de movilidad que rendir, y la
+            //       planilla saldría con filas que nadie va a reembolsar.
+            var noReembolsables = await _repo.GetIdsNoReembolsables(elegiblesIds);
+            if (noReembolsables.Count > 0)
+                throw new AbrilException(
+                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún motivo reembolsable " +
+                    $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden las salidas cuyo motivo está marcado " +
+                    "como reembolsable en Configuración → Motivos.",
+                    400);
+
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
             var datos          = await _repo.GetRendicionData(elegiblesIds);
             var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
@@ -325,25 +462,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return (pdf, rendidasIds.Count);
         }
 
-        public async Task<(byte[] Pdf, int Count)> RendirMesAnterior(GestionSalidaFiltersDto filters, int userId)
+        public async Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId)
         {
             // El estado y el rango los fija la acción; los filtros de trabajador/área/proyecto que
             // trae la pantalla se respetan tal cual (se rinde lo que el usuario está viendo).
-            var (desde, hasta) = MesAnteriorPeru.Rango();
+            var (desde, hasta) = anio.HasValue && mes.HasValue
+                ? MesAnteriorPeru.RangoDe(anio.Value, mes.Value)
+                : MesAnteriorPeru.Rango();
+
+            // El plazo se revisa ANTES de buscar: si el periodo cerró, `SoloAptas` devolvería cero
+            // filas y el error diría "no hay nada listo", que es cierto pero esconde el motivo real.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var limite     = calendario.LimiteDeRendicion(desde.Year, desde.Month);
+            if (MesAnteriorPeru.HoyPeru() > limite)
+                throw new AbrilException(
+                    $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
+                    "(7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+
             filters.SoloHoy          = false;
+            filters.RendicionAnio    = null;
+            filters.RendicionMes     = null;
             filters.FechaSalidaDesde = desde;
             filters.FechaSalidaHasta = hasta;
             filters.EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado;
             filters.EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido;
+            filters.SoloAptas        = true;
 
-            // GetAll ya resuelve la visibilidad y calcula PuedeRendirse (capturas / catálogo TI),
-            // así que la elegibilidad sale de ahí sin duplicar reglas.
-            var candidatas = await GetAll(filters);
-            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
+            // GetAll ya resuelve la visibilidad y calcula AptaParaRendir (capturas / catálogo TI /
+            // motivo reembolsable), así que la elegibilidad sale de ahí sin duplicar reglas.
+            var ids = (await GetAll(filters)).Select(x => x.Id).ToList();
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No hay salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
 
             return await RendirYGenerarPlanilla(ids, userId);
         }

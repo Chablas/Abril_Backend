@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] string? estadoReembolso = null, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null, [FromQuery] bool soloHoy = false)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] string? estadoReembolso = null, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null, [FromQuery] bool soloHoy = false, [FromQuery] int? rendicionAnio = null, [FromQuery] int? rendicionMes = null)
         {
             try
             {
@@ -40,6 +40,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoReembolso     = estadoReembolso,
                     FilterAreaScopeIds  = areaScopeIds,
                     SoloHoy             = soloHoy,
+                    RendicionAnio       = rendicionAnio,
+                    RendicionMes        = rendicionMes,
                     CurrentUserId       = currentUserId,
                     SeesAllOverride     = User.IsInRole(Roles.UsuarioRecepcion),
                     TieneRolTesorero    = User.IsInRole(Roles.Tesorero),
@@ -295,16 +297,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         /// <summary>
-        /// Rinde de una vez TODAS las salidas del mes anterior que estén listas (aprobadas, no
-        /// rendidas y con las capturas de todos sus trayectos) dentro del alcance de visibilidad del
-        /// usuario, respetando los filtros de trabajador/área/proyecto que vengan en la query — la
-        /// acción rinde lo que la pantalla está mostrando. Las que no cumplen se ignoran.
+        /// Rinde de una vez TODAS las salidas del mes indicado (sin <c>anio</c>/<c>mes</c>, el
+        /// anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
+        /// trayectos y con un motivo reembolsable— dentro del alcance de visibilidad del usuario,
+        /// respetando los filtros de trabajador/área/proyecto que vengan en la query. Es lo que la
+        /// pantalla ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
         /// </summary>
-        [HttpPatch("rendir-mes-anterior")]
-        public async Task<IActionResult> RendirMesAnterior(
+        [HttpPatch("rendir-mes")]
+        public async Task<IActionResult> RendirMes(
             [FromQuery] int? workerId,
             [FromQuery] int? lugarProyectoId,
-            [FromQuery] List<int>? areaScopeIds = null)
+            [FromQuery] List<int>? areaScopeIds = null,
+            [FromQuery] int? anio = null,
+            [FromQuery] int? mes = null)
         {
             try
             {
@@ -321,7 +326,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     CurrentUserId      = userId.Value,
                     SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };
-                var (pdfBytes, count) = await _service.RendirMesAnterior(filters, userId.Value);
+                var (pdfBytes, count) = await _service.RendirMes(filters, anio, mes, userId.Value);
 
                 Response.Headers.Append("X-Rendidas-Count", count.ToString());
                 Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
@@ -335,7 +340,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en GestionSalidaController.RendirMesAnterior");
+                _logger.LogError(ex, "Error en GestionSalidaController.RendirMes");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

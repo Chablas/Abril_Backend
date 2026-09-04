@@ -94,6 +94,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         {
             using var ctx = _factory.CreateDbContext();
 
+            // 0. Desplegable "Mes a rendir": el periodo elegido se traduce a un rango de
+            //    fecha_salida y deja la tabla solo con lo apto para rendir. Gana sobre "Hoy" —
+            //    los dos filtros son excluyentes y la pantalla apaga uno al prender el otro,
+            //    pero si por lo que sea llegan juntos, el mes manda.
+            if (filters.RendicionAnio.HasValue && filters.RendicionMes.HasValue)
+            {
+                var (desdeMes, hastaMes) = MesAnteriorPeru.RangoDe(filters.RendicionAnio.Value, filters.RendicionMes.Value);
+                filters.FechaSalidaDesde = desdeMes;
+                filters.FechaSalidaHasta = hastaMes;
+                filters.SoloHoy          = false;
+                filters.SoloAptas        = true;
+            }
+
             // 1. Filtrar solicitudes (cabecera)
             var solicitudQuery = ctx.GaSolicitudSalida.AsQueryable();
 
@@ -248,6 +261,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                     // Motivo libre (sin catálogo) cuenta como hora exacta → se registra hora real.
                     EsHoraEstimada = m != null && m.EsHoraEstimada,
+                    // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
+                    // motivo libre no tiene el flag y por eso no concede nada.
+                    EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                 : lo.Nombre,
@@ -277,6 +293,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // 4.a. Áreas con capturas OPCIONALES (Configuración → Capturas): las salidas de sus
             //      trabajadores se pueden rendir sin ninguna captura.
             var areasCapturasOpcionales = await CapturasObligatoriasLoader.LoadAreasOpcionalesAsync(ctx);
+
+            // 4.a.bis. Feriados (Configuración → Feriados) para el plazo de rendición. Se carga una
+            //          sola vez y responde por todos los meses que traiga el listado.
+            var calendario = await CalendarioNoLaborable.CargarAsync(ctx);
+            var plazoPorMes = new Dictionary<(int, int), DateOnly>();
+            DateOnly limiteDe(DateOnly fechaSalida)
+            {
+                var clave = (fechaSalida.Year, fechaSalida.Month);
+                if (!plazoPorMes.TryGetValue(clave, out var limite))
+                {
+                    limite = calendario.LimiteDeRendicion(clave.Year, clave.Month);
+                    plazoPorMes[clave] = limite;
+                }
+                return limite;
+            }
+            var hoyPeru = MesAnteriorPeru.HoyPeru();
 
             // 4.b. Worker(s) del usuario actual + si es Gerente — para marcar por fila si puede
             //      aprobar/rechazar (nadie decide sus propias salidas, salvo los gerentes).
@@ -361,6 +393,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
                 var puedeRendir = trList.Count > 0 && trList.All(t => trayectoCubierto(t));
 
+                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
+                // gasto de movilidad y tiene algo que rendir.
+                var esReembolsable = trList.Any(t => t.EsReembolsable);
+
+                // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
+                // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).
+                var plazoHasta   = limiteDe(s.FechaSalida);
+                var plazoVencido = hoyPeru > plazoHasta;
+
+                var aptaParaRendir = puedeRendir
+                    && esReembolsable
+                    && !plazoVencido
+                    && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                    && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido;
+
                 revisorPorWorker.TryGetValue(s.WorkerInternalId, out var revisor);
 
                 result.Add(new GestionSalidaListItemDto
@@ -382,6 +429,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
+                    EsReembolsable   = esReembolsable,
+                    PlazoRendicionHasta = plazoHasta,
+                    PlazoVencido        = plazoVencido,
+                    AptaParaRendir   = aptaParaRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
                     HoraRetornoReal  = s.HoraRetornoReal,
                     // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
@@ -416,7 +467,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     && consolidados.ContainsKey(s.Id);
             }
 
-            return result;
+            // El recorte a "solo aptas" va al final y no en la consulta: la aptitud depende de las
+            // capturas, del área y del motivo, que recién quedan resueltos acá arriba.
+            return filters.SoloAptas ? result.Where(x => x.AptaParaRendir).ToList() : result;
         }
 
         public async Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId)
@@ -738,6 +791,51 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             }
 
             return incompletas;
+        }
+
+        public async Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            // Con un solo trayecto de motivo reembolsable ya hay gasto que rendir. El motivo libre
+            // (motivo_id NULL) no concede: el flag vive en el catálogo y arranca en false.
+            var conMotivoReembolsable = await ctx.GaSolicitudTrayecto
+                .Where(t => idsList.Contains(t.SolicitudId)
+                         && ctx.GaMotivoSalida.Any(m => m.Id == t.MotivoId && m.EsReembolsable))
+                .Select(t => t.SolicitudId)
+                .Distinct()
+                .ToListAsync();
+
+            return idsList.Except(conMotivoReembolsable).ToList();
+        }
+
+        public async Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            var fechas = await ctx.GaSolicitudSalida
+                .Where(s => idsList.Contains(s.Id))
+                .Select(s => s.FechaSalida)
+                .Distinct()
+                .ToListAsync();
+
+            // El agrupado por (año, mes) va en memoria: traducir DateOnly a year/month dentro del
+            // GroupBy hace que el proveedor arme un GROUP BY por expresión y el set ya es chico.
+            return fechas
+                .Select(f => (f.Year, f.Month))
+                .Distinct()
+                .OrderBy(x => x.Year).ThenBy(x => x.Month)
+                .ToList();
+        }
+
+        public async Task<CalendarioNoLaborable> GetCalendarioNoLaborable()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await CalendarioNoLaborable.CargarAsync(ctx);
         }
 
         public async Task<GestionSalidaDetalleDto?> GetDetalle(int id)

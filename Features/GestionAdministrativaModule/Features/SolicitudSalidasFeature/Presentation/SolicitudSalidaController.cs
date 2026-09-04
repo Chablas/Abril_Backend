@@ -34,7 +34,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         public async Task<IActionResult> GetMySolicitudes(
             [FromQuery] int? lugarProyectoId,
             [FromQuery] string? estadoAprobacion,
-            [FromQuery] string? estadoRendicion)
+            [FromQuery] string? estadoRendicion,
+            [FromQuery] int? rendicionAnio = null,
+            [FromQuery] int? rendicionMes = null)
         {
             try
             {
@@ -48,6 +50,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                     LugarProyectoId  = lugarProyectoId,
                     EstadoAprobacion = estadoAprobacion,
                     EstadoRendicion  = estadoRendicion,
+                    RendicionAnio    = rendicionAnio,
+                    RendicionMes     = rendicionMes,
                 };
                 return Ok(await _service.GetByUserId(userId.Value, filters));
             }
@@ -294,12 +298,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
-        /// Rinde de una vez TODAS las salidas propias del mes anterior que estén listas (aprobadas,
-        /// no rendidas y con las capturas de todos sus trayectos) y descarga la planilla. Las que no
-        /// cumplen se ignoran.
+        /// Rinde de una vez TODAS las salidas propias del mes indicado (sin <c>anio</c>/<c>mes</c>,
+        /// el anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
+        /// trayectos y con un motivo reembolsable— y descarga la planilla. Es lo que la pantalla
+        /// ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
         /// </summary>
-        [HttpPatch("rendir-mes-anterior")]
-        public async Task<IActionResult> RendirMesAnterior()
+        [HttpPatch("rendir-mes")]
+        public async Task<IActionResult> RendirMes([FromQuery] int? anio = null, [FromQuery] int? mes = null)
         {
             try
             {
@@ -310,7 +315,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
 
                 // Mismo camino que MarcarRendidas: el servicio del autoservicio resuelve qué entra
                 // (solo lo propio) y la planilla la genera Gestión de Salidas, con guard de propiedad.
-                var ids = await _service.GetIdsRendiblesMesAnterior(userId.Value);
+                var ids = await _service.GetIdsRendiblesMes(userId.Value, anio, mes);
                 var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(
                     ids, userId.Value, ownerUserId: userId.Value);
 
@@ -326,7 +331,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMesAnterior");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMes");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

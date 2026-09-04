@@ -1,3 +1,4 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Models;
@@ -8,6 +9,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
     {
         Task<SolicitudSalidaFormDataDto> GetFormData();
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+
+        /// <summary>
+        /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
+        /// plazo de rendición fuera del repositorio.
+        /// </summary>
+        Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
 
         /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.

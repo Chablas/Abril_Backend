@@ -120,10 +120,58 @@
         /// <summary>"Rendido" | "No rendido" | null para todos.</summary>
         public string? EstadoRendicion { get; set; }
 
+        /// <summary>
+        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos. No lo
+        /// usa la tabla (el trabajador no filtra por esto): lo usa el conteo de "Observadas" de las
+        /// tarjetas, para no traerse todo el histórico rendido solo para contar los rechazados.
+        /// </summary>
+        public string? EstadoReembolso { get; set; }
+
         /// <summary>Límite inferior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
         public DateOnly? FechaSalidaDesde { get; set; }
         /// <summary>Límite superior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
         public DateOnly? FechaSalidaHasta { get; set; }
+
+        /// <summary>
+        /// Periodo elegido en el desplegable "Mes a rendir". Cuando viene, la lista se acota a ese
+        /// mes y deja SOLO las solicitudes aptas para rendir: es un filtro de la tabla.
+        /// </summary>
+        public int? RendicionAnio { get; set; }
+        public int? RendicionMes { get; set; }
+
+        /// <summary>
+        /// True = devolver únicamente las solicitudes aptas para rendir. Lo prende el filtro de mes;
+        /// se aplica en memoria porque la aptitud se calcula en memoria.
+        /// </summary>
+        public bool SoloAptas { get; set; }
+    }
+
+    /// <summary>Un mes ofrecido por el desplegable "Mes a rendir".</summary>
+    public class MesRendicionDto
+    {
+        public int Anio { get; set; }
+        public int Mes { get; set; }
+        /// <summary>"Agosto 2026" — ya capitalizado, la pantalla lo imprime tal cual.</summary>
+        public string Label { get; set; } = string.Empty;
+        /// <summary>Cuántas solicitudes propias aptas para rendir tiene ese mes.</summary>
+        public int Cantidad { get; set; }
+        /// <summary>
+        /// Último día para rendir ese mes (7.º día hábil del mes siguiente). Solo se ofrecen meses
+        /// cuyo plazo sigue abierto, así que esta fecha siempre es de hoy en adelante.
+        /// </summary>
+        public DateOnly FechaLimite { get; set; }
+    }
+
+    /// <summary>Números de las tarjetas del encabezado, sobre TODAS las solicitudes del trabajador
+    /// (no sobre los filtros de la tabla): son su bandeja pendiente, no el resultado de la búsqueda.</summary>
+    public class ResumenRendicionDto
+    {
+        /// <summary>Aprobadas, no rendidas, con trayectos cubiertos y motivo reembolsable.</summary>
+        public int AptasParaRendir { get; set; }
+        /// <summary>Aprobadas y no rendidas a las que les falta captura en algún trayecto.</summary>
+        public int CapturasIncompletas { get; set; }
+        /// <summary>Reembolsos rechazados: esperan que el trabajador subsane.</summary>
+        public int Observadas { get; set; }
     }
 
     public class LugarProyectoOptionDto
@@ -135,5 +183,11 @@
     public class SolicitudSalidaFilterDataDto
     {
         public List<LugarProyectoOptionDto> LugaresProyecto { get; set; } = new();
+
+        /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
+        public List<MesRendicionDto> MesesRendicion { get; set; } = new();
+
+        /// <summary>Números de las tarjetas del encabezado.</summary>
+        public ResumenRendicionDto Resumen { get; set; } = new();
     }
 }

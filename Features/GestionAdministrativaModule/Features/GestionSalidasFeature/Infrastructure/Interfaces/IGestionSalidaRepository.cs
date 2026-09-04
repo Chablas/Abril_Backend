@@ -1,5 +1,6 @@
 ﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces
 {
@@ -55,6 +56,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// (Una solicitud sin trayectos también se incluye como incompleta).
         /// </summary>
         Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Del set dado, devuelve las solicitudes cuyos trayectos NO llevan ningún motivo marcado
+        /// como reembolsable en Configuración → Motivos: no generan gasto de movilidad y por lo
+        /// tanto no hay nada que rendir. Es el bloqueo duro que acompaña al recorte de la pantalla.
+        /// </summary>
+        Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Los meses (año, mes de <c>fecha_salida</c>) distintos que abarca el set dado, ordenados.
+        /// Una planilla de rendición es de UN solo mes, así que más de un elemento es un error.
+        /// </summary>
+        Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
+        /// plazo de rendición fuera del repositorio.
+        /// </summary>
+        Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
 
         /// <summary>Detalle completo (cabecera + trayectos con capturas + rendición si existe).</summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id);

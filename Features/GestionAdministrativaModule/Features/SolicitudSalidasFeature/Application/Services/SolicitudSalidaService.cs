@@ -13,6 +13,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 using System.Net;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services
@@ -101,7 +102,81 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null) =>
             _repo.GetByUserId(userId, filters);
 
-        public Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId) => _repo.GetFilterData(userId);
+        public async Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId)
+        {
+            var data = await _repo.GetFilterData(userId);
+
+            // Meses del desplegable "Mes a rendir" + números de las tarjetas. Van acá y no en el
+            // listado porque son de TODAS las solicitudes del trabajador, no del filtro de la
+            // tabla: si cambiaran al filtrar dejarían de servir como bandeja pendiente. La pantalla
+            // vuelve a pedir filter-data después de cada acción que los mueve.
+            var pendientes = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+            {
+                EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido,
+            });
+            var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
+
+            // Los meses vencidos no aparecen: `AptaParaRendir` ya los descarta fila por fila, así
+            // que un periodo cerrado se queda sin aptas y cae solo del desplegable.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            data.MesesRendicion = aptas
+                .GroupBy(x => (x.FechaSalida.Year, x.FechaSalida.Month))
+                .Select(g => new MesRendicionDto
+                {
+                    Anio        = g.Key.Year,
+                    Mes         = g.Key.Month,
+                    Label       = EtiquetaMes(g.Key.Year, g.Key.Month),
+                    Cantidad    = g.Count(),
+                    FechaLimite = calendario.LimiteDeRendicion(g.Key.Year, g.Key.Month),
+                })
+                .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                .ToList();
+
+            // El mes anterior se agrega aunque no tenga nada —es el periodo que se rinde por
+            // defecto— pero SOLO si su plazo sigue abierto: ofrecer un periodo cerrado sería
+            // ofrecer una acción que el backend va a rechazar.
+            var (desdeMesAnterior, _) = MesAnteriorPeru.Rango();
+            if (!calendario.PlazoVencido(desdeMesAnterior.Year, desdeMesAnterior.Month)
+                && !data.MesesRendicion.Any(m => m.Anio == desdeMesAnterior.Year && m.Mes == desdeMesAnterior.Month))
+            {
+                data.MesesRendicion.Add(new MesRendicionDto
+                {
+                    Anio        = desdeMesAnterior.Year,
+                    Mes         = desdeMesAnterior.Month,
+                    Label       = EtiquetaMes(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                    Cantidad    = 0,
+                    FechaLimite = calendario.LimiteDeRendicion(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                });
+                data.MesesRendicion = data.MesesRendicion
+                    .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                    .ToList();
+            }
+
+            // Las observadas están en otro eje de estado (reembolso rechazado sobre una salida ya
+            // rendida), así que no salen del set anterior y se piden aparte, ya filtradas.
+            var observadas = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+            {
+                EstadoReembolso = EstadosSalida.Reembolso.NombreRechazado,
+            });
+
+            data.Resumen = new ResumenRendicionDto
+            {
+                AptasParaRendir     = aptas.Count,
+                CapturasIncompletas = pendientes.Count(x => !x.PuedeRendirse),
+                Observadas          = observadas.Count,
+            };
+
+            return data;
+        }
+
+        /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>
+        private static string EtiquetaMes(int anio, int mes)
+        {
+            var cultura = CultureInfo.GetCultureInfo("es-PE");
+            var nombre  = cultura.DateTimeFormat.GetMonthName(mes);
+            return $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]} {anio}";
+        }
 
         public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId, IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos = null)
         {
@@ -850,25 +925,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return await _repo.InsertCapturas(trayectoId, subidos, userId);
         }
 
-        public async Task<List<int>> GetIdsRendiblesMesAnterior(int userId)
+        public async Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes)
         {
-            var (desde, hasta) = MesAnteriorPeru.Rango();
+            var (desde, hasta) = anio.HasValue && mes.HasValue
+                ? MesAnteriorPeru.RangoDe(anio.Value, mes.Value)
+                : MesAnteriorPeru.Rango();
 
-            // GetByUserId ya acota al worker del usuario y calcula PuedeRendirse (captura por
-            // trayecto, o catálogo para TI), así que la elegibilidad sale de ahí sin duplicar reglas.
-            var candidatas = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+            // El plazo se revisa ANTES de buscar: si el periodo cerró, `SoloAptas` devolvería cero
+            // filas y el error diría "no tienes nada listo", que es cierto pero esconde el motivo real.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var limite     = calendario.LimiteDeRendicion(desde.Year, desde.Month);
+            if (MesAnteriorPeru.HoyPeru() > limite)
+                throw new AbrilException(
+                    $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
+                    "(7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+
+            // GetByUserId ya acota al worker del usuario y calcula AptaParaRendir (captura por
+            // trayecto, catálogo para TI, área con capturas opcionales y motivo reembolsable), así
+            // que la elegibilidad sale de ahí sin duplicar reglas.
+            var ids = (await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
             {
                 EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
                 EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido,
                 FechaSalidaDesde = desde,
                 FechaSalidaHasta = hasta,
-            });
+                SoloAptas        = true,
+            })).Select(x => x.Id).ToList();
 
-            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No tienes salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
 
             return ids;
         }

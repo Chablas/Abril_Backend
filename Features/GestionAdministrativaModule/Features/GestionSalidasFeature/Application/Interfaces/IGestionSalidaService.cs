@@ -48,7 +48,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// acción rinde lo que el usuario está viendo. El estado, el rango de fechas y el filtro
         /// "Hoy" los fija el propio método.
         /// </param>
-        Task<(byte[] Pdf, int Count)> RendirMesAnterior(GestionSalidaFiltersDto filters, int userId);
+        Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
         /// <summary>
         /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida ya rendida desde Gestión

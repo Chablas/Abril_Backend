@@ -74,7 +74,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                                 UpdatedDateTime = ms.UpdatedDateTime,
                                 UpdatedUserId = ms.UpdatedUserId,
                                 Active = ms.Active,
-                                EsHitoCritico = ms.EsHitoCritico
+                                EsHitoCritico = ms.EsHitoCritico,
+                                EsObligatorio = ms.MilestoneId != null ? m.EsObligatorio : false,
+                                EsPuntual = ms.MilestoneId != null ? m.EsPuntual : false
                             };
 
             return await registros.ToListAsync();

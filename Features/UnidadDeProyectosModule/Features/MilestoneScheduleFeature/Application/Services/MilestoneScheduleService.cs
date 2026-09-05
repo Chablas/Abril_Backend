@@ -56,13 +56,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 .Select(m =>
                 {
                     var config = fakeScheduleConfig[m.MilestoneId];
+                    // Hitos puntuales (config.end == null en este diccionario): la fecha única va
+                    // en PlannedEndDate (así lo valida ValidarHitosObligatoriosAsync para los
+                    // obligatorios). PlannedStartDate no admite null en el DTO real, así que se
+                    // rellena con la misma fecha en vez de dejarlo vacío.
+                    var fechaUnica = config.end == null;
                     return new MilestoneScheduleFakeDataDTO
                     {
                         MilestoneId = m.MilestoneId,
                         MilestoneDescription = m.MilestoneDescription,
                         PlannedStartDate = config.start,
-                        PlannedEndDate = config.end,
-                        Order = order++
+                        PlannedEndDate = fechaUnica ? config.start : config.end,
+                        Order = order++,
+                        EsObligatorio = m.EsObligatorio,
+                        EsPuntual = m.EsPuntual
                     };
                 })
                 .OrderBy(x => x.MilestoneId)

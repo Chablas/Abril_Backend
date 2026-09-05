@@ -38,6 +38,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
         public bool EsHitoCritico { get; set; }
+        /// <summary>Del catálogo Milestone: true si el hito exige sí o sí PlannedEndDate.</summary>
+        public bool EsObligatorio { get; set; }
+        /// <summary>Del catálogo Milestone: true si el hito es de una sola fecha de cumplimiento
+        /// (no un rango inicio-fin).</summary>
+        public bool EsPuntual { get; set; }
     }
 
     public class MilestoneScheduleFakeDataDTO
@@ -47,6 +52,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public int Order { get; set; }
         public DateTime PlannedStartDate { get; set; }
         public DateTime? PlannedEndDate { get; set; }
+        public bool EsObligatorio { get; set; }
+        public bool EsPuntual { get; set; }
     }
 
     public class ScheduleChangeInfoDTO

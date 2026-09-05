@@ -61,6 +61,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 {
                     MilestoneId = item.MilestoneId,
                     MilestoneDescription = item.MilestoneDescription,
+                    EsObligatorio = item.EsObligatorio,
+                    EsPuntual = item.EsPuntual,
                 });
             return await registros.ToListAsync();
         }

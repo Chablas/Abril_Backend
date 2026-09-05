@@ -40,6 +40,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         public async Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
         {
+            await ValidarHitosObligatoriosAsync(dto.MilestoneSchedules);
+
             var lastHistory = await _context.MilestoneScheduleHistory
                 .Where(h => h.ProjectId == dto.ProjectId && h.Active && h.State)
                 .OrderByDescending(h => h.CreatedDateTime)
@@ -143,6 +145,38 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 .FirstAsync();
 
             return new ScheduleChangeResult { ProjectName = projectName, Changes = changes };
+        }
+
+        /// <summary>Última línea de defensa server-side: un hito marcado es_obligatorio=true en el
+        /// catálogo debe llegar con PlannedEndDate. El frontend también valida, pero no hay que
+        /// confiar solo en eso (ej. Postman/DevTools contra el endpoint directo).</summary>
+        private async Task ValidarHitosObligatoriosAsync(List<MilestoneScheduleCreateDTO> milestoneSchedules)
+        {
+            var milestoneIds = milestoneSchedules
+                .Where(m => m.MilestoneId.HasValue)
+                .Select(m => m.MilestoneId!.Value)
+                .Distinct()
+                .ToList();
+
+            if (milestoneIds.Count == 0) return;
+
+            var obligatorios = await _context.Milestone
+                .Where(m => milestoneIds.Contains(m.MilestoneId) && m.EsObligatorio)
+                .ToDictionaryAsync(m => m.MilestoneId, m => m.MilestoneDescription);
+
+            if (obligatorios.Count == 0) return;
+
+            var faltantes = milestoneSchedules
+                .Where(m => m.MilestoneId.HasValue
+                            && obligatorios.ContainsKey(m.MilestoneId.Value)
+                            && m.PlannedEndDate == null)
+                .Select(m => obligatorios[m.MilestoneId!.Value])
+                .Distinct()
+                .ToList();
+
+            if (faltantes.Count > 0)
+                throw new AbrilException(
+                    $"Los siguientes hitos son obligatorios y deben tener una fecha: {string.Join(", ", faltantes)}.");
         }
 
         public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth()

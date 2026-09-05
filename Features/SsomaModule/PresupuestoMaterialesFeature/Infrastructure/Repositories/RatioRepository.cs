@@ -38,7 +38,7 @@ public class RatioRepository : IRatioRepository
                 f.variable_base                             AS VariableBase,
                 SUM(COALESCE(l.cantidad_real, l.cantidad))  AS CantidadTotal,
                 CASE WHEN SUM(COALESCE(l.cantidad_real, l.cantidad)) > 0
-                     THEN SUM(l.precio_total) / SUM(COALESCE(l.cantidad_real, l.cantidad))
+                     THEN ROUND(SUM(l.precio_total) / SUM(COALESCE(l.cantidad_real, l.cantidad)), 4)
                      ELSE 0 END                             AS PrecioUnitarioPromedio,
                 SUM(l.precio_total)                         AS PrecioTotal
             FROM ss_consumo_linea l

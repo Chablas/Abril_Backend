@@ -63,14 +63,28 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                        THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
                        ELSE ph.semanas
                    END AS Semanas,
-                   ph.costo_mensual AS CostoMensual, ph.total AS Total
+                   ph.costo_mensual AS CostoMensual,
+                   -- Total en vivo, no el guardado: si cambia el cronograma (fechas de hito/etapa de
+                   -- salida) después de guardar, "Semanas" ya se recalculaba acá pero "Total" se
+                   -- quedaba con el valor viejo — quedaba desalineado con la Cantidad/Semanas que
+                   -- se veían en pantalla.
+                   ph.cantidad * ph.costo_mensual * (CASE
+                       WHEN ph.hito_salida_id IS NOT NULL
+                            AND cv.planned_start_date IS NOT NULL
+                            AND cv2.planned_start_date IS NOT NULL
+                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       ELSE ph.semanas
+                   END) AS Total
             FROM ss_presupuesto_personal_hito ph
             JOIN ss_presupuesto p ON p.id = ph.presupuesto_id
             JOIN cronograma_vigente cv ON cv.milestone_schedule_id = ph.hito_id
             LEFT JOIN cronograma_vigente cv2 ON cv2.milestone_schedule_id = ph.hito_salida_id
             LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
             LEFT JOIN milestone m2 ON m2.milestone_id = cv2.milestone_id
-            WHERE p.project_id = @projectId
+            WHERE p.id = (
+                SELECT id FROM ss_presupuesto WHERE project_id = @projectId
+                ORDER BY generado_en DESC LIMIT 1
+            )
             ORDER BY cv.planned_start_date NULLS LAST, ph.rol
             """;
         var result = await conn.QueryAsync<PersonalHitoDto>(sql, new { projectId });
@@ -192,8 +206,8 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                 GROUP BY categoria, project_id, trabajador, anio, semana_num
             )
             SELECT
-                COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'OFICIAL'), 0) AS Oficial,
-                COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'PEON'), 0) AS Peon
+                ROUND(COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'OFICIAL'), 0), 2) AS Oficial,
+                ROUND(COALESCE((SELECT AVG(pago_semana) FROM base WHERE categoria = 'PEON'), 0), 2) AS Peon
             """;
         var result = await conn.QuerySingleAsync<PersonalTarifasSugeridasDto>(sql);
         return result;

@@ -7,6 +7,7 @@ public interface IKitRepository
     Task<List<KitResumenDto>> ListarAsync(int? tipoId);
     Task<KitDetalleDto?> ObtenerAsync(int kitId);
     Task<int> CrearAsync(KitCreateDto dto);
+    Task EditarAsync(int kitId, List<KitItemInputDto> items);
     Task<List<KitCalculoLineaDto>> CalcularAsync(int kitId, decimal cantidadKits);
     Task<List<KitProyectoGuardadoDto>> ObtenerGuardadosPorProyectoAsync(int projectId);
     Task GuardarEnProyectoAsync(int projectId, int kitId, decimal cantidadKits, int userId);

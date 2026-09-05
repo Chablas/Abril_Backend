@@ -9,5 +9,7 @@ public interface IPresupuestoService
     Task<List<PresupuestoResumenDto>> ObtenerPorProyectoAsync(int projectId);
     Task<PresupuestoDetalleDto> ActualizarLineaAsync(int presupuestoId, int lineaId, ActualizarLineaPresupuestoDto dto);
     Task<string> AprobarAsync(int presupuestoId);
+    Task<List<PresupuestoDestinatarioDto>> ObtenerDestinatariosAprobacionAsync(int presupuestoId);
+    Task EliminarAsync(int presupuestoId);
     Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual);
 }

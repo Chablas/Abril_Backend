@@ -81,6 +81,32 @@ public class KitRepository : IKitRepository
         return kitId;
     }
 
+    /// <summary>Reemplaza el BOM completo de un kit ya existente (agregar/quitar materiales o cambiar
+    /// cantidades) — no afecta los kits ya guardados en presupuestos de proyectos (esos quedan como
+    /// snapshot al momento en que se guardaron).</summary>
+    public async Task EditarAsync(int kitId, List<KitItemInputDto> items)
+    {
+        using var conn = Conn();
+        await conn.OpenAsync();
+        using var tx = await conn.BeginTransactionAsync();
+
+        await conn.ExecuteAsync(
+            "DELETE FROM ss_kit_item WHERE kit_id = @kitId", new { kitId }, tx);
+
+        if (items.Count > 0)
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO ss_kit_item (kit_id, familia_id, cantidad_por_kit, es_consumible)
+                VALUES (@kitId, @FamiliaId, @CantidadPorKit, @EsConsumible)
+                """,
+                items.Select(i => new { kitId, i.FamiliaId, i.CantidadPorKit, i.EsConsumible }),
+                tx);
+        }
+
+        await tx.CommitAsync();
+    }
+
     /// <summary>Vista previa (antes de guardar): mismo precio unitario de Ratios que se va a snapshotear
     /// si el usuario guarda (GuardarEnProyectoAsync) — así el total que se ve acá coincide con el que
     /// va a quedar guardado, en vez de mostrar siempre S/ 0,00 hasta guardar.</summary>
@@ -93,11 +119,11 @@ public class KitRepository : IKitRepository
                    ki.cantidad_por_kit * @cantidadKits AS CantidadTotal,
                    ki.es_consumible AS EsConsumible,
                    COALESCE(precios.precio, 0) AS PrecioUnitario,
-                   ki.cantidad_por_kit * @cantidadKits * COALESCE(precios.precio, 0) AS Total
+                   ROUND(ki.cantidad_por_kit * @cantidadKits * COALESCE(precios.precio, 0), 2) AS Total
             FROM ss_kit_item ki
             JOIN ss_material_familia f ON f.id = ki.familia_id
             LEFT JOIN (
-                SELECT r.familia_id, AVG(r.precio_unitario_promedio) AS precio
+                SELECT r.familia_id, ROUND(AVG(r.precio_unitario_promedio), 4) AS precio
                 FROM ss_ratio_proyecto r
                 WHERE r.incluido_manual_precio = true
                 GROUP BY r.familia_id
@@ -137,7 +163,10 @@ public class KitRepository : IKitRepository
             JOIN ss_presupuesto p      ON p.id = ki.presupuesto_id
             JOIN ss_kit k              ON k.id = ki.kit_id
             JOIN ss_material_familia f ON f.id = ki.familia_id
-            WHERE p.project_id = @projectId
+            WHERE p.id = (
+                SELECT id FROM ss_presupuesto WHERE project_id = @projectId
+                ORDER BY generado_en DESC LIMIT 1
+            )
             ORDER BY k.nombre, f.nombre
             """;
         var filas = (await conn.QueryAsync<KitGuardadoLineaRow>(sql, new { projectId })).ToList();
@@ -234,7 +263,7 @@ public class KitRepository : IKitRepository
             // Vigilancia, snapshot al momento de guardar.
             var familiaIds = bom.Select(b => b.FamiliaId).Distinct().ToArray();
             const string preciosSql = """
-                SELECT r.familia_id AS FamiliaId, AVG(r.precio_unitario_promedio) AS Precio
+                SELECT r.familia_id AS FamiliaId, ROUND(AVG(r.precio_unitario_promedio), 4) AS Precio
                 FROM ss_ratio_proyecto r
                 WHERE r.familia_id = ANY(@familiaIds) AND r.incluido_manual_precio = true
                 GROUP BY r.familia_id
@@ -256,7 +285,7 @@ public class KitRepository : IKitRepository
                     b.CantidadPorKit,
                     CantidadTotal = cantidadTotal,
                     PrecioUnitario = precio,
-                    Total = cantidadTotal * precio,
+                    Total = Math.Round(cantidadTotal * precio, 2),
                     b.EsConsumible,
                 };
             });

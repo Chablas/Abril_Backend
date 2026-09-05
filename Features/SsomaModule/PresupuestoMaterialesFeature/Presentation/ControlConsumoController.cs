@@ -15,7 +15,12 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
 public class ControlConsumoController : ControllerBase
 {
     private readonly IControlConsumoService _service;
-    public ControlConsumoController(IControlConsumoService service) => _service = service;
+    private readonly ILogger<ControlConsumoController> _logger;
+    public ControlConsumoController(IControlConsumoService service, ILogger<ControlConsumoController> logger)
+    {
+        _service = service;
+        _logger = logger;
+    }
 
     private int? UserId => int.TryParse(
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
@@ -118,7 +123,11 @@ public class ControlConsumoController : ControllerBase
             if (resultado is null) return NotFound(new { message = "El proyecto no tiene un presupuesto generado todavía." });
             return Ok(resultado);
         }
-        catch (Exception) { return StatusCode(500, new { message = "Error al obtener dashboard." }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener dashboard del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener dashboard." });
+        }
     }
 
     /// <summary>Vista gerencial acumulada: un renglón por proyecto (presupuesto más reciente) con

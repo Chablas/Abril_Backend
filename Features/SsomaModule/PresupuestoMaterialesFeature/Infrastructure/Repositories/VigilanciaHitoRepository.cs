@@ -65,14 +65,28 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
                        THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
                        ELSE vh.semanas
                    END AS Semanas,
-                   vh.precio_unitario AS PrecioUnitario, vh.total AS Total
+                   vh.precio_unitario AS PrecioUnitario,
+                   -- Total en vivo (ver mismo fix en PersonalHitoRepository) — si no, queda
+                   -- desalineado con "Semanas" cuando el cronograma cambia después de guardar.
+                   -- precio_unitario es mensual, por eso se prorratea /4.345 semanas-por-mes (mismo
+                   -- factor que usa GuardarAsync).
+                   vh.cantidad_puntos * vh.precio_unitario * (CASE
+                       WHEN vh.hito_salida_id IS NOT NULL
+                            AND cv.planned_start_date IS NOT NULL
+                            AND cv2.planned_start_date IS NOT NULL
+                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       ELSE vh.semanas
+                   END / 4.345) AS Total
             FROM ss_presupuesto_vigilancia_hito vh
             JOIN ss_presupuesto p ON p.id = vh.presupuesto_id
             JOIN cronograma_vigente cv ON cv.milestone_schedule_id = vh.hito_id
             LEFT JOIN cronograma_vigente cv2 ON cv2.milestone_schedule_id = vh.hito_salida_id
             LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
             LEFT JOIN milestone m2 ON m2.milestone_id = cv2.milestone_id
-            WHERE p.project_id = @projectId
+            WHERE p.id = (
+                SELECT id FROM ss_presupuesto WHERE project_id = @projectId
+                ORDER BY generado_en DESC LIMIT 1
+            )
             ORDER BY cv.planned_start_date NULLS LAST
             """;
         var result = await conn.QueryAsync<VigilanciaHitoDto>(sql, new { projectId });

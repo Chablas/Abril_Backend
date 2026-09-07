@@ -28,8 +28,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         /// <summary>Último día en que el retiro automático corre en "solo aviso" (manda los correos
         /// pero no ejecuta ningún retiro real) — para darle tiempo a GTH/contratistas de regularizar
         /// el backlog histórico antes del primer retiro real. A partir del día siguiente deja de
-        /// aplicar solo, sin tocar nada más. Pedido: 2 días desde el 2026-09-07.</summary>
-        private static readonly DateOnly SoloAvisoHasta = new(2026, 9, 8);
+        /// aplicar solo, sin tocar nada más.
+        /// Ampliado de 2 días a 2 semanas: la primera ejecución de prueba (2026-09-07) reveló 908
+        /// trabajadores con documentación vencida — nunca se había ejecutado este proceso antes
+        /// (backlog real acumulado, no un bug), así que 2 días no alcanza para regularizar ese
+        /// volumen. 2 semanas desde el 2026-09-07.</summary>
+        private static readonly DateOnly SoloAvisoHasta = new(2026, 9, 21);
 
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;

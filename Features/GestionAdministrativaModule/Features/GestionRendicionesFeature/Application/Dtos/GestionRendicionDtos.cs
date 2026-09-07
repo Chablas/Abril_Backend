@@ -25,6 +25,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public List<string> Trabajadores { get; set; } = new();
         public int SalidasCount { get; set; }
         public decimal MontoTotal { get; set; }
+        /// <summary>
+        /// Monto de la planilla COMPLETA (todas sus salidas, de todos sus trabajadores). Es el
+        /// importe que se registró en el S10, así que es contra este —y no contra
+        /// <see cref="MontoTotal"/>, que está recortado— que tiene que cuadrar el monto del
+        /// Consolidado del S10. Coinciden salvo en las planillas que agrupan a varias personas.
+        /// </summary>
+        public decimal MontoTotalPlanilla { get; set; }
 
         // ── Documentos ───────────────────────────────────────────────────
         public string PdfUrl { get; set; } = string.Empty;
@@ -66,17 +73,68 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         // ── Qué se puede hacer con esta planilla ─────────────────────────
         /// <summary>Salidas con el reembolso listo para decidir (rendidas, con S10 y sin decidir).</summary>
         public int PorDecidirCount { get; set; }
-        /// <summary>Salidas con el reembolso aprobado y todavía sin firmar.</summary>
-        public int PorFirmarCount { get; set; }
         /// <summary>
-        /// True si alguna de las salidas visibles es del propio revisor. Nadie decide el reembolso
-        /// de lo suyo (salvo Gerentes), así que la pantalla lo avisa antes de que el backend lo
-        /// rechace.
+        /// True si el usuario puede decidir sobre esta planilla (su primera revisión y el reembolso
+        /// de sus salidas). Es false cuando la planilla incluye salidas SUYAS y él no es su propio
+        /// revisor: nadie decide lo suyo, y la única excepción es tener el <b>jefe personalizado
+        /// apuntándose a sí mismo</b> (Gestión de Ingresos → ficha del trabajador). La pantalla lo
+        /// usa para apagar las acciones antes de que el backend las rechace.
         /// </summary>
-        public bool IncluyePropias { get; set; }
+        public bool PuedeDecidir { get; set; } = true;
     }
 
-    /// <summary>Una salida de la planilla, para decidir su reembolso una por una desde el detalle.</summary>
+    /// <summary>Un PDF de la planilla que hay que firmar al aprobar su reembolso.</summary>
+    public class DocumentoParaFirmarDto
+    {
+        /// <summary>Id de la fila de <c>ga_consolidado_s10</c>. Sin uso en la planilla misma.</summary>
+        public int Id { get; set; }
+        public string Url { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Una planilla cuyo reembolso se puede aprobar, con TODO lo que hay que firmar: su PDF y el
+    /// Consolidado del S10 que respalda a sus salidas.
+    /// </summary>
+    public class PlanillaParaFirmarDto
+    {
+        public int RendicionId { get; set; }
+        /// <summary>Salidas de la planilla que entran en esta aprobación.</summary>
+        public List<int> SolicitudIds { get; set; } = new();
+        public string PlanillaUrl { get; set; } = string.Empty;
+        public string PlanillaFilename { get; set; } = string.Empty;
+        /// <summary>
+        /// Consolidados vigentes que cubren esas salidas. Normalmente uno —el de la planilla, que
+        /// es como se adjunta hoy—; en registros antiguos puede haber uno por salida suelta, y por
+        /// eso es una lista y no un solo documento.
+        /// </summary>
+        public List<DocumentoParaFirmarDto> Consolidados { get; set; } = new();
+    }
+
+    /// <summary>Dónde quedó en SharePoint la copia firmada de un documento.</summary>
+    public class ArchivoFirmadoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string? ItemId { get; set; }
+        public string Filename { get; set; } = string.Empty;
+    }
+
+    /// <summary>Una planilla ya firmada: qué salidas cubre y dónde quedaron sus copias firmadas.</summary>
+    public class PlanillaFirmadaDto
+    {
+        public int RendicionId { get; set; }
+        public List<int> SolicitudIds { get; set; } = new();
+        public ArchivoFirmadoDto Planilla { get; set; } = new();
+        /// <summary>consolidadoId → su copia firmada.</summary>
+        public Dictionary<int, ArchivoFirmadoDto> Consolidados { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Una salida de la planilla, para que el revisor vea qué agrupa el documento que está
+    /// decidiendo. Es solo lectura: el reembolso se decide por planilla entera, no salida por
+    /// salida — ver <see cref="GestionRendicionListItemDto.PuedeDecidir"/> y
+    /// <see cref="GestionRendicionListItemDto.PorDecidirCount"/>.
+    /// </summary>
     public class GestionRendicionSalidaDto
     {
         public int Id { get; set; }
@@ -91,15 +149,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public decimal Monto { get; set; }
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
         public string? ObservacionReembolso { get; set; }
-        /// <summary>True si su reembolso está listo para decidir (rendida, con S10 y sin decidir).</summary>
-        public bool PorDecidir { get; set; }
-        /// <summary>True si es del propio revisor: no puede decidirla salvo que sea Gerente.</summary>
-        public bool EsPropia { get; set; }
     }
 
     public class GestionRendicionDetalleDto : GestionRendicionListItemDto
     {
         public List<GestionRendicionSalidaDto> Salidas { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llega el aviso de "reembolso aprobado" si el revisor aprueba esta planilla,
+        /// ya aplicada la configuración de Configuración → Correos → «Reembolso OK». El
+        /// destinatario principal es cada solicitante de las salidas por decidir, así que la lista
+        /// es de esta planilla y no de la pantalla.
+        /// </summary>
+        public CorreoDestinatariosDto CorreoReembolsoAprobado { get; set; } = new();
     }
 
     public class GestionRendicionFiltersDto
@@ -143,8 +205,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public int SinConsolidado { get; set; }
         /// <summary>Planillas con reembolso por decidir (con S10 adjunto) — la segunda revisión.</summary>
         public int PorRevisar { get; set; }
-        /// <summary>Planillas con reembolso aprobado esperando la firma.</summary>
-        public int PorFirmar { get; set; }
 
         public static ResumenGestionRendicionesDto De(IEnumerable<GestionRendicionListItemDto> planillas)
         {
@@ -155,7 +215,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 SinConsolidado  = lista.Count(x => x.ConsolidadoS10 == null
                                                && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
                 PorRevisar      = lista.Count(x => x.PorDecidirCount > 0),
-                PorFirmar       = lista.Count(x => x.PorFirmarCount > 0),
             };
         }
     }

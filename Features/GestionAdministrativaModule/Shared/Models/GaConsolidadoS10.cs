@@ -32,6 +32,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string? PdfDriveId { get; set; }
         public string PdfFilename { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Importe total con el que el S10 registró la planilla. Tiene que coincidir con el monto
+        /// de la planilla COMPLETA (todas sus salidas, que es lo que cubre el consolidado); lo
+        /// valida <c>ConsolidadoS10Service</c> antes de guardar.
+        ///
+        /// Nullable solo por los consolidados subidos antes de que el formulario pidiera el dato:
+        /// no hay valor cierto con el que rellenarlos y rellenarlo a mano ensuciaría la auditoría.
+        /// En las filas nuevas nunca es null.
+        /// </summary>
+        public decimal? MontoTotal { get; set; }
+
+        /// <summary>
+        /// Número de guía que devuelve el S10. Es TEXTO y no un número: no es un correlativo
+        /// nuestro y puede traer letras y separadores. Null solo en las filas viejas — ver
+        /// <see cref="MontoTotal"/>.
+        /// </summary>
+        public string? NumeroGuia { get; set; }
+
+        /// <summary>
+        /// Copia del consolidado con la firma del revisor estampada en TODAS sus hojas. Se genera
+        /// al aprobar el reembolso —aprobar ES la firma—, así que es null mientras no se apruebe.
+        /// El PDF original nunca se pisa: la firma va sobre una copia.
+        /// </summary>
+        public string? PdfFirmadoUrl { get; set; }
+        public string? PdfFirmadoItemId { get; set; }
+        public string? PdfFirmadoFilename { get; set; }
+
+        /// <summary>FK a <c>app_user.user_id</c> del revisor que firmó. Null hasta que se apruebe.</summary>
+        public int? FirmadoPorId { get; set; }
+        public DateTimeOffset? FirmadoAt { get; set; }
+
         /// <summary>FK a <c>app_user.user_id</c> de quien subió el archivo.</summary>
         public int UploadedById { get; set; }
         public DateTimeOffset UploadedAt { get; set; }

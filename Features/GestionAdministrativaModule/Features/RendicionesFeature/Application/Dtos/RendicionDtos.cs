@@ -41,6 +41,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// <summary>Suma de lo rendido en las salidas propias de esta planilla.</summary>
         public decimal MontoTotal { get; set; }
 
+        /// <summary>
+        /// Monto de la planilla COMPLETA (todas sus salidas, de todos sus trabajadores). Es el
+        /// importe que se registró en el S10, así que es contra este —y no contra
+        /// <see cref="MontoTotal"/>, que está recortado— que tiene que cuadrar el monto del
+        /// Consolidado del S10. Coinciden salvo en las planillas que agrupan a varias personas.
+        /// </summary>
+        public decimal MontoTotalPlanilla { get; set; }
+
         // ── Documentos de la planilla ────────────────────────────────────
         public string PdfUrl { get; set; } = string.Empty;
         public string PdfFilename { get; set; } = string.Empty;
@@ -201,9 +209,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public string Label { get; set; } = string.Empty;
     }
 
+    /// <summary>
+    /// Datos de arranque de "Mis Rendiciones": lo que NO cambia al mover los filtros. Por eso las
+    /// opciones del filtro de periodo viajan junto a los destinatarios de los correos que dispara
+    /// la pantalla, que son los mismos para toda ella (está acotada a un solo trabajador) y no se
+    /// vuelven a pedir con cada búsqueda.
+    /// </summary>
     public class RendicionFilterDataDto
     {
         public List<PeriodoOptionDto> Periodos { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llega el aviso de la primera revisión (Configuración → Correos → «1.ª
+        /// revisión al revisor»). Lo dispara "Enviar a revisión".
+        /// </summary>
+        public CorreoDestinatariosDto CorreoPrimeraRevision { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llega el aviso de que ya se adjuntó el Consolidado del S10 (Configuración →
+        /// Correos → «S10 al revisor»). Lo dispara "Avisar al revisor".
+        /// </summary>
+        public CorreoDestinatariosDto CorreoS10Revisor { get; set; } = new();
     }
 
     /// <summary>

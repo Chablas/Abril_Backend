@@ -907,9 +907,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     proyecto = await ctx.Project.AsNoTracking()
                         .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
 
-                var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
-
                 var clinica = prog.ClinicaId.HasValue
                     ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
                     : null;
@@ -918,37 +915,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var fechaStr = prog.FechaProgramada.ToString("dd/MM/yyyy");
                 var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
                 var proyectoStr = proyecto?.ProjectDescription ?? "—";
-                var tipoStr = tipoEmo?.Nombre ?? "—";
                 var clinicaNombre = clinica?.Nombre ?? "—";
                 var clinicaDireccion = clinica?.Direccion;
 
-                // El logo, los íconos y la imagen de recomendaciones se sirven desde los estáticos
-                // del frontend (public/images/), no desde el wwwroot del backend: en producción
-                // intranet.abril.pe es nginx, que solo proxea /api/** al contenedor. Cualquier otra
-                // ruta cae en el fallback SPA y devolvía index.html (200 text/html) en vez de la
-                // imagen, por eso salían rotas.
-                //
-                // El origen es una clave aparte de App:FrontendUrl a propósito: Outlook no descarga
-                // las imágenes desde el cliente sino a través del proxy de imágenes de Microsoft,
-                // que nunca puede alcanzar un localhost. Con App:FrontendUrl (que en dev tiene que
-                // seguir apuntando a localhost para los links clicables de los otros correos) las
-                // imágenes salen siempre rotas al probar en local; App:EmailAssetsUrl permite
-                // apuntarlas a un host público sin tocar esos links.
-                var assetsUrl = _configuration["App:EmailAssetsUrl"]
-                    ?? _configuration["App:FrontendUrl"]
-                    ?? "https://intranet.abril.pe";
-
+                // De dónde salen el logo, los íconos y el afiche de recomendaciones lo resuelve el
+                // layout (App:EmailAssetsUrl): es una clave aparte de App:FrontendUrl porque
+                // Outlook no baja las imágenes desde el cliente sino por el proxy de imágenes de
+                // Microsoft, que nunca puede alcanzar un localhost. Ver AssetsUrl en
+                // AbrilEmailLayout.
                 var html = EmoConfirmacionEmailTemplate.Construir(
+                    SaludOcupacionalEmailLayout.Desde(_configuration),
                     new EmoConfirmacionEmailTemplate.Datos(
                         Examinado: workerNombre,
-                        TipoEmo: tipoStr,
                         Fecha: fechaStr,
                         Hora: horaStr,
                         Proyecto: proyectoStr,
                         Clinica: clinicaNombre,
                         Direccion: clinicaDireccion,
-                        EsPostulante: esPostulante),
-                    assetsUrl);
+                        EsPostulante: esPostulante));
 
                 await _emailService.SendAsync(
                     to: to,

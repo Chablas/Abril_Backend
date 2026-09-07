@@ -46,8 +46,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// </summary>
         Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId);
 
-        /// <summary>Cambia el monto de una captura. El guard de propiedad lo hace el servicio.</summary>
-        Task ActualizarMontoCaptura(int capturaId, decimal monto);
+        /// <summary>
+        /// Guarda los cambios de una captura ya subida: su monto y, si se pasa
+        /// <paramref name="imagen"/>, también la imagen (la fila es la misma, se le apunta el
+        /// archivo nuevo). El guard de propiedad lo hace el servicio.
+        ///
+        /// Va en una sola operación porque en la pantalla es un solo botón: el trabajador corrige
+        /// la fila —monto, imagen o las dos— y guarda. Devuelve la captura ya actualizada para que
+        /// la pantalla repinte la miniatura sin recargar el detalle entero.
+        /// </summary>
+        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId,
+            decimal monto,
+            (string Url, string? ItemId, string Filename)? imagen);
 
         /// <summary>Da de baja una captura (soft delete). Deja de contar para el importe rendido.</summary>
         Task EliminarCaptura(int capturaId);

@@ -18,9 +18,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// trabajador de ese usuario (autoservicio). Si ya había un consolidado vigente para esa
         /// planilla, queda con state = false (auditoría) y el nuevo pasa a ser el vigente.
         /// </summary>
+        /// <param name="montoTotal">
+        /// Importe total del consolidado. Tiene que COINCIDIR con el monto de la planilla completa
+        /// (<see cref="TotalPlanillaLoader"/>); si no, se rechaza con 400 y no se sube nada.
+        /// </param>
+        /// <param name="numeroGuia">Número de guía del S10. Texto obligatorio (no es un número nuestro).</param>
         Task<ConsolidadoS10Dto> UploadParaRendicion(
             int rendicionId,
             IFormFile file,
+            decimal montoTotal,
+            string numeroGuia,
             int userId,
             int? ownerUserId = null);
 

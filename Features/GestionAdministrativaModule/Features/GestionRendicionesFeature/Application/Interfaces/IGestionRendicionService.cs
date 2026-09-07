@@ -35,22 +35,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         ///
         /// Solo con la primera revisión APROBADA (RG-35): lo valida el servicio compartido.
         /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId);
+        /// <param name="montoTotal">
+        /// Importe total del consolidado. Tiene que coincidir con el monto de la planilla completa
+        /// o se rechaza con 400.
+        /// </param>
+        /// <param name="numeroGuia">Número de guía del S10 (texto, obligatorio).</param>
+        Task<ConsolidadoS10Dto> UploadConsolidadoS10(
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
 
         /// <summary>
         /// Aprueba o rechaza el reembolso de lo seleccionado. La selección puede venir por planilla
         /// (lo normal) o por salidas sueltas (desde el detalle); en los dos casos se recorta a lo
         /// que el usuario puede ver. Avisa al solicitante por correo (best-effort).
         /// </summary>
+        /// <remarks>
+        /// Aprobar ES firmar: estampa la firma del revisor en todas las hojas de los documentos de
+        /// la planilla (su PDF y el Consolidado del S10) y deja las salidas en "Firmado", que es lo
+        /// que Tesorería ve como pagable. Lanza 409 si el revisor todavía no registró su firma: la
+        /// pantalla usa ese código para abrir el modal donde la dibuja y reintentar.
+        /// </remarks>
         Task<ReembolsoBulkResultDto> DecidirReembolso(
             ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
-
-        /// <summary>
-        /// Estampa la firma del usuario en las planillas de lo seleccionado y pasa a Firmado sus
-        /// salidas con reembolso aprobado. Lanza 409 si el usuario no registró su firma todavía:
-        /// la pantalla usa ese código para abrir el modal donde la dibuja y reintentar.
-        /// </summary>
-        Task<ReembolsoBulkResultDto> Firmar(
-            ReembolsoAccionDto accion, GestionRendicionFiltersDto scope, int userId);
     }
 }

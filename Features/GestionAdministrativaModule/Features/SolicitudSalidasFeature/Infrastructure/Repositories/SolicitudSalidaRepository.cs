@@ -706,14 +706,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 .FirstOrDefaultAsync();
         }
 
-        public async Task ActualizarMontoCaptura(int capturaId, decimal monto)
+        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId,
+            decimal monto,
+            (string Url, string? ItemId, string Filename)? imagen)
         {
             using var ctx = _factory.CreateDbContext();
             var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
                 ?? throw new AbrilException("La captura no existe.", 404);
 
             captura.Monto = monto;
+
+            // Reemplazo de imagen: se apunta la MISMA fila al archivo nuevo. No se da de baja la
+            // fila ni se borra el archivo viejo de SharePoint — la regla de auditoría protege
+            // filas, no columnas, y el sustento anterior sigue existiendo en la biblioteca.
+            if (imagen.HasValue)
+            {
+                captura.ImageUrl    = imagen.Value.Url;
+                captura.ImageItemId = imagen.Value.ItemId;
+                captura.Filename    = imagen.Value.Filename;
+            }
+
             await ctx.SaveChangesAsync();
+
+            return new SolicitudSalidaCapturaDto
+            {
+                Id         = captura.Id,
+                ImageUrl   = captura.ImageUrl,
+                Filename   = captura.Filename,
+                Monto      = captura.Monto,
+                UploadedAt = captura.UploadedAt,
+            };
         }
 
         public async Task EliminarCaptura(int capturaId)

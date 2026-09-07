@@ -11,6 +11,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
@@ -905,10 +906,73 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (lista.Any(it => it.Monto < 0))
                 throw new AbrilException("El monto no puede ser negativo.", 400);
 
-            // Destino configurable desde BD (ga_captura_folder): se guarda el link de SharePoint tal
-            // cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada entorno
-            // apunta a su propia biblioteca porque la config vive en su propia base de datos. Se
-            // resuelve una sola vez para todo el lote. Mismo patrón que gth_sustento_folder.
+            // La carpeta se resuelve UNA sola vez para todo el lote.
+            var carpeta = await ResolverCarpetaCapturasAsync();
+
+            var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
+            try
+            {
+                foreach (var it in lista)
+                {
+                    var (url, itemId, filename) = await SubirImagenCapturaAsync(
+                        carpeta, it.File, trayecto.SolicitudId, trayecto.Id);
+                    subidos.Add((url, itemId, filename, it.Monto));
+                }
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló subida de capturas para trayecto {TrayectoId}", trayectoId);
+                throw new AbrilException("Error al subir las capturas a SharePoint.", 502);
+            }
+
+            return await _repo.InsertCapturas(trayectoId, subidos, userId);
+        }
+
+        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId, decimal monto, IFormFile? file, int userId)
+        {
+            if (monto < 0)
+                throw new AbrilException("El monto no puede ser negativo.", 400);
+
+            var captura = await _repo.GetCapturaEditable(capturaId, userId)
+                ?? throw new AbrilException(
+                    "No se puede editar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
+                    "primera revisión.", 404);
+
+            // Reemplazar la imagen es opcional: sin archivo se guarda solo el monto.
+            (string Url, string? ItemId, string Filename)? imagen = null;
+            if (file != null && file.Length > 0)
+            {
+                var trayecto = await _repo.GetTrayectoForUploadingCapturas(captura.TrayectoId, userId)
+                    ?? throw new AbrilException(
+                        "No se puede reemplazar la imagen: el trayecto ya no se puede editar.", 404);
+
+                var carpeta = await ResolverCarpetaCapturasAsync();
+                try
+                {
+                    imagen = await SubirImagenCapturaAsync(
+                        carpeta, file, trayecto.SolicitudId, trayecto.Id);
+                }
+                catch (AbrilException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falló el reemplazo de la imagen de la captura {CapturaId}", capturaId);
+                    throw new AbrilException("Error al subir la captura a SharePoint.", 502);
+                }
+            }
+
+            return await _repo.ActualizarCaptura(capturaId, monto, imagen);
+        }
+
+        /// <summary>
+        /// Carpeta de SharePoint donde viven las capturas de movilidad. El destino es configurable
+        /// desde BD (<c>ga_captura_folder</c>): se guarda el link tal cual y se resuelve a
+        /// driveId/folderId vía Graph, así se cambia sin redeploy y cada entorno apunta a su propia
+        /// biblioteca porque la config vive en su propia base. Mismo patrón que gth_sustento_folder.
+        /// </summary>
+        private async Task<ShareLinkResolveDto> ResolverCarpetaCapturasAsync()
+        {
             string? folderUrl;
             using (var ctx = _factory.CreateDbContext())
             {
@@ -927,54 +991,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (carpeta == null || !carpeta.IsFolder)
                 throw new AbrilException("No se pudo resolver la carpeta de capturas en SharePoint.", 502);
 
-            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
-            var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
-            try
-            {
-                foreach (var it in lista)
-                {
-                    var f = it.File;
-                    var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
-                    if (!allowed.Contains(ext))
-                        throw new AbrilException($"Tipo de archivo no permitido: {f.FileName}. Solo JPG/PNG/WEBP/GIF.", 400);
-
-                    var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(f.FileName));
-                    var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-                    var filename = $"s{trayecto.SolicitudId}_t{trayecto.Id}_{stamp}_{safeName}{ext}";
-
-                    using var stream = f.OpenReadStream();
-                    var result = await _sharePointService.UploadToOneDriveFolderAsync(
-                        carpeta.DriveId, carpeta.ItemId, filename, stream,
-                        f.ContentType ?? "application/octet-stream",
-                        autoRenameOnLock: true);
-
-                    if (result?.WebUrl is null)
-                        throw new AbrilException($"No se pudo subir el archivo {f.FileName}.", 502);
-
-                    subidos.Add((result.WebUrl, result.ItemId, filename, it.Monto));
-                }
-            }
-            catch (AbrilException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló subida de capturas para trayecto {TrayectoId}", trayectoId);
-                throw new AbrilException("Error al subir las capturas a SharePoint.", 502);
-            }
-
-            return await _repo.InsertCapturas(trayectoId, subidos, userId);
+            return carpeta;
         }
 
-        public async Task ActualizarMontoCaptura(int capturaId, decimal monto, int userId)
+        /// <summary>Extensiones aceptadas para una captura de movilidad.</summary>
+        private static readonly string[] CapturaExtensiones = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+
+        /// <summary>
+        /// Sube UNA imagen de captura a la carpeta ya resuelta y devuelve dónde quedó. El nombre
+        /// lleva solicitud, trayecto y marca de tiempo, así que un reemplazo nunca pisa al archivo
+        /// anterior: el sustento viejo sigue en la biblioteca.
+        /// </summary>
+        private async Task<(string Url, string? ItemId, string Filename)> SubirImagenCapturaAsync(
+            ShareLinkResolveDto carpeta, IFormFile file, int solicitudId, int trayectoId)
         {
-            if (monto < 0)
-                throw new AbrilException("El monto no puede ser negativo.", 400);
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!CapturaExtensiones.Contains(ext))
+                throw new AbrilException($"Tipo de archivo no permitido: {file.FileName}. Solo JPG/PNG/WEBP/GIF.", 400);
 
-            _ = await _repo.GetCapturaEditable(capturaId, userId)
-                ?? throw new AbrilException(
-                    "No se puede editar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
-                    "primera revisión.", 404);
+            var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(file.FileName));
+            var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var filename = $"s{solicitudId}_t{trayectoId}_{stamp}_{safeName}{ext}";
 
-            await _repo.ActualizarMontoCaptura(capturaId, monto);
+            using var stream = file.OpenReadStream();
+            var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                carpeta.DriveId, carpeta.ItemId, filename, stream,
+                file.ContentType ?? "application/octet-stream",
+                autoRenameOnLock: true);
+
+            if (result?.WebUrl is null)
+                throw new AbrilException($"No se pudo subir el archivo {file.FileName}.", 502);
+
+            return (result.WebUrl, result.ItemId, filename);
         }
 
         public async Task EliminarCaptura(int capturaId, int userId)

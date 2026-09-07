@@ -29,6 +29,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// están "En primera revisión" y de las que el usuario ve alguna salida; el resto se ignora
         /// en silencio (la selección de la pantalla puede traer de todo). Devuelve las que sí se
         /// movieron, para avisarles a sus solicitantes.
+        ///
+        /// Nadie revisa una planilla con salidas propias, salvo que sea su propio revisor (jefe
+        /// personalizado apuntándose a sí mismo): en ese caso lanza 403 sin mover nada.
         /// </summary>
         /// <param name="aprobar">true = Aprobada; false = Observada (exige observación, RG-20).</param>
         Task<List<int>> DecidirPrimeraRevision(
@@ -50,25 +53,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// resto se ignora en silencio (la selección de la pantalla puede traer de todo).
         ///
         /// Un usuario no decide el reembolso de sus propias salidas, misma regla que la aprobación
-        /// de la salida: la excepción son los Gerentes.
+        /// de la salida: la única excepción es que él sea su propio revisor (jefe personalizado
+        /// apuntándose a sí mismo).
         /// </summary>
-        /// <param name="aprobar">true = Aprobado; false = Rechazado (exige observación).</param>
         /// <returns>Ids de las salidas que efectivamente cambiaron de estado.</returns>
-        Task<List<int>> DecidirReembolso(IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId);
+        Task<List<int>> RechazarReembolso(IEnumerable<int> ids, string observacion, int reviewerUserId);
 
         /// <summary>
-        /// Las salidas listas para firmar de la selección: reembolso Aprobado, ya rendidas y con
-        /// planilla. Devuelve, por planilla, el id de la rendición y el PDF que hay que estampar.
+        /// Planillas cuyo reembolso se puede aprobar, con los documentos que hay que firmar (su PDF
+        /// y el Consolidado del S10). Aplica los MISMOS guards que la escritura —elegibilidad y
+        /// "nadie decide lo suyo"— porque se corre antes de tocar SharePoint: firmar y subir para
+        /// después descubrir que la salida no era elegible dejaría archivos huérfanos.
         /// </summary>
-        Task<List<RendicionPorFirmarDto>> GetRendicionesPorFirmar(IEnumerable<int> ids);
+        Task<List<PlanillaParaFirmarDto>> GetPlanillasParaAprobarReembolso(
+            IEnumerable<int> ids, int reviewerUserId);
 
         /// <summary>
-        /// Guarda la copia firmada de una planilla y pasa a Firmado las salidas indicadas de esa
-        /// planilla. Si la planilla ya estaba firmada se conserva el archivo anterior y solo se
-        /// mueven los estados (dos jefes pueden firmar salidas distintas de la misma planilla).
+        /// Aprueba el reembolso y guarda las copias firmadas. Las salidas quedan en FIRMADO, no en
+        /// "Aprobado": aprobar ES la firma del revisor, y Firmado es lo que Tesorería ve como
+        /// pagable. Se escribe todo junto (planilla, consolidados y salidas) recién cuando los PDF
+        /// ya están subidos.
         /// </summary>
-        Task MarcarFirmadas(int rendicionId, IEnumerable<int> solicitudIds, int userId,
-                            string? pdfUrl, string? pdfItemId, string? pdfFilename);
+        /// <returns>Ids de las salidas que efectivamente cambiaron de estado.</returns>
+        Task<List<int>> AprobarReembolsoFirmado(
+            IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId);
+
+
+        /// <summary>
+        /// Correos de los solicitantes de las salidas de la planilla que todavía tienen el
+        /// reembolso por decidir. Son los destinatarios principales del aviso de la decisión, y la
+        /// pantalla los usa para anunciar a quién le va a llegar antes de aprobar.
+        /// </summary>
+        Task<List<string>> GetCorreosSolicitantesPorDecidir(int rendicionId);
 
         /// <summary>Carpeta de SharePoint donde se guardan las planillas (y sus copias firmadas).</summary>
         Task<string?> GetRendicionFolderUrl();

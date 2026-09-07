@@ -9,6 +9,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Pdf;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services
@@ -96,10 +97,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             };
         }
 
-        public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId)
+        public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId)
             // Sin guard de propiedad: el revisor lo sube en nombre del trabajador. El alcance ya lo
             // recorta la pantalla — solo ve las planillas que le competen.
-            => await _consolidadoService.UploadParaRendicion(rendicionId, file, userId);
+            => await _consolidadoService.UploadParaRendicion(
+                rendicionId, file, montoTotal, numeroGuia, userId);
 
         public async Task<ReembolsoBulkResultDto> DecidirReembolso(
             ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId)
@@ -110,7 +113,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             if (ids.Count == 0)
                 throw new AbrilException("No hay salidas en la selección dentro de tu alcance.", 400);
 
-            var decididas = await _repo.DecidirReembolso(ids, aprobar, accion.Observacion, reviewerUserId);
+            var decididas = aprobar
+                ? await AprobarFirmandoAsync(ids, reviewerUserId)
+                : await _repo.RechazarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
 
             // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
             // porque un correo falle (mismo criterio que la aprobación de la salida).
@@ -126,27 +131,115 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             };
         }
 
-        public async Task<ReembolsoBulkResultDto> Firmar(
-            ReembolsoAccionDto accion, GestionRendicionFiltersDto scope, int userId)
+        /// <summary>
+        /// Aprueba el reembolso FIRMANDO: estampa la firma del revisor en todas las hojas de los
+        /// documentos de cada planilla —su PDF y el Consolidado del S10— y deja las salidas en
+        /// "Firmado", que es lo que Tesorería ve como pagable. Aprobar y firmar son el mismo acto:
+        /// lo que el jefe respalda con su firma es justamente lo que está aprobando.
+        ///
+        /// Los PDF se suben ANTES de escribir el estado: si algo falla en SharePoint no queda una
+        /// salida aprobada sin su respaldo firmado (al revés solo deja archivos huérfanos, que no
+        /// rompen nada).
+        /// </summary>
+        private async Task<List<int>> AprobarFirmandoAsync(List<int> ids, int userId)
         {
-            await ApplyVisibilityAsync(scope);
-
-            var ids = await _repo.ResolverSolicitudIds(accion.RendicionIds, accion.SolicitudIds, scope);
-            if (ids.Count == 0)
-                throw new AbrilException("No hay salidas en la selección dentro de tu alcance.", 400);
-
             var firma = await _firmaRepository.GetActiveBytesByUserId(userId)
                 // 409 y no 400: la pantalla lo distingue para abrir el modal donde el usuario dibuja
                 // su firma en el momento en vez de mandarlo a Configuración.
                 ?? throw new AbrilException(
-                    "Todavía no registraste tu firma. Dibújala una vez y vuelve a firmar.", 409);
+                    "Todavía no registraste tu firma. Dibújala una vez y vuelve a aprobar.", 409);
 
-            var planillas = await _repo.GetRendicionesPorFirmar(ids);
+            // Aplica los mismos guards que la escritura (elegibilidad y "nadie decide lo suyo").
+            var planillas = await _repo.GetPlanillasParaAprobarReembolso(ids, userId);
             if (planillas.Count == 0)
                 throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas se puede firmar: primero hay que aprobar su reembolso.",
-                    400);
+                    "Ninguna de las salidas seleccionadas tiene un reembolso por decidir.", 400);
 
+            var carpeta = await ResolverCarpetaRendicionesAsync();
+
+            var firmadas = new List<PlanillaFirmadaDto>(planillas.Count);
+            foreach (var p in planillas)
+            {
+                var firmada = new PlanillaFirmadaDto
+                {
+                    RendicionId  = p.RendicionId,
+                    SolicitudIds = p.SolicitudIds,
+                    Planilla     = await FirmarYSubirAsync(carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes),
+                };
+
+                foreach (var doc in p.Consolidados)
+                    firmada.Consolidados[doc.Id] =
+                        await FirmarYSubirAsync(carpeta, doc.Url, doc.Filename, firma.Bytes);
+
+                firmadas.Add(firmada);
+            }
+
+            return await _repo.AprobarReembolsoFirmado(firmadas, userId);
+        }
+
+        /// <summary>
+        /// Descarga un PDF de SharePoint, le estampa la firma en TODAS sus hojas y sube la copia
+        /// firmada al lado del original. El original nunca se pisa: la copia lleva el sufijo
+        /// -FIRMADO y es la que queda referenciada como respaldo.
+        /// </summary>
+        private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
+            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng)
+        {
+            byte[] original;
+            try
+            {
+                original = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(pdfUrl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo descargar {Archivo} para firmarlo.", pdfFilename);
+                throw new AbrilException(
+                    $"No se pudo descargar {pdfFilename} desde SharePoint para firmarlo.", 502);
+            }
+
+            byte[] firmado;
+            try
+            {
+                // Una planilla agrupa a varios trabajadores y cada grupo termina con su propia
+                // línea de firma, así que la firma va en TODAS las hojas: solo al pie de la última
+                // dejaría sin firma a todos los grupos menos el último.
+                firmado = SignaturePdfStamper.Stamp(original, firmaPng);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo estampar la firma en {Archivo}.", pdfFilename);
+                throw new AbrilException($"No se pudo generar la versión firmada de {pdfFilename}.", 500);
+            }
+
+            var filename = Path.GetFileNameWithoutExtension(pdfFilename) + "-FIRMADO.pdf";
+            try
+            {
+                using var stream = new MemoryStream(firmado);
+                var subido = await _sharePointService.UploadToOneDriveFolderAsync(
+                    carpeta.DriveId, carpeta.ItemId, filename, stream,
+                    "application/pdf", autoRenameOnLock: true);
+
+                if (subido?.WebUrl is null)
+                    throw new AbrilException($"No se pudo subir {filename} a SharePoint (respuesta vacía).", 502);
+
+                return new ArchivoFirmadoDto
+                {
+                    Url      = subido.WebUrl,
+                    ItemId   = subido.ItemId,
+                    Filename = filename,
+                };
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló la subida de {Archivo}.", filename);
+                throw new AbrilException($"No se pudo guardar {filename} en SharePoint.", 502);
+            }
+        }
+
+        /// <summary>Carpeta de SharePoint donde viven las planillas y sus copias firmadas.</summary>
+        private async Task<ShareLinkResolveDto> ResolverCarpetaRendicionesAsync()
+        {
             var folderUrl = await _repo.GetRendicionFolderUrl();
             if (string.IsNullOrWhiteSpace(folderUrl))
                 throw new AbrilException(
@@ -157,79 +250,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             if (carpeta == null || !carpeta.IsFolder)
                 throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
 
-            var totalSalidas   = 0;
-            var totalPlanillas = 0;
-
-            foreach (var planilla in planillas)
-            {
-                string? pdfUrl = null, pdfItemId = null, pdfFilename = null;
-
-                // Si la planilla ya está firmada no se vuelve a estampar: el documento es uno solo
-                // y ya lleva la firma. Solo se mueven de estado las salidas que faltaban.
-                if (string.IsNullOrWhiteSpace(planilla.PdfFirmadoUrl))
-                {
-                    byte[] original;
-                    try
-                    {
-                        original = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(planilla.PdfUrl);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "No se pudo descargar la planilla {RendicionId} para firmarla.", planilla.RendicionId);
-                        throw new AbrilException(
-                            "No se pudo descargar la planilla de rendición desde SharePoint para firmarla.", 502);
-                    }
-
-                    byte[] firmado;
-                    try
-                    {
-                        // Una planilla agrupa a varios trabajadores y cada grupo termina con su
-                        // propia línea de firma de jefatura, así que la firma tiene que ir en todas
-                        // las hojas: solo al pie de la última dejaría sin firma a todos los grupos
-                        // menos el último.
-                        firmado = SignaturePdfStamper.Stamp(original, firma.Bytes);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "No se pudo estampar la firma en la planilla {RendicionId}.", planilla.RendicionId);
-                        throw new AbrilException("No se pudo generar la planilla firmada.", 500);
-                    }
-
-                    pdfFilename = Path.GetFileNameWithoutExtension(planilla.PdfFilename) + "-FIRMADO.pdf";
-                    try
-                    {
-                        using var stream = new MemoryStream(firmado);
-                        var subido = await _sharePointService.UploadToOneDriveFolderAsync(
-                            carpeta.DriveId, carpeta.ItemId, pdfFilename, stream,
-                            "application/pdf", autoRenameOnLock: true);
-
-                        if (subido?.WebUrl is null)
-                            throw new AbrilException("No se pudo subir la planilla firmada a SharePoint (respuesta vacía).", 502);
-
-                        pdfUrl    = subido.WebUrl;
-                        pdfItemId = subido.ItemId;
-                    }
-                    catch (AbrilException) { throw; }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Falló la subida de la planilla firmada {RendicionId}.", planilla.RendicionId);
-                        throw new AbrilException("No se pudo guardar la planilla firmada en SharePoint.", 502);
-                    }
-
-                    totalPlanillas++;
-                }
-
-                await _repo.MarcarFirmadas(
-                    planilla.RendicionId, planilla.SolicitudIds, userId, pdfUrl, pdfItemId, pdfFilename);
-                totalSalidas += planilla.SolicitudIds.Count;
-            }
-
-            return new ReembolsoBulkResultDto
-            {
-                Procesadas        = totalSalidas,
-                PlanillasFirmadas = totalPlanillas,
-                Message           = $"{totalSalidas} salida(s) firmada(s).",
-            };
+            return carpeta;
         }
 
         // ── Visibilidad ──────────────────────────────────────────────────────

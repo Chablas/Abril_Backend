@@ -17,6 +17,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public string Ambito { get; set; } = string.Empty;
         public string PdfUrl { get; set; } = string.Empty;
         public string PdfFilename { get; set; } = string.Empty;
+        /// <summary>Importe total con el que el S10 registró la planilla. Null en los consolidados viejos.</summary>
+        public decimal? MontoTotal { get; set; }
+        /// <summary>Número de guía del S10 (texto). Null en los consolidados viejos.</summary>
+        public string? NumeroGuia { get; set; }
+
+        /// <summary>
+        /// Copia firmada por el revisor (todas sus hojas). Se genera al aprobar el reembolso, así
+        /// que es null mientras no se haya aprobado.
+        /// </summary>
+        public string? PdfFirmadoUrl { get; set; }
+        public string? PdfFirmadoFilename { get; set; }
+        public DateTimeOffset? FirmadoAt { get; set; }
+
         public DateTimeOffset UploadedAt { get; set; }
     }
 }

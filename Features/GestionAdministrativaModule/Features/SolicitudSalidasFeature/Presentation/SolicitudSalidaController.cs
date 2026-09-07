@@ -232,12 +232,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
-        /// Corrige el monto de una captura propia. Se usa al subsanar una rendición observada en
-        /// primera revisión (y antes de rendir, si el trabajador se equivocó al cargarla).
+        /// Guarda los cambios de una captura propia: su monto y, si viene un archivo, además
+        /// reemplaza su imagen. Se usa al subsanar una rendición observada en primera revisión (y
+        /// antes de rendir, si el trabajador se equivocó al cargarla).
+        ///
+        /// Va como multipart y en una sola llamada porque en la pantalla es un solo botón
+        /// "Guardar": lo que se corrige es la fila, no un campo suelto. El archivo es opcional.
         /// </summary>
-        [HttpPatch("capturas/{capturaId:int}/monto")]
-        public async Task<IActionResult> ActualizarMontoCaptura(
-            int capturaId, [FromBody] ActualizarMontoCapturaDto dto)
+        [HttpPatch("capturas/{capturaId:int}")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(15 * 1024 * 1024)]
+        public async Task<IActionResult> ActualizarCaptura(
+            int capturaId,
+            // El monto viaja como texto y se parsea con InvariantCulture, igual que en la subida:
+            // el binder de formularios usa la cultura del servidor.
+            [FromForm] string monto,
+            [FromForm] IFormFile? file)
         {
             try
             {
@@ -246,11 +256,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                if (dto == null)
-                    return BadRequest(new { message = "Falta el monto." });
+                if (!decimal.TryParse(monto, System.Globalization.NumberStyles.Number,
+                                      System.Globalization.CultureInfo.InvariantCulture, out var valor))
+                    return BadRequest(new { message = $"Monto inválido: '{monto}'." });
 
-                await _service.ActualizarMontoCaptura(capturaId, dto.Monto, userId.Value);
-                return Ok(new { message = "Monto actualizado." });
+                return Ok(await _service.ActualizarCaptura(capturaId, valor, file, userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -258,7 +268,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.ActualizarMontoCaptura");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.ActualizarCaptura");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

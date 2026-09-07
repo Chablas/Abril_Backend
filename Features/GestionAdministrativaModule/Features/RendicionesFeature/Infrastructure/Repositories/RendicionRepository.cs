@@ -39,6 +39,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, rendicionIds);
             var montos       = await MontosPorSolicitudAsync(ctx, salidas.Select(s => s.Id).ToList(), workerId.Value);
 
+            // Total de la planilla ENTERA (todas sus salidas, de todos sus trabajadores): es el
+            // importe que se registró en el S10 y contra el que tiene que cuadrar el consolidado.
+            // MontoTotal, en cambio, suma solo las salidas propias.
+            var totalesPlanilla = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
+
             var porRendicion = salidas.GroupBy(s => s.RendicionId).ToDictionary(g => g.Key, g => g.ToList());
 
             var result = new List<RendicionListItemDto>(planillas.Count);
@@ -47,7 +52,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 if (!porRendicion.TryGetValue(planilla.Id, out var propias) || propias.Count == 0) continue;
 
                 consolidados.TryGetValue(planilla.Id, out var consolidado);
-                result.Add(Armar(planilla, propias, consolidado, montos));
+                result.Add(Armar(
+                    planilla, propias, consolidado, montos,
+                    totalesPlanilla.TryGetValue(planilla.Id, out var totalP) ? totalP : 0m));
             }
 
             // Más reciente primero: lo que se acaba de rendir es lo que tiene pasos pendientes.
@@ -74,8 +81,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var solicitudIds = propias.Select(s => s.Id).ToList();
             var montos       = await MontosPorSolicitudAsync(ctx, solicitudIds, workerId.Value);
             var trayectos    = await CargarTrayectosAsync(ctx, solicitudIds);
+            var totalPlanilla = await TotalPlanillaLoader.LoadOneAsync(ctx, rendicionId);
 
-            var cabecera = Armar(planilla, propias, consolidado, montos);
+            var cabecera = Armar(planilla, propias, consolidado, montos, totalPlanilla);
             var detalle  = new RendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
@@ -106,19 +114,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             return detalle;
         }
 
-        public async Task<List<PeriodoOptionDto>> GetPeriodos(int userId)
+        public async Task<(int? WorkerId, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var workerId = await ResolveWorkerIdAsync(ctx, userId);
-            if (workerId == null) return new();
+            if (workerId == null) return (null, new());
 
             var salidas = await CargarSalidasPropiasAsync(ctx, workerId.Value);
-            if (salidas.Count == 0) return new();
+            if (salidas.Count == 0) return (workerId, new());
 
             // El periodo de una planilla es el mes de su salida más antigua — el mismo criterio
             // que usa la tabla, si no el filtro dejaría fuera planillas que sí muestra.
-            return salidas
+            var periodos = salidas
                 .GroupBy(s => s.RendicionId)
                 .Select(g => g.Min(s => s.FechaSalida))
                 .Select(f => (f.Year, f.Month))
@@ -131,6 +139,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                     Label = PlanillaRendicionHelper.EtiquetaMes(p.Year, p.Month),
                 })
                 .ToList();
+
+            return (workerId, periodos);
         }
 
         public async Task MarcarRevisorNotificado(int rendicionId, int userId)
@@ -353,7 +363,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models.GaRendicion planilla,
             List<SalidaPropia> propias,
             ConsolidadoS10Dto? consolidado,
-            Dictionary<int, decimal> montos)
+            Dictionary<int, decimal> montos,
+            decimal montoTotalPlanilla)
         {
             var desde = propias.Min(s => s.FechaSalida);
             var hasta = propias.Max(s => s.FechaSalida);
@@ -377,6 +388,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 PeriodoMes     = desde.Month,
                 SalidasCount   = propias.Count,
                 MontoTotal     = propias.Sum(s => montos.TryGetValue(s.Id, out var m) ? m : 0m),
+                MontoTotalPlanilla = montoTotalPlanilla,
 
                 PdfUrl             = planilla.PdfUrl,
                 PdfFilename        = planilla.PdfFilename,
@@ -418,6 +430,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.PeriodoMes               = origen.PeriodoMes;
             destino.SalidasCount             = origen.SalidasCount;
             destino.MontoTotal               = origen.MontoTotal;
+            destino.MontoTotalPlanilla       = origen.MontoTotalPlanilla;
             destino.PdfUrl                   = origen.PdfUrl;
             destino.PdfFilename              = origen.PdfFilename;
             destino.PdfFirmadoUrl            = origen.PdfFirmadoUrl;

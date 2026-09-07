@@ -71,6 +71,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             /// <summary>Nombres de los trabajadores que aparecen en la planilla, sin repetir.</summary>
             public List<string> Trabajadores { get; init; } = new();
             public decimal MontoTotal { get; init; }
+            /// <summary>Monto de la planilla completa, sin recortar por visibilidad. Ver <see cref="TotalPlanillaLoader"/>.</summary>
+            public decimal MontoTotalPlanilla { get; init; }
             public int SalidasCount => Salidas.Count;
         }
 
@@ -118,6 +120,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .ToListAsync();
 
             var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, rendicionIds);
+
+            // Total de la planilla ENTERA: lo que se registró en el S10. Va aparte del MontoTotal
+            // de más abajo, que suma solo las salidas visibles.
+            var totalesPlanilla = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
 
             // Monto por salida, con la misma regla que imprime la columna IMPORTE de la planilla.
             var trayectos = await ctx.GaSolicitudTrayecto
@@ -220,6 +226,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     RevisorNotificadoAt = filas.Max(f => f.RevisorNotificadoAt),
                     Trabajadores        = filas.Select(f => f.Trabajador).Distinct().ToList(),
                     MontoTotal          = filas.Sum(f => f.Monto),
+                    MontoTotalPlanilla  = totalesPlanilla.TryGetValue(planilla.Id, out var totalP) ? totalP : 0m,
                 });
             }
 

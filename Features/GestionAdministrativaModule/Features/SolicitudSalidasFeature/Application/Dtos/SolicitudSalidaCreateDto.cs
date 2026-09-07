@@ -231,10 +231,4 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public List<SolicitudSalidaListItemDto> Data { get; set; } = new();
         public ResumenRendicionDto Resumen { get; set; } = new();
     }
-
-    /// <summary>Nuevo monto de una captura ya subida (corrección del trabajador).</summary>
-    public class ActualizarMontoCapturaDto
-    {
-        public decimal Monto { get; set; }
-    }
 }

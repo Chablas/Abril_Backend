@@ -38,10 +38,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
 
         /// <summary>
-        /// Corrige el monto de una captura propia. Mismo criterio de edición que la subida: solo
-        /// antes de rendir o al subsanar una rendición observada.
+        /// Guarda los cambios de una captura propia: su monto y, si viene
+        /// <paramref name="file"/>, además reemplaza su imagen (sube el archivo nuevo y apunta la
+        /// misma fila a él). Mismo criterio de edición que la subida: solo antes de rendir o al
+        /// subsanar una rendición observada.
+        ///
+        /// Es una sola operación porque en la pantalla es un solo botón "Guardar": lo que el
+        /// trabajador corrige es la fila —monto, imagen o las dos—, no un campo suelto.
         /// </summary>
-        Task ActualizarMontoCaptura(int capturaId, decimal monto, int userId);
+        /// <returns>La captura ya actualizada, para repintar la miniatura sin recargar el detalle.</returns>
+        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId, decimal monto, IFormFile? file, int userId);
 
         /// <summary>
         /// Da de baja una captura propia (soft delete). Deja de contar para el importe rendido y

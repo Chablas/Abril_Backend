@@ -14,7 +14,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
         /// <summary>Planillas propias ya filtradas, con los números de las tarjetas de ese conjunto.</summary>
         Task<RendicionListResultDto> GetByUserId(int userId, RendicionFiltersDto? filters = null);
 
-        /// <summary>Opciones de los filtros (periodos con planillas propias).</summary>
+        /// <summary>
+        /// Datos de arranque de la pantalla: las opciones del filtro de periodo y los correos a los
+        /// que de verdad va a salir el aviso de la primera revisión (para mostrarlos al confirmar
+        /// el envío). Van juntos porque ninguno de los dos cambia al mover los filtros.
+        /// </summary>
         Task<RendicionFilterDataDto> GetFilterData(int userId);
 
         /// <summary>Detalle de una planilla propia con el desglose de sus salidas.</summary>
@@ -49,7 +53,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
         /// Solo se habilita con la primera revisión APROBADA (RG-35): lo valida el servicio
         /// compartido que hace la subida.
         /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId);
+        /// <param name="montoTotal">
+        /// Importe total del consolidado. Tiene que coincidir con el monto de la planilla completa
+        /// (todas sus salidas, que es lo que el consolidado cubre) o se rechaza con 400.
+        /// </param>
+        /// <param name="numeroGuia">Número de guía del S10 (texto, obligatorio).</param>
+        Task<ConsolidadoS10Dto> UploadConsolidadoS10(
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
 
         /// <summary>
         /// Avisa al jefe/revisor que la planilla ya tiene su Consolidado del S10 y el reembolso

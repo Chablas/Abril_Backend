@@ -7,23 +7,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
     // la carpeta de una de ellas.
 
     /// <summary>
-    /// Una planilla de rendición pendiente de firma, con las salidas de la selección que cuelgan
-    /// de ella. El PDF se firma UNA vez por planilla aunque la selección traiga varias salidas
-    /// suyas: el documento es uno solo.
-    /// </summary>
-    public class RendicionPorFirmarDto
-    {
-        public int RendicionId { get; set; }
-        /// <summary>webUrl del PDF original de la planilla (el que se descarga para estampar).</summary>
-        public string PdfUrl { get; set; } = string.Empty;
-        public string PdfFilename { get; set; } = string.Empty;
-        /// <summary>webUrl de la copia ya firmada, si otra firma anterior la genero.</summary>
-        public string? PdfFirmadoUrl { get; set; }
-        /// <summary>Salidas de la seleccion que cuelgan de esta planilla y estan listas para firmar.</summary>
-        public List<int> SolicitudIds { get; set; } = new();
-    }
-
-    /// <summary>
     /// Lo que necesitan los correos del reembolso de UNA salida. Sale de una sola consulta para no
     /// volver a la base por cada correo.
     /// </summary>

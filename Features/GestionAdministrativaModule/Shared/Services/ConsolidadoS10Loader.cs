@@ -84,6 +84,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                             : ConsolidadoS10Ambito.Solicitud.ToString(),
             PdfUrl      = c.PdfUrl,
             PdfFilename = c.PdfFilename,
+            MontoTotal  = c.MontoTotal,
+            NumeroGuia  = c.NumeroGuia,
+            PdfFirmadoUrl      = c.PdfFirmadoUrl,
+            PdfFirmadoFilename = c.PdfFirmadoFilename,
+            FirmadoAt          = c.FirmadoAt,
             UploadedAt  = c.UploadedAt,
         };
     }

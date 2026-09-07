@@ -55,10 +55,60 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             };
         }
 
-        public async Task<RendicionFilterDataDto> GetFilterData(int userId) => new()
+        public async Task<RendicionFilterDataDto> GetFilterData(int userId)
         {
-            Periodos = await _repo.GetPeriodos(userId),
-        };
+            var (workerId, periodos) = await _repo.GetPeriodos(userId);
+
+            var data = new RendicionFilterDataDto { Periodos = periodos };
+
+            // A quién le llegan los dos correos que dispara la pantalla: el aviso de la primera
+            // revisión ("Enviar a revisión") y el del Consolidado del S10 ("Avisar al revisor").
+            // Se calculan con las MISMAS llamadas que hacen los envíos para que las confirmaciones
+            // no anuncien un correo a alguien que la configuración dejó fuera. Van acá y no con el
+            // listado porque son iguales para toda la pantalla —está acotada a un solo trabajador—
+            // y no cambian al mover los filtros. Los dos tienen al mismo destinatario principal:
+            // el jefe/revisor del trabajador, que por eso se resuelve una sola vez.
+            //
+            // Best-effort: si no se resuelven, la pantalla se muestra sin las listas de correos.
+            // Un preview no puede tumbar el listado de planillas.
+            if (workerId != null)
+            {
+                try
+                {
+                    var revisor = await _revisorResolver.ResolveAsync(workerId.Value);
+                    var principal = string.IsNullOrWhiteSpace(revisor?.Email)
+                        ? null
+                        : new List<string> { revisor!.Email };
+
+                    data.CorreoPrimeraRevision = await ResolverDestinatariosAsync(
+                        CorreoEventoCodigos.RendicionPrimeraRevision, principal);
+                    data.CorreoS10Revisor = await ResolverDestinatariosAsync(
+                        CorreoEventoCodigos.S10Revisor, principal);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Error resolviendo los destinatarios de los correos del trabajador {WorkerId}",
+                        workerId.Value);
+                }
+            }
+
+            return data;
+        }
+
+        /// <summary>
+        /// A quién le llega un correo del flujo hoy. Devuelve vacío cuando está apagado o sin
+        /// destinatarios: la pantalla lo muestra como "no le llega a nadie" en vez de prometer un
+        /// envío que no va a pasar.
+        /// </summary>
+        private async Task<CorreoDestinatariosDto> ResolverDestinatariosAsync(
+            string eventoCodigo, List<string>? destinatarioPrincipal)
+        {
+            var envio = await _correoResolver.ResolveEnvioAsync(eventoCodigo, destinatarioPrincipal);
+            return envio.Enviar
+                ? new CorreoDestinatariosDto { Para = envio.Para, Copia = envio.Copia }
+                : new CorreoDestinatariosDto();
+        }
 
         public async Task<RendicionDetalleDto> GetDetalle(int rendicionId, int userId) =>
             await _repo.GetDetalleForUser(rendicionId, userId)
@@ -128,10 +178,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             return await _gestionSalidaService.RegenerarPlanilla(rendicionId, userId);
         }
 
-        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId) =>
+        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId) =>
             // ownerUserId = userId: en el autoservicio la planilla tiene que incluir alguna salida
-            // propia. El servicio compartido resuelve el resto (SharePoint, reemplazo, subsanación).
-            _consolidadoService.UploadParaRendicion(rendicionId, file, userId, ownerUserId: userId);
+            // propia. El servicio compartido resuelve el resto (validación del monto contra la
+            // planilla, SharePoint, reemplazo, subsanación).
+            _consolidadoService.UploadParaRendicion(
+                rendicionId, file, montoTotal, numeroGuia, userId, ownerUserId: userId);
 
         public async Task<string> NotificarRevisor(int rendicionId, int userId)
         {

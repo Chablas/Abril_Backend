@@ -16,8 +16,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         /// </summary>
         Task<RendicionDetalleDto?> GetDetalleForUser(int rendicionId, int userId);
 
-        /// <summary>Meses con al menos una planilla propia, para el filtro de periodo.</summary>
-        Task<List<PeriodoOptionDto>> GetPeriodos(int userId);
+        /// <summary>
+        /// Meses con al menos una planilla propia, para el filtro de periodo, y la ficha del
+        /// trabajador que se resolvió para hallarlos. El workerId se devuelve porque el servicio
+        /// lo necesita para resolver el jefe/revisor y acá ya se consultó: pedirlo aparte sería un
+        /// roundtrip más por la misma fila. Null cuando el usuario no tiene ficha de trabajador.
+        /// </summary>
+        Task<(int? WorkerId, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId);
 
         /// <summary>
         /// Marca que se le avisó al revisor por esta planilla. El sello queda en TODAS las salidas

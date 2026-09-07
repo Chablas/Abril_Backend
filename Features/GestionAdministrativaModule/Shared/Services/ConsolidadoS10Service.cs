@@ -33,6 +33,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public async Task<ConsolidadoS10Dto> UploadParaRendicion(
             int rendicionId,
             IFormFile file,
+            decimal montoTotal,
+            string numeroGuia,
             int userId,
             int? ownerUserId = null)
         {
@@ -42,6 +44,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (ext != ".pdf")
                 throw new AbrilException("El Consolidado del S10 debe ser un archivo PDF.", 400);
+
+            var guia = (numeroGuia ?? string.Empty).Trim();
+            if (guia.Length == 0)
+                throw new AbrilException("Falta el número de guía del Consolidado del S10.", 400);
+            if (guia.Length > 60)
+                throw new AbrilException("El número de guía no puede pasar de 60 caracteres.", 400);
+
+            // La columna es numeric(12,2): se redondea antes de comparar y de guardar, así el
+            // monto que se contrasta es el mismo que queda en la base.
+            var monto = decimal.Round(montoTotal, 2, MidpointRounding.AwayFromZero);
+            if (monto <= 0m)
+                throw new AbrilException("El monto total del Consolidado del S10 tiene que ser mayor que 0.", 400);
 
             using var ctx = _factory.CreateDbContext();
 
@@ -87,6 +101,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     throw new AbrilException(
                         "Solo puedes adjuntar el Consolidado del S10 de tus propias planillas.", 403);
             }
+
+            // El consolidado es UN registro en el S10 y cubre la planilla completa, así que su
+            // importe se contrasta contra el total de TODAS sus salidas —no contra el subconjunto
+            // que ve quien lo sube—. Se valida acá, antes de tocar SharePoint: un archivo subido
+            // con el monto mal solo dejaría basura en la carpeta.
+            var totalPlanilla = decimal.Round(
+                await TotalPlanillaLoader.LoadOneAsync(ctx, rendicionId), 2, MidpointRounding.AwayFromZero);
+
+            if (monto != totalPlanilla)
+                throw new AbrilException(
+                    $"El monto total del Consolidado del S10 (S/ {monto:N2}) no coincide con el monto " +
+                    $"de la planilla (S/ {totalPlanilla:N2}). Corrígelo antes de adjuntarlo.", 400);
 
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var folderUrl = await ctx.GaRendicionFolder
@@ -144,6 +170,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 PdfItemId    = pdfItemId,
                 PdfDriveId   = carpeta.DriveId,
                 PdfFilename  = filename,
+                MontoTotal   = monto,
+                NumeroGuia   = guia,
                 UploadedById = userId,
                 UploadedAt   = now,
                 State        = true,

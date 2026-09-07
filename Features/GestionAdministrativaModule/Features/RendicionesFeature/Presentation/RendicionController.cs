@@ -164,13 +164,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
         [HttpPost("{id:int}/consolidado-s10")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(25 * 1024 * 1024)]
-        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file)
+        public async Task<IActionResult> UploadConsolidadoS10(
+            int id,
+            [FromForm] IFormFile file,
+            // El monto viaja como texto y se parsea acá con InvariantCulture, igual que los montos
+            // de las capturas: el binder de formularios usa la cultura del servidor y un "50.00"
+            // se leería distinto según dónde corra.
+            [FromForm] string montoTotal,
+            [FromForm] string numeroGuia)
         {
             try
             {
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.UploadConsolidadoS10(id, file, userId.Value));
+
+                if (!decimal.TryParse(montoTotal, System.Globalization.NumberStyles.Number,
+                                      System.Globalization.CultureInfo.InvariantCulture, out var monto))
+                    return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
+
+                return Ok(await _service.UploadConsolidadoS10(id, file, monto, numeroGuia, userId.Value));
             }
             catch (AbrilException ex)
             {

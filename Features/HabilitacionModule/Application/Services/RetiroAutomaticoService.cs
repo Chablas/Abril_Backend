@@ -48,7 +48,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         public async Task<RetiroAutomaticoResultDto> EjecutarAsync()
         {
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-            var hoyDt = hoy.ToDateTime(TimeOnly.MinValue);
+            // Kind=Utc explícito: Npgsql exige que un DateTime comparado contra una columna
+            // timestamptz (vigencia) venga en UTC, si no tira "Cannot write/compare DateTime with
+            // Kind=Unspecified". Mismo fix que ya tiene VigenciaRevisionService — acá faltaba
+            // porque este servicio nunca se había ejecutado de verdad contra Postgres hasta hoy.
+            var hoyDt = DateTime.SpecifyKind(hoy.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
 
             // Interruptor de arranque en frío CON AUTO-VENCIMIENTO: mientras haya deuda histórica sin
             // regularizar, este modo manda los mismos correos de aviso/vencimiento pero NO ejecuta
@@ -64,7 +68,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             // sigue siendo uno solo por grupo — BuildEmailHtml separa "vence en ≤4 días" (urgente) de
             // "vence en 5-7 días" (aviso temprano) dentro de esa misma tabla de "por vencer".
             var fechaLimite = hoy.AddDays(7);
-            var fechaLimiteDt = fechaLimite.ToDateTime(TimeOnly.MaxValue);
+            var fechaLimiteDt = DateTime.SpecifyKind(fechaLimite.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
 
             using var ctx = _factory.CreateDbContext();
 

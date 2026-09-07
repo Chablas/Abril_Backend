@@ -39,6 +39,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>Carga un trayecto verificando que pertenezca al user y que la solicitud esté aprobada + no rendida.</summary>
         Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId);
 
+        /// <summary>
+        /// Una captura del usuario que todavía se puede tocar (mismo criterio que
+        /// <see cref="GetTrayectoForUploadingCapturas"/>: antes de rendir, o al subsanar una
+        /// rendición observada). Null si no existe, no es suya o su salida está congelada.
+        /// </summary>
+        Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId);
+
+        /// <summary>Cambia el monto de una captura. El guard de propiedad lo hace el servicio.</summary>
+        Task ActualizarMontoCaptura(int capturaId, decimal monto);
+
+        /// <summary>Da de baja una captura (soft delete). Deja de contar para el importe rendido.</summary>
+        Task EliminarCaptura(int capturaId);
+
         Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(int trayectoId, IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items, int userId);
     }
 }

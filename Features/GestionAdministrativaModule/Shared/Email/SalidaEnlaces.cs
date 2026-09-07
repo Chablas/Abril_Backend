@@ -38,6 +38,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/gestion-rendiciones?rendicion={rendicionId}";
 
         /// <summary>
+        /// Gestión de Rendiciones abierta en esa planilla y con la acción de la primera revisión ya
+        /// planteada (<c>&amp;accion=aprobar|observar</c>). Los dos botones del correo al revisor
+        /// entran por acá: la decisión no se ejecuta desde el correo porque observar exige escribir
+        /// un comentario, así que el enlace lleva a la pantalla con el diálogo abierto y el revisor
+        /// confirma ahí, viendo los tramos y las capturas.
+        /// </summary>
+        public static string GestionRendicionesAccion(
+            IConfiguration configuration, int rendicionId, string accion) =>
+            $"{GestionRendiciones(configuration, rendicionId)}&accion={accion}";
+
+        /// <summary>
         /// Mis Rendiciones abierta en esa planilla — es donde el trabajador adjunta (o vuelve a
         /// adjuntar, para subsanar) el Consolidado del S10 y avisa a su revisor. Todo lo que va
         /// después de rendir vive ahí, así que es el destino de los correos del reembolso.

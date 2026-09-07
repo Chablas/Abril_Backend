@@ -53,6 +53,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </param>
         Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
+        /// <summary>
+        /// Vuelve a generar el PDF de una planilla que YA existe, con los montos y las capturas
+        /// como están ahora. Es lo que cierra la subsanación de una rendición observada en primera
+        /// revisión: la fila de <c>ga_rendicion</c> es la misma —así conserva su código
+        /// REN-AAAA-NNNN y su número de planilla— y lo que se reemplaza es el archivo.
+        ///
+        /// Vive acá y no en Mis Rendiciones porque el armado del PDF es de esta feature: el
+        /// documento cubre la planilla entera (todas sus salidas, de todos sus trabajadores),
+        /// aunque la subsanación la dispare un trabajador sobre sus propias salidas.
+        ///
+        /// No valida el estado ni la propiedad: eso lo hace quien la llama (ver
+        /// <c>IRendicionService.RegenerarPlanilla</c>). Deja la planilla lista para reenviar.
+        /// </summary>
+        /// <returns>Los bytes del PDF nuevo, para que la pantalla lo pueda descargar.</returns>
+        Task<byte[]> RegenerarPlanilla(int rendicionId, int userId);
+
         /// <summary>Detalle de una solicitud para el modal — devuelve null si no existe.</summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id);
 

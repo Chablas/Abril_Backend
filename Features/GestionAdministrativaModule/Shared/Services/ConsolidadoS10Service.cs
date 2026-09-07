@@ -45,9 +45,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             using var ctx = _factory.CreateDbContext();
 
-            var existe = await ctx.GaRendicion.AnyAsync(r => r.Id == rendicionId);
-            if (!existe)
-                throw new AbrilException("La planilla de rendición no existe.", 404);
+            var planilla = await ctx.GaRendicion
+                .Where(r => r.Id == rendicionId)
+                .Select(r => new { r.EstadoPrimeraRevisionId })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            // RG-35: el Consolidado del S10 se habilita SOLO después de que la jefatura apruebe la
+            // primera revisión. Vale igual para el revisor que lo sube en nombre del trabajador: lo
+            // que falta no es el permiso, es el registro en el S10, que recién se hace con la
+            // planilla aprobada. El mensaje dice en qué estado está para no dejarlo adivinando.
+            if (planilla.EstadoPrimeraRevisionId != EstadosSalida.PrimeraRevision.Aprobada)
+                throw new AbrilException(
+                    planilla.EstadoPrimeraRevisionId switch
+                    {
+                        EstadosSalida.PrimeraRevision.Borrador =>
+                            "Esta rendición todavía no se envió a primera revisión: el Consolidado del S10 "
+                            + "se habilita cuando la jefatura la apruebe.",
+                        EstadosSalida.PrimeraRevision.EnRevision =>
+                            "Esta rendición está en primera revisión: el Consolidado del S10 se habilita "
+                            + "cuando la jefatura la apruebe.",
+                        _ =>
+                            "Esta rendición está observada: primero hay que corregir las capturas y los "
+                            + "montos, volver a generarla y esperar la aprobación de la primera revisión.",
+                    },
+                    409);
 
             // Guard de propiedad (autoservicio): la planilla tiene que incluir alguna salida del
             // trabajador de ese usuario. Una planilla puede agrupar a varios trabajadores cuando la

@@ -1,3 +1,4 @@
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
@@ -153,7 +154,79 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             await ctx.SaveChangesAsync();
         }
 
+        public async Task MarcarEnviadaAPrimeraRevision(int rendicionId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var planilla = await ctx.GaRendicion.FirstOrDefaultAsync(r => r.Id == rendicionId)
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            planilla.EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.EnRevision;
+            planilla.EnviadaRevisionAt       = DateTimeOffset.UtcNow;
+            planilla.EnviadaRevisionPorId    = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<RendicionSolicitanteDto?> GetSolicitante(int rendicionId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var quien = await (
+                from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                join u in ctx.User on (int?)per.UserId equals (int?)u.UserId into uGroup
+                from u in uGroup.DefaultIfEmpty()
+                where s.RendicionId == rendicionId && per.UserId == userId
+                select new
+                {
+                    WorkerId    = w.Id,
+                    Trabajador  = per.FullName ?? "Trabajador",
+                    Email       = u != null ? u.Email : null,
+                    // El área del trabajador sale del puesto, no de workers.
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
+                }
+            ).FirstOrDefaultAsync();
+
+            if (quien == null) return null;
+
+            return new RendicionSolicitanteDto
+            {
+                WorkerId   = quien.WorkerId,
+                Trabajador = quien.Trabajador,
+                Email      = quien.Email,
+                Area       = await ResolveAreaNombreAsync(ctx, quien.AreaScopeId),
+            };
+        }
+
+        public async Task<int> ContarTramos(int rendicionId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from t in ctx.GaSolicitudTrayecto
+                join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                where s.RendicionId == rendicionId && per.UserId == userId
+                select t.Id
+            ).CountAsync();
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        /// <summary>Nombre del área a la que apunta el nodo (el más bajo del árbol). Null si no tiene.</summary>
+        private static async Task<string?> ResolveAreaNombreAsync(AppDbContext ctx, int? areaScopeId)
+        {
+            if (!areaScopeId.HasValue) return null;
+            return await (
+                from sc in ctx.AreaScope
+                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                where sc.AreaScopeId == areaScopeId.Value
+                select it.AreaItemName
+            ).FirstOrDefaultAsync();
+        }
 
         private static async Task<int?> ResolveWorkerIdAsync(AppDbContext ctx, int userId)
         {
@@ -289,9 +362,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var abierto = estado == EstadosSalida.Reembolso.NombrePendiente
                        || estado == EstadosSalida.Reembolso.NombreRechazado;
 
+            // El Consolidado del S10 se habilita recién con la primera revisión aprobada (RG-35):
+            // antes de eso el trabajador todavía no registró nada en el S10.
+            var primeraAprobada = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada;
+
             return new RendicionListItemDto
             {
                 Id             = planilla.Id,
+                Codigo         = PlanillaRendicionHelper.CodigoRendicion(planilla.Codigo, planilla.Id),
                 NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
                 RendidoAt      = planilla.RendidoAt,
                 Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
@@ -317,14 +395,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                     .FirstOrDefault(),
                 RevisorNotificadoAt = propias.Max(s => s.RevisorNotificadoAt),
 
-                PuedeAdjuntarConsolidado = abierto,
-                PuedeNotificarRevisor    = abierto && consolidado != null,
+                EstadoPrimeraRevision      = EstadosSalida.PrimeraRevision.Nombre(planilla.EstadoPrimeraRevisionId),
+                EnviadaRevisionAt          = planilla.EnviadaRevisionAt,
+                PrimeraRevisionAt          = planilla.PrimeraRevisionAt,
+                PrimeraRevisionObservacion = planilla.PrimeraRevisionObservacion,
+                PuedeEnviarPrimeraRevision = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Borrador,
+                PuedeSubsanar              = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada,
+
+                PuedeAdjuntarConsolidado = primeraAprobada && abierto,
+                PuedeNotificarRevisor    = primeraAprobada && abierto && consolidado != null,
             };
         }
 
         private static void CopiarCabecera(RendicionListItemDto origen, RendicionDetalleDto destino)
         {
             destino.Id                       = origen.Id;
+            destino.Codigo                   = origen.Codigo;
             destino.NumeroPlanilla           = origen.NumeroPlanilla;
             destino.RendidoAt                = origen.RendidoAt;
             destino.Periodo                  = origen.Periodo;
@@ -342,6 +428,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.ReembolsoMixto           = origen.ReembolsoMixto;
             destino.ObservacionReembolso     = origen.ObservacionReembolso;
             destino.RevisorNotificadoAt      = origen.RevisorNotificadoAt;
+            destino.EstadoPrimeraRevision      = origen.EstadoPrimeraRevision;
+            destino.EnviadaRevisionAt          = origen.EnviadaRevisionAt;
+            destino.PrimeraRevisionAt          = origen.PrimeraRevisionAt;
+            destino.PrimeraRevisionObservacion = origen.PrimeraRevisionObservacion;
+            destino.PuedeEnviarPrimeraRevision = origen.PuedeEnviarPrimeraRevision;
+            destino.PuedeSubsanar              = origen.PuedeSubsanar;
             destino.PuedeAdjuntarConsolidado = origen.PuedeAdjuntarConsolidado;
             destino.PuedeNotificarRevisor    = origen.PuedeNotificarRevisor;
         }
@@ -352,6 +444,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             if (filters == null) return items;
 
             IEnumerable<RendicionListItemDto> q = items;
+
+            if (!string.IsNullOrWhiteSpace(filters.EstadoPrimeraRevision))
+                q = q.Where(x => x.EstadoPrimeraRevision == filters.EstadoPrimeraRevision!.Trim());
 
             if (!string.IsNullOrWhiteSpace(filters.EstadoReembolso))
                 q = q.Where(x => x.EstadoReembolso == filters.EstadoReembolso!.Trim());

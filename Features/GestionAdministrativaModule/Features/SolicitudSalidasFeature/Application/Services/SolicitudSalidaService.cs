@@ -846,7 +846,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public async Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId)
         {
             var trayecto = await _repo.GetTrayectoForUploadingCapturas(trayectoId, userId)
-                ?? throw new AbrilException("No se pueden subir capturas: el trayecto no existe, no te pertenece, no está aprobado, o ya fue rendido.", 404);
+                ?? throw new AbrilException(
+                    "No se pueden subir capturas: el trayecto no existe, no te pertenece, no está aprobado, " +
+                    "o su rendición ya pasó la primera revisión.", 404);
 
             var lista = items?
                 .Where(it => it.File != null && it.File.Length > 0)
@@ -915,6 +917,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
 
             return await _repo.InsertCapturas(trayectoId, subidos, userId);
+        }
+
+        public async Task ActualizarMontoCaptura(int capturaId, decimal monto, int userId)
+        {
+            if (monto < 0)
+                throw new AbrilException("El monto no puede ser negativo.", 400);
+
+            _ = await _repo.GetCapturaEditable(capturaId, userId)
+                ?? throw new AbrilException(
+                    "No se puede editar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
+                    "primera revisión.", 404);
+
+            await _repo.ActualizarMontoCaptura(capturaId, monto);
+        }
+
+        public async Task EliminarCaptura(int capturaId, int userId)
+        {
+            _ = await _repo.GetCapturaEditable(capturaId, userId)
+                ?? throw new AbrilException(
+                    "No se puede eliminar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
+                    "primera revisión.", 404);
+
+            await _repo.EliminarCaptura(capturaId);
         }
 
         public async Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes)

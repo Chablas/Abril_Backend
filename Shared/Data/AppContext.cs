@@ -640,6 +640,13 @@ namespace Abril_Backend.Infrastructure.Data
             // explícitamente con IgnoreQueryFilters().
             modelBuilder.Entity<Worker>().HasQueryFilter(w => w.State);
 
+            // Una captura de movilidad eliminada (al subsanar una rendición observada) no existe
+            // para nadie: no se lista, no se imprime en la planilla y no suma al importe rendido.
+            // Va como filtro global por el mismo motivo que el de Worker: la tabla se lee desde
+            // siete lugares (tres repositorios de salidas y ImporteRendidoLoader) y una captura
+            // borrada que reaparece en UNO solo descuadraría el monto contra la planilla firmada.
+            modelBuilder.Entity<GaSolicitudCaptura>().HasQueryFilter(c => c.State);
+
             modelBuilder.Entity<Person>()
                 .HasOne(p => p.User)
                 .WithOne(u => u.Person)

@@ -177,6 +177,191 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .ToListAsync();
         }
 
+        // ══ Primera revisión ════════════════════════════════════════════════
+
+        public async Task<List<int>> DecidirPrimeraRevision(
+            IEnumerable<int> rendicionIds, bool aprobar, string? observacion,
+            GestionRendicionFiltersDto scope, int reviewerUserId)
+        {
+            var idsList = rendicionIds?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            if (!aprobar && string.IsNullOrWhiteSpace(observacion))
+                throw new AbrilException(
+                    "Para observar una rendición hay que escribir el comentario de qué corregir.", 400);
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo las planillas de las que el usuario ve alguna salida: mandar un rendicion_id no
+            // puede alcanzar planillas de áreas ajenas. Mismo recorte que ResolverSolicitudIds.
+            var visibles = await SalidasVisibles(ctx, SoloVisibilidad(scope))
+                .Where(s => s.RendicionId != null && idsList.Contains(s.RendicionId!.Value))
+                .Select(s => new { RendicionId = s.RendicionId!.Value, s.WorkerId })
+                .ToListAsync();
+
+            if (visibles.Count == 0)
+                throw new AbrilException("No hay planillas en la selección dentro de tu alcance.", 400);
+
+            var visiblesIds = visibles.Select(x => x.RendicionId).Distinct().ToList();
+
+            var planillas = await ctx.GaRendicion
+                .Where(r => visiblesIds.Contains(r.Id)
+                         && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.EnRevision)
+                .ToListAsync();
+
+            if (planillas.Count == 0)
+                throw new AbrilException(
+                    "Ninguna de las planillas seleccionadas está esperando la primera revisión.", 400);
+
+            // Nadie revisa su propia rendición (salvo Gerente), misma regla que la decisión del
+            // reembolso y la aprobación de la salida. Se chequea con UNA consulta para todo el lote.
+            var misWorkers = await (
+                from w in ctx.Worker
+                join per in ctx.Person on w.PersonId equals per.PersonId
+                where per.UserId == reviewerUserId
+                select new
+                {
+                    w.Id,
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                }
+            ).ToListAsync();
+
+            var misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
+            var esGerente    = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
+
+            var decididasIds = planillas.Select(p => p.Id).ToHashSet();
+            if (!esGerente
+                && visibles.Any(x => decididasIds.Contains(x.RendicionId) && misWorkerIds.Contains(x.WorkerId)))
+                throw new AbrilException(
+                    "No puedes revisar una rendición con tus propias salidas — deselecciónala primero.", 403);
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var p in planillas)
+            {
+                p.EstadoPrimeraRevisionId = aprobar
+                    ? EstadosSalida.PrimeraRevision.Aprobada
+                    : EstadosSalida.PrimeraRevision.Observada;
+                p.PrimeraRevisionAt    = now;
+                p.PrimeraRevisionPorId = reviewerUserId;
+                // Al aprobar se limpia la observación: ya no hay nada que corregir. Al observar se
+                // reemplaza por la nueva.
+                p.PrimeraRevisionObservacion = aprobar ? null : observacion!.Trim();
+            }
+
+            await ctx.SaveChangesAsync();
+            return planillas.Select(p => p.Id).ToList();
+        }
+
+        public async Task<List<PrimeraRevisionCorreoInfoDto>> GetPrimeraRevisionCorreoInfo(int rendicionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var planilla = await ctx.GaRendicion
+                .Where(r => r.Id == rendicionId)
+                .Select(r => new
+                {
+                    r.Id, r.Codigo, r.NumeroPlanilla,
+                    r.PrimeraRevisionObservacion, r.PrimeraRevisionPorId,
+                })
+                .FirstOrDefaultAsync();
+            if (planilla == null) return new();
+
+            // Todas las salidas de la planilla, sin recorte de visibilidad: el correo va al dueño
+            // de cada grupo y el revisor decidió el documento entero.
+            var salidas = await (
+                from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                join u in ctx.User on (per != null ? per.UserId : null) equals (int?)u.UserId into uGroup
+                from u in uGroup.DefaultIfEmpty()
+                where s.RendicionId == rendicionId
+                select new
+                {
+                    s.Id,
+                    WorkerId    = w.Id,
+                    w.Subarea,
+                    Trabajador  = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
+                    Email       = u != null ? u.Email : null,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
+                    s.FechaSalida,
+                }
+            ).ToListAsync();
+
+            if (salidas.Count == 0) return new();
+
+            // Monto y tramos con la misma regla que imprime la columna IMPORTE de la planilla: si
+            // el correo dijera otro total, el trabajador no podría contrastarlo con su PDF.
+            var solicitudIds = salidas.Select(x => x.Id).ToList();
+            var trayectos = await ctx.GaSolicitudTrayecto
+                .Where(t => solicitudIds.Contains(t.SolicitudId))
+                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+                .ToListAsync();
+
+            var subareaPorSolicitud = salidas.ToDictionary(x => x.Id, x => x.Subarea);
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos
+                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                        t.Id,
+                        subareaPorSolicitud.TryGetValue(t.SolicitudId, out var sub) ? sub : null,
+                        t.LugarOrigenId,
+                        t.LugarDestinoId))
+                    .ToList());
+
+            var montoPorSolicitud = trayectos
+                .GroupBy(t => t.SolicitudId)
+                .ToDictionary(g => g.Key, g => g.Sum(t => importes.TryGetValue(t.Id, out var i) ? i.Importe : 0m));
+            var tramosPorSolicitud = trayectos
+                .GroupBy(t => t.SolicitudId)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            string? decididoPor = null;
+            if (planilla.PrimeraRevisionPorId.HasValue)
+            {
+                decididoPor = await (
+                    from w in ctx.Worker
+                    join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                    where per.UserId == planilla.PrimeraRevisionPorId.Value
+                    select per.FullName
+                ).FirstOrDefaultAsync();
+            }
+
+            var areaPorScope = new Dictionary<int, string?>();
+            foreach (var scopeId in salidas.Where(x => x.AreaScopeId.HasValue)
+                                           .Select(x => x.AreaScopeId!.Value).Distinct())
+                areaPorScope[scopeId] = await ResolveAreaNombreAsync(ctx, scopeId);
+
+            var codigo = PlanillaRendicionHelper.CodigoRendicion(planilla.Codigo, planilla.Id);
+
+            return salidas
+                .GroupBy(x => x.WorkerId)
+                .Select(g =>
+                {
+                    var primera = g.First();
+                    var desde   = g.Min(x => x.FechaSalida);
+                    var hasta   = g.Max(x => x.FechaSalida);
+                    return new PrimeraRevisionCorreoInfoDto
+                    {
+                        RendicionId      = planilla.Id,
+                        Codigo           = codigo,
+                        NumeroPlanilla   = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
+                        WorkerId         = g.Key,
+                        Trabajador       = primera.Trabajador,
+                        SolicitanteEmail = primera.Email,
+                        Area             = primera.AreaScopeId.HasValue
+                                            && areaPorScope.TryGetValue(primera.AreaScopeId.Value, out var a) ? a : null,
+                        Periodo          = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
+                        SalidasCount     = g.Count(),
+                        TramosCount      = g.Sum(x => tramosPorSolicitud.TryGetValue(x.Id, out var tc) ? tc : 0),
+                        MontoTotal       = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
+                        DecididoPor      = decididoPor,
+                        Observacion      = planilla.PrimeraRevisionObservacion,
+                    };
+                })
+                .ToList();
+        }
+
         // ══ Reembolso ═══════════════════════════════════════════════════════
 
         public async Task<List<int>> DecidirReembolso(
@@ -480,6 +665,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             PlanillaRendicionLoader.PlanillaFila p, HashSet<int> misWorkerIds, HashSet<int> porDecidir) => new()
         {
             Id                 = p.Id,
+            Codigo             = p.Codigo,
             NumeroPlanilla     = p.NumeroPlanilla,
             RendidoAt          = p.RendidoAt,
             Periodo            = p.Periodo,
@@ -494,6 +680,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             PdfFirmadoFilename = p.PdfFirmadoFilename,
             FirmadoAt          = p.FirmadoAt,
             ConsolidadoS10     = p.ConsolidadoS10,
+            EstadoPrimeraRevision      = p.EstadoPrimeraRevision,
+            EnviadaRevisionAt          = p.EnviadaRevisionAt,
+            PrimeraRevisionAt          = p.PrimeraRevisionAt,
+            PrimeraRevisionObservacion = p.PrimeraRevisionObservacion,
+            PorPrimeraRevision         = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.EnRevision,
             EstadoReembolso    = p.EstadoReembolso,
             ReembolsoMixto     = p.ReembolsoMixto,
             ObservacionReembolso = p.ObservacionReembolso,
@@ -505,12 +696,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
         private static void CopiarCabecera(GestionRendicionListItemDto o, GestionRendicionDetalleDto d)
         {
-            d.Id = o.Id; d.NumeroPlanilla = o.NumeroPlanilla; d.RendidoAt = o.RendidoAt;
+            d.Id = o.Id; d.Codigo = o.Codigo; d.NumeroPlanilla = o.NumeroPlanilla; d.RendidoAt = o.RendidoAt;
             d.Periodo = o.Periodo; d.PeriodoAnio = o.PeriodoAnio; d.PeriodoMes = o.PeriodoMes;
             d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount; d.MontoTotal = o.MontoTotal;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.ConsolidadoS10 = o.ConsolidadoS10;
+            d.EstadoPrimeraRevision = o.EstadoPrimeraRevision; d.EnviadaRevisionAt = o.EnviadaRevisionAt;
+            d.PrimeraRevisionAt = o.PrimeraRevisionAt;
+            d.PrimeraRevisionObservacion = o.PrimeraRevisionObservacion;
+            d.PorPrimeraRevision = o.PorPrimeraRevision;
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
             d.ObservacionReembolso = o.ObservacionReembolso; d.RevisorNotificadoAt = o.RevisorNotificadoAt;
             d.PorDecidirCount = o.PorDecidirCount; d.PorFirmarCount = o.PorFirmarCount;
@@ -525,6 +720,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             List<GestionRendicionListItemDto> items, GestionRendicionFiltersDto filters)
         {
             IEnumerable<GestionRendicionListItemDto> q = items;
+
+            if (!string.IsNullOrWhiteSpace(filters.EstadoPrimeraRevision))
+                q = q.Where(x => x.EstadoPrimeraRevision == filters.EstadoPrimeraRevision!.Trim());
 
             if (!string.IsNullOrWhiteSpace(filters.EstadoReembolso))
                 q = q.Where(x => x.EstadoReembolso == filters.EstadoReembolso!.Trim());

@@ -11,6 +11,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     public class GestionRendicionListItemDto
     {
         public int Id { get; set; }
+        /// <summary>Código REN-AAAA-NNNN — es como el trabajador la nombra en los correos.</summary>
+        public string Codigo { get; set; } = string.Empty;
         public string? NumeroPlanilla { get; set; }
         public DateTimeOffset RendidoAt { get; set; }
 
@@ -31,6 +33,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public string? PdfFirmadoFilename { get; set; }
         public DateTimeOffset? FirmadoAt { get; set; }
         public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
+
+        // ── Primera revisión ─────────────────────────────────────────────
+        // El paso que va ANTES del Consolidado del S10: el revisor mira tramos, montos y capturas
+        // y decide. Es de la PLANILLA, así que no se resume de las salidas como el reembolso.
+
+        /// <summary>"Lista para enviar" | "En primera revisión" | "Aprobada" | "Observada".</summary>
+        public string EstadoPrimeraRevision { get; set; } = EstadosSalida.PrimeraRevision.NombreBorrador;
+
+        /// <summary>Cuándo la envió el trabajador. Null si todavía no la envió.</summary>
+        public DateTimeOffset? EnviadaRevisionAt { get; set; }
+
+        /// <summary>Cuándo se decidió la primera revisión. Null si todavía no se decidió.</summary>
+        public DateTimeOffset? PrimeraRevisionAt { get; set; }
+
+        /// <summary>Comentario con el que se observó. Null si no se observó.</summary>
+        public string? PrimeraRevisionObservacion { get; set; }
+
+        /// <summary>
+        /// True si esta planilla está esperando la primera revisión: el revisor puede aprobarla u
+        /// observarla. Es lo que habilita las acciones de la pantalla.
+        /// </summary>
+        public bool PorPrimeraRevision { get; set; }
 
         // ── Reembolso ────────────────────────────────────────────────────
         /// <summary>Resumen de las salidas visibles: gana el estado que más atención pide.</summary>
@@ -81,6 +105,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     public class GestionRendicionFiltersDto
     {
         public int? WorkerId { get; set; }
+
+        /// <summary>
+        /// "Lista para enviar" | "En primera revisión" | "Aprobada" | "Observada" | null para todas.
+        /// </summary>
+        public string? EstadoPrimeraRevision { get; set; }
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos.</summary>
         public string? EstadoReembolso { get; set; }
         /// <summary>true = solo con consolidado adjunto; false = solo sin él; null = todas.</summary>
@@ -104,9 +133,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     /// </summary>
     public class ResumenGestionRendicionesDto
     {
-        /// <summary>Planillas sin el Consolidado del S10: todavía no hay nada que revisar.</summary>
+        /// <summary>Planillas esperando la PRIMERA revisión: el primer paso del revisor.</summary>
+        public int PrimeraRevision { get; set; }
+        /// <summary>
+        /// Aprobadas en primera revisión y sin el Consolidado del S10: la pelota está en el
+        /// trabajador. Las que no pasaron la primera revisión no cuentan acá — esas están en la
+        /// tarjeta anterior y no en una espera del trabajador.
+        /// </summary>
         public int SinConsolidado { get; set; }
-        /// <summary>Planillas con reembolso por decidir (con S10 adjunto).</summary>
+        /// <summary>Planillas con reembolso por decidir (con S10 adjunto) — la segunda revisión.</summary>
         public int PorRevisar { get; set; }
         /// <summary>Planillas con reembolso aprobado esperando la firma.</summary>
         public int PorFirmar { get; set; }
@@ -116,9 +151,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var lista = planillas as ICollection<GestionRendicionListItemDto> ?? planillas.ToList();
             return new ResumenGestionRendicionesDto
             {
-                SinConsolidado = lista.Count(x => x.ConsolidadoS10 == null),
-                PorRevisar     = lista.Count(x => x.PorDecidirCount > 0),
-                PorFirmar      = lista.Count(x => x.PorFirmarCount > 0),
+                PrimeraRevision = lista.Count(x => x.PorPrimeraRevision),
+                SinConsolidado  = lista.Count(x => x.ConsolidadoS10 == null
+                                               && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
+                PorRevisar      = lista.Count(x => x.PorDecidirCount > 0),
+                PorFirmar       = lista.Count(x => x.PorFirmarCount > 0),
             };
         }
     }
@@ -149,6 +186,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     /// (lo normal, desde la tabla) o salidas sueltas (desde el detalle, cuando el revisor decide
     /// una por una). Si vienen las dos, se juntan.
     /// </summary>
+    /// <summary>
+    /// Cuerpo de la decisión de la PRIMERA revisión. Va por planilla y no por salida: lo que se
+    /// revisa es el documento entero y la decisión es total (RG-19).
+    /// </summary>
+    public class PrimeraRevisionAccionDto
+    {
+        public List<int> RendicionIds { get; set; } = new();
+
+        /// <summary>
+        /// Obligatoria al observar (RG-20): es el comentario que el trabajador va a leer para
+        /// saber qué corregir antes de volver a generar la rendición.
+        /// </summary>
+        public string? Observacion { get; set; }
+    }
+
     public class ReembolsoAccionDto
     {
         public List<int> RendicionIds { get; set; } = new();

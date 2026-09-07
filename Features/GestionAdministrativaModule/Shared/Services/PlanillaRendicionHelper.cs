@@ -51,6 +51,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public static string? NumeroPlanilla(int? numero) =>
             numero.HasValue ? $"TI: {numero.Value:D6}" : null;
 
+        /// <summary>
+        /// Identificador de la rendición tal como lo ve el trabajador: su código REN-AAAA-NNNN, o
+        /// <c>#id</c> en las anteriores a la columna (ahí el id es lo único que hay para nombrarla).
+        /// Nunca devuelve vacío: es lo que imprimen las tres pantallas y los correos.
+        /// </summary>
+        public static string CodigoRendicion(string? codigo, int rendicionId) =>
+            string.IsNullOrWhiteSpace(codigo) ? $"#{rendicionId}" : codigo!;
+
         private static string Capitalizar(string nombre, CultureInfo cultura) =>
             string.IsNullOrEmpty(nombre) ? nombre : $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]}";
     }

@@ -98,6 +98,57 @@
             public static readonly int[] VisiblesParaTesoreria = { Firmado, Pagado };
         }
 
+        /// <summary>
+        /// Estado de la PRIMERA revisión de una planilla de rendición — el eje que vive en
+        /// <c>ga_rendicion</c> y no en la salida, porque lo que el jefe revisa es el documento y
+        /// este cubre todas las salidas que agrupa.
+        ///
+        /// Es anterior al <see cref="Reembolso"/>: la primera revisión mira tramos, montos y
+        /// capturas registrados en Abril One, y solo con su aprobación se habilita cargar el
+        /// Consolidado del S10 (RG-35). El reembolso es la SEGUNDA revisión, la que compara el
+        /// total del consolidado contra el de la planilla.
+        ///
+        /// Borrador → EnRevision → Aprobada, u Observada (con comentario del revisor) hasta que el
+        /// trabajador corrija capturas y montos y vuelva a generar el PDF, que la devuelve a
+        /// Borrador para reenviarla. Los ids reflejan las filas de <c>ga_estado_primera_revision</c>.
+        /// </summary>
+        public static class PrimeraRevision
+        {
+            /// <summary>Recién rendida: el PDF ya está, pero el trabajador todavía no la envió.</summary>
+            public const int Borrador   = 1;
+            /// <summary>Enviada al jefe: espera que apruebe u observe.</summary>
+            public const int EnRevision = 2;
+            /// <summary>Aprobada: habilita cargar el Consolidado del S10.</summary>
+            public const int Aprobada   = 3;
+            /// <summary>Observada con comentario: el trabajador tiene que rehacer la rendición.</summary>
+            public const int Observada  = 4;
+
+            public const string NombreBorrador   = "Lista para enviar";
+            public const string NombreEnRevision = "En primera revisión";
+            public const string NombreAprobada   = "Aprobada";
+            public const string NombreObservada  = "Observada";
+
+            /// <summary>id → nombre para exponer en DTOs.</summary>
+            public static string Nombre(int id) => id switch
+            {
+                Borrador   => NombreBorrador,
+                EnRevision => NombreEnRevision,
+                Aprobada   => NombreAprobada,
+                Observada  => NombreObservada,
+                _          => string.Empty,
+            };
+
+            /// <summary>nombre (filtro del frontend) → id, o null si no corresponde a ninguno.</summary>
+            public static int? IdFromNombre(string? nombre) => nombre?.Trim() switch
+            {
+                NombreBorrador   => Borrador,
+                NombreEnRevision => EnRevision,
+                NombreAprobada   => Aprobada,
+                NombreObservada  => Observada,
+                _                => null,
+            };
+        }
+
         public static class Rendicion
         {
             public const int NoRendido = 1;

@@ -16,6 +16,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
         private const int PageSize = 10;
+
+        /// <summary>Hora de Perú: el año del código REN-AAAA-NNNN corta a la medianoche de acá, no a las 19:00 en UTC.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Namespace del pg_advisory_xact_lock que serializa la generación del correlativo de
+        /// rendición. Propio: no comparte candado con el SOL-AAAA-NNNN de las solicitudes (8472)
+        /// ni con el REQ-AAAA-NNNN de GTH.
+        /// </summary>
+        private const int CorrelativoRendicionLockNamespace = 8473;
+
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
 
@@ -583,6 +594,58 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .FirstOrDefaultAsync();
         }
 
+        public async Task<RendicionParaRegenerarDto?> GetRendicionParaRegenerar(int rendicionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var planilla = await ctx.GaRendicion
+                .Where(r => r.Id == rendicionId)
+                .Select(r => new { r.Id, r.NumeroPlanilla, r.EstadoPrimeraRevisionId })
+                .FirstOrDefaultAsync();
+            if (planilla == null) return null;
+
+            var solicitudIds = await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId == rendicionId)
+                .OrderBy(s => s.Id)
+                .Select(s => s.Id)
+                .ToListAsync();
+
+            return new RendicionParaRegenerarDto
+            {
+                RendicionId             = planilla.Id,
+                NumeroPlanilla          = planilla.NumeroPlanilla,
+                EstadoPrimeraRevisionId = planilla.EstadoPrimeraRevisionId,
+                SolicitudIds            = solicitudIds,
+            };
+        }
+
+        public async Task ReemplazarPdfRendicion(
+            int rendicionId, string pdfUrl, string? pdfItemId, string pdfFilename)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var rendicion = await ctx.GaRendicion.FirstOrDefaultAsync(r => r.Id == rendicionId)
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            rendicion.PdfUrl      = pdfUrl;
+            rendicion.PdfItemId   = pdfItemId;
+            rendicion.PdfFilename = pdfFilename;
+
+            // Vuelve a "Lista para enviar" y se limpia el sello de envío: el documento que el jefe
+            // vio ya no es el vigente, así que la primera revisión arranca de nuevo cuando el
+            // trabajador reenvíe. La decisión anterior (fecha, quién y la observación) se conserva:
+            // es el registro de qué se observó y con qué hay que contrastar lo corregido.
+            rendicion.EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Borrador;
+            rendicion.EnviadaRevisionAt       = null;
+            rendicion.EnviadaRevisionPorId    = null;
+
+            // RendidoPorId / RendidoAt no se tocan: son de la rendición (que sigue siendo la misma)
+            // y RendidoAt es la clave de orden de las tres pantallas. Quién regeneró queda en el
+            // nombre del archivo nuevo, que lleva su userId.
+
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<List<int>> CrearRendicionYMarcarBulk(
             IEnumerable<int> ids,
             int userId,
@@ -611,14 +674,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             {
                 using var tx = await ctx.Database.BeginTransactionAsync();
 
+                // Código REN-AAAA-NNNN (RG-02). Mismo mecanismo que el SOL-AAAA-NNNN de las
+                // solicitudes: el candado por año se toma ANTES de leer los números usados, porque
+                // en READ COMMITTED dos rendiciones simultáneas leerían lo mismo, armarían el mismo
+                // código y la segunda moriría contra el índice único (no es un error transitorio,
+                // así que la execution strategy tampoco lo reintenta).
+                var anio = now.ToOffset(PeruOffset).Year;
+                await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({CorrelativoRendicionLockNamespace}, {anio})");
+
+                // El menor número libre del año, no el máximo + 1: las planillas anteriores al
+                // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
+                var usados = (await ctx.GaRendicion
+                        .Where(r => r.Anio == anio && r.Numero != null)
+                        .Select(r => r.Numero!.Value)
+                        .ToListAsync())
+                    .ToHashSet();
+                var numero = 1;
+                while (usados.Contains(numero)) numero++;
+
                 var rendicion = new GaRendicion
                 {
+                    Codigo         = $"REN-{anio}-{numero:D4}",
+                    Anio           = anio,
+                    Numero         = numero,
                     PdfUrl         = pdfUrl,
                     PdfItemId      = pdfItemId,
                     PdfFilename    = pdfFilename,
                     RendidoPorId   = userId,
                     RendidoAt      = now,
                     NumeroPlanilla = numeroPlanilla,
+                    // Nace "Lista para enviar": el PDF ya está, pero la primera revisión arranca
+                    // recién cuando el trabajador la envía desde Mis Rendiciones.
+                    EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Borrador,
                 };
                 ctx.GaRendicion.Add(rendicion);
                 await ctx.SaveChangesAsync();

@@ -24,5 +24,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         /// propias que cubre (la columna vive en la salida), porque el aviso es uno solo.
         /// </summary>
         Task MarcarRevisorNotificado(int rendicionId, int userId);
+
+        /// <summary>
+        /// Pasa la planilla a "En primera revisión" y estampa quién y cuándo la envió. El estado es
+        /// de la planilla, así que se escribe una sola fila.
+        /// </summary>
+        Task MarcarEnviadaAPrimeraRevision(int rendicionId, int userId);
+
+        /// <summary>
+        /// Datos del trabajador dueño de las salidas propias de la planilla, para los correos:
+        /// su ficha (para resolver el jefe), su nombre, su correo y el nombre de su área.
+        /// Null si el usuario no tiene ninguna salida en esa planilla.
+        /// </summary>
+        Task<RendicionSolicitanteDto?> GetSolicitante(int rendicionId, int userId);
+
+        /// <summary>Cuántos tramos (trayectos) suman las salidas propias de la planilla.</summary>
+        Task<int> ContarTramos(int rendicionId, int userId);
     }
 }

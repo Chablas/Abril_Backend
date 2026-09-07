@@ -40,8 +40,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public sealed class PlanillaFila
         {
             public int Id { get; init; }
+            /// <summary>Código REN-AAAA-NNNN (o "#id" en las anteriores a la columna).</summary>
+            public string Codigo { get; init; } = string.Empty;
             public string? NumeroPlanilla { get; init; }
             public DateTimeOffset RendidoAt { get; init; }
+
+            // ── Primera revisión (el eje que vive en la planilla) ──────────
+            public int EstadoPrimeraRevisionId { get; init; }
+            public string EstadoPrimeraRevision => EstadosSalida.PrimeraRevision.Nombre(EstadoPrimeraRevisionId);
+            public DateTimeOffset? EnviadaRevisionAt { get; init; }
+            public DateTimeOffset? PrimeraRevisionAt { get; init; }
+            public string? PrimeraRevisionObservacion { get; init; }
             public string PdfUrl { get; init; } = string.Empty;
             public string PdfFilename { get; init; } = string.Empty;
             public string? PdfFirmadoUrl { get; init; }
@@ -182,8 +191,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 result.Add(new PlanillaFila
                 {
                     Id                 = planilla.Id,
+                    Codigo             = PlanillaRendicionHelper.CodigoRendicion(planilla.Codigo, planilla.Id),
                     NumeroPlanilla     = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
                     RendidoAt          = planilla.RendidoAt,
+
+                    EstadoPrimeraRevisionId    = planilla.EstadoPrimeraRevisionId,
+                    EnviadaRevisionAt          = planilla.EnviadaRevisionAt,
+                    PrimeraRevisionAt          = planilla.PrimeraRevisionAt,
+                    PrimeraRevisionObservacion = planilla.PrimeraRevisionObservacion,
+
                     PdfUrl             = planilla.PdfUrl,
                     PdfFilename        = planilla.PdfFilename,
                     PdfFirmadoUrl      = planilla.PdfFirmadoUrl,

@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos
@@ -15,6 +15,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     public class RendicionListItemDto
     {
         public int Id { get; set; }
+
+        /// <summary>
+        /// Código REN-AAAA-NNNN de la rendición: es lo que el trabajador reconoce y lo que se
+        /// conserva cuando una rendición observada se vuelve a generar.
+        /// </summary>
+        public string Codigo { get; set; } = string.Empty;
 
         /// <summary>Correlativo impreso en la planilla ("TI: 000123"). Null en las que no lo tienen.</summary>
         public string? NumeroPlanilla { get; set; }
@@ -47,6 +53,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// <summary>Consolidado del S10 vigente de la planilla. Null si todavía no se adjuntó.</summary>
         public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
 
+        // ── Primera revisión ─────────────────────────────────────────────
+        // El paso que va ANTES del Consolidado del S10: el jefe revisa tramos, montos y capturas.
+        // Es de la PLANILLA, así que no se resume de las salidas como el reembolso.
+
+        /// <summary>"Lista para enviar" | "En primera revisión" | "Aprobada" | "Observada".</summary>
+        public string EstadoPrimeraRevision { get; set; } = EstadosSalida.PrimeraRevision.NombreBorrador;
+
+        /// <summary>Cuándo se envió a primera revisión. Null si todavía no se envió.</summary>
+        public DateTimeOffset? EnviadaRevisionAt { get; set; }
+
+        /// <summary>Cuándo decidió el jefe la primera revisión. Null si todavía no decidió.</summary>
+        public DateTimeOffset? PrimeraRevisionAt { get; set; }
+
+        /// <summary>Comentario del jefe al observar: es lo que hay que corregir.</summary>
+        public string? PrimeraRevisionObservacion { get; set; }
+
+        /// <summary>True si se puede enviar a primera revisión (está "Lista para enviar").</summary>
+        public bool PuedeEnviarPrimeraRevision { get; set; }
+
+        /// <summary>
+        /// True si está observada: el trabajador tiene que corregir las capturas y los montos de sus
+        /// salidas y volver a generar la planilla.
+        /// </summary>
+        public bool PuedeSubsanar { get; set; }
+
         // ── Reembolso ────────────────────────────────────────────────────
         /// <summary>
         /// Estado del reembolso de la planilla, resumido a partir de las salidas propias: gana el
@@ -65,8 +96,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public DateTimeOffset? RevisorNotificadoAt { get; set; }
 
         /// <summary>
-        /// True mientras el reembolso siga abierto (Pendiente o Rechazado): adjuntar o reemplazar
-        /// el consolidado después de aprobado no tendría a quién avisarle ni qué reabrir.
+        /// True cuando se puede adjuntar o reemplazar el Consolidado del S10: la primera revisión
+        /// tiene que estar APROBADA (RG-35) y el reembolso seguir abierto (Pendiente o Rechazado)
+        /// — después de aprobado no tendría a quién avisarle ni qué reabrir.
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 
@@ -97,6 +129,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
 
     public class RendicionFiltersDto
     {
+        /// <summary>
+        /// "Lista para enviar" | "En primera revisión" | "Aprobada" | "Observada" | null para todas.
+        /// </summary>
+        public string? EstadoPrimeraRevision { get; set; }
+
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos.</summary>
         public string? EstadoReembolso { get; set; }
 
@@ -116,22 +153,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     /// </summary>
     public class ResumenRendicionesDto
     {
-        /// <summary>Planillas sin el Consolidado del S10 adjunto: el paso que sigue a rendir.</summary>
+        /// <summary>Planillas rendidas que todavía no se enviaron a primera revisión.</summary>
+        public int PorEnviar { get; set; }
+        /// <summary>
+        /// Aprobadas en primera revisión y sin el Consolidado del S10 adjunto: el paso habilitado.
+        /// Las que no pasaron la primera revisión no cuentan — ahí el S10 ni se puede cargar.
+        /// </summary>
         public int SinConsolidado { get; set; }
         /// <summary>Con consolidado y reembolso abierto, pero sin avisarle todavía al revisor.</summary>
         public int PorAvisar { get; set; }
-        /// <summary>Con el reembolso rechazado: esperan que el trabajador subsane.</summary>
+        /// <summary>
+        /// Lo que espera al trabajador: la primera revisión observada (rehacer la rendición) o el
+        /// reembolso rechazado (volver a adjuntar el consolidado). Van juntas porque para él son la
+        /// misma cosa —algo suyo volvió con observaciones— y la fila dice cuál de las dos es.
+        /// </summary>
         public int Observadas { get; set; }
 
-        /// <summary>Cuenta las tres bandejas sobre las planillas recibidas (el conjunto ya filtrado).</summary>
+        /// <summary>Cuenta las cuatro bandejas sobre las planillas recibidas (el conjunto ya filtrado).</summary>
         public static ResumenRendicionesDto De(IEnumerable<RendicionListItemDto> rendiciones)
         {
             var lista = rendiciones as ICollection<RendicionListItemDto> ?? rendiciones.ToList();
             return new ResumenRendicionesDto
             {
-                SinConsolidado = lista.Count(x => x.ConsolidadoS10 == null),
+                PorEnviar      = lista.Count(x => x.PuedeEnviarPrimeraRevision),
+                SinConsolidado = lista.Count(x => x.ConsolidadoS10 == null
+                                              && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
                 PorAvisar      = lista.Count(x => x.PuedeNotificarRevisor && x.RevisorNotificadoAt == null),
-                Observadas     = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+                Observadas     = lista.Count(x => x.PuedeSubsanar
+                                              || x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
             };
         }
     }
@@ -155,5 +204,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     public class RendicionFilterDataDto
     {
         public List<PeriodoOptionDto> Periodos { get; set; } = new();
+    }
+
+    /// <summary>
+    /// El trabajador dueño de las salidas propias de una planilla, con lo que necesitan los correos
+    /// de la primera revisión. Se resuelve en una consulta: el correo no vuelve a la base.
+    /// </summary>
+    public class RendicionSolicitanteDto
+    {
+        /// <summary>Ficha del trabajador (<c>workers.id</c>) — con esto se resuelve su jefe.</summary>
+        public int WorkerId { get; set; }
+        public string Trabajador { get; set; } = "Trabajador";
+        /// <summary>Correo del usuario del trabajador. Null si su persona no tiene usuario.</summary>
+        public string? Email { get; set; }
+        /// <summary>Nombre del área a la que entra por su puesto. Null si no se resuelve.</summary>
+        public string? Area { get; set; }
     }
 }

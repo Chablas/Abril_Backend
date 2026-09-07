@@ -680,18 +680,64 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public async Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await (
-                from t in ctx.GaSolicitudTrayecto
-                join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
-                join w in ctx.Worker            on s.WorkerId    equals w.Id
-                join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
-                where t.Id == trayectoId
-                   && per.UserId == userId
-                   && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
-                   && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                select t
-            ).FirstOrDefaultAsync();
+            return await CapturasEditablesQuery(ctx, userId)
+                .Where(t => t.Id == trayectoId)
+                .FirstOrDefaultAsync();
         }
+
+        public async Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var trayectoIds = CapturasEditablesQuery(ctx, userId).Select(t => t.Id);
+            return await ctx.GaSolicitudCaptura
+                .Where(c => c.Id == capturaId && trayectoIds.Contains(c.TrayectoId))
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task ActualizarMontoCaptura(int capturaId, decimal monto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
+                ?? throw new AbrilException("La captura no existe.", 404);
+
+            captura.Monto = monto;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task EliminarCaptura(int capturaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
+                ?? throw new AbrilException("La captura no existe.", 404);
+
+            // Soft delete: la fila queda para auditoría y el filtro global de GaSolicitudCaptura la
+            // saca de todas las lecturas (listados, importe rendido y planilla). El archivo no se
+            // borra de SharePoint: era el sustento que se presentó.
+            captura.State = false;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Trayectos del usuario cuyas capturas y montos se pueden tocar. Son dos momentos:
+        ///
+        ///   • antes de rendir — la salida está aprobada y todavía sin planilla;
+        ///   • al subsanar — la salida ya está rendida, pero su planilla volvió OBSERVADA de la
+        ///     primera revisión, y corregir capturas y montos es exactamente lo que se le pidió.
+        ///
+        /// Fuera de esos dos casos la salida está congelada: una planilla ya aprobada (o firmada, o
+        /// pagada) no puede cambiar de monto por debajo del documento que la jefatura revisó.
+        /// </summary>
+        private static IQueryable<GaSolicitudTrayecto> CapturasEditablesQuery(AppDbContext ctx, int userId) =>
+            from t in ctx.GaSolicitudTrayecto
+            join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
+            join w in ctx.Worker            on s.WorkerId    equals w.Id
+            join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
+            where per.UserId == userId
+               && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+               && (s.EstadoRendicionId == EstadosSalida.Rendicion.NoRendido
+                   || ctx.GaRendicion.Any(r => r.Id == s.RendicionId
+                                            && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada))
+            select t;
 
         public async Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(
             int trayectoId,

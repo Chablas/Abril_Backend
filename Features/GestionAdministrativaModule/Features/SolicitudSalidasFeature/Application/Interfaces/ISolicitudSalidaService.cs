@@ -30,8 +30,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// </summary>
         Task Cancelar(int solicitudId, int userId);
 
-        /// <summary>Sube N (imagen, monto) a SharePoint, asociadas a un trayecto específico de una solicitud aprobada/no rendida del propio usuario.</summary>
+        /// <summary>
+        /// Sube N (imagen, monto) a SharePoint, asociadas a un trayecto de una solicitud propia
+        /// que se pueda editar: aprobada y sin rendir, o rendida en una planilla OBSERVADA en
+        /// primera revisión (ahí corregir capturas y montos es justamente lo que se pidió).
+        /// </summary>
         Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
+
+        /// <summary>
+        /// Corrige el monto de una captura propia. Mismo criterio de edición que la subida: solo
+        /// antes de rendir o al subsanar una rendición observada.
+        /// </summary>
+        Task ActualizarMontoCaptura(int capturaId, decimal monto, int userId);
+
+        /// <summary>
+        /// Da de baja una captura propia (soft delete). Deja de contar para el importe rendido y
+        /// para la planilla. Mismo criterio de edición que la subida.
+        /// </summary>
+        Task EliminarCaptura(int capturaId, int userId);
 
         /// <summary>
         /// Ids de las salidas PROPIAS del mes indicado (sin año/mes, el anterior; por fecha de

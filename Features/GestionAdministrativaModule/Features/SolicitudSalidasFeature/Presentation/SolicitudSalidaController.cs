@@ -232,6 +232,66 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
+        /// Corrige el monto de una captura propia. Se usa al subsanar una rendición observada en
+        /// primera revisión (y antes de rendir, si el trabajador se equivocó al cargarla).
+        /// </summary>
+        [HttpPatch("capturas/{capturaId:int}/monto")]
+        public async Task<IActionResult> ActualizarMontoCaptura(
+            int capturaId, [FromBody] ActualizarMontoCapturaDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (dto == null)
+                    return BadRequest(new { message = "Falta el monto." });
+
+                await _service.ActualizarMontoCaptura(capturaId, dto.Monto, userId.Value);
+                return Ok(new { message = "Monto actualizado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.ActualizarMontoCaptura");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Da de baja una captura propia. La fila se conserva para auditoría pero deja de contar
+        /// para el importe rendido y para la planilla.
+        /// </summary>
+        [HttpDelete("capturas/{capturaId:int}")]
+        public async Task<IActionResult> EliminarCaptura(int capturaId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.EliminarCaptura(capturaId, userId.Value);
+                return Ok(new { message = "Captura eliminada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.EliminarCaptura");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus capturas)
         /// y descarga la planilla de gasto por movilidad. Reutiliza la misma lógica de Gestión de Salidas,
         /// pero restringida a solicitudes del propio usuario (guard de propiedad).

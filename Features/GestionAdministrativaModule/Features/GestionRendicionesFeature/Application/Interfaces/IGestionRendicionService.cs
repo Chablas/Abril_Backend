@@ -19,8 +19,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         Task<GestionRendicionDetalleDto> GetDetalle(int rendicionId, GestionRendicionFiltersDto scope);
 
         /// <summary>
+        /// Aprueba u observa la PRIMERA revisión de las planillas seleccionadas (RG-30). Aprobar
+        /// habilita al trabajador a cargar el Consolidado del S10; observar le pide corregir las
+        /// capturas y los montos y volver a generar la rendición con el mismo código.
+        ///
+        /// La decisión es por planilla y total (RG-19): no se aprueban tramos por separado.
+        /// Avisa a los solicitantes por correo (best-effort).
+        /// </summary>
+        Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(
+            PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
+
+        /// <summary>
         /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una planilla. El revisor lo sube en
         /// nombre del trabajador cuando este no puede; el archivo cubre la planilla entera.
+        ///
+        /// Solo con la primera revisión APROBADA (RG-35): lo valida el servicio compartido.
         /// </summary>
         Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId);
 

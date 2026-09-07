@@ -22,6 +22,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         Task<List<int>> ResolverSolicitudIds(
             IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, GestionRendicionFiltersDto scope);
 
+        // ── Primera revisión (el paso anterior al Consolidado del S10) ──
+
+        /// <summary>
+        /// Aprueba u observa la PRIMERA revisión de las planillas indicadas. Solo mueve las que
+        /// están "En primera revisión" y de las que el usuario ve alguna salida; el resto se ignora
+        /// en silencio (la selección de la pantalla puede traer de todo). Devuelve las que sí se
+        /// movieron, para avisarles a sus solicitantes.
+        /// </summary>
+        /// <param name="aprobar">true = Aprobada; false = Observada (exige observación, RG-20).</param>
+        Task<List<int>> DecidirPrimeraRevision(
+            IEnumerable<int> rendicionIds, bool aprobar, string? observacion,
+            GestionRendicionFiltersDto scope, int reviewerUserId);
+
+        /// <summary>
+        /// Lo que necesitan los correos de la decisión de la primera revisión. Devuelve UNA entrada
+        /// por trabajador de la planilla: el aviso va al dueño de las salidas, y una planilla
+        /// generada por el revisor puede agrupar a varios. Vacío si no hay a quién avisarle.
+        /// </summary>
+        Task<List<PrimeraRevisionCorreoInfoDto>> GetPrimeraRevisionCorreoInfo(int rendicionId);
+
         // ── Reembolso (movido desde Gestión de Salidas: es un paso posterior al consolidado) ──
 
         /// <summary>

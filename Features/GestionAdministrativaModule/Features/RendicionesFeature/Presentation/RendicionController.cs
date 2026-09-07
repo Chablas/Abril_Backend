@@ -31,6 +31,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
 
         [HttpGet]
         public async Task<IActionResult> GetMisRendiciones(
+            [FromQuery] string? estadoPrimeraRevision,
             [FromQuery] string? estadoReembolso,
             [FromQuery] bool? conConsolidado,
             [FromQuery] int? periodoAnio = null,
@@ -43,6 +44,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
 
                 var filters = new RendicionFiltersDto
                 {
+                    EstadoPrimeraRevision = estadoPrimeraRevision,
                     EstadoReembolso = estadoReembolso,
                     ConConsolidado  = conConsolidado,
                     PeriodoAnio     = periodoAnio,
@@ -97,6 +99,60 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en RendicionController.GetDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Envía la planilla a la primera revisión de la jefatura (el "Enviar" de RG-30). Manda los
+        /// dos correos del paso: la confirmación al solicitante y el aviso al jefe con los botones
+        /// de aprobar y observar.
+        /// </summary>
+        [HttpPatch("{id:int}/enviar-revision")]
+        public async Task<IActionResult> EnviarAPrimeraRevision(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(new { message = await _service.EnviarAPrimeraRevision(id, userId.Value) });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en RendicionController.EnviarAPrimeraRevision");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vuelve a generar el PDF de una planilla observada en primera revisión y lo descarga. La
+        /// rendición conserva su código REN-AAAA-NNNN y su número de planilla, y queda lista para
+        /// reenviar a revisión.
+        /// </summary>
+        [HttpPatch("{id:int}/regenerar-planilla")]
+        public async Task<IActionResult> RegenerarPlanilla(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+
+                var pdf = await _service.RegenerarPlanilla(id, userId.Value);
+
+                Response.Headers.Append("Access-Control-Expose-Headers", "Content-Disposition");
+                return File(pdf, "application/pdf", $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf");
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en RendicionController.RegenerarPlanilla");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

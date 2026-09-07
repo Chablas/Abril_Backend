@@ -360,9 +360,64 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
-            //    Carpeta destino configurable desde BD (ga_rendicion_folder): se guarda el link tal
-            //    cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada
-            //    entorno apunta a su propia biblioteca. Mismo patrón que ga_captura_folder.
+            var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
+
+            // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
+            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
+                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
+
+            return (pdf, rendidasIds.Count);
+        }
+
+        public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
+        {
+            // El PDF cubre la planilla entera, así que se regenera con TODAS sus salidas: acotarlo
+            // a las del trabajador que subsana dejaría fuera a los demás grupos del documento.
+            var planilla = await _repo.GetRendicionParaRegenerar(rendicionId)
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            if (planilla.SolicitudIds.Count == 0)
+                throw new AbrilException(
+                    "La planilla no tiene salidas asociadas: no hay nada que volver a generar.", 409);
+
+            // Mismo bloqueo que al rendir: cada trayecto tiene que seguir cubierto. Al subsanar se
+            // pueden QUITAR capturas, así que sin esto una planilla podría volver a jefatura con un
+            // tramo sin sustento — justo lo contrario de lo que se pidió corregir.
+            var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(planilla.SolicitudIds);
+            if (sinCapturas.Count > 0)
+                throw new AbrilException(
+                    $"No se puede volver a generar: {sinCapturas.Count} salida(s) quedaron con trayectos sin " +
+                    "cubrir. Cada trayecto necesita al menos una captura con monto, salvo que el área del " +
+                    "trabajador tenga las capturas en opcional.", 400);
+
+            var datos = await _repo.GetRendicionData(planilla.SolicitudIds);
+
+            // El número de planilla se reusa: el correlativo del papel no se consume otra vez
+            // porque es el mismo documento corregido, no uno nuevo.
+            var numeroLabel = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla) ?? string.Empty;
+            var pdf         = GenerarPlanillaPdf(datos, numeroLabel);
+
+            var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
+
+            // El archivo anterior NO se borra de SharePoint: era el documento que el jefe observó y
+            // queda como respaldo. Lo que cambia es a cuál apunta la planilla.
+            await _repo.ReemplazarPdfRendicion(rendicionId, pdfUrl, pdfItemId, filename);
+
+            return pdf;
+        }
+
+        /// <summary>
+        /// Sube el PDF de una planilla a la carpeta configurada y devuelve dónde quedó. La carpeta
+        /// destino es configurable desde BD (<c>ga_rendicion_folder</c>): se guarda el link tal cual
+        /// y se resuelve a driveId/folderId vía Graph, así es editable sin redeploy y cada entorno
+        /// apunta a su propia biblioteca (mismo patrón que <c>ga_captura_folder</c>).
+        ///
+        /// Compartido por la rendición y por la regeneración de una planilla observada: las dos
+        /// tienen que caer en la misma biblioteca y fallar igual si no está configurada.
+        /// </summary>
+        private async Task<(string PdfUrl, string? PdfItemId, string Filename)> SubirPlanillaAsync(
+            byte[] pdf, int userId)
+        {
             var folderUrl = await _repo.GetRendicionFolderUrl();
             if (string.IsNullOrWhiteSpace(folderUrl))
                 throw new AbrilException(
@@ -374,8 +429,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
 
             var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmmss}_u{userId}.pdf";
-            string pdfUrl;
-            string? pdfItemId;
             try
             {
                 using var pdfStream = new MemoryStream(pdf);
@@ -387,8 +440,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (result?.WebUrl is null)
                     throw new AbrilException("No se pudo subir la planilla a SharePoint (respuesta vacía).", 502);
 
-                pdfUrl    = result.WebUrl;
-                pdfItemId = result.ItemId;
+                return (result.WebUrl, result.ItemId, filename);
             }
             catch (AbrilException) { throw; }
             catch (Exception ex)
@@ -398,12 +450,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "No se pudo guardar la planilla en SharePoint. La rendición fue cancelada — vuelve a intentarlo.",
                     502);
             }
-
-            // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
-            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
-                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
-
-            return (pdf, rendidasIds.Count);
         }
 
         public async Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId)

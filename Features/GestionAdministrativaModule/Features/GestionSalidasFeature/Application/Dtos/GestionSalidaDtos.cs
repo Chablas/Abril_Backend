@@ -422,4 +422,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>True si el importe proviene del catálogo ga_trayecto (incluso si vale 0).</summary>
         public bool EsCatalogo { get; set; }
     }
+
+    /// <summary>
+    /// Lo mínimo para volver a armar el PDF de una planilla que ya existe (la subsanación de una
+    /// rendición observada en primera revisión).
+    /// </summary>
+    public class RendicionParaRegenerarDto
+    {
+        public int RendicionId { get; set; }
+
+        /// <summary>Correlativo impreso en el PDF. Se reusa: es el mismo documento corregido.</summary>
+        public int? NumeroPlanilla { get; set; }
+
+        /// <summary>FK a <c>ga_estado_primera_revision</c> — el estado en el que está hoy.</summary>
+        public int EstadoPrimeraRevisionId { get; set; }
+
+        /// <summary>TODAS las salidas de la planilla, de todos sus trabajadores.</summary>
+        public List<int> SolicitudIds { get; set; } = new();
+    }
 }

@@ -8,6 +8,33 @@
         public const string Aprobada = "APROBADA";
         public const string Rechazada = "RECHAZADA";
 
+        // ── Primera revisión de la rendición ─────────────────────────────────
+        // Los cuatro correos del paso que va ANTES del Consolidado del S10: el trabajador envía la
+        // planilla, el jefe la aprueba u observa, y solo con la aprobación se habilita cargar el
+        // consolidado. Ver EstadosSalida.PrimeraRevision.
+
+        /// <summary>
+        /// Al jefe/revisor: hay una rendición esperando su primera revisión. Es el único de los
+        /// cuatro con dos botones (aprobar / observar), que lo llevan a la pantalla con la acción
+        /// ya abierta — observar exige un comentario, así que no se puede resolver desde el correo.
+        /// </summary>
+        public const string RendicionPrimeraRevision = "REN_PRIMERA_REVISION";
+
+        /// <summary>
+        /// Al solicitante: su rendición quedó registrada y se envió a primera revisión. Informativo
+        /// (no lleva botón de acción, solo el acceso a la pantalla).
+        /// </summary>
+        public const string RendicionEnviada = "REN_ENVIADA";
+
+        /// <summary>Al solicitante: el jefe aprobó la primera revisión y ya puede cargar el S10.</summary>
+        public const string RendicionPrimeraAprobada = "REN_PRIMERA_APROBADA";
+
+        /// <summary>
+        /// Al solicitante: el jefe observó la primera revisión, con el comentario de qué corregir
+        /// antes de volver a generar la rendición.
+        /// </summary>
+        public const string RendicionPrimeraObservada = "REN_PRIMERA_OBSERVADA";
+
         /// <summary>
         /// Aviso al jefe/revisor de que el trabajador ya adjuntó el Consolidado del S10 y su
         /// reembolso está esperando revisión. Lo dispara el trabajador desde el autoservicio.

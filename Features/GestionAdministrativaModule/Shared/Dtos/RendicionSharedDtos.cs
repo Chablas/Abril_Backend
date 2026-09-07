@@ -58,6 +58,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public string? DecididoPor { get; set; }
     }
 
+    /// <summary>
+    /// Lo que necesitan los correos de la decisión de la PRIMERA revisión, por trabajador de la
+    /// planilla. Sale de una sola consulta para no volver a la base por cada correo.
+    ///
+    /// Es por trabajador y no por planilla porque una planilla generada por el revisor desde
+    /// Gestión de Salidas puede agrupar a varias personas, y el aviso ("tu rendición fue aprobada")
+    /// tiene que llegarle a cada dueño con SUS números, no con el total del documento.
+    /// </summary>
+    public class PrimeraRevisionCorreoInfoDto
+    {
+        public int RendicionId { get; set; }
+        /// <summary>Código REN-AAAA-NNNN de la planilla (o "#id" en las anteriores al código).</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>Numero de planilla formateado ("TI: 000123"), o null si no tiene.</summary>
+        public string? NumeroPlanilla { get; set; }
+
+        public int WorkerId { get; set; }
+        public string Trabajador { get; set; } = string.Empty;
+        /// <summary>Correo del solicitante (app_user.email). Null si no tiene usuario.</summary>
+        public string? SolicitanteEmail { get; set; }
+        public string? Area { get; set; }
+
+        /// <summary>Periodo que cubren SUS salidas de la planilla ("Agosto 2026", o un rango).</summary>
+        public string? Periodo { get; set; }
+        /// <summary>Cuántas salidas suyas entran en la planilla.</summary>
+        public int SalidasCount { get; set; }
+        /// <summary>Cuántos tramos suman esas salidas — es lo que el revisor mira.</summary>
+        public int TramosCount { get; set; }
+        /// <summary>Suma de lo rendido en sus salidas, con la misma regla que imprime la planilla.</summary>
+        public decimal MontoTotal { get; set; }
+
+        /// <summary>Nombre de quien decidió la primera revisión (para mostrarlo en el correo).</summary>
+        public string? DecididoPor { get; set; }
+        /// <summary>Comentario con el que se observó. Null al aprobar.</summary>
+        public string? Observacion { get; set; }
+    }
+
     /// <summary>Resultado de una accion en bloque sobre el reembolso.</summary>
     public class ReembolsoBulkResultDto
     {

@@ -39,6 +39,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<int> GetNextNumeroPlanillaAsync();
 
         /// <summary>
+        /// Lo mínimo para volver a armar el PDF de una planilla existente: su número impreso y
+        /// TODAS las salidas que agrupa (de todos sus trabajadores, no solo del que subsana).
+        /// Null si la planilla no existe.
+        /// </summary>
+        Task<RendicionParaRegenerarDto?> GetRendicionParaRegenerar(int rendicionId);
+
+        /// <summary>
+        /// Apunta la planilla al PDF nuevo y la deja lista para reenviar a primera revisión
+        /// (estado "Lista para enviar", sin sello de envío). El código, el número de planilla y la
+        /// observación del jefe se conservan: la rendición es la misma y lo observado sigue siendo
+        /// lo que hay que poder contrastar.
+        /// </summary>
+        Task ReemplazarPdfRendicion(
+            int rendicionId, string pdfUrl, string? pdfItemId, string pdfFilename);
+
+        /// <summary>
         /// Link de la carpeta de SharePoint (tabla singleton <c>ga_rendicion_folder</c>) donde se
         /// suben los PDF de planillas de rendición. Null si no hay carpeta configurada.
         /// </summary>

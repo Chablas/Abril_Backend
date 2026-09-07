@@ -71,6 +71,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 ?? throw new AbrilException("La planilla de rendición no existe o no está en tu alcance.", 404);
         }
 
+        public async Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(
+            PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId)
+        {
+            if (accion.RendicionIds.Count == 0)
+                throw new AbrilException("Selecciona al menos una rendición.", 400);
+
+            await ApplyVisibilityAsync(scope);
+
+            var decididas = await _repo.DecidirPrimeraRevision(
+                accion.RendicionIds, aprobar, accion.Observacion, scope, reviewerUserId);
+
+            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
+            // porque un correo falle (mismo criterio que la decisión del reembolso).
+            foreach (var rendicionId in decididas)
+                await NotificarPrimeraRevisionAsync(rendicionId, aprobar);
+
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas = decididas.Count,
+                Message = aprobar
+                    ? $"{decididas.Count} rendición(es) aprobada(s) en primera revisión."
+                    : $"{decididas.Count} rendición(es) observada(s).",
+            };
+        }
+
         public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(int rendicionId, IFormFile file, int userId)
             // Sin guard de propiedad: el revisor lo sube en nombre del trabajador. El alcance ya lo
             // recorta la pantalla — solo ve las planillas que le competen.
@@ -227,6 +252,92 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
             filters.SeesAll             = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+        }
+
+        // ── Correos de la primera revisión ───────────────────────────────────
+
+        /// <summary>
+        /// Le avisa a cada dueño de las salidas de la planilla cómo quedó su primera revisión: si
+        /// se aprobó, que ya puede cargar el Consolidado del S10; si se observó, con qué
+        /// comentario. Respeta la configuración de correos (Gestión Administrativa →
+        /// Configuración → Correos): si está apagado o sin destinatarios, no se envía nada.
+        ///
+        /// Sale un correo POR TRABAJADOR y no uno por planilla: el documento puede agrupar a varias
+        /// personas y cada una tiene que ver sus propios números para poder contrastarlos.
+        /// </summary>
+        private async Task NotificarPrimeraRevisionAsync(int rendicionId, bool aprobada)
+        {
+            try
+            {
+                var destinatarios = await _repo.GetPrimeraRevisionCorreoInfo(rendicionId);
+                if (destinatarios.Count == 0) return;
+
+                var codigo = aprobada
+                    ? CorreoEventoCodigos.RendicionPrimeraAprobada
+                    : CorreoEventoCodigos.RendicionPrimeraObservada;
+
+                var layout = SalidaEmailLayout.Desde(_configuration);
+                // El botón lleva a Mis Rendiciones: lo que el trabajador tiene que hacer después de
+                // la decisión —cargar el Consolidado del S10, o corregir y volver a generar— vive ahí.
+                var url = SalidaEnlaces.Rendiciones(_configuration, rendicionId);
+
+                foreach (var info in destinatarios)
+                {
+                    if (string.IsNullOrWhiteSpace(info.SolicitanteEmail))
+                    {
+                        _logger.LogWarning(
+                            "Rendición {RendicionId}: {Trabajador} no tiene correo registrado, no se le avisó la primera revisión.",
+                            rendicionId, info.Trabajador);
+                        continue;
+                    }
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        codigo, new List<string> { info.SolicitanteEmail! });
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado o sin destinatarios.",
+                            codigo, rendicionId);
+                        return; // la configuración es del correo, no del destinatario: no hay caso de seguir
+                    }
+
+                    var datos = new RendicionRevisionCorreoDatos
+                    {
+                        RendicionId    = info.RendicionId,
+                        Codigo         = info.Codigo,
+                        Trabajador     = info.Trabajador,
+                        Area           = info.Area,
+                        Periodo        = info.Periodo,
+                        SalidasCount   = info.SalidasCount,
+                        TramosCount    = info.TramosCount,
+                        MontoTotal     = info.MontoTotal,
+                        NumeroPlanilla = info.NumeroPlanilla,
+                        DecididoPor    = info.DecididoPor,
+                        Observacion    = info.Observacion,
+                    };
+
+                    var body = aprobada
+                        ? RendicionRevisionEmailTemplates.Aprobada(layout, datos, url)
+                        : RendicionRevisionEmailTemplates.Observada(layout, datos, url);
+
+                    var subject = aprobada
+                        ? $"Rendición {info.Codigo} APROBADA en primera revisión"
+                        : $"Rendición {info.Codigo} OBSERVADA en primera revisión";
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: subject,
+                        body: body,
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando la decisión de la primera revisión de la rendición {RendicionId}", rendicionId);
+            }
         }
 
         // ── Correos de la decisión ───────────────────────────────────────────

@@ -41,6 +41,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         [HttpGet]
         public async Task<IActionResult> GetAll(
             [FromQuery] int? workerId,
+            [FromQuery] string? estadoPrimeraRevision,
             [FromQuery] string? estadoReembolso,
             [FromQuery] bool? conConsolidado,
             [FromQuery] List<int>? areaScopeIds = null,
@@ -50,7 +51,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             try
             {
                 var filters = Scope();
-                filters.WorkerId           = workerId;
+                filters.WorkerId              = workerId;
+                filters.EstadoPrimeraRevision = estadoPrimeraRevision;
                 filters.EstadoReembolso    = estadoReembolso;
                 filters.ConConsolidado     = conConsolidado;
                 filters.FilterAreaScopeIds = areaScopeIds;
@@ -124,6 +126,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionRendicionController.UploadConsolidadoS10");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Aprueba la primera revisión: habilita al trabajador a cargar el Consolidado del S10.
+        /// </summary>
+        [HttpPatch("primera-revision/aprobar")]
+        public Task<IActionResult> AprobarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>
+            DecidirPrimeraRevisionAsync(dto, aprobar: true, nameof(AprobarPrimeraRevision));
+
+        /// <summary>
+        /// Observa la primera revisión con un comentario obligatorio: el trabajador tiene que
+        /// corregir capturas y montos y volver a generar la rendición.
+        /// </summary>
+        [HttpPatch("primera-revision/observar")]
+        public Task<IActionResult> ObservarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>
+            DecidirPrimeraRevisionAsync(dto, aprobar: false, nameof(ObservarPrimeraRevision));
+
+        private async Task<IActionResult> DecidirPrimeraRevisionAsync(
+            PrimeraRevisionAccionDto dto, bool aprobar, string accion)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.DecidirPrimeraRevision(dto, aprobar, Scope(), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.{Accion}", accion);
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

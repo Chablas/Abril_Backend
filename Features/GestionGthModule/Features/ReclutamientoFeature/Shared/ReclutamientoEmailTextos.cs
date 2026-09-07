@@ -50,6 +50,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : $"<br /><span style='font-size:11px;line-height:16px;font-weight:400;color:{ReclutamientoEmailLayout.TextoBajada}'>{ReclutamientoEmailLayout.Esc(texto)}</span>";
 
         /// <summary>
+        /// Igual que <see cref="Subtexto"/> pero sin escapar: para una segunda línea que ya trae
+        /// HTML armado, como la lista de enlaces a los archivos de un candidato en la long list.
+        /// El caller es responsable de escapar lo que ponga adentro.
+        /// </summary>
+        public static string SubtextoHtml(string? html) =>
+            string.IsNullOrWhiteSpace(html)
+                ? ""
+                : $"<br /><span style='font-size:11px;line-height:16px;font-weight:400;color:{ReclutamientoEmailLayout.TextoBajada}'>{html}</span>";
+
+        /// <summary>
         /// Línea "Reemplaza a {trabajador}" bajo el tipo, dentro de la misma celda. Vacía en las
         /// vacantes nuevas y en los requerimientos anteriores a que se pidiera ese dato.
         /// </summary>

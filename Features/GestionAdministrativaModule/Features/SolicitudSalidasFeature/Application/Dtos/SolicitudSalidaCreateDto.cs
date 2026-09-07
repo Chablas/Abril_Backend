@@ -46,6 +46,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         ///   - Si no hay ni capturas ni catálogo → 0.
         /// </summary>
         public decimal MontoTotal { get; set; }
+        /// <summary>
+        /// Si el trayecto genera reembolso de movilidad: lo concede el motivo del catálogo
+        /// (Configuración → Motivos) y el par (origen, destino) puede anularlo, nunca al revés
+        /// (ver <c>ReembolsoTrayectoRule</c>). Null con motivo libre: no está en el catálogo, así
+        /// que no tiene el flag configurado y el detalle no muestra el pill.
+        /// </summary>
+        public bool? EsReembolsable { get; set; }
     }
 
     /// <summary>PDF de la planilla de rendición (SharePoint) asociado a la solicitud. Null si aún no se rindió.</summary>

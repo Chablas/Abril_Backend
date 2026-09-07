@@ -951,6 +951,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
+                    // Las dos mitades de la regla de reembolso: el motivo libre (sin fila en el
+                    // catálogo) no tiene el flag, y por eso se distingue del que lo tiene en false.
+                    EsMotivoDeCatalogo   = m != null,
+                    MotivoEsReembolsable = m != null && m.EsReembolsable,
                     // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
                     t.AdjuntoUrl,
                     t.AdjuntoFilename,
@@ -1021,8 +1025,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var esTI = string.Equals(head.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Excepciones que anulan el reembolso del motivo. Van aparte del catálogo de montos:
+            // ese solo aplica a TI y esta regla es para todos.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+
             foreach (var raw in trayectosRaw)
             {
+                raw.Dto.EsReembolsable = ReembolsoTrayectoRule.Resolver(
+                    raw.EsMotivoDeCatalogo, raw.MotivoEsReembolsable,
+                    raw.LugarOrigenId, raw.LugarDestinoId, excluidosReembolso);
+
                 var sumCapturas = raw.Dto.Capturas.Sum(c => c.Monto);
                 if (esTI && raw.LugarOrigenId.HasValue && raw.LugarDestinoId.HasValue &&
                     catalogoMap.TryGetValue((raw.LugarOrigenId.Value, raw.LugarDestinoId.Value), out var montoCat))

@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int? AreaScopeId { get; set; }
 
         /// <summary>
-        /// Puesto del propio solicitante, para el campo de solo lectura "Tu puesto". Sale de
+        /// Puesto del propio solicitante, para el campo de solo lectura "Puesto" de la cabecera. Sale de
         /// <c>workers.puesto_id → puesto.nombre</c> (el catálogo único), nunca de la columna
         /// congelada <c>workers.puesto</c>. Null cuando el usuario no tiene ficha de trabajador o
         /// su ficha todavía no tiene puesto asignado.
@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? PuestoNombre { get; set; }
 
         /// <summary>
-        /// Categoría del propio solicitante, para el campo de solo lectura "Tu categoría". No se
+        /// Categoría del propio solicitante, para el campo de solo lectura "Categoría". No se
         /// guarda en la ficha: se llega por <c>workers.puesto_id → puesto.categoria_id →
         /// categoria.nombre</c>, que es el único camino a la categoría de un trabajador. Null por
         /// lo mismo que <see cref="PuestoNombre"/> — sin puesto no hay categoría.

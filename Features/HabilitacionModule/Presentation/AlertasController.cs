@@ -62,11 +62,17 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return Unauthorized();
 
                 var result = await _retiroService.EjecutarAsync();
+                // El detalle completo (uno por trabajador) puede ser de cientos de líneas con el
+                // backlog histórico y hacía que la respuesta del cron externo se cortara por tamaño.
+                // El detalle real ya está en los correos enviados y en los logs del servidor — acá
+                // solo se manda una muestra corta para verificación rápida.
+                const int maxDetallesEnRespuesta = 20;
                 return Ok(new
                 {
                     retirados = result.TotalRetirados,
                     avisados = result.TotalAvisados,
-                    detalles = result.Detalles,
+                    detalles = result.Detalles.Take(maxDetallesEnRespuesta),
+                    detallesOmitidos = Math.Max(0, result.Detalles.Count - maxDetallesEnRespuesta),
                     soloAviso = result.SoloAviso
                 });
             }

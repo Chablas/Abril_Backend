@@ -15,6 +15,22 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 {
     public class RetiroAutomaticoService : IRetiroAutomaticoService
     {
+        /// <summary>Días desde el ingreso (WorkersPeriodoLaboral.FechaIngreso) durante los cuales un
+        /// trabajador nuevo queda exento del retiro automático, sin importar cuántos rechazos tenga
+        /// en el proceso normal de habilitación. 21 días = las 3 semanas que toma en el peor caso.</summary>
+        private const int DiasGraciaOnboarding = 21;
+
+        /// <summary>Mismo buzón de GTH que usa el resto de Habilitación (ver
+        /// HabTrabajadorRepository.EmailGth) — Oficina Central no tiene proyecto del que sacar
+        /// destinatarios, así que su aviso de retiro/vencimiento va acá.</summary>
+        private const string EmailGth = "gth@abril.pe";
+
+        /// <summary>Último día en que el retiro automático corre en "solo aviso" (manda los correos
+        /// pero no ejecuta ningún retiro real) — para darle tiempo a GTH/contratistas de regularizar
+        /// el backlog histórico antes del primer retiro real. A partir del día siguiente deja de
+        /// aplicar solo, sin tocar nada más. Pedido: 2 días desde el 2026-09-07.</summary>
+        private static readonly DateOnly SoloAvisoHasta = new(2026, 9, 8);
+
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly ILogger<RetiroAutomaticoService> _logger;
@@ -31,10 +47,23 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<RetiroAutomaticoResultDto> EjecutarAsync()
         {
-            var result = new RetiroAutomaticoResultDto();
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
             var hoyDt = hoy.ToDateTime(TimeOnly.MinValue);
-            var fechaLimite = hoy.AddDays(4);
+
+            // Interruptor de arranque en frío CON AUTO-VENCIMIENTO: mientras haya deuda histórica sin
+            // regularizar, este modo manda los mismos correos de aviso/vencimiento pero NO ejecuta
+            // ningún retiro real — da tiempo a que GTH/contratistas regularicen antes del primer
+            // retiro real de verdad. Fecha fija en el código (no en appsettings — así no depende de
+            // editar nada a mano en el servidor de producción, se despliega junto con el resto): a
+            // partir del día siguiente a SoloAvisoHasta, esta línea deja de aplicar sola y el proceso
+            // corre en modo normal sin tocar nada más.
+            var soloAviso = hoy <= SoloAvisoHasta;
+
+            var result = new RetiroAutomaticoResultDto { SoloAviso = soloAviso };
+            // Ventana ampliada a 7 días (antes 4) para dar un primer aviso más temprano. El correo
+            // sigue siendo uno solo por grupo — BuildEmailHtml separa "vence en ≤4 días" (urgente) de
+            // "vence en 5-7 días" (aviso temprano) dentro de esa misma tabla de "por vencer".
+            var fechaLimite = hoy.AddDays(7);
             var fechaLimiteDt = fechaLimite.ToDateTime(TimeOnly.MaxValue);
 
             using var ctx = _factory.CreateDbContext();
@@ -50,14 +79,33 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             // EMO realmente vencido llega igual acá por el ítem 4 (Certificado de Aptitud), que sí
             // se mantiene y comparte la misma vigencia. Sin esta exclusión, 45 trabajadores activos
             // con la lectura ya cargada quedaban en la lista de retiro por una fila desactualizada.
-            var habVencidos = await ctx.SsHabTrabajador
-                .Where(h => (h.Estado == "Vencido" || h.Estado == "Falta") &&
-                            h.Vigencia != null && h.Vigencia.Value < hoyDt &&
-                            h.ItemId != HabItemIds.LecturaEmo)
+            //
+            // "Rechazado" SÍ cuenta acá (antes no — caso Delgado Sánchez: EMO rechazado 3+ meses sin
+            // que nada lo detectara, porque el filtro solo miraba Vencido/Falta). Un documento
+            // rechazado y nunca vuelto a subir es exactamente el mismo incumplimiento que uno vencido.
+            // OJO: para "Rechazado" NO se puede usar Vigencia como fecha de referencia — ese campo
+            // queda con lo que sea que tenía antes de rechazarse (a veces una fecha sintética vieja,
+            // ver ResolverVigencia/ResolverVigenciaAlAprobar), no la fecha real del rechazo. Se usa
+            // UpdatedAt (cuándo se marcó Rechazado) en su lugar.
+            var habVencidosRaw = await ctx.SsHabTrabajador
+                .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
+                            (h.Estado == "Rechazado" ||
+                             ((h.Estado == "Vencido" || h.Estado == "Falta") && h.Vigencia != null && h.Vigencia.Value < hoyDt)))
                 .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
                       h => h.ItemId, i => i.Id,
-                      (h, i) => new { h.WorkerId, h.Vigencia, i.Nombre })
+                      (h, i) => new { h.WorkerId, h.Vigencia, h.UpdatedAt, h.Estado, i.Nombre })
                 .ToListAsync();
+
+            var habVencidos = habVencidosRaw
+                .Select(x => new
+                {
+                    x.WorkerId,
+                    x.Nombre,
+                    FechaReferencia = string.Equals(x.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase)
+                        ? DateOnly.FromDateTime(x.UpdatedAt ?? DateTime.UtcNow)
+                        : DateOnly.FromDateTime(x.Vigencia!.Value)
+                })
+                .ToList();
 
             if (habVencidos.Count > 0)
             {
@@ -67,7 +115,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         g => g.Key,
                         g => new
                         {
-                            VigenciaMasAntigua = DateOnly.FromDateTime(g.Min(x => x.Vigencia!.Value)),
+                            VigenciaMasAntigua = g.Min(x => x.FechaReferencia),
                             Nombres = g.Select(x => x.Nombre).Distinct().ToList()
                         });
 
@@ -76,6 +124,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 var workers = await ctx.Worker
                     .Where(w => workerIds.Contains(w.Id) && w.WorkersEstadoId == WorkersEstadoIds.Activo)
                     .Include(w => w.Person)
+                    .Include(w => w.PeriodosLaborales)
                     .ToListAsync();
 
                 if (workers.Count > 0)
@@ -107,6 +156,24 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         try
                         {
                             if (!workerEntregables.TryGetValue(worker.Id, out var entregablesInfo)) continue;
+
+                            // Ventana de gracia de onboarding: habilitar a un trabajador nuevo desde
+                            // cero toma entre 1 y 3 semanas (idas y vueltas normales de subir/rechazar/
+                            // resubir evidencia). Sin esto, apenas GTH da de alta a alguien y le
+                            // rechazan el primer intento de EMO, quedaría "en mora" desde el día 1 y
+                            // se retiraría a los pocos días — un trabajador que ni siquiera terminó su
+                            // proceso normal de habilitación. Se usa la fecha de ingreso del período
+                            // laboral vigente (mismo campo que ya usa el resto de la app); si no hay
+                            // ninguno registrado, no se aplica la gracia (caso legado/excepcional).
+                            var fechaIngreso = worker.PeriodosLaborales
+                                .Where(p => p.State)
+                                .OrderByDescending(p => p.FechaIngreso)
+                                .ThenByDescending(p => p.WorkersPeriodoLaboralId)
+                                .Select(p => (DateOnly?)p.FechaIngreso)
+                                .FirstOrDefault();
+
+                            if (fechaIngreso.HasValue && (hoy.DayNumber - fechaIngreso.Value.DayNumber) < DiasGraciaOnboarding)
+                                continue;
 
                             vinculacionDict.TryGetValue(worker.Id, out var vinc);
                             var empresaId = vinc?.EmpresaId;
@@ -143,6 +210,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
                     foreach (var w in workersARetirar)
                     {
+                        // Modo "solo aviso": se cuenta y se reporta en el correo/detalles como si
+                        // fuera a retirarse, pero no se toca la base de datos — ni WorkersEstadoId,
+                        // ni vinculaciones, ni el log de ss_retiro_automatico_log.
+                        if (soloAviso)
+                        {
+                            result.TotalRetirados++;
+                            result.Detalles.Add(
+                                $"[SIMULADO — no ejecutado] {w.Nombre} (ID:{w.WorkerId}) Empresa:{w.EmpresaId} Docs:{string.Join(", ", w.EntregablesVencidos)}");
+                            continue;
+                        }
+
                         try
                         {
                             using var writeCtx = _factory.CreateDbContext();
@@ -360,7 +438,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 await EnviarEmailsAsync(
                     workersARetirar, workersAviso,
                     porVencerTrab, porVencerEquipo, porVencerEmpresa,
-                    contributorsDict, hoy);
+                    contributorsDict, hoy, soloAviso);
 
             return result;
         }
@@ -372,7 +450,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             List<PorVencerEquipo> porVencerEquipo,
             List<PorVencerEmpresa> porVencerEmpresa,
             Dictionary<int, Contributor> contributorsDict,
-            DateOnly hoy)
+            DateOnly hoy,
+            bool soloAviso)
         {
             // Workers Casa → agrupa por proyecto; contratistas → por empresa
             // Equipos/Empresas por vencer → siempre por empresa (no tienen concepto Casa)
@@ -442,19 +521,42 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         if (grupo.ProyectoId.HasValue && proyectosDict.TryGetValue(grupo.ProyectoId.Value, out var pFound))
                             proyecto = pFound;
 
-                        etiqueta = proyecto != null
-                            ? (proyecto.Abbreviation ?? proyecto.Codigo ?? proyecto.ProjectDescription)
-                            : "Abril (sin proyecto)";
-
-                        emails = new List<string?> {
-                            proyecto?.EmailCoordSsoma,
-                            proyecto?.CoordAdmin?.EmailCorporativo,
-                            proyecto?.EmailRrhh
+                        if (proyecto != null)
+                        {
+                            etiqueta = proyecto.Abbreviation ?? proyecto.Codigo ?? proyecto.ProjectDescription;
+                            emails = new List<string?> {
+                                proyecto.EmailCoordSsoma,
+                                proyecto.CoordAdmin?.EmailCorporativo,
+                                proyecto.EmailRrhh
+                            }
+                            .Where(e => !string.IsNullOrWhiteSpace(e))
+                            .Select(e => e!.Trim())
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToList();
                         }
-                        .Where(e => !string.IsNullOrWhiteSpace(e))
-                        .Select(e => e!.Trim())
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
+                        else
+                        {
+                            // Personal Casa SIN proyecto (Oficina Central, Staff sin destacar):
+                            // no hay Project del que sacar EmailCoordSsoma/CoordAdmin/EmailRrhh —
+                            // antes esto dejaba la lista de correos vacía y el aviso se perdía en
+                            // silencio (solo un warning en logs que nadie ve). Va directo a GTH +
+                            // Jefe SSOMA de Abril, mismo patrón que ya usa el resto de la app
+                            // (EmailGth acá mismo; Jefe SSOMA por puesto, ver InspeccionRepository).
+                            etiqueta = "Abril — Oficina Central";
+                            using var gthCtx = _factory.CreateDbContext();
+                            var jefeSsomaEmail = await gthCtx.Worker.AsNoTracking()
+                                .Where(w => w.PuestoCatalogo != null
+                                         && w.PuestoCatalogo.Nombre.ToUpper() == "JEFE DE SEGURIDAD Y SALUD EN EL TRABAJO"
+                                         && w.Estado == "ACTIVO")
+                                .Select(w => w.EmailCorporativo)
+                                .FirstOrDefaultAsync();
+
+                            emails = new List<string?> { EmailGth, jefeSsomaEmail }
+                                .Where(e => !string.IsNullOrWhiteSpace(e))
+                                .Select(e => e!.Trim())
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                        }
                     }
                     else
                     {
@@ -494,9 +596,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         continue;
                     }
 
-                    var asunto = $"Retiro automático de trabajadores — {etiqueta} — {hoy:dd/MM/yyyy}";
+                    var asuntoPrefijo = soloAviso ? "[MODO AVISO — SIN EJECUTAR] " : "";
+                    var asunto = $"{asuntoPrefijo}Retiro automático de trabajadores — {etiqueta} — {hoy:dd/MM/yyyy}";
                     var body = BuildEmailHtml(etiqueta, retiradosGrupo, avisosGrupo,
-                                             trabProx, equipoProx, empresaProx, hoy);
+                                             trabProx, equipoProx, empresaProx, hoy, soloAviso);
 
                     try
                     {
@@ -522,31 +625,67 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             List<PorVencerTrabajador> trabProx,
             List<PorVencerEquipo> equipoProx,
             List<PorVencerEmpresa> empresaProx,
-            DateOnly hoy)
+            DateOnly hoy,
+            bool soloAviso)
         {
             var sb = new System.Text.StringBuilder();
             sb.Append("<html><body style=\"font-family:Arial,sans-serif;color:#333\">");
             sb.Append($"<h2>Retiro automático de trabajadores — {H(etiqueta)} — {hoy:dd/MM/yyyy}</h2>");
 
-            sb.Append("<h3 style=\"color:#c00\">RETIRADOS HOY</h3>");
+            if (soloAviso)
+                sb.Append("<p style=\"background:#fff3cd;padding:10px;border:1px solid #ffe08a\">" +
+                    "<strong>MODO AVISO:</strong> este correo es informativo. NINGÚN trabajador fue " +
+                    "retirado realmente — la lista de abajo muestra a quién se retiraría si el modo " +
+                    "estuviera desactivado, para que puedan regularizar antes.</p>");
+
+            sb.Append($"<h3 style=\"color:#c00\">{(soloAviso ? "SE RETIRARÍAN HOY (no ejecutado)" : "RETIRADOS HOY")}</h3>");
             sb.Append(retirados.Count == 0 ? "<p>Ninguno</p>" : BuildTablaWorkers(retirados));
 
             sb.Append("<h3 style=\"color:#e65c00\">SE RETIRARÁN MAÑANA (AVISO)</h3>");
             sb.Append(avisos.Count == 0 ? "<p>Ninguno</p>" : BuildTablaWorkers(avisos));
 
-            bool hayPorVencer = trabProx.Count > 0 || equipoProx.Count > 0 || empresaProx.Count > 0;
-            if (hayPorVencer)
+            // Un solo correo, dos niveles de urgencia dentro de "por vencer": ≤4 días (el aviso ya
+            // existente) y 5-7 días (el nuevo aviso temprano). No son dos correos separados — el
+            // mismo documento puede pasar del segundo bloque al primero de un día para otro conforme
+            // se acerca la fecha, eso es esperado.
+            bool EsUrgente(DateOnly vigencia) => (vigencia.DayNumber - hoy.DayNumber) <= 4;
+
+            var trabUrgente = trabProx.Where(t => EsUrgente(t.Vigencia)).ToList();
+            var trabTemprano = trabProx.Where(t => !EsUrgente(t.Vigencia)).ToList();
+            var equipoUrgente = equipoProx.Where(e => EsUrgente(e.Vigencia)).ToList();
+            var equipoTemprano = equipoProx.Where(e => !EsUrgente(e.Vigencia)).ToList();
+            var empresaUrgente = empresaProx.Where(e => EsUrgente(e.Vigencia)).ToList();
+            var empresaTemprano = empresaProx.Where(e => !EsUrgente(e.Vigencia)).ToList();
+
+            bool hayUrgente = trabUrgente.Count > 0 || equipoUrgente.Count > 0 || empresaUrgente.Count > 0;
+            bool hayTemprano = trabTemprano.Count > 0 || equipoTemprano.Count > 0 || empresaTemprano.Count > 0;
+
+            if (hayUrgente)
             {
-                sb.Append("<h3 style=\"color:#0066cc\">DOCUMENTOS POR VENCER EN 4 DÍAS</h3>");
+                sb.Append("<h3 style=\"color:#0066cc\">DOCUMENTOS POR VENCER EN 4 DÍAS O MENOS</h3>");
 
                 sb.Append("<h4>Trabajadores</h4>");
-                sb.Append(trabProx.Count == 0 ? "<p>Ninguno</p>" : BuildTablaTrabProx(trabProx));
+                sb.Append(trabUrgente.Count == 0 ? "<p>Ninguno</p>" : BuildTablaTrabProx(trabUrgente));
 
                 sb.Append("<h4>Equipos</h4>");
-                sb.Append(equipoProx.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEquipoProx(equipoProx));
+                sb.Append(equipoUrgente.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEquipoProx(equipoUrgente));
 
                 sb.Append("<h4>Empresa</h4>");
-                sb.Append(empresaProx.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEmpresaProx(empresaProx));
+                sb.Append(empresaUrgente.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEmpresaProx(empresaUrgente));
+            }
+
+            if (hayTemprano)
+            {
+                sb.Append("<h3 style=\"color:#7a8b99\">DOCUMENTOS POR VENCER ENTRE 5 Y 7 DÍAS (aviso temprano)</h3>");
+
+                sb.Append("<h4>Trabajadores</h4>");
+                sb.Append(trabTemprano.Count == 0 ? "<p>Ninguno</p>" : BuildTablaTrabProx(trabTemprano));
+
+                sb.Append("<h4>Equipos</h4>");
+                sb.Append(equipoTemprano.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEquipoProx(equipoTemprano));
+
+                sb.Append("<h4>Empresa</h4>");
+                sb.Append(empresaTemprano.Count == 0 ? "<p>Ninguno</p>" : BuildTablaEmpresaProx(empresaTemprano));
             }
 
             sb.Append("</body></html>");

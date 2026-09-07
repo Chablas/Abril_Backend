@@ -94,6 +94,32 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvPeriodoController.Activar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Reabre puntualmente un período cuya ventana ya cerró, moviendo su cierre a una fecha
+        /// futura y reactivándolo. No toca Mes/Anio, así que sigue evaluando el período correcto.
+        /// El siguiente cron (SincronizarVigenciaAsync) respeta esta extensión mientras no haya vencido.</summary>
+        [HttpPut("{id:int}/extender")]
+        public async Task<IActionResult> Extender(int id, [FromBody] EvPeriodoExtenderDto dto)
+        {
+            try
+            {
+                var p = await _repo.GetByIdAsync(id)
+                    ?? throw new AbrilException("Período no encontrado.", 404);
+
+                var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+                if (dto.NuevaFechaCierre < hoy)
+                    throw new AbrilException("La nueva fecha de cierre no puede ser en el pasado.", 400);
+                if (dto.NuevaFechaCierre <= p.FechaCierre)
+                    throw new AbrilException("La nueva fecha de cierre debe ser posterior a la fecha de cierre actual.", 400);
+
+                p.FechaCierre = dto.NuevaFechaCierre;
+                p.Activo = true;
+                await _repo.UpdateAsync(p);
+                return Ok(MapToDto(p));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvPeriodoController.Extender"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPut("{id:int}/desactivar")]
         public async Task<IActionResult> Desactivar(int id)
         {

@@ -1354,7 +1354,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await EnviarEmailSilenciosoAsync(to, subject, body);
         }
 
-        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto)
+        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1369,6 +1369,40 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
+            // Si el retiro más reciente fue AUTOMÁTICO (por documentación vencida/rechazada), no se
+            // puede reingresar hasta levantar esa observación: mientras siga habiendo un ítem sin
+            // aprobar, es el mismo incumplimiento por el que se retiró, solo que ahora reingresado.
+            // Bandeja ya deja aprobar el documento de un trabajador retirado (no lo filtra por
+            // estado), así que "subsanar" no requiere estar activo — lo que faltaba era este freno.
+            // Solo bloquea si el ÚLTIMO retiro fue automático: uno manual (renuncia, despido, etc.)
+            // no tiene "observación" que levantar. El override es exclusivo de Administrador/
+            // Coordinador SSOMA de Abril — nunca disponible para una sesión de contratista.
+            if (!esOverrideAutorizado && worker.WorkersEstadoId == WorkersEstadoIds.Retirado)
+            {
+                var ultimoRetiroFueAutomatico = await ctx.SsRetiroAutomaticoLog
+                    .Where(l => l.WorkerId == workerId)
+                    .OrderByDescending(l => l.EjecutadoEn)
+                    .Select(l => l.TipoRetiro)
+                    .FirstOrDefaultAsync() == "AUTOMATICO";
+
+                if (ultimoRetiroFueAutomatico)
+                {
+                    var pendientes = await ctx.SsHabTrabajador
+                        .Where(h => h.WorkerId == workerId && h.ItemId != HabItemIds.LecturaEmo
+                                 && (h.Estado == "Falta" || h.Estado == "Vencido" || h.Estado == "Rechazado"))
+                        .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
+                              h => h.ItemId, i => i.Id, (h, i) => i.Nombre)
+                        .ToListAsync();
+
+                    if (pendientes.Count > 0)
+                        throw new AbrilException(
+                            "No se puede reingresar: sigue pendiente de aprobación " +
+                            string.Join(", ", pendientes) +
+                            ". Suba y apruebe la evidencia en Bandeja antes de reingresar, o pida a un " +
+                            "Administrador/Coordinador SSOMA que lo autorice de forma excepcional.", 400);
+                }
+            }
 
             // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
             // workerId — es ciega a que exista otro worker_id distinto para la misma persona
@@ -2808,6 +2842,45 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             })
             .OrderByDescending(x => x.DiasPendiente)
             .ToList();
+        }
+
+        public async Task<List<RetiroAutomaticoRecienteDto>> GetRetirosAutomaticosRecientesAsync(int dias)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var desde = DateTimeOffset.UtcNow.AddDays(-dias);
+
+            var raw = await (
+                from log in ctx.SsRetiroAutomaticoLog
+                where log.TipoRetiro == "AUTOMATICO" && log.EjecutadoEn >= desde
+                join w in ctx.Worker on log.WorkerId equals w.Id into wj
+                from w in wj.DefaultIfEmpty()
+                select new
+                {
+                    log.WorkerId,
+                    log.EmpresaId,
+                    log.Motivo,
+                    log.EntregablesVencidos,
+                    log.EjecutadoEn,
+                    WorkerNombre = w != null && w.Person != null ? w.Person.FullName : null,
+                    Dni = w != null && w.Person != null ? w.Person.DocumentIdentityCode : null
+                }
+            ).OrderByDescending(x => x.EjecutadoEn).ToListAsync();
+
+            var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            return raw.Select(x => new RetiroAutomaticoRecienteDto
+            {
+                WorkerId = x.WorkerId,
+                WorkerNombre = x.WorkerNombre ?? "—",
+                Dni = x.Dni,
+                RazonSocial = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var en) ? en : "Abril",
+                Motivo = x.Motivo ?? "Documentación vencida",
+                EntregablesVencidos = x.EntregablesVencidos,
+                EjecutadoEn = x.EjecutadoEn
+            }).ToList();
         }
 
         public async Task<string?> GetResponsableItemTrabajadorAsync(int entregableId)

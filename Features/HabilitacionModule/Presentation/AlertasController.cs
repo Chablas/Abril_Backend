@@ -66,7 +66,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 {
                     retirados = result.TotalRetirados,
                     avisados = result.TotalAvisados,
-                    detalles = result.Detalles
+                    detalles = result.Detalles,
+                    soloAviso = result.SoloAviso
                 });
             }
             catch (Exception ex)

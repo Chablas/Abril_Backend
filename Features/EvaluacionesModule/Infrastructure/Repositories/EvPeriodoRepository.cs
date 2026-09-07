@@ -69,6 +69,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         public async Task UpdateAsync(EvPeriodo periodo)
         {
             using var ctx = _factory.CreateDbContext();
+            // El período llega de un GetByIdAsync anterior (otro DbContext): Npgsql devuelve
+            // CreatedAt con Kind=Unspecified, que la columna timestamptz rechaza al reescribirlo
+            // aquí. No se está cambiando el valor, solo aclarando que ya es UTC (así se guardó).
+            if (periodo.CreatedAt.Kind == DateTimeKind.Unspecified)
+                periodo.CreatedAt = DateTime.SpecifyKind(periodo.CreatedAt, DateTimeKind.Utc);
             ctx.EvPeriodos.Update(periodo);
             await ctx.SaveChangesAsync();
         }
@@ -83,28 +88,18 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             foreach (var v in vencidos) v.Activo = false;
             if (vencidos.Count > 0) await ctx.SaveChangesAsync();
 
-            // Determinar a qué ciclo (apertura día 25 -> cierre día 4 del mes siguiente)
-            // pertenece la fecha de hoy. Fuera de esa ventana no hay nada que gestionar.
-            int cicloMes, cicloAnio;
-            if (hoy.Day >= 25)
-            {
-                cicloMes = hoy.Month;
-                cicloAnio = hoy.Year;
-            }
-            else if (hoy.Day <= 4)
-            {
-                var mesAnterior = hoy.AddMonths(-1);
-                cicloMes = mesAnterior.Month;
-                cicloAnio = mesAnterior.Year;
-            }
-            else
-            {
-                return;
-            }
+            // Determinar a qué ciclo (apertura día 25 -> cierre último día del MISMO mes)
+            // pertenece la fecha de hoy. Fuera de esa ventana (día 1-24) no hay nada que
+            // gestionar: el período recién cerrado ya quedó desactivado arriba y el
+            // siguiente todavía no abre.
+            if (hoy.Day < 25) return;
+
+            int cicloMes = hoy.Month;
+            int cicloAnio = hoy.Year;
 
             var apertura = new DateOnly(cicloAnio, cicloMes, 25);
-            var finMesApertura = apertura.AddMonths(1);
-            var cierre = new DateOnly(finMesApertura.Year, finMesApertura.Month, 4);
+            var ultimoDiaCierre = DateTime.DaysInMonth(cicloAnio, cicloMes);
+            var cierre = new DateOnly(cicloAnio, cicloMes, ultimoDiaCierre);
 
             var vigente = await ctx.EvPeriodos.FirstOrDefaultAsync(p => p.Mes == cicloMes && p.Anio == cicloAnio);
             if (vigente == null)

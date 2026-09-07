@@ -17,15 +17,16 @@ public static class PresupuestoTotalHelper
         conn.ExecuteAsync(
             """
             UPDATE ss_presupuesto p
-            SET total_estimado =
+            SET total_estimado = ROUND(
                 COALESCE((
-                    SELECT SUM(COALESCE(d.cantidad_manual, d.cantidad_estimada) * COALESCE(d.precio_manual, d.precio_unitario))
+                    SELECT SUM(ROUND(COALESCE(d.cantidad_manual, d.cantidad_estimada) * COALESCE(d.precio_manual, d.precio_unitario), 2))
                     FROM ss_presupuesto_detalle d WHERE d.presupuesto_id = p.id
                 ), 0)
-              + COALESCE((SELECT SUM(ph.total) FROM ss_presupuesto_personal_hito ph WHERE ph.presupuesto_id = p.id), 0)
-              + COALESCE((SELECT SUM(vh.total) FROM ss_presupuesto_vigilancia_hito vh WHERE vh.presupuesto_id = p.id), 0)
-              + COALESCE((SELECT SUM(im.total) FROM ss_presupuesto_item_metrado im WHERE im.presupuesto_id = p.id), 0)
-              + COALESCE((SELECT SUM(ki.total) FROM ss_presupuesto_kit_item ki WHERE ki.presupuesto_id = p.id), 0)
+              + COALESCE((SELECT SUM(ROUND(ph.total, 2)) FROM ss_presupuesto_personal_hito ph WHERE ph.presupuesto_id = p.id), 0)
+              + COALESCE((SELECT SUM(ROUND(vh.total, 2)) FROM ss_presupuesto_vigilancia_hito vh WHERE vh.presupuesto_id = p.id), 0)
+              + COALESCE((SELECT SUM(ROUND(im.total, 2)) FROM ss_presupuesto_item_metrado im WHERE im.presupuesto_id = p.id), 0)
+              + COALESCE((SELECT SUM(ROUND(ki.total, 2)) FROM ss_presupuesto_kit_item ki WHERE ki.presupuesto_id = p.id), 0)
+            , 2)
             WHERE p.id = @presupuestoId
             """,
             new { presupuestoId }, tx);

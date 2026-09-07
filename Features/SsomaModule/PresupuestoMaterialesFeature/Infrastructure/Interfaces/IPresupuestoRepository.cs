@@ -6,13 +6,18 @@ public interface IPresupuestoRepository
 {
     Task<List<RatioRecomendadoDto>> ObtenerRatiosRecomendadosAsync();
     Task<int> SiguienteVersionAsync(int projectId);
+    Task<int?> ObtenerUltimoPresupuestoIdAsync(int projectId);
+    Task CopiarDatosDeVersionAnteriorAsync(int presupuestoOrigenId, int presupuestoDestinoId);
     Task<int> CrearPresupuestoAsync(int projectId, int version, decimal hh, decimal area,
         int trabajadores, decimal total, int? generadoPor, string? notas);
     Task InsertarLineasAsync(int presupuestoId, IEnumerable<PresupuestoLineaDto> lineas);
     Task ActualizarTotalAsync(int presupuestoId, decimal total);
+    Task RecalcularTotalAsync(int presupuestoId);
     Task<PresupuestoDetalleDto?> ObtenerDetalleAsync(int presupuestoId);
     Task<List<PresupuestoResumenDto>> ObtenerPorProyectoAsync(int projectId);
     Task ActualizarLineaAsync(int lineaId, decimal? cantidadManual, decimal? precioManual, string? notas);
     Task<string> AprobarAsync(int presupuestoId);
+    Task<string?> ObtenerEstadoAsync(int presupuestoId);
+    Task EliminarAsync(int presupuestoId);
     Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual);
 }

@@ -871,8 +871,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                   -- esos tres casos se convirtieron en categorías propias, asignadas a los
                   -- mismos trabajadores que la búsqueda alcanzaba.
                   OR pu.categoria_id = ANY(@categorias)
-                  OR w.jefatura  ILIKE '%gerente%general%'
-                  OR w.jefatura  ILIKE '%gerente%administr%'
+                  -- Bug real (visto en prod): había además "OR w.jefatura ILIKE
+                  -- '%gerente%general%'" / "'%gerente%administr%'" — w.jefatura es la
+                  -- gerencia BAJO LA QUE CAE el trabajador (a quién reporta), no su propio
+                  -- puesto, así que esas dos líneas colaban a todo el equipo de Administración
+                  -- y Finanzas (coordinador contable, tesorera, asistentes, etc.) en vez de
+                  -- solo al gerente. El gerente real ya entra por pu.categoria_id arriba.
               );
             """;
         await using var conn = Conn();

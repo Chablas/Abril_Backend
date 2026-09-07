@@ -152,7 +152,8 @@ public class ControlConsumoRepository : IControlConsumoRepository
               JOIN ss_material_item i ON i.id = l.item_id
               WHERE l.activo = true AND l.pertenece_ssoma = true
               GROUP BY i.familia_id, l.project_id
-            )
+            ),
+            combinado AS (
             SELECT
               pl.familia_id                                                    AS FamiliaId,
               f.nombre                                                         AS NombreFamilia,
@@ -202,11 +203,12 @@ public class ControlConsumoRepository : IControlConsumoRepository
                 SELECT 1 FROM ss_presupuesto_detalle pl2
                 WHERE pl2.presupuesto_id = @presupuestoId AND pl2.familia_id = kx.familia_id
               )
-
+            )
+            SELECT * FROM combinado
             ORDER BY
-              FueraDePresupuesto DESC,
-              CASE WHEN Semaforo = 'ALERTA' THEN 1 WHEN Semaforo = 'ADVERTENCIA' THEN 2 ELSE 3 END,
-              NombreFamilia
+              "FueraDePresupuesto" DESC,
+              CASE WHEN "Semaforo" = 'ALERTA' THEN 1 WHEN "Semaforo" = 'ADVERTENCIA' THEN 2 ELSE 3 END,
+              "NombreFamilia"
             """, new { presupuestoId, projectId = header.ProjectId })).ToList();
 
         header.TotalConsumido        = lineas.Sum(l => l.TotalConsumido);

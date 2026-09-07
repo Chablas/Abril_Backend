@@ -225,6 +225,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Datos del worker con filtro de búsqueda aplicado en la query
             var workersQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
 
+            // Sin empresa explícita, el llamador es Abril (staff en Trabajadores) abriendo
+            // "Programar Inducción" sin haber preseleccionado trabajadores primero — en ese caso
+            // solo debe ver personal de Casa; ver contratistas mezclados ahí fue el bug reportado.
+            // Cuando SÍ llega empresaId (preselección de trabajadores de una empresa puntual, o
+            // el propio contratista que siempre manda el suyo — ver ProgramarInduccion del portal
+            // contratista) ya quedó filtrado arriba, así que este filtro extra no aplica.
+            if (!empresaId.HasValue)
+                workersQuery = workersQuery.Where(w => w.ContrataCasa == "Casa");
+
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var s = search.Trim();
@@ -278,9 +287,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Empresa con la que el worker está asignado a ESTE proyecto (multi-proyecto Casa).
             // Sin esto, un worker asignado aquí con una empresa distinta a la de su vinculación
             // principal (en otro proyecto) mostraba la empresa equivocada.
-            var empresaPorProyectoMap = await ctx.WorkerProyecto
+            //
+            // Un worker puede tener más de una fila para el MISMO proyecto (doble asignación,
+            // p. ej. registrada por dos contratas o por error) — ToDictionaryAsync directo
+            // revienta con "An item with the same key has already been added" en ese caso
+            // (bug real, visto en Cedro 33: varios workers con 2 filas para proyecto_id=8).
+            // Se agrupa y se toma la más reciente, igual que ultimaVinculacion más arriba.
+            var empresaPorProyectoMap = (await ctx.WorkerProyecto
                 .Where(wp => wp.ProyectoId == proyectoId && workerIds.Contains(wp.WorkerId) && wp.EmpresaId.HasValue)
-                .ToDictionaryAsync(wp => wp.WorkerId, wp => wp.EmpresaId!.Value);
+                .ToListAsync())
+                .GroupBy(wp => wp.WorkerId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(wp => wp.Id).First().EmpresaId!.Value);
 
             return workerIds
                 .Where(workers.ContainsKey)

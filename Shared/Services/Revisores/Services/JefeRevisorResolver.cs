@@ -16,7 +16,10 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
     ///      revisores, en la gerencia de la que cuelga).
     ///   3) Fallback: el área de GTH (area_scope.email).
     ///
-    /// En los tres pasos rige que nadie puede ser su propio jefe: ver <see cref="EsLaMismaPersona"/>.
+    /// "Nadie puede ser su propio jefe" rige en el paso 2 (ver <see cref="EsLaMismaPersona"/>),
+    /// donde al revisor no lo elige nadie sino que se deriva del área. En el paso 1 NO rige: el
+    /// jefe personalizado se elige a mano en el formulario de trabajadores y ahí el propio
+    /// trabajador es una opción válida, así que si quedó guardado se respeta.
     ///
     /// Todo se resuelve por lotes: <see cref="ResolveManyAsync"/> hace un número FIJO de
     /// consultas sea para 1 o para 500 trabajadores, y <see cref="ResolveAsync"/> es un
@@ -85,10 +88,9 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
             foreach (var grupo in directos.GroupBy(d => d.SolicitanteId))
             {
-                // El propio trabajador no puede ser su revisor.
-                var personaSolicitante = PersonaDe(fichas, grupo.Key);
+                // Acá NO se descarta al propio trabajador: este jefe se eligió a mano en el
+                // formulario, que lo admite como opción (ver el comentario de la clase).
                 var elegido = grupo
-                    .Where(d => !EsLaMismaPersona(d.RevisorWorkerId, d.RevisorPersonId, grupo.Key, personaSolicitante))
                     .OrderBy(d => d.OrdenPrioridad)
                     .ThenBy(d => d.WorkersRevisoresId)
                     .FirstOrDefault();
@@ -189,7 +191,9 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         }
 
         /// <summary>
-        /// Regla transversal del servicio: nadie puede ser su propio jefe.
+        /// Nadie puede ser su propio jefe. Aplica al revisor que se deriva del área (paso 2) y a
+        /// la previsualización por área, no al jefe personalizado del paso 1: ese se elige a mano
+        /// y puede ser el propio trabajador.
         ///
         /// La comparación es por PERSONA cuando ambos lados la tienen, y por ficha
         /// (<c>workers.id</c>) como respaldo. Comparar solo por ficha dejaría pasar el caso de un

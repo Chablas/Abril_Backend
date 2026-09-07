@@ -61,14 +61,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 try
                 {
                     using var ctx = _factory.CreateDbContext();
+                    // El correo del usuario logueado va en la misma consulta que su ficha: es el
+                    // destinatario principal de la confirmación, igual que en el envío real.
                     var solicitante = await ctx.Worker
                         .Where(w => w.Person != null && w.Person.UserId == userId.Value)
+                        .Select(w => new
+                        {
+                            w.Id,
+                            w.Subarea,
+                            EmailUsuario = ctx.User
+                                .Where(u => u.UserId == userId.Value)
+                                .Select(u => u.Email)
+                                .FirstOrDefault(),
+                        })
                         .FirstOrDefaultAsync();
                     if (solicitante != null)
                     {
-                        // Correo del revisor (best-effort): workers_revisores → fallback GTH.
+                        // A quién le van a llegar los dos correos que salen al registrar la
+                        // solicitud (best-effort). Los dos se calculan con las MISMAS llamadas que
+                        // hace el envío real (SendNotificacionAprobadorAsync y
+                        // SendConfirmacionSolicitanteAsync) para que el formulario no anuncie un
+                        // correo a alguien que la configuración dejó fuera.
+
+                        // 1) Al revisor (botones de aprobar/rechazar). El revisor resuelto
+                        //    (workers_revisores → área → fallback GTH) es su destinatario
+                        //    principal, pero manda la configuración: puede estar apagado ahí y el
+                        //    aviso irse solo a los destinatarios configurados.
                         var revisor = await _revisorResolver.ResolveAsync(solicitante.Id);
-                        data.AprobadorEmail = revisor?.Email;
+                        var envioRevisor = await _correoResolver.ResolveEnvioAsync(
+                            CorreoEventoCodigos.Revisor,
+                            string.IsNullOrWhiteSpace(revisor?.Email)
+                                ? null
+                                : new List<string> { revisor!.Email });
+                        if (envioRevisor.Enviar)
+                        {
+                            data.CorreoRevisorPara  = envioRevisor.Para;
+                            data.CorreoRevisorCopia = envioRevisor.Copia;
+                        }
+
+                        // 2) Confirmación informativa al solicitante, con el CC de recepción
+                        //    (rol 52) de base. Sin correo del usuario el envío se corta antes de
+                        //    mirar la configuración, así que acá tampoco se anuncia nada.
+                        if (!string.IsNullOrWhiteSpace(solicitante.EmailUsuario))
+                        {
+                            var envioConfirmacion = await _correoResolver.ResolveEnvioAsync(
+                                CorreoEventoCodigos.Confirmacion,
+                                new List<string> { solicitante.EmailUsuario },
+                                await GetRecepcionRole52Async(ctx));
+                            if (envioConfirmacion.Enviar)
+                            {
+                                data.CorreoConfirmacionPara  = envioConfirmacion.Para;
+                                data.CorreoConfirmacionCopia = envioConfirmacion.Copia;
+                            }
+                        }
 
                         // Si el trabajador es TI, exponer el catálogo de trayectos para que el
                         // frontend muestre el monto automático al seleccionar origen+destino.
@@ -89,7 +134,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "No se pudo resolver el aprobador/catálogo para userId {UserId}", userId);
+                    _logger.LogWarning(ex, "No se pudieron resolver los destinatarios del aviso/catálogo para userId {UserId}", userId);
                 }
             }
 

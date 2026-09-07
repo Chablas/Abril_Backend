@@ -82,8 +82,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public bool EsHoraEstimada { get; set; }
         /// <summary>
         /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
-        /// es propia (worker del propio usuario) y el usuario no es Gerente — nadie aprueba sus
-        /// propias salidas salvo los gerentes. Solo afecta Aprobar/Rechazar, no la rendición.
+        /// es propia (worker del propio usuario) y él no es su propio revisor — nadie aprueba sus
+        /// propias salidas salvo quien tenga el jefe personalizado apuntándose a sí mismo, que es
+        /// además quien recibe el correo con los botones. Solo afecta Aprobar/Rechazar, no la
+        /// rendición.
         /// </summary>
         public bool PuedeDecidir { get; set; } = true;
 

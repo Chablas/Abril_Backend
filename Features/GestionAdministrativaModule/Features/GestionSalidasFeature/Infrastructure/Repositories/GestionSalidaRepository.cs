@@ -7,7 +7,6 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -292,26 +291,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             }
             var hoyPeru = MesAnteriorPeru.HoyPeru();
 
-            // 4.b. Worker(s) del usuario actual + si es Gerente — para marcar por fila si puede
-            //      aprobar/rechazar (nadie decide sus propias salidas, salvo los gerentes).
+            // 4.b. Worker(s) del usuario actual — para marcar por fila si puede aprobar/rechazar
+            //      (nadie decide sus propias salidas, salvo el que es su propio revisor). Puede
+            //      tener más de una ficha por reingreso, y cualquiera de ellas cuenta como suya.
             var misWorkerIds = new HashSet<int>();
-            var esGerente = false;
             if (filters.CurrentUserId.HasValue)
             {
                 var uidDec = filters.CurrentUserId.Value;
-                var misWorkers = await (
+                misWorkerIds = (await (
                     from w in ctx.Worker
                     join p in ctx.Person on w.PersonId equals p.PersonId
                     where p.UserId == uidDec
-                    // La categoría sale del puesto: workers ya no la guarda.
-                    select new
-                    {
-                        w.Id,
-                        CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-                    }
-                ).ToListAsync();
-                misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
-                esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
+                    select w.Id
+                ).ToListAsync()).ToHashSet();
             }
 
             // 4.c. Área del trabajador (nodo de puesto.area_destino_scope_id, el más bajo del árbol) y
@@ -407,7 +399,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     HoraRetornoReal  = s.HoraRetornoReal,
                     // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
                     EsHoraEstimada   = trList.Count > 0 && trList.All(t => t.EsHoraEstimada),
-                    PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
+                    // Sobre una salida propia solo decide quien es su propio revisor, o sea quien
+                    // tiene el jefe personalizado apuntándose a sí mismo: el revisor que se deriva
+                    // del área nunca puede ser el propio trabajador (lo descarta JefeRevisorResolver),
+                    // así que esto solo se abre con esa elección explícita. Mismo criterio que
+                    // re-valida EnsurePuedeDecidirAsync al aprobar/rechazar.
+                    PuedeDecidir     = !misWorkerIds.Contains(s.WorkerId)
+                                       || (revisor?.WorkerId != null
+                                           && misWorkerIds.Contains(revisor.WorkerId.Value)),
                     EsPropia         = misWorkerIds.Contains(s.WorkerId),
 
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
@@ -508,27 +507,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>
         /// Regla de negocio: un usuario NO puede aprobar ni rechazar sus propias solicitudes de
-        /// salida. Única excepción: si el usuario es Gerente (<see cref="CategoriaIds.Gerente"/>),
-        /// sí puede decidir las suyas (los gerentes salen sin pedir permiso, pero se deja
-        /// habilitado por si acaso).
+        /// salida. Única excepción: que él mismo sea el revisor resuelto de esa salida, es decir
+        /// que tenga el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de Ingresos →
+        /// ficha del trabajador → "Jefe personalizado").
+        ///
+        /// La excepción no puede abrirse sin querer: el revisor que se deriva del área nunca es el
+        /// propio trabajador (lo descarta <c>JefeRevisorResolver</c> al subir por el árbol), así
+        /// que solo la abre esa elección explícita. Y como se pregunta al MISMO resolver que decide
+        /// a quién se le manda el correo con los botones de aprobar/rechazar, decide en la web
+        /// exactamente quien recibe ese correo.
+        ///
+        /// Ojo: la 1.ª revisión de la rendición y la decisión del reembolso
+        /// (<c>GestionRendicionRepository</c>) siguen con la regla anterior (nadie decide lo suyo
+        /// salvo Gerente); esto solo cubre aprobar/rechazar la salida.
         /// </summary>
-        private static async Task EnsurePuedeDecidirAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
+        private async Task EnsurePuedeDecidirAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
         {
-            var esPropia = await ctx.Worker.AnyAsync(w => w.Id == s.WorkerId &&
-                ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == reviewerUserId));
-            if (!esPropia) return;
-
-            // Un usuario puede tener más de una ficha de worker (reingreso): basta con que
-            // alguna sea Gerente. Mismo criterio que SalidaVisibilityResolver.
-            var esGerente = await (
+            // Fichas del usuario que decide: puede tener varias por reingreso y el jefe
+            // personalizado puede estar configurado en cualquiera de ellas.
+            var misWorkerIds = await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == reviewerUserId
-                select w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-            ).AnyAsync(id => id == CategoriaIds.Gerente);
+                select w.Id
+            ).ToListAsync();
 
-            if (!esGerente)
-                throw new AbrilException("No puedes aprobar ni rechazar tus propias solicitudes de salida.", 403);
+            if (!misWorkerIds.Contains(s.WorkerId)) return;
+
+            var revisor = await _jefeResolver.ResolveAsync(s.WorkerId);
+            if (revisor?.WorkerId != null && misWorkerIds.Contains(revisor.WorkerId.Value)) return;
+
+            throw new AbrilException("No puedes aprobar ni rechazar tus propias solicitudes de salida.", 403);
         }
 
         public async Task Aprobar(int id, int reviewerUserId)

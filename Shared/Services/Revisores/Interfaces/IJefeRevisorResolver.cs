@@ -6,7 +6,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     ///      trabajador en <c>workers_revisores</c>, por orden_prioridad ascendente, cuyo
     ///      worker tenga correo corporativo @abril.pe. Se asigna con el checkbox
     ///      "Jefe personalizado" del formulario de trabajadores (Gestión de Ingresos) y
-    ///      se sobrepone al revisor del área.
+    ///      se sobrepone al revisor del área. Puede ser el propio trabajador.
     ///   2) Los revisores del área del trabajador en <c>area_revisores</c>
     ///      (/configuracion/revisores-areas): se parte
     ///      de su nodo puesto.area_destino_scope_id y se sube por el árbol hasta el primer
@@ -14,13 +14,17 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     ///   3) Fallback: el área de GTH — nodo <c>area_scope</c> del área
     ///      "Gestión del Talento Humano" con <c>email</c> configurado.
     ///
-    /// En los tres pasos rige la misma regla: <b>nadie puede ser su propio jefe</b>. Un candidato
-    /// que es el propio trabajador se descarta y la búsqueda sigue — con el siguiente revisor del
-    /// mismo nodo si lo hay y, si no, subiendo al <c>area_scope</c> padre (normalmente la gerencia
-    /// de la que cuelga su área). Esto es lo normal en los jefes de área: el jefe de SSOMA es el
-    /// revisor de SSOMA, así que su propio jefe es el gerente del que depende esa área. La
-    /// comparación es por PERSONA, no por ficha: un reingreso deja varias filas en
-    /// <c>workers</c> para la misma persona y el revisor puede estar configurado en cualquiera.
+    /// <b>Nadie puede ser su propio jefe</b> rige en el paso 2, donde al revisor no lo elige
+    /// nadie sino que lo deriva el área: un candidato que es el propio trabajador se descarta y la
+    /// búsqueda sigue — con el siguiente revisor del mismo nodo si lo hay y, si no, subiendo al
+    /// <c>area_scope</c> padre (normalmente la gerencia de la que cuelga su área). Esto es lo
+    /// normal en los jefes de área: el jefe de SSOMA es el revisor de SSOMA, así que su propio
+    /// jefe es el gerente del que depende esa área. La comparación es por PERSONA, no por ficha:
+    /// un reingreso deja varias filas en <c>workers</c> para la misma persona y el revisor puede
+    /// estar configurado en cualquiera.
+    ///
+    /// En el paso 1 NO rige: el jefe personalizado se elige a mano en el formulario de
+    /// trabajadores, que ofrece al propio trabajador como opción, y esa elección se respeta.
     ///
     /// Servicio compartido: es la ÚNICA fuente de "quién es el jefe de este trabajador".
     /// Lo usan Gestión Administrativa (a quién se le manda a aprobar una solicitud de

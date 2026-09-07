@@ -5,8 +5,29 @@
         public List<MotivoSalidaDto> Motivos { get; set; } = new();
         public List<LugarSalidaDto> Lugares { get; set; } = new();
 
-        /// <summary>Email de la jefatura que recibirá el email de aprobación. Null si no se pudo resolver.</summary>
-        public string? AprobadorEmail { get; set; }
+        /// <summary>
+        /// Correos que de verdad van a recibir el aviso de la solicitud (el que lleva los botones
+        /// de aprobar/rechazar), ya aplicada la configuración de Configuración → Correos →
+        /// Revisor: el interruptor del correo, el del revisor resuelto y los destinatarios
+        /// agregados a mano. Sale del mismo cálculo que hace el envío, así que el formulario no
+        /// promete un correo a alguien que no lo va a recibir — el revisor puede estar apagado
+        /// ahí y el aviso irse solo a los configurados. Vacío = no se le envía a nadie.
+        /// </summary>
+        public List<string> CorreoRevisorPara { get; set; } = new();
+
+        /// <summary>Los que van en copia de ese mismo aviso. Puede quedar vacío.</summary>
+        public List<string> CorreoRevisorCopia { get; set; } = new();
+
+        /// <summary>
+        /// Lo mismo para el OTRO correo que sale al registrar la solicitud: la confirmación
+        /// informativa (sin botones), configurable en Configuración → Correos → Confirmación. Su
+        /// destinatario principal es el propio solicitante y lleva de base el CC de recepción
+        /// (rol 52), más los destinatarios agregados a mano. Vacío = no se envía a nadie.
+        /// </summary>
+        public List<string> CorreoConfirmacionPara { get; set; } = new();
+
+        /// <summary>Los que van en copia de la confirmación. Puede quedar vacío.</summary>
+        public List<string> CorreoConfirmacionCopia { get; set; } = new();
 
         /// <summary>True si el trabajador pertenece a "Tecnología de la Información". Habilita autocompleta de monto desde el catálogo.</summary>
         public bool EsTI { get; set; }

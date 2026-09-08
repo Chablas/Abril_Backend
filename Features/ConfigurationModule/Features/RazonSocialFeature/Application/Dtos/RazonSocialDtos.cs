@@ -22,10 +22,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
         public string? BancoNombre { get; set; }
 
         /// <summary>
-        /// Trabajadores que hoy están en Abril bajo esta razón social. No es el histórico: deja
-        /// fuera a los retirados y a las fichas de pre-ingreso (<c>workers_estado.esta_adentro</c>).
-        /// Es solo el conteo — quiénes son se piden aparte, ver
-        /// <see cref="RazonSocialTrabajadorDto"/>.
+        /// Trabajadores que hoy están en Abril bajo esta razón social y que le consumen cupo del
+        /// tope de 20 que aplica Reclutamiento: es el mismo número, a propósito. No es el histórico
+        /// ni la planilla completa — quedan fuera los retirados y las fichas de pre-ingreso
+        /// (<c>workers_estado.esta_adentro</c>), el personal de Obra y los practicantes. Es solo el
+        /// conteo; quiénes son se piden aparte, ver <see cref="RazonSocialTrabajadorDto"/>.
         /// </summary>
         public int CantidadTrabajadores { get; set; }
     }

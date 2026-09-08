@@ -42,7 +42,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
 
         Task<List<DescansoSeguimientoDto>> GetSeguimientosPorCaso(int casoId, bool puedeVerDetalleClinico);
         Task<int> CreateSeguimiento(int casoId, DescansoSeguimientoCreateDto dto, int registradoPorId, string? rolUsuario);
-        Task Delete(int id);
 
         Task<List<SeguimientoTipoDto>> GetSeguimientoTipos();
         Task<List<Cie10Dto>> BuscarCie10(string? search, int limite);

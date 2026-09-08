@@ -1099,6 +1099,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (esCambioPuesto)
                 worker.PuestoId = dto.PuestoId;
 
+            // La razón social vigente se replica en la ficha, no solo en la vinculación nueva. Es
+            // redundante y es a propósito: `workers.contributor_id` lo siguen leyendo ocho archivos
+            // (EMO, Salidas, Adjudicaciones…) y hasta el 2026-09-08 el cambio de obra no lo tocaba
+            // — por eso en prod había 15 fichas contando en la empresa equivocada. Deuda temporal:
+            // cuando esos lectores pasen a la vinculación, esta línea se va con la columna.
+            worker.ContributorId = dto.NuevaEmpresaId ?? currentEmpresaId;
+
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
@@ -1546,6 +1553,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 vinculActual.UpdatedAt = now;
             }
 
+            // Misma réplica que en el cambio de obra: la ficha y la vinculación tienen que decir la
+            // misma razón social mientras `workers.contributor_id` siga teniendo lectores.
+            worker.ContributorId = dto.NuevaEmpresaId ?? currentEmpresaId;
+
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
@@ -1784,6 +1795,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = fechaReingreso,
                     CreatedAt   = DateTimeOffset.UtcNow,
                 });
+                // La vinculación reparada también manda sobre la ficha: si no, la reparación
+                // arreglaría la mitad del problema y dejaría las dos fuentes discrepando.
+                if (ultimaCerrada?.EmpresaId != null)
+                    worker.ContributorId = ultimaCerrada.EmpresaId;
                 await ctx.SaveChangesAsync();
                 _logger.LogWarning(
                     "[ReingresoAsync] Safety check activado: worker {WorkerId} quedó sin vinculación activa — reparada (empresa={Empresa}, proyecto={Proyecto}).",
@@ -2751,6 +2766,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .GroupBy(v => v.WorkerId)
                 .ToDictionary(g => g.Key, g => g.First());
 
+            // 4. Las fichas de esos mismos workers, en un solo roundtrip: la reparación tiene que
+            // dejar las dos fuentes de razón social diciendo lo mismo (ver el comentario de
+            // CambiarObraAsync), o arreglaría la vinculación y dejaría la ficha discrepando.
+            var fichas = await ctx.Worker
+                .Where(w => sinVincActiva.Contains(w.Id))
+                .ToDictionaryAsync(w => w.Id);
+
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
             var reparados = new List<WorkerReparacionVinculacionDto>();
@@ -2767,6 +2789,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = hoy,
                     CreatedAt   = now,
                 });
+                if (ultima?.EmpresaId != null && fichas.TryGetValue(workerId, out var ficha))
+                {
+                    ficha.ContributorId = ultima.EmpresaId;
+                    ficha.UpdatedAt     = now;
+                }
                 reparados.Add(new WorkerReparacionVinculacionDto
                 {
                     WorkerId   = workerId,

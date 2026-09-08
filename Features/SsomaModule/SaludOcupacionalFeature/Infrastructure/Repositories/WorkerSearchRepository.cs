@@ -378,6 +378,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
                 PuestoId = dto.PuestoId,
+                // La razón social se guarda también en la ficha, no solo en la vinculación de más
+                // abajo. Es redundante y es a propósito: `workers.contributor_id` lo siguen leyendo
+                // ocho archivos (EMO, Salidas, Adjudicaciones…) y hasta el 2026-09-08 el alta era
+                // justo lo que no lo escribía — de ahí que 16 fichas de prod tuvieran la columna en
+                // null con la vinculación bien puesta. Deuda temporal: cuando esos lectores pasen a
+                // la vinculación, esta línea se va con la columna.
+                ContributorId = dto.EmpresaId,
                 Area = areaResuelta.Area,
                 Subarea = areaResuelta.Subarea,
                 ContrataCasa = dto.ContrataCasa,

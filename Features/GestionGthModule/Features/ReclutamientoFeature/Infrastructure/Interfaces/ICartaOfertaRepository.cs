@@ -82,6 +82,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Aprueba la carta firmada y cierra el requerimiento (CERRADO). Es el único cierre del
         /// proceso: es lo que hace aparecer al seleccionado en Onboarding.
+        ///
+        /// Y es también el momento en que el seleccionado deja de ser finalista y pasa a ser
+        /// trabajador: la ficha de pre-ingreso pasa a ACTIVO y se le abren su primer periodo
+        /// laboral y su primera vinculación, que es lo que le hace consumir cupo de su razón
+        /// social y lo saca del aislamiento del pre-ingreso.
         /// </summary>
         Task<CartaOfertaAccionResultDto> Aprobar(int requerimientoId, int? userId);
     }

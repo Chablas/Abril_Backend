@@ -4,6 +4,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infr
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
@@ -740,10 +741,113 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 // Aprobar la carta ES cerrar el proceso: no hay ningún otro camino a CERRADO.
                 estado = await MoverFase(ctx, requerimientoId, EstadoReclutamiento.Cerrado, userId);
+
+                // …y también es lo que convierte al finalista en trabajador. Va antes del
+                // SaveChanges para que el estado de la ficha, su periodo laboral, su vinculación,
+                // la carta y la fase del requerimiento viajen en la misma transacción: media
+                // aprobación deja a alguien contando cupo sin vinculación, o al revés.
+                await ActivarFinalistaAsync(ctx, carta, requerimientoId, userId, now);
+
                 await ctx.SaveChangesAsync();
             }
 
             return await LeerResultado(ctx, requerimientoId, estado);
+        }
+
+        /// <summary>
+        /// Convierte la ficha de pre-ingreso del seleccionado en un trabajador de Abril:
+        /// FINALISTA_APROBADO → ACTIVO, con su primer periodo laboral y su primera vinculación.
+        ///
+        /// <para><b>Por qué acá.</b> Aprobar la carta oferta firmada es el único punto del sistema
+        /// en el que GTH declara que la persona entra. Hasta el 2026-09-08 ningún camino del backend
+        /// hacía la transición: las fichas se quedaban en pre-ingreso para siempre, sin vinculación
+        /// y sin periodo, o sea invisibles para Habilitación, SSOMA, Control de Acceso y el conteo
+        /// de cupos. En demo había 7 cartas aprobadas con el worker todavía en pre-ingreso.</para>
+        ///
+        /// <para><b>Y por qué recién acá.</b> Un finalista aprobado NO reserva cupo: la ficha de
+        /// pre-ingreso queda fuera del conteo por estado (ver
+        /// <c>RazonSocialCuposHelper.OcupanCupo</c>). El cupo se consume en este mismo instante, al
+        /// pasar a ACTIVO — que es lo que hace que la cuenta cuadre sin inventar un tercer estado
+        /// de "reservado".</para>
+        ///
+        /// <para><b>Qué NO hace.</b> No corta si la razón social llegó al tope. El candidato ya
+        /// firmó y el proceso pasó por dos controles de cupo antes (al asignarle la razón social al
+        /// requerimiento y al publicarlo); rebotar acá dejaría el requerimiento sin salida y a una
+        /// persona contratada fuera del sistema. Si el tope se pasó, la pantalla lo muestra en 0
+        /// cupos, que es la verdad.</para>
+        ///
+        /// <para>Si el seleccionado ya era trabajador de Abril (postulación interna) no hay ficha de
+        /// pre-ingreso que activar y esto no hace nada: su puesto, su vinculación y su periodo son
+        /// los de verdad y no se tocan desde acá.</para>
+        /// </summary>
+        private static async Task ActivarFinalistaAsync(
+            AppDbContext ctx, GthCartaOferta carta, int requerimientoId, int? userId, DateTimeOffset now)
+        {
+            // La ficha se busca por la persona que quedó registrada en la carta, que es la que
+            // firmó. Puede haber varias fichas de la misma persona (reingresos): solo interesa la
+            // de pre-ingreso, y la más reciente si hubiera más de una.
+            var ficha = await ctx.Worker
+                .Where(w => w.PersonId == carta.PersonId
+                         && w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado)
+                .OrderByDescending(w => w.Id)
+                .FirstOrDefaultAsync();
+            if (ficha == null) return;
+
+            var req = await ctx.GthRequerimiento
+                .Where(r => r.GthRequerimientoId == requerimientoId)
+                .Select(r => new { r.ProjectId, r.ContributorId })
+                .FirstOrDefaultAsync();
+
+            // Snapshot de la categoría en la vinculación, igual que el alta de trabajador y los
+            // cambios de obra: sale del puesto (puesto.categoria_id), no de la ficha.
+            var categoriaId = ficha.PuestoId == null
+                ? null
+                : await ctx.Puesto
+                    .Where(p => p.PuestoId == ficha.PuestoId.Value)
+                    .Select(p => (int?)p.CategoriaId)
+                    .FirstOrDefaultAsync();
+
+            // La fecha que pactó la carta. Si no la tiene, hoy en hora de Perú y no del servidor:
+            // en prod el Postgres corre en UTC y una aprobación de la tarde caería al día siguiente.
+            var fechaIngreso = carta.FechaIngreso
+                ?? DateOnly.FromDateTime(now.ToOffset(PeruOffset).DateTime);
+
+            // La razón social con la que entra es la de SU ficha —la que se le asignó al aprobarlo
+            // como finalista—; la del requerimiento es el respaldo por si la ficha llegó sin
+            // ninguna. Las dos se dejan iguales: la vinculación es la fuente del conteo de cupos y
+            // la ficha la que siguen leyendo los módulos que aún no migraron.
+            ficha.ContributorId ??= req?.ContributorId;
+            ficha.WorkersEstadoId = WorkersEstadoIds.Activo;
+            ficha.Estado          = WorkersEstadoIds.Codigo(WorkersEstadoIds.Activo);
+            ficha.UpdatedAt       = now;
+
+            // Guarda contra el índice único de periodo abierto: una ficha de pre-ingreso nunca
+            // tiene periodos, pero un 23505 acá tumbaría la aprobación entera.
+            var yaTienePeriodoAbierto = await ctx.WorkersPeriodoLaboral
+                .AnyAsync(pl => pl.WorkerId == ficha.Id && pl.State && pl.FechaRetiro == null);
+            if (!yaTienePeriodoAbierto)
+            {
+                ctx.WorkersPeriodoLaboral.Add(new WorkersPeriodoLaboral
+                {
+                    WorkerId        = ficha.Id,
+                    FechaIngreso    = fechaIngreso,
+                    CreatedDateTime = now,
+                    CreatedUserId   = userId,
+                });
+            }
+
+            // La vinculación es lo que lo saca del aislamiento del pre-ingreso: sin ella no aparece
+            // en Habilitación, ni en SSOMA, ni en Control de Acceso.
+            ctx.WorkerVinculacion.Add(new WorkerVinculacion
+            {
+                WorkerId        = ficha.Id,
+                EmpresaId       = ficha.ContributorId,
+                ProyectoId      = req?.ProjectId,
+                CategoriaId     = categoriaId,
+                FechaInicio     = fechaIngreso,
+                RegistradoPorId = userId,
+                CreatedAt       = now,
+            });
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────

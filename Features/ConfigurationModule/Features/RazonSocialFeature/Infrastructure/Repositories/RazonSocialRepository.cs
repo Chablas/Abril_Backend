@@ -4,7 +4,7 @@ using Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature.Inf
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
-using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature.Infrastructure.Repositories
@@ -36,10 +36,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
 
             // Un GROUP BY para toda la tabla, no un COUNT por fila: son cientos de empresas y el
             // conteo se muestra en cada una.
-            var porRazon = await Trabajadores(ctx)
-                .GroupBy(w => w.ContributorId!.Value)
-                .Select(g => new { ContributorId = g.Key, Total = g.Count() })
-                .ToDictionaryAsync(x => x.ContributorId, x => x.Total);
+            var porRazon = await RazonSocialCuposHelper.OcupadosPorRazonSocialAsync(ctx);
 
             foreach (var razon in razonesSociales)
                 razon.CantidadTrabajadores = porRazon.GetValueOrDefault(razon.Id);
@@ -106,13 +103,27 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
             return await Leer(ctx, entity.ContributorId);
         }
 
+        /// <summary>
+        /// Los trabajadores que le cuentan a una razón social. Es el MISMO conjunto que consume
+        /// cupo del tope de 20 en Reclutamiento, así que la definición se delega en
+        /// <see cref="RazonSocialCuposHelper"/> en vez de repetirse acá: si el chip de esta
+        /// pantalla dijera un número y el desplegable «Razón social activa» ofreciera cupos
+        /// calculados con otro, uno de los dos estaría mintiendo. Vale para las tres consultas de
+        /// esta pantalla —el chip de la bandeja, este listado y el chip que devuelve la edición—,
+        /// que viajan en peticiones distintas y con la condición duplicada bastaría tocar una para
+        /// que el modal mostrara diez filas bajo un chip que dice doce.
+        ///
+        /// En corto: los que están en Abril HOY (ACTIVO e INHABILITADO_SSOMA) de Staff, Oficina
+        /// Central o Personal Externo, sin practicantes, agrupados por la razón social de su
+        /// vinculación abierta. Quedan fuera los retirados, las fichas de pre-ingreso, el personal
+        /// de Obra y las fichas eliminadas.
+        /// </summary>
         public async Task<List<RazonSocialTrabajadorDto>> GetTrabajadores(int contributorId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await Trabajadores(ctx)
+            return await RazonSocialCuposHelper.FichasDe(ctx, contributorId)
                 .AsNoTracking()
-                .Where(w => w.ContributorId == contributorId)
                 .OrderBy(w => w.Person!.FullName).ThenBy(w => w.Id)
                 .Select(w => new RazonSocialTrabajadorDto
                 {
@@ -127,24 +138,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
                 })
                 .ToListAsync();
         }
-
-        /// <summary>
-        /// Los trabajadores que le cuentan a una razón social: los que están en Abril HOY
-        /// (<c>workers_estado.esta_adentro = true</c> — ACTIVO e INHABILITADO_SSOMA). Deja fuera a
-        /// los RETIRADOS y a las fichas de pre-ingreso, que todavía no son trabajadores de Abril.
-        ///
-        /// Definición única a propósito: el conteo de la tabla y la lista del detalle viajan en
-        /// peticiones distintas, y con la condición duplicada bastaría tocar una para que el modal
-        /// mostrara diez filas bajo un chip que dice doce.
-        ///
-        /// El estado se filtra por id y no con un join a <c>workers_estado</c>: ninguna de las dos
-        /// consultas necesita otra columna del catálogo (ver
-        /// <see cref="WorkersEstadoIds.EstanAdentro"/>). Las fichas eliminadas las saca el filtro
-        /// global de <c>AppDbContext</c>.
-        /// </summary>
-        private static IQueryable<Worker> Trabajadores(AppDbContext ctx) =>
-            ctx.Worker.Where(w => w.ContributorId != null
-                               && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId));
 
         /// <summary>Proyección única de la fila: la comparten la bandeja, el alta y la edición.</summary>
         private static IQueryable<RazonSocialDto> Query(AppDbContext ctx) =>
@@ -177,8 +170,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
             // En el alta siempre da 0, pero la edición tiene que devolverlo de verdad: la pantalla
             // reemplaza la fila entera con lo que responde el PUT, y sin esto el chip de la razón
             // social recién editada se iría a cero hasta la próxima recarga.
-            dto.CantidadTrabajadores = await Trabajadores(ctx)
-                .CountAsync(w => w.ContributorId == contributorId);
+            dto.CantidadTrabajadores = await RazonSocialCuposHelper.OcupadosAsync(ctx, contributorId);
 
             return dto;
         }

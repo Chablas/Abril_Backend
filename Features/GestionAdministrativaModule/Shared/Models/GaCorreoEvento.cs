@@ -20,6 +20,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("codigo")]
         public string Codigo { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Pantalla donde se ORIGINA el correo (<see cref="GaCorreoPantalla"/>), que es la que lo
+        /// administra en su botón «Configuración». No hay navegación declarada a propósito: sin
+        /// ella EF trata la columna como un escalar y no inventa una FK sombra.
+        /// </summary>
+        [Column("pantalla_id")]
+        public int PantallaId { get; set; }
+
         /// <summary>Nombre para mostrar en la pantalla de configuración.</summary>
         [Column("nombre")]
         public string Nombre { get; set; } = string.Empty;

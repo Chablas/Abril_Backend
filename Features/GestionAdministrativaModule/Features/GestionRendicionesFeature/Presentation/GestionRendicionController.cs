@@ -1,0 +1,207 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+
+namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presentation
+{
+    /// <summary>
+    /// "Gestión de Rendiciones": las planillas del alcance del revisor y todo lo que va desde el
+    /// Consolidado del S10 en adelante (adjuntarlo, decidir el reembolso, firmar). El pago es de
+    /// Tesorería y vive en Reembolsos.
+    /// </summary>
+    [ApiController]
+    [Route("api/v1/gestion-administrativa/gestion-rendiciones")]
+    [Authorize]
+    public class GestionRendicionController : ControllerBase
+    {
+        private readonly IGestionRendicionService _service;
+        private readonly ILogger<GestionRendicionController> _logger;
+
+        public GestionRendicionController(
+            IGestionRendicionService service, ILogger<GestionRendicionController> logger)
+        {
+            _service = service;
+            _logger  = logger;
+        }
+
+        private int? CurrentUserId =>
+            int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : (int?)null;
+
+        /// <summary>Alcance del usuario: lo mismo que arma Gestión de Salidas para cada petición.</summary>
+        private GestionRendicionFiltersDto Scope() => new()
+        {
+            CurrentUserId   = CurrentUserId,
+            SeesAllOverride = User.IsInRole(Roles.UsuarioRecepcion),
+        };
+
+        [HttpGet]
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? workerId,
+            [FromQuery] string? estadoPrimeraRevision,
+            [FromQuery] string? estadoReembolso,
+            [FromQuery] bool? conConsolidado,
+            [FromQuery] List<int>? areaScopeIds = null,
+            [FromQuery] int? periodoAnio = null,
+            [FromQuery] int? periodoMes = null)
+        {
+            try
+            {
+                var filters = Scope();
+                filters.WorkerId              = workerId;
+                filters.EstadoPrimeraRevision = estadoPrimeraRevision;
+                filters.EstadoReembolso    = estadoReembolso;
+                filters.ConConsolidado     = conConsolidado;
+                filters.FilterAreaScopeIds = areaScopeIds;
+                filters.PeriodoAnio        = periodoAnio;
+                filters.PeriodoMes         = periodoMes;
+
+                return Ok(await _service.GetAll(filters));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetAll");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("filter-data")]
+        public async Task<IActionResult> GetFilterData()
+        {
+            try
+            {
+                return Ok(await _service.GetFilterData(Scope()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetFilterData");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("{id:int}/detalle")]
+        public async Task<IActionResult> GetDetalle(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetDetalle(id, Scope()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("{id:int}/consolidado-s10")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(25 * 1024 * 1024)]
+        public async Task<IActionResult> UploadConsolidadoS10(
+            int id,
+            [FromForm] IFormFile file,
+            // El monto viaja como texto y se parsea acá con InvariantCulture, igual que los montos
+            // de las capturas: el binder de formularios usa la cultura del servidor y un "50.00"
+            // se leería distinto según dónde corra.
+            [FromForm] string montoTotal,
+            [FromForm] string numeroGuia)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (!decimal.TryParse(montoTotal, System.Globalization.NumberStyles.Number,
+                                      System.Globalization.CultureInfo.InvariantCulture, out var monto))
+                    return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
+
+                return Ok(await _service.UploadConsolidadoS10(id, file, monto, numeroGuia, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.UploadConsolidadoS10");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Aprueba la primera revisión: habilita al trabajador a cargar el Consolidado del S10.
+        /// </summary>
+        [HttpPatch("primera-revision/aprobar")]
+        public Task<IActionResult> AprobarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>
+            DecidirPrimeraRevisionAsync(dto, aprobar: true, nameof(AprobarPrimeraRevision));
+
+        /// <summary>
+        /// Observa la primera revisión con un comentario obligatorio: el trabajador tiene que
+        /// corregir capturas y montos y volver a generar la rendición.
+        /// </summary>
+        [HttpPatch("primera-revision/observar")]
+        public Task<IActionResult> ObservarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>
+            DecidirPrimeraRevisionAsync(dto, aprobar: false, nameof(ObservarPrimeraRevision));
+
+        private async Task<IActionResult> DecidirPrimeraRevisionAsync(
+            PrimeraRevisionAccionDto dto, bool aprobar, string accion)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.DecidirPrimeraRevision(dto, aprobar, Scope(), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.{Accion}", accion);
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("reembolso/aprobar")]
+        public Task<IActionResult> AprobarReembolso([FromBody] ReembolsoAccionDto dto) =>
+            DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso));
+
+        [HttpPatch("reembolso/rechazar")]
+        public Task<IActionResult> RechazarReembolso([FromBody] ReembolsoAccionDto dto) =>
+            DecidirAsync(dto, aprobar: false, nameof(RechazarReembolso));
+
+        private async Task<IActionResult> DecidirAsync(ReembolsoAccionDto dto, bool aprobar, string accion)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.{Accion}", accion);
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+    }
+}

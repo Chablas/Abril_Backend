@@ -3005,14 +3005,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     .AnyAsync(p => p.GthPrioridadId == dto.PrioridadId.Value && p.State && p.Active);
                 if (!ok) throw new AbrilException("La prioridad seleccionada no es válida.", 400);
             }
+            var razonSocialCambio = req.ContributorId != dto.ContributorId;
+
             if (dto.ContributorId.HasValue)
             {
                 var ok = await ctx.Contributor
                     .AnyAsync(c => c.ContributorId == dto.ContributorId.Value && c.State && c.Active && c.Operativo);
                 if (!ok) throw new AbrilException("La razón social seleccionada no es válida.", 400);
-            }
 
-            var razonSocialCambio = req.ContributorId != dto.ContributorId;
+                // En una razón social llena no entra nadie más. Se corta acá y no recién al
+                // publicar porque esta pantalla guarda sola con cada cambio: si no, la empresa sin
+                // cupo quedaría escrita en el requerimiento igual.
+                //
+                // Solo cuando cambia: una razón social asignada hace meses puede haberse llenado
+                // después, y eso no puede dejar el requerimiento congelado sin poder tocarle el
+                // responsable ni la prioridad. Ahí el corte llega al publicar
+                // (<see cref="ReplacePublicaciones"/>), que es cuando importa.
+                if (razonSocialCambio
+                    && await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.ContributorId.Value) == 0)
+                {
+                    var nombre = await ctx.Contributor
+                        .Where(c => c.ContributorId == dto.ContributorId.Value)
+                        .Select(c => c.ContributorName)
+                        .FirstOrDefaultAsync();
+                    throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
+                }
+            }
 
             req.GthResponsableProcesoId = dto.ResponsableId;
             req.GthTipoProcesoId        = dto.TipoProcesoId;
@@ -3061,6 +3079,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (req.ContributorId == null)           faltantes.Add("la razón social activa");
             if (faltantes.Count > 0)
                 throw new AbrilException($"Antes de publicar debes seleccionar {string.Join(", ", faltantes)}.", 400);
+
+            // Y con cupo: la razón social pudo llenarse entre que se le asignó al requerimiento y
+            // este momento, así que se vuelve a contar acá. Publicar es lo que arranca el proceso
+            // que termina metiendo a alguien en esa empresa; dejarlo avanzar sería descubrir el
+            // tope al final, con el candidato ya elegido.
+            var cupos = await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, req.ContributorId!.Value);
+            if (cupos == 0)
+            {
+                var nombre = await ctx.Contributor
+                    .Where(c => c.ContributorId == req.ContributorId!.Value)
+                    .Select(c => c.ContributorName)
+                    .FirstOrDefaultAsync();
+                throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
+            }
 
             var deseados = canalIds.Distinct().ToList();
             if (deseados.Count > 0)

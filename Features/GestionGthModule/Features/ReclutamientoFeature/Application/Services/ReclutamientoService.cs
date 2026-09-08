@@ -31,8 +31,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IConfiguration           _configuration;
         private readonly ILogger<ReclutamientoService> _logger;
 
-        private const long MaxSustentoBytes = 10 * 1024 * 1024; // 10 MB
-        private static readonly string[] AllowedSustentoExt = { ".pdf", ".doc", ".docx", ".xls", ".xlsx" };
+        private const long MaxSustentoBytes = 20 * 1024 * 1024; // 20 MB
+
+        /// <summary>
+        /// Formatos aceptados en el sustento. Incluye imágenes porque lo que motiva la vacante
+        /// suele llegar como foto o captura (un cuadro de carga, un documento escaneado) y no
+        /// siempre como archivo de oficina. El archivo no se interpreta: va a SharePoint y los
+        /// correos llevan su enlace, así que el formato solo tiene que poder abrirse.
+        /// </summary>
+        private static readonly string[] AllowedSustentoExt =
+            { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".webp" };
 
         /// <summary>
         /// Tope de la justificación general. La columna <c>gth_solicitud.justificacion</c> es text
@@ -807,11 +815,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             // Guardar el informe ES enviar al finalista, así que acá sale el aviso al solicitante
-            // (tipo FINALISTA_ENVIO), con los archivos adjuntos. Best-effort: el finalista ya quedó
-            // enviado en la base y el solicitante lo ve igual en su panel, así que un fallo del
-            // correo se informa en el mensaje en vez de tumbar la operación.
+            // (tipo FINALISTA_ENVIO), con los archivos enlazados desde SharePoint. Best-effort: el
+            // finalista ya quedó enviado en la base y el solicitante lo ve igual en su panel, así
+            // que un fallo del correo se informa en el mensaje en vez de tumbar la operación.
             var message = "Evaluación guardada.";
-            var envio   = await EnviarFinalistaAlSolicitanteAsync(guardada.Envio, archivos);
+            var envio   = await EnviarFinalistaAlSolicitanteAsync(guardada.Envio);
             if (envio != null) message += " " + envio;
 
             return new EvaluacionAccionResultDto
@@ -824,10 +832,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Valida los archivos del informe antes de tocar nada: formato, y el peso conjunto contra
-        /// lo que acepta el proveedor de correo con los adjuntos adentro (van adjuntos al aviso del
-        /// finalista, igual que los CVs en la long list). Se valida acá, antes de subir, para que
-        /// GTH vea qué archivo achicar en vez de un 502 al final del flujo.
+        /// Valida los archivos del informe antes de tocar nada: formato y peso. El tope es el mismo
+        /// que el de un CV de la long list (<see cref="MaxLongListFileBytes"/>), porque los dos
+        /// terminan en la misma carpeta de SharePoint y ninguno viaja ya adjunto al correo: el
+        /// aviso del finalista los enlaza. Se valida acá, antes de subir, para que GTH vea qué
+        /// archivo achicar en vez de un 502 al final del flujo.
         /// </summary>
         private static void ValidarArchivosEvaluacion(List<EvaluacionArchivoSubidaDto> archivos)
         {
@@ -843,13 +852,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         $"El archivo «{Path.GetFileName(archivo.FileName)}» tiene un formato no permitido. Solo " +
                         $"{string.Join(", ", AllowedEvaluacionExt.Select(e => e.TrimStart('.').ToUpperInvariant()))}.", 400);
 
+                if (archivo.Content.Length > MaxLongListFileBytes)
+                    throw new AbrilException(
+                        $"El archivo «{Path.GetFileName(archivo.FileName)}» pesa " +
+                        $"{FormatearMb(archivo.Content.Length)} y el máximo por archivo es " +
+                        $"{FormatearMb(MaxLongListFileBytes)}.", 400);
+
                 total += archivo.Content.Length;
             }
 
-            if (total > MaxLongListCorreoBytes)
+            if (total > MaxLongListTotalBytes)
                 throw new AbrilException(
-                    $"Los archivos del informe pesan {FormatearMb(total)} y el correo admite hasta " +
-                    $"{FormatearMb(MaxLongListCorreoBytes)}. Reduce o quita alguno antes de enviar al finalista.", 400);
+                    $"Los archivos del informe pesan {FormatearMb(total)} en total y el máximo es " +
+                    $"{FormatearMb(MaxLongListTotalBytes)}. Quita alguno antes de enviar al finalista.", 400);
         }
 
         /// <summary>
@@ -892,15 +907,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// destinatario principal es SIEMPRE el solicitante que registró la solicitud; la
         /// configuración solo aporta principales adicionales y copias.
         ///
-        /// Los archivos del informe viajan adjuntos: el solicitante decide leyéndolos, así que
-        /// tenerlos en el correo le evita entrar a la pantalla solo para abrirlos (igual quedan
-        /// enlazados ahí).
+        /// Los archivos del informe van ENLAZADOS a SharePoint en el cuerpo, no adjuntos: así el
+        /// peso del correo no depende de lo que pesen, y el enlace sobrevive al reenvío del correo
+        /// (un adjunto reenviado sí, pero el destinatario nuevo puede no tener permiso sobre la
+        /// carpeta y entonces le queda el botón a la pantalla).
         ///
         /// Devuelve la frase que se le agrega al mensaje de la pantalla, o null si no hay nada que
         /// contar. Nunca lanza: el finalista ya quedó enviado en la base.
         /// </summary>
-        private async Task<string?> EnviarFinalistaAlSolicitanteAsync(
-            FinalistaEnvioContextoDto ctx, List<EvaluacionArchivoSubidaDto>? archivos = null)
+        private async Task<string?> EnviarFinalistaAlSolicitanteAsync(FinalistaEnvioContextoDto ctx)
         {
             try
             {
@@ -916,22 +931,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     return "El solicitante no tiene un correo al que avisarle: revísalo en Configuración.";
                 }
 
-                var adjuntos = (archivos ?? new List<EvaluacionArchivoSubidaDto>())
-                    .Select(a => new EmailAttachment
-                    {
-                        FileName    = string.IsNullOrWhiteSpace(a.FileName) ? "informe" : Path.GetFileName(a.FileName),
-                        ContentType = string.IsNullOrWhiteSpace(a.ContentType) ? "application/octet-stream" : a.ContentType,
-                        Content     = a.Content,
-                    })
-                    .ToList();
-
                 await _email.SendAsync(
                     to:      principales,
                     subject: $"[Reclutamiento] Finalista por revisar — {ctx.Codigo} · {ctx.Puesto}",
                     body:    ConstruirCuerpoFinalistaEnvio(ctx),
                     isHtml:  true,
                     cc:      copias.Count > 0 ? copias : null,
-                    attachments: adjuntos.Count > 0 ? adjuntos : null,
                     sender:  EmailSenders.Gth);
 
                 return $"Se le avisó al solicitante ({principales[0]}).";
@@ -990,8 +995,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 informe.Add(new("req-vistobueno", "Recomendación GTH",
                     Layout.EscMultilinea(ev.ComentarioRecomendacion)));
 
-            // Los archivos van adjuntos, pero también como fila con su enlace: el adjunto se pierde
-            // al reenviar el correo y el enlace sigue abriendo el documento desde SharePoint.
+            // Los archivos van solo como fila con su enlace a SharePoint: no se adjuntan, así que
+            // el correo pesa lo mismo con un informe de 2 MB que con uno de 20 MB.
             foreach (var archivo in ev.Archivos)
                 informe.Add(new("req-sustento", archivo.TipoNombre,
                     string.IsNullOrWhiteSpace(archivo.Url)
@@ -1316,12 +1321,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         // ── Envío de la long list al solicitante ──────────────────────────────
-        // Topes de tamaño de la long list. Antes eran 20 MB (tanto el total como cada archivo); se
-        // subieron a 3 GB para el total de la petición y a 3 GB para cada archivo individual. Los
-        // topes de request de Kestrel/FormOptions (Program.cs) ya están en 10 GB, así que no limitan.
-        // OJO: usar el sufijo L (long) — 3 * 1024^3 desborda un int.
-        private const long MaxLongListTotalBytes = 3L * 1024 * 1024 * 1024; // 3 GB en total (CVs)
-        private const long MaxLongListFileBytes  = 3L * 1024 * 1024 * 1024; // 3 GB por archivo individual
+        // Topes de tamaño de la long list. Son topes NUESTROS, no del proveedor: desde que los
+        // archivos viajan enlazados y no adjuntos, el único límite externo es el de la subida a
+        // SharePoint, que con upload session (GraphSharePointService) ya no tiene techo práctico.
+        // El total acota lo que se carga en memoria de una vez: el controller arma un byte[] por
+        // archivo, así que una petición de long list no puede ser arbitrariamente grande.
+        private const long MaxLongListFileBytes  = 20 * 1024 * 1024; // 20 MB por archivo individual
+        private const long MaxLongListTotalBytes = 60 * 1024 * 1024; // 60 MB entre todos los archivos
         private static readonly string[] AllowedLongListExt = { ".pdf", ".doc", ".docx" };
 
         /// <summary>
@@ -1332,15 +1338,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         private static readonly string[] AllowedLongListAnexoExt =
             { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".jpg", ".jpeg", ".png", ".webp" };
-
-        /// <summary>
-        /// Tope de lo que puede pesar el conjunto de archivos que viaja ADJUNTO en el correo de la
-        /// long list (CVs + anexos). No es una política nuestra sino el límite del proveedor:
-        /// Graph rechaza el <c>sendMail</c> cuando el mensaje completo pasa de 4 MB y los adjuntos
-        /// van en base64, que infla ~4/3. Se valida acá, antes de subir nada, para que GTH vea qué
-        /// archivo achicar en vez del 502 genérico "no se pudo enviar el correo" al final del flujo.
-        /// </summary>
-        private const long MaxLongListCorreoBytes = 2_800_000; // ~2.8 MB reales ≈ 3.7 MB en base64
 
         public async Task<EstadoRequerimientoResultDto> EnviarLongList(
             int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId)
@@ -1371,14 +1368,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 }
             }
             if (total > MaxLongListTotalBytes)
-                throw new AbrilException("El tamaño total de los archivos supera el máximo permitido (3 GB).", 400);
-
-            // Tope real del envío: lo que acepta el proveedor de correo con los adjuntos adentro.
-            if (total > MaxLongListCorreoBytes)
                 throw new AbrilException(
-                    $"Los archivos pesan {FormatearMb(total)} en total y el correo admite hasta " +
-                    $"{FormatearMb(MaxLongListCorreoBytes)} entre CVs y anexos. Reduce o quita " +
-                    "algún anexo del portafolio antes de enviar la long list.", 400);
+                    $"Los archivos pesan {FormatearMb(total)} en total y el envío admite hasta " +
+                    $"{FormatearMb(MaxLongListTotalBytes)} entre CVs y anexos. Quita algún anexo del " +
+                    "portafolio o envía la long list en dos tandas.", 400);
 
             // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
             var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
@@ -1397,52 +1390,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "destinatarios principales configurados. Verifica que el solicitante tenga " +
                     "un correo registrado o configúralos con el botón «Configuración».", 409);
 
-            // 3) Enviar el correo con los CVs y los anexos adjuntos. Es BLOQUEANTE y va ANTES de
-            //    avanzar el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH
-            //    puede reintentar. Los anexos de cada candidato van detrás de su CV para que en la
-            //    lista de adjuntos del correo queden agrupados por candidato.
-            var adjuntos = new List<EmailAttachment>(candidatos.Count);
-            foreach (var c in candidatos)
-            {
-                adjuntos.Add(new EmailAttachment
-                {
-                    FileName    = string.IsNullOrWhiteSpace(c.CvFileName) ? "cv.pdf" : c.CvFileName,
-                    ContentType = string.IsNullOrWhiteSpace(c.CvContentType) ? "application/octet-stream" : c.CvContentType,
-                    Content     = c.CvContent!,
-                });
-
-                foreach (var anexo in c.Anexos)
-                {
-                    adjuntos.Add(new EmailAttachment
-                    {
-                        FileName    = string.IsNullOrWhiteSpace(anexo.FileName) ? "anexo" : Path.GetFileName(anexo.FileName),
-                        ContentType = string.IsNullOrWhiteSpace(anexo.ContentType) ? "application/octet-stream" : anexo.ContentType,
-                        Content     = anexo.Content!,
-                    });
-                }
-            }
-
-            try
-            {
-                await _email.SendAsync(
-                    to:      principales,
-                    subject: $"[Reclutamiento] Long list de CVs — {ctx.Codigo} · {ctx.Puesto}",
-                    body:    ConstruirCuerpoLongList(requerimientoId, ctx, candidatos),
-                    isHtml:  true,
-                    cc:      copias.Count > 0 ? copias : null,
-                    attachments: adjuntos,
-                    sender:  EmailSenders.Gth);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló el correo de long list del requerimiento {RequerimientoId}", requerimientoId);
-                throw new AbrilException(
-                    "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
-            }
-
-            // 4) Correo enviado: subir los CVs y los anexos a SharePoint y persistir la long list
-            //    para que el solicitante pueda revisarla. Se reutiliza la carpeta de reclutamiento
-            //    (gth_sustento_folder), organizada en una subcarpeta por requerimiento.
+            // 3) Subir los CVs y los anexos a SharePoint. Va ANTES del correo porque los archivos
+            //    ya no viajan adjuntos sino enlazados: el cuerpo se arma con las URLs que devuelve
+            //    esta subida. Se reutiliza la carpeta de reclutamiento (gth_sustento_folder),
+            //    organizada en una subcarpeta por requerimiento.
+            //
+            //    Si el correo del paso 4 falla, estos archivos quedan subidos pero el requerimiento
+            //    no avanza de estado, así que el reintento de GTH los vuelve a subir con otro nombre
+            //    (llevan timestamp) y deja los primeros huérfanos en la carpeta. Es el precio de
+            //    mantener el correo como condición para avanzar, que es lo que evita que el
+            //    solicitante se quede sin aviso de una long list ya enviada.
             var carpeta = await ResolverCarpetaRequerimientoAsync(ctx.Codigo);
 
             var persist = new List<LongListCandidatoPersistDto>(candidatos.Count);
@@ -1484,6 +1441,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 persist.Add(item);
             }
 
+            // 4) Enviar el correo al solicitante con los archivos ENLAZADOS (ya no adjuntos). Es
+            //    BLOQUEANTE y va ANTES de avanzar el estado: si falla, el requerimiento sigue en
+            //    LONG_LIST y GTH puede reintentar.
+            try
+            {
+                await _email.SendAsync(
+                    to:      principales,
+                    subject: $"[Reclutamiento] Long list de CVs — {ctx.Codigo} · {ctx.Puesto}",
+                    body:    ConstruirCuerpoLongList(requerimientoId, ctx, persist),
+                    isHtml:  true,
+                    cc:      copias.Count > 0 ? copias : null,
+                    sender:  EmailSenders.Gth);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló el correo de long list del requerimiento {RequerimientoId}", requerimientoId);
+                throw new AbrilException(
+                    "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
+            }
+
             // 5) Persistir los candidatos (reemplazando la long list previa) y avanzar a LONG_LIST_ENVIADA.
             return await _repo.GuardarLongListCandidatos(requerimientoId, persist, userId);
         }
@@ -1518,7 +1495,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     $"El {etiqueta} tiene un formato no permitido. Solo " +
                     $"{string.Join(", ", extensionesPermitidas.Select(e => e.TrimStart('.').ToUpperInvariant()))}.", 400);
             if (length > MaxLongListFileBytes)
-                throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido (3 GB).", 400);
+                throw new AbrilException(
+                    $"El {etiqueta} supera el tamaño máximo permitido ({FormatearMb(MaxLongListFileBytes)}).", 400);
         }
 
         /// <summary>Tamaño en MB con un decimal, para los mensajes de error de los adjuntos.</summary>
@@ -1538,15 +1516,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Cuerpo del correo de la long list al solicitante. Los CVs y los anexos van adjuntos al
-        /// correo; la tabla es el índice de lo que trae y el botón lleva a la pantalla donde se
-        /// aprueba o rechaza candidato por candidato.
+        /// Cuerpo del correo de la long list al solicitante. Los CVs y los anexos NO van adjuntos:
+        /// van como enlaces a SharePoint bajo cada candidato, así que el peso del correo no depende
+        /// de lo que pesen los archivos. El botón lleva a la pantalla donde se aprueba o rechaza
+        /// candidato por candidato, que es el camino alterno si un enlace no abre.
         ///
-        /// Bajo cada candidato van los nombres de sus anexos: en el correo todos los adjuntos caen
-        /// en una sola lista plana, así que es la única forma de saber de quién es cada archivo.
+        /// Los enlaces apuntan a la biblioteca de reclutamiento: quien reciba el correo sin permiso
+        /// sobre esa carpeta no los podrá abrir y tendrá que entrar por el botón.
         /// </summary>
         private string ConstruirCuerpoLongList(
-            int requerimientoId, LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
+            int requerimientoId, LongListEnvioContextoDto ctx, List<LongListCandidatoPersistDto> candidatos)
         {
             var l    = Layout.Desde(_configuration);
             var link = ConstruirLinkRevisionLongList(requerimientoId);
@@ -1566,14 +1545,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var c = candidatos[i];
                 var nombre = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Layout.Esc(c.Nombre);
-                var anexos = c.Anexos.Count == 0
-                    ? ""
-                    : Textos.Subtexto("Anexos: " + string.Join(", ", c.Anexos.Select(a => Path.GetFileName(a.FileName))));
+
+                // El CV primero y sus anexos detrás, para que los archivos queden agrupados por
+                // candidato. Un archivo sin URL (la subida devolvió vacío) se muestra por su nombre
+                // en texto plano: mejor que no nombrarlo, porque en la pantalla sí está.
+                var archivos = new List<string>(1 + c.Anexos.Count)
+                {
+                    EnlaceArchivo(c.CvUrl, c.CvNombre, "CV"),
+                };
+                archivos.AddRange(c.Anexos.Select(a => EnlaceArchivo(a.Url, a.NombreOriginal, "Anexo")));
 
                 filas.Add(new List<Layout.Celda>
                 {
                     new((i + 1).ToString()),
-                    new(nombre + anexos, Negrita: true),
+                    new(nombre + Textos.SubtextoHtml(string.Join(" · ", archivos)), Negrita: true),
                     new(Textos.OGuion(c.Comentario)),
                 });
             }
@@ -1581,12 +1566,23 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return l.Documento(
                 new Layout.Cabecera(
                     "req-longlist", "Long List de CVs",
-                    "GTH culminó el filtro de CVs. Los adjuntos van en este correo."),
+                    "GTH culminó el filtro de CVs. Los archivos se abren desde los enlaces de la tabla."),
                 l.Tarjeta(datos),
                 l.Seccion("req-candidatos", $"Candidatos ({candidatos.Count})"),
                 l.Tabla(ColumnasLongList, filas),
                 l.Boton("Revisar long list y CVs", link),
                 l.EnlaceDirecto(link));
+        }
+
+        /// <summary>
+        /// Enlace a un archivo ya subido, para las filas del correo. Sin URL cae al nombre en texto
+        /// plano y sin nombre cae a la etiqueta genérica ("CV", "Anexo"), para que la celda nunca
+        /// quede vacía ni con un enlace roto.
+        /// </summary>
+        private static string EnlaceArchivo(string? url, string? nombre, string etiqueta)
+        {
+            var texto = string.IsNullOrWhiteSpace(nombre) ? etiqueta : Path.GetFileName(nombre);
+            return string.IsNullOrWhiteSpace(url) ? Layout.Esc(texto) : Textos.Enlace(url!, texto);
         }
 
         /// <summary>Columnas de la tabla de la long list (suman los 580px de la tarjeta).</summary>
@@ -1813,9 +1809,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             var ext = Path.GetExtension(sustento.FileName).ToLowerInvariant();
             if (!AllowedSustentoExt.Contains(ext))
-                throw new AbrilException("Formato de sustento no permitido. Solo PDF, DOC, DOCX, XLS y XLSX.", 400);
+                throw new AbrilException(
+                    "Formato de sustento no permitido. Solo PDF, DOC, DOCX, XLS, XLSX, JPG, PNG y WEBP.", 400);
             if (sustento.Length > MaxSustentoBytes)
-                throw new AbrilException("El sustento supera el tamaño máximo permitido (10 MB).", 400);
+                throw new AbrilException(
+                    $"El sustento supera el tamaño máximo permitido ({FormatearMb(MaxSustentoBytes)}).", 400);
 
             // Carpeta destino: link de SharePoint definido en BD (gth_sustento_folder).
             // Se configura por base de datos: dev y prod apuntan a bibliotecas distintas.

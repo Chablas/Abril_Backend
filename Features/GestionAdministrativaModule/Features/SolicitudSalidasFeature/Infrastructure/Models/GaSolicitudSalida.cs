@@ -6,6 +6,20 @@
     public class GaSolicitudSalida
     {
         public int Id { get; set; }
+
+        /// <summary>
+        /// Código único de la solicitud en formato <c>SOL-AAAA-NNNN</c>. Es el identificador que
+        /// ve el trabajador (pantallas, correos y planilla); el <see cref="Id"/> es interno.
+        /// Nullable solo por las solicitudes anteriores a la columna: las nuevas siempre lo traen.
+        /// </summary>
+        public string? Codigo { get; set; }
+
+        /// <summary>Año del código (AAAA), en hora Perú — el correlativo se reinicia con él.</summary>
+        public int? Anio { get; set; }
+
+        /// <summary>Correlativo (NNNN) dentro del año.</summary>
+        public int? Numero { get; set; }
+
         public int WorkerId { get; set; }
         public DateOnly FechaSalida { get; set; }
         /// <summary>FK a <c>ga_estado_aprobacion</c>. Ver <see cref="EstadosSalida.Aprobacion"/>.</summary>

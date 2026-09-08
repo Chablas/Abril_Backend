@@ -5,7 +5,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// no escritas en cada plantilla porque el botón tiene que caer en la solicitud EXACTA: si la
     /// query cambia de nombre, cambia en un solo lugar y no en tres correos.
     ///
-    /// Ambas pantallas leen <c>?solicitud=</c> al entrar y abren ese detalle solo.
+    /// Las pantallas de salidas leen <c>?solicitud=</c> al entrar y las de planillas
+    /// <c>?rendicion=</c>; en ambos casos abren ese detalle solo.
     /// </summary>
     public static class SalidaEnlaces
     {
@@ -15,16 +16,44 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         /// <summary>
         /// Gestión de Salidas abierta en esa solicitud — es la pantalla donde el jefe aprueba o
-        /// rechaza el reembolso.
+        /// rechaza la SALIDA. El reembolso ya no se decide ahí: eso es
+        /// <see cref="GestionRendiciones"/>.
         /// </summary>
         public static string Gestion(IConfiguration configuration, int solicitudId) =>
             $"{Base(configuration)}/gestion-administrativa/gestion-salidas?solicitud={solicitudId}";
 
         /// <summary>
         /// Solicitud de Salidas (el autoservicio del trabajador) abierta en esa solicitud — es
-        /// donde ve el resultado y donde vuelve a adjuntar el Consolidado del S10 para subsanar.
+        /// donde ve el detalle de la salida en sí.
         /// </summary>
         public static string Autoservicio(IConfiguration configuration, int solicitudId) =>
             $"{Base(configuration)}/gestion-administrativa/solicitud-salidas?solicitud={solicitudId}";
+
+        /// <summary>
+        /// Gestión de Rendiciones abierta en esa planilla — es la pantalla donde el revisor mira el
+        /// Consolidado del S10, aprueba o rechaza el reembolso y firma. La unidad es la PLANILLA y
+        /// no la salida: el documento que revisa cubre a todas las salidas que agrupa.
+        /// </summary>
+        public static string GestionRendiciones(IConfiguration configuration, int rendicionId) =>
+            $"{Base(configuration)}/gestion-administrativa/gestion-rendiciones?rendicion={rendicionId}";
+
+        /// <summary>
+        /// Gestión de Rendiciones abierta en esa planilla y con la acción de la primera revisión ya
+        /// planteada (<c>&amp;accion=aprobar|observar</c>). Los dos botones del correo al revisor
+        /// entran por acá: la decisión no se ejecuta desde el correo porque observar exige escribir
+        /// un comentario, así que el enlace lleva a la pantalla con el diálogo abierto y el revisor
+        /// confirma ahí, viendo los tramos y las capturas.
+        /// </summary>
+        public static string GestionRendicionesAccion(
+            IConfiguration configuration, int rendicionId, string accion) =>
+            $"{GestionRendiciones(configuration, rendicionId)}&accion={accion}";
+
+        /// <summary>
+        /// Mis Rendiciones abierta en esa planilla — es donde el trabajador adjunta (o vuelve a
+        /// adjuntar, para subsanar) el Consolidado del S10 y avisa a su revisor. Todo lo que va
+        /// después de rendir vive ahí, así que es el destino de los correos del reembolso.
+        /// </summary>
+        public static string Rendiciones(IConfiguration configuration, int rendicionId) =>
+            $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
     }
 }

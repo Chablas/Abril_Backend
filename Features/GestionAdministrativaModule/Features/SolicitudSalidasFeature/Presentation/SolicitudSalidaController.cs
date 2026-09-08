@@ -34,7 +34,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         public async Task<IActionResult> GetMySolicitudes(
             [FromQuery] int? lugarProyectoId,
             [FromQuery] string? estadoAprobacion,
-            [FromQuery] string? estadoRendicion)
+            [FromQuery] string? estadoRendicion,
+            [FromQuery] int? rendicionAnio = null,
+            [FromQuery] int? rendicionMes = null)
         {
             try
             {
@@ -48,6 +50,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                     LugarProyectoId  = lugarProyectoId,
                     EstadoAprobacion = estadoAprobacion,
                     EstadoRendicion  = estadoRendicion,
+                    RendicionAnio    = rendicionAnio,
+                    RendicionMes     = rendicionMes,
                 };
                 return Ok(await _service.GetByUserId(userId.Value, filters));
             }
@@ -228,6 +232,76 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
+        /// Guarda los cambios de una captura propia: su monto y, si viene un archivo, además
+        /// reemplaza su imagen. Se usa al subsanar una rendición observada en primera revisión (y
+        /// antes de rendir, si el trabajador se equivocó al cargarla).
+        ///
+        /// Va como multipart y en una sola llamada porque en la pantalla es un solo botón
+        /// "Guardar": lo que se corrige es la fila, no un campo suelto. El archivo es opcional.
+        /// </summary>
+        [HttpPatch("capturas/{capturaId:int}")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(15 * 1024 * 1024)]
+        public async Task<IActionResult> ActualizarCaptura(
+            int capturaId,
+            // El monto viaja como texto y se parsea con InvariantCulture, igual que en la subida:
+            // el binder de formularios usa la cultura del servidor.
+            [FromForm] string monto,
+            [FromForm] IFormFile? file)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (!decimal.TryParse(monto, System.Globalization.NumberStyles.Number,
+                                      System.Globalization.CultureInfo.InvariantCulture, out var valor))
+                    return BadRequest(new { message = $"Monto inválido: '{monto}'." });
+
+                return Ok(await _service.ActualizarCaptura(capturaId, valor, file, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.ActualizarCaptura");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Da de baja una captura propia. La fila se conserva para auditoría pero deja de contar
+        /// para el importe rendido y para la planilla.
+        /// </summary>
+        [HttpDelete("capturas/{capturaId:int}")]
+        public async Task<IActionResult> EliminarCaptura(int capturaId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.EliminarCaptura(capturaId, userId.Value);
+                return Ok(new { message = "Captura eliminada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.EliminarCaptura");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus capturas)
         /// y descarga la planilla de gasto por movilidad. Reutiliza la misma lógica de Gestión de Salidas,
         /// pero restringida a solicitudes del propio usuario (guard de propiedad).
@@ -294,12 +368,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
-        /// Rinde de una vez TODAS las salidas propias del mes anterior que estén listas (aprobadas,
-        /// no rendidas y con las capturas de todos sus trayectos) y descarga la planilla. Las que no
-        /// cumplen se ignoran.
+        /// Rinde de una vez TODAS las salidas propias del mes indicado (sin <c>anio</c>/<c>mes</c>,
+        /// el anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
+        /// trayectos y con un motivo reembolsable— y descarga la planilla. Es lo que la pantalla
+        /// ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
         /// </summary>
-        [HttpPatch("rendir-mes-anterior")]
-        public async Task<IActionResult> RendirMesAnterior()
+        [HttpPatch("rendir-mes")]
+        public async Task<IActionResult> RendirMes([FromQuery] int? anio = null, [FromQuery] int? mes = null)
         {
             try
             {
@@ -310,7 +385,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
 
                 // Mismo camino que MarcarRendidas: el servicio del autoservicio resuelve qué entra
                 // (solo lo propio) y la planilla la genera Gestión de Salidas, con guard de propiedad.
-                var ids = await _service.GetIdsRendiblesMesAnterior(userId.Value);
+                var ids = await _service.GetIdsRendiblesMes(userId.Value, anio, mes);
                 var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(
                     ids, userId.Value, ownerUserId: userId.Value);
 
@@ -326,85 +401,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMesAnterior");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMes");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
-        }
-
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida.
-        /// <c>ambito</c>: "Rendicion" (cubre toda la planilla, es el default de la pantalla) o
-        /// "Solicitud" (cubre solo esta salida).
-        /// </summary>
-        [HttpPost("{id:int}/consolidado-s10")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB
-        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file, [FromForm] string? ambito)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                if (!TryParseAmbito(ambito, out var ambitoEnum))
-                    return BadRequest(new { message = "Ámbito inválido: usa \"Rendicion\" o \"Solicitud\"." });
-
-                return Ok(await _service.UploadConsolidadoS10(id, ambitoEnum, file, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.UploadConsolidadoS10");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>Traduce el ámbito recibido del formulario. Vacío/ausente = Rendicion (el default).</summary>
-        private static bool TryParseAmbito(string? ambito, out ConsolidadoS10Ambito parsed)
-        {
-            if (string.IsNullOrWhiteSpace(ambito))
-            {
-                parsed = ConsolidadoS10Ambito.Rendicion;
-                return true;
-            }
-            return Enum.TryParse(ambito.Trim(), ignoreCase: true, out parsed)
-                && Enum.IsDefined(parsed);
         }
 
         // ── Endpoints públicos invocados desde los links del email ──────────
-
-        /// <summary>
-        /// Avisa al jefe/revisor que el Consolidado del S10 de esa salida ya está adjunto y su
-        /// reembolso espera revisión. Lo dispara el propio trabajador desde su pantalla.
-        /// </summary>
-        [HttpPatch("{id:int}/notificar-revisor")]
-        public async Task<IActionResult> NotificarRevisor(int id)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                var message = await _service.NotificarRevisorS10(id, userId.Value);
-                return Ok(new { message });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.NotificarRevisor");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
 
         [HttpGet("aprobar")]
         [AllowAnonymous]

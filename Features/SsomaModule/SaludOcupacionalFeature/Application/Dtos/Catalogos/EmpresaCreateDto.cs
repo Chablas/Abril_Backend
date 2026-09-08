@@ -1,6 +1,12 @@
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos
 {
-    /// <summary>Alta de una razón social (contribuyente) desde Configuración → Razones Sociales.</summary>
+    /// <summary>
+    /// Alta de una razón social (contribuyente) desde el catálogo de SSOMA.
+    ///
+    /// El alta desde Configuración → Razones Sociales usa su propio DTO en
+    /// <c>Features/ConfigurationModule/Features/RazonSocialFeature</c>: ahí sí se decide si la
+    /// empresa es del grupo y con qué banco trabaja.
+    /// </summary>
     public class EmpresaCreateDto
     {
         public string Ruc { get; set; } = null!;

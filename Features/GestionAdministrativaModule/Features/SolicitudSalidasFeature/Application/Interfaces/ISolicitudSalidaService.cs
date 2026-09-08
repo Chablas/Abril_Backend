@@ -1,12 +1,15 @@
-﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces
 {
     public interface ISolicitudSalidaService
     {
         Task<SolicitudSalidaFormDataDto> GetFormData(int? userId);
-        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+        /// <summary>
+        /// Listado de las solicitudes del trabajador ya filtrado, junto con los números de las
+        /// tarjetas contados sobre ese mismo conjunto.
+        /// </summary>
+        Task<SolicitudSalidaListResultDto> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
         /// <summary>
         /// Crea la solicitud. <paramref name="adjuntos"/> trae los documentos adjuntos por índice
@@ -27,39 +30,47 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// </summary>
         Task Cancelar(int solicitudId, int userId);
 
-        /// <summary>Sube N (imagen, monto) a SharePoint, asociadas a un trayecto específico de una solicitud aprobada/no rendida del propio usuario.</summary>
+        /// <summary>
+        /// Sube N (imagen, monto) a SharePoint, asociadas a un trayecto de una solicitud propia
+        /// que se pueda editar: aprobada y sin rendir, o rendida en una planilla OBSERVADA en
+        /// primera revisión (ahí corregir capturas y montos es justamente lo que se pidió).
+        /// </summary>
         Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
 
         /// <summary>
-        /// Ids de las salidas PROPIAS del mes anterior (por fecha de salida, en hora de Perú) que
-        /// están listas para rendir: aprobadas, no rendidas y con todos sus trayectos cubiertos.
-        /// Lanza 400 si no hay ninguna.
+        /// Guarda los cambios de una captura propia: su monto y, si viene
+        /// <paramref name="file"/>, además reemplaza su imagen (sube el archivo nuevo y apunta la
+        /// misma fila a él). Mismo criterio de edición que la subida: solo antes de rendir o al
+        /// subsanar una rendición observada.
+        ///
+        /// Es una sola operación porque en la pantalla es un solo botón "Guardar": lo que el
+        /// trabajador corrige es la fila —monto, imagen o las dos—, no un campo suelto.
         /// </summary>
-        Task<List<int>> GetIdsRendiblesMesAnterior(int userId);
+        /// <returns>La captura ya actualizada, para repintar la miniatura sin recargar el detalle.</returns>
+        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId, decimal monto, IFormFile? file, int userId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida. El
-        /// ámbito decide si el archivo cubre toda la planilla de rendición o solo esa salida.
+        /// Da de baja una captura propia (soft delete). Deja de contar para el importe rendido y
+        /// para la planilla. Mismo criterio de edición que la subida.
         /// </summary>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId);
+        Task EliminarCaptura(int capturaId, int userId);
+
+        /// <summary>
+        /// Ids de las salidas PROPIAS del mes indicado (sin año/mes, el anterior; por fecha de
+        /// salida en hora de Perú) que están aptas para rendir: aprobadas, no rendidas, con todos
+        /// sus trayectos cubiertos y con un motivo reembolsable. Lanza 400 si no hay ninguna.
+        /// </summary>
+        Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes);
+
+        // El Consolidado del S10 y el aviso al revisor ya no viven acá: son de la PLANILLA de
+        // rendición y los expone IRendicionService (Mis Rendiciones). Esta pantalla llega hasta
+        // rendir.
 
         /// <summary>Envía email de confirmación al solicitante de que su solicitud fue aprobada. Best-effort, no lanza.</summary>
         Task NotifySolicitanteAprobada(int solicitudId);
 
         /// <summary>Envía email al solicitante de que su solicitud fue rechazada (mismos destinatarios/copias que el de aprobación). Best-effort, no lanza.</summary>
         Task NotifySolicitanteRechazada(int solicitudId);
-
-        /// <summary>
-        /// El trabajador avisa a su jefe/revisor que ya adjuntó el Consolidado del S10 y su
-        /// reembolso está listo para revisión. Solo funciona sobre salidas SUYAS que estén
-        /// rendidas, con el consolidado adjunto y con el reembolso todavía abierto.
-        ///
-        /// El correo lleva un botón que abre Gestión de Salidas en esa solicitud. Respeta la
-        /// configuración de correos: si el correo está apagado, no se envía y se avisa al usuario
-        /// (a diferencia del resto de correos del flujo, este lo dispara una persona apretando un
-        /// botón, así que el resultado tiene que ser visible).
-        /// </summary>
-        /// <returns>Mensaje para mostrar en la pantalla.</returns>
-        Task<string> NotificarRevisorS10(int solicitudId, int userId);
     }
 }

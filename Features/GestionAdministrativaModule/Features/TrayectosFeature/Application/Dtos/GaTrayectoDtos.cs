@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dtos
 {
     /// <summary>Item de la lista de trayectos para la tabla de configuración.</summary>
     public class GaTrayectoListItemDto
@@ -9,6 +9,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dto
         public int LugarDestinoId { get; set; }
         public string LugarDestinoNombre { get; set; } = string.Empty;
         public decimal Monto { get; set; }
+        /// <summary>Si false, ninguna salida por este par (origen, destino) genera reembolso de
+        /// movilidad, aunque el motivo elegido si lo permita. Default true.</summary>
+        public bool EsReembolsable { get; set; } = true;
         public bool Activo { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
@@ -18,6 +21,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dto
         public int LugarOrigenId { get; set; }
         public int LugarDestinoId { get; set; }
         public decimal Monto { get; set; }
+        /// <summary>Si false, ninguna salida por este par (origen, destino) genera reembolso de
+        /// movilidad, aunque el motivo elegido si lo permita. Default true.</summary>
+        public bool EsReembolsable { get; set; } = true;
     }
 
     public class GaTrayectoEditDto
@@ -25,6 +31,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Dto
         public int LugarOrigenId { get; set; }
         public int LugarDestinoId { get; set; }
         public decimal Monto { get; set; }
+        /// <summary>Si false, ninguna salida por este par (origen, destino) genera reembolso de
+        /// movilidad, aunque el motivo elegido si lo permita. Default true.</summary>
+        public bool EsReembolsable { get; set; } = true;
     }
 
     /// <summary>Opciones de lugares activos para el selector del modal.</summary>

@@ -1,5 +1,6 @@
 ﻿using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces
 {
@@ -7,8 +8,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     {
         Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters);
 
-        /// <summary>Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado.</summary>
-        Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters);
+        /// <summary>
+        /// Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado, más los
+        /// números de las tarjetas contados sobre todo el conjunto filtrado.
+        /// </summary>
+        Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters);
         /// <summary>
         /// Datos de los filtros (trabajadores, lugares y árbol de áreas). Cuando
         /// <paramref name="seesAll"/> es false, tanto los trabajadores como el árbol de áreas se
@@ -17,7 +21,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// </summary>
         Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId);
         Task Aprobar(int id, int reviewerUserId);
-        Task Rechazar(int id, int reviewerUserId);
+
+        /// <summary><paramref name="motivoRechazo"/> es opcional; en blanco se guarda null.</summary>
+        Task Rechazar(int id, int reviewerUserId, string? motivoRechazo);
 
         /// <summary>
         /// Crea un registro <c>GaRendicion</c> con la info del PDF subido y marca como rendidas
@@ -33,6 +39,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Consume el siguiente número de la secuencia <c>seq_planilla_numero</c>.</summary>
         Task<int> GetNextNumeroPlanillaAsync();
+
+        /// <summary>
+        /// Lo mínimo para volver a armar el PDF de una planilla existente: su número impreso y
+        /// TODAS las salidas que agrupa (de todos sus trabajadores, no solo del que subsana).
+        /// Null si la planilla no existe.
+        /// </summary>
+        Task<RendicionParaRegenerarDto?> GetRendicionParaRegenerar(int rendicionId);
+
+        /// <summary>
+        /// Apunta la planilla al PDF nuevo y la deja lista para reenviar a primera revisión
+        /// (estado "Lista para enviar", sin sello de envío). El código, el número de planilla y la
+        /// observación del jefe se conservan: la rendición es la misma y lo observado sigue siendo
+        /// lo que hay que poder contrastar.
+        /// </summary>
+        Task ReemplazarPdfRendicion(
+            int rendicionId, string pdfUrl, string? pdfItemId, string pdfFilename);
 
         /// <summary>
         /// Link de la carpeta de SharePoint (tabla singleton <c>ga_rendicion_folder</c>) donde se
@@ -56,8 +78,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// </summary>
         Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids);
 
-        /// <summary>Detalle completo (cabecera + trayectos con capturas + rendición si existe).</summary>
-        Task<GestionSalidaDetalleDto?> GetDetalle(int id);
+        /// <summary>
+        /// Del set dado, devuelve las solicitudes cuyos trayectos NO llevan ningún motivo marcado
+        /// como reembolsable en Configuración → Motivos: no generan gasto de movilidad y por lo
+        /// tanto no hay nada que rendir. Es el bloqueo duro que acompaña al recorte de la pantalla.
+        /// </summary>
+        Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Los meses (año, mes de <c>fecha_salida</c>) distintos que abarca el set dado, ordenados.
+        /// Una planilla de rendición es de UN solo mes, así que más de un elemento es un error.
+        /// </summary>
+        Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
+        /// plazo de rendición fuera del repositorio.
+        /// </summary>
+        Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
+
+        /// <summary>
+        /// Detalle completo (cabecera + trayectos con capturas + rendición si existe).
+        /// <paramref name="currentUserId"/> resuelve <c>PuedeDecidir</c>: si quien abre el detalle
+        /// es el revisor de esa salida y por lo tanto puede aprobarla o rechazarla desde el modal.
+        /// </summary>
+        Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId);
 
         /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
         Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);
@@ -68,44 +113,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>Registra (o limpia) la hora real en la que la persona retornó. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
         Task SetHoraRetornoReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
 
-        // ── Reembolso ────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Aprueba o rechaza el reembolso de las salidas indicadas. Solo pasan las que están
-        /// Rendidas, tienen Consolidado del S10 y su reembolso sigue Pendiente o Rechazado — el
-        /// resto se ignora en silencio (la selección de la pantalla puede traer de todo).
-        ///
-        /// Un usuario no decide el reembolso de sus propias salidas, misma regla que la aprobación
-        /// de la salida: la excepción son los Gerentes.
-        /// </summary>
-        /// <param name="aprobar">true = Aprobado; false = Rechazado (exige observación).</param>
-        /// <returns>Ids de las salidas que efectivamente cambiaron de estado.</returns>
-        Task<List<int>> DecidirReembolso(IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId);
-
-        /// <summary>
-        /// Las salidas listas para firmar de la selección: reembolso Aprobado, ya rendidas y con
-        /// planilla. Devuelve, por planilla, el id de la rendición y el PDF que hay que estampar.
-        /// </summary>
-        Task<List<RendicionPorFirmarDto>> GetRendicionesPorFirmar(IEnumerable<int> ids);
-
-        /// <summary>
-        /// Guarda la copia firmada de una planilla y pasa a Firmado las salidas indicadas de esa
-        /// planilla. Si la planilla ya estaba firmada se conserva el archivo anterior y solo se
-        /// mueven los estados (dos jefes pueden firmar salidas distintas de la misma planilla).
-        /// </summary>
-        Task MarcarFirmadas(int rendicionId, IEnumerable<int> solicitudIds, int userId,
-                            string? pdfUrl, string? pdfItemId, string? pdfFilename);
-
-        /// <summary>
-        /// Marca como Pagadas las salidas indicadas que estén Firmadas. Las demás se ignoran.
-        /// Devuelve los ids que efectivamente cambiaron.
-        /// </summary>
-        Task<List<int>> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId);
-
-        /// <summary>
-        /// Datos de una salida para armar los correos del reembolso (trabajador, área, planilla,
-        /// monto rendido y a quién avisar). Null si la salida no existe.
-        /// </summary>
-        Task<ReembolsoCorreoInfoDto?> GetReembolsoCorreoInfo(int solicitudId);
+        // La decisión del reembolso, la firma y el pago ya no viven acá: son pasos posteriores
+        // a rendir. Los expone IGestionRendicionRepository (revisor) e IReembolsoRepository
+        // (Tesorería).
     }
 }

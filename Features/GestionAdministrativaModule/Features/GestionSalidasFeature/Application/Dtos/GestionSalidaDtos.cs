@@ -1,8 +1,14 @@
-﻿namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+
+namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos
 {
     public class GestionSalidaListItemDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>
@@ -19,8 +25,8 @@
         /// </summary>
         public string? RevisorNombre { get; set; }
         public DateOnly FechaSalida { get; set; }
-        /// <summary>Hora de salida del primer trayecto.</summary>
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Hora de salida del primer trayecto. Null si el motivo no pide horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         /// <summary>Hora de retorno del último trayecto.</summary>
         public TimeOnly? HoraRetorno { get; set; }
         /// <summary>Motivo del primer trayecto.</summary>
@@ -35,6 +41,35 @@
         public DateTimeOffset CreatedAt { get; set; }
         /// <summary>True si todos los trayectos tienen al menos una captura — habilita la rendición.</summary>
         public bool PuedeRendirse { get; set; }
+
+        /// <summary>
+        /// True si al menos un trayecto lleva un motivo marcado como reembolsable en
+        /// Configuración → Motivos (<c>ga_motivo_salida.es_reembolsable</c>). Sin eso la salida no
+        /// genera gasto de movilidad y no hay nada que rendir. Un trayecto con motivo libre (sin
+        /// catálogo) no concede: el flag arranca en false a propósito.
+        /// </summary>
+        public bool EsReembolsable { get; set; }
+
+        /// <summary>
+        /// Último día para rendir esta salida: el N.º día hábil del mes siguiente al de su
+        /// <c>fecha_salida</c> (sin sábados, domingos ni los feriados de Configuración → Feriados).
+        /// </summary>
+        public DateOnly PlazoRendicionHasta { get; set; }
+
+        /// <summary>
+        /// True si el plazo ya pasó. La salida deja de poder rendirse —no se selecciona, no entra
+        /// en el desplegable de mes y el backend la rechaza— pero su detalle se sigue viendo.
+        /// </summary>
+        public bool PlazoVencido { get; set; }
+
+        /// <summary>
+        /// True si la salida está lista para rendirse: aprobada, no rendida, con todos sus
+        /// trayectos cubiertos (<see cref="PuedeRendirse"/>), con motivo reembolsable
+        /// (<see cref="EsReembolsable"/>) y dentro del plazo (<see cref="PlazoVencido"/>). Es la
+        /// condición que usan el desplegable "Mes a rendir", la selección de filas y el conteo de
+        /// las tarjetas — se calcula acá y no en la pantalla para que las tres no puedan divergir.
+        /// </summary>
+        public bool AptaParaRendir { get; set; }
         /// <summary>Hora real de salida registrada por recepción. Dato extra, opcional.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
         /// <summary>Hora real de retorno registrada por recepción. Dato extra, opcional.</summary>
@@ -46,11 +81,14 @@
         /// </summary>
         public bool EsHoraEstimada { get; set; }
         /// <summary>
-        /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
-        /// es propia (worker del propio usuario) y el usuario no es Gerente — nadie aprueba sus
-        /// propias salidas salvo los gerentes. Solo afecta Aprobar/Rechazar, no la rendición.
+        /// True si el usuario logueado puede aprobar/rechazar ESTA salida, o sea si es su revisor:
+        /// el jefe personalizado del trabajador, el revisor que sale de su área subiendo por el
+        /// árbol, o cualquiera de GTH cuando la resolución cayó al fallback del área de GTH. Ver
+        /// alcance en el resolver. Ver la salida no alcanza: el alcance por área da a ver una rama
+        /// (un gerente, recepción), decidir es solo del revisor. Solo afecta Aprobar/Rechazar, no
+        /// la rendición.
         /// </summary>
-        public bool PuedeDecidir { get; set; } = true;
+        public bool PuedeDecidir { get; set; }
 
         /// <summary>
         /// True si la salida es del propio usuario logueado (su worker). Habilita el botón
@@ -58,15 +96,9 @@
         /// </summary>
         public bool EsPropia { get; set; }
 
-        // -- Consolidado del S10 (solo salidas rendidas) -----------------
-        /// <summary>webUrl del PDF Consolidado del S10 vigente, o null si aun no se adjunto.</summary>
-        public string? ConsolidadoS10Url { get; set; }
-        /// <summary>Nombre del archivo del consolidado vigente. Null si no hay.</summary>
-        public string? ConsolidadoS10Filename { get; set; }
-        /// <summary>"Rendicion" (cubre toda la planilla) | "Solicitud" (solo esta salida) | null si no hay.</summary>
-        public string? ConsolidadoS10Ambito { get; set; }
-
-        // -- Reembolso ---------------------------------------------------
+        // -- Reembolso (solo informativo) --------------------------------
+        // El archivo del Consolidado del S10 y la planilla firmada no viajan en esta lista: se
+        // abren desde Gestion de Rendiciones, que es donde se usan. Aca solo se pinta el estado.
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado".</summary>
         public string EstadoReembolso { get; set; } = "Pendiente";
 
@@ -82,12 +114,6 @@
         /// <summary>Nombre de quien aprobo/rechazo el reembolso. Null si nadie lo decidio aun.</summary>
         public string? ReembolsoDecididoPor { get; set; }
         public DateTimeOffset? ReembolsoDecididoAt { get; set; }
-
-        /// <summary>Momento en que el trabajador aviso al revisor que ya adjunto el S10. Null si nunca aviso.</summary>
-        public DateTimeOffset? RevisorNotificadoAt { get; set; }
-
-        /// <summary>webUrl de la planilla de rendicion FIRMADA. Null mientras nadie la firme.</summary>
-        public string? PlanillaFirmadaUrl { get; set; }
     }
 
     public class RegistrarHoraSalidaRealDto
@@ -111,26 +137,11 @@
         public string? EstadoAprobacion { get; set; }
 
         /// <summary>
-        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos.
-        /// Para un tesorero se acota a Firmado/Pagado aunque pida otra cosa (ver <see cref="EsTesorero"/>).
+        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos. Es un
+        /// filtro informativo: el reembolso ya no se decide en esta pantalla (vive en Gestion de
+        /// Rendiciones), pero su estado se sigue mostrando en la columna.
         /// </summary>
         public string? EstadoReembolso { get; set; }
-
-        /// <summary>
-        /// True cuando el usuario entra como TESORERO: tiene el rol y ademas su puesto es de
-        /// categoria Tesorero. Lo resuelve el servicio, no el controller (el rol sale del token
-        /// pero la categoria sale de la base).
-        ///
-        /// En ese modo ve TODAS las areas, pero solo las salidas ya firmadas por la jefatura y las
-        /// ya pagadas: es la bandeja de tesoreria, no la de aprobacion.
-        /// </summary>
-        public bool EsTesorero { get; set; }
-
-        /// <summary>
-        /// True si el token del usuario trae el rol TESORERO. Solo dice que tiene el rol: la
-        /// segunda condicion (la categoria del puesto) la resuelve el servicio contra la base.
-        /// </summary>
-        public bool TieneRolTesorero { get; set; }
 
         /// <summary>
         /// True = solo las solicitudes cuya <c>fecha_salida</c> es la de HOY. El día se calcula en
@@ -186,83 +197,92 @@
         public DateOnly? FechaSalidaDesde { get; set; }
         /// <summary>Límite superior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
         public DateOnly? FechaSalidaHasta { get; set; }
+
+        /// <summary>
+        /// Periodo elegido en el desplegable "Mes a rendir". Cuando viene, el repositorio acota
+        /// <c>fecha_salida</c> a ese mes y deja SOLO las solicitudes aptas para rendir — es un
+        /// filtro de la tabla, no solo el alcance de la acción de rendir.
+        ///
+        /// Es excluyente con <see cref="SoloHoy"/>: el frontend apaga uno al prender el otro y acá
+        /// el mes gana si por lo que sea llegan los dos.
+        /// </summary>
+        public int? RendicionAnio { get; set; }
+        public int? RendicionMes { get; set; }
+
+        /// <summary>
+        /// True = devolver únicamente las solicitudes aptas para rendir (aprobadas, no rendidas,
+        /// con trayectos cubiertos y motivo reembolsable). Lo prende el propio filtro de mes; se
+        /// aplica en memoria porque la aptitud se calcula en memoria.
+        /// </summary>
+        public bool SoloAptas { get; set; }
+    }
+
+    /// <summary>Un mes ofrecido por el desplegable "Mes a rendir".</summary>
+    public class MesRendicionDto
+    {
+        public int Anio { get; set; }
+        public int Mes { get; set; }
+        /// <summary>"Agosto 2026" — ya capitalizado, la pantalla lo imprime tal cual.</summary>
+        public string Label { get; set; } = string.Empty;
+        /// <summary>Cuántas solicitudes aptas para rendir tiene ese mes dentro del alcance del usuario.</summary>
+        public int Cantidad { get; set; }
+        /// <summary>
+        /// Último día para rendir ese mes (N.º día hábil del mes siguiente, N configurable). Solo se ofrecen meses
+        /// cuyo plazo sigue abierto, así que esta fecha siempre es de hoy en adelante.
+        /// </summary>
+        public DateOnly FechaLimite { get; set; }
+    }
+
+    /// <summary>
+    /// Los números de las tarjetas del encabezado. Se cuentan sobre EL MISMO conjunto filtrado que
+    /// alimenta la tabla —todas las páginas, no solo la visible—, así que acompañan a la búsqueda
+    /// en vez de quedarse en un total fijo. Por eso viajan en la respuesta del listado y no en
+    /// <c>filter-data</c>.
+    /// </summary>
+    public class ResumenRendicionDto
+    {
+        /// <summary>Aprobadas, no rendidas, con trayectos cubiertos y motivo reembolsable.</summary>
+        public int AptasParaRendir { get; set; }
+        /// <summary>Aprobadas y no rendidas a las que les falta captura en algún trayecto.</summary>
+        public int CapturasIncompletas { get; set; }
+        /// <summary>Reembolsos rechazados: esperan que el trabajador subsane.</summary>
+        public int Observadas { get; set; }
+
+        /// <summary>
+        /// Cuenta las tres bandejas sobre las salidas recibidas. Cada tarjeta conserva su
+        /// definición (es lo que dice su etiqueta); lo que cambia con los filtros es el universo
+        /// sobre el que se cuenta. Se calcula en memoria sobre la lista completa que el
+        /// repositorio ya tenía en la mano para paginar: no cuesta una consulta más.
+        /// </summary>
+        public static ResumenRendicionDto De(IEnumerable<GestionSalidaListItemDto> salidas)
+        {
+            var lista = salidas as ICollection<GestionSalidaListItemDto> ?? salidas.ToList();
+            return new ResumenRendicionDto
+            {
+                AptasParaRendir     = lista.Count(x => x.AptaParaRendir),
+                // AptaParaRendir ya exige aprobada + no rendida; acá se piden explícitas porque
+                // esta tarjeta cuenta justo a las que NO llegan a aptas por falta de captura.
+                CapturasIncompletas = lista.Count(x => !x.PuedeRendirse
+                                                    && x.EstadoAprobacion == EstadosSalida.Aprobacion.NombreAprobado
+                                                    && x.EstadoRendicion  == EstadosSalida.Rendicion.NombreNoRendido),
+                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+            };
+        }
+    }
+
+    /// <summary>
+    /// Respuesta del listado paginado más los números de las tarjetas, contados sobre todo el
+    /// conjunto filtrado (no sobre la página). Van juntos para que un cambio de filtro se resuelva
+    /// en una sola petición y la tabla y las tarjetas no puedan discrepar.
+    /// </summary>
+    public class GestionSalidaPagedDto : PagedResult<GestionSalidaListItemDto>
+    {
+        public ResumenRendicionDto Resumen { get; set; } = new();
     }
 
     public class MarcarRendidasBulkDto
     {
         public List<int> Ids { get; set; } = new();
-    }
-
-    /// <summary>Cuerpo de las acciones en bloque sobre el reembolso (aprobar, firmar, pagar).</summary>
-    public class ReembolsoBulkDto
-    {
-        public List<int> Ids { get; set; } = new();
-    }
-
-    /// <summary>
-    /// Rechazo del reembolso en bloque. La observacion es obligatoria: es lo unico que el
-    /// trabajador va a leer para saber que corregir.
-    /// </summary>
-    public class RechazarReembolsoBulkDto
-    {
-        public List<int> Ids { get; set; } = new();
-        public string? Observacion { get; set; }
-    }
-
-    /// <summary>
-    /// Una planilla de rendicion pendiente de firma, con las salidas de la seleccion que cuelgan
-    /// de ella. El PDF se firma UNA vez por planilla aunque la seleccion traiga varias salidas
-    /// suyas: el documento es uno solo.
-    /// </summary>
-    public class RendicionPorFirmarDto
-    {
-        public int RendicionId { get; set; }
-        /// <summary>webUrl del PDF original de la planilla (el que se descarga para estampar).</summary>
-        public string PdfUrl { get; set; } = string.Empty;
-        public string PdfFilename { get; set; } = string.Empty;
-        /// <summary>webUrl de la copia ya firmada, si otra firma anterior la genero.</summary>
-        public string? PdfFirmadoUrl { get; set; }
-        /// <summary>Salidas de la seleccion que cuelgan de esta planilla y estan listas para firmar.</summary>
-        public List<int> SolicitudIds { get; set; } = new();
-    }
-
-    /// <summary>
-    /// Lo que necesitan los correos del reembolso de UNA salida. Sale de una sola consulta para no
-    /// volver a la base por cada correo.
-    /// </summary>
-    public class ReembolsoCorreoInfoDto
-    {
-        public int SolicitudId { get; set; }
-        public int WorkerId { get; set; }
-        public string Trabajador { get; set; } = string.Empty;
-        /// <summary>
-        /// Correlativo de la solicitud DENTRO del trabajador: el "#3" que él ve en su pantalla y en
-        /// los otros correos del flujo, no el id de la tabla. Se calcula igual que en
-        /// SolicitudSalidaService para que el mismo pedido no salga con dos numeros distintos.
-        /// </summary>
-        public int NumeroUsuario { get; set; }
-        /// <summary>Correo del solicitante (app_user.email). Null si no tiene usuario.</summary>
-        public string? SolicitanteEmail { get; set; }
-        public string? Area { get; set; }
-        public DateOnly FechaSalida { get; set; }
-        /// <summary>Numero de planilla formateado ("TI: 000123"), o null si no tiene planilla.</summary>
-        public string? NumeroPlanilla { get; set; }
-        public int TrayectosCount { get; set; }
-        public decimal MontoTotal { get; set; }
-        public string EstadoReembolso { get; set; } = string.Empty;
-        public string? ObservacionReembolso { get; set; }
-        /// <summary>Nombre de quien decidio el reembolso (para mostrarlo en el correo).</summary>
-        public string? DecididoPor { get; set; }
-    }
-
-    /// <summary>Resultado de una accion en bloque sobre el reembolso.</summary>
-    public class ReembolsoBulkResultDto
-    {
-        /// <summary>Cuantas salidas cambiaron de estado.</summary>
-        public int Procesadas { get; set; }
-        /// <summary>Cuantas planillas distintas se firmaron (solo lo usa Firmar).</summary>
-        public int PlanillasFirmadas { get; set; }
-        public string Message { get; set; } = string.Empty;
     }
 
     public class GestionSalidaFilterDataDto
@@ -272,34 +292,8 @@
         /// <summary>Árbol area_scope (lista plana) para el filtro de área en cascada.</summary>
         public List<AreaNodeDto> AreaTree { get; set; } = new();
 
-        /// <summary>
-        /// True si el usuario entra en modo TESORERÍA: tiene el rol TESORERO Y su puesto es de
-        /// categoría Tesorero. Lo decide el backend porque la mitad del criterio (la categoría)
-        /// vive en la base: el frontend solo ve el rol del token y con eso pintaría la bandeja de
-        /// tesorería a alguien que no lo es.
-        ///
-        /// En ese modo la pantalla solo muestra reembolsos firmados y pagados, esconde las acciones
-        /// de aprobación/rendición y habilita "Marcar como pagadas".
-        /// </summary>
-        public bool EsTesorero { get; set; }
-    }
-
-    /// <summary>Nodo del árbol area_scope (lista plana; el frontend arma la jerarquía). </summary>
-    public class AreaNodeDto
-    {
-        public int AreaScopeId { get; set; }
-        public int AreaItemId { get; set; }
-        public string AreaItemName { get; set; } = string.Empty;
-        public int AreaTypeId { get; set; }
-        public string AreaTypeName { get; set; } = string.Empty;
-        public int? AreaScopeParentId { get; set; }
-        public int DisplayOrder { get; set; }
-    }
-
-    public class TrabajadorOptionDto
-    {
-        public int WorkerId { get; set; }
-        public string NombreCompleto { get; set; } = string.Empty;
+        /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
+        public List<MesRendicionDto> MesesRendicion { get; set; } = new();
     }
 
     public class LugarProyectoOptionDto
@@ -308,7 +302,18 @@
         public string NombreDisplay { get; set; } = string.Empty;
     }
 
-    public class AprobarRechazarDto { }
+    /// <summary>
+    /// Cuerpo del rechazo. Todo opcional: aprobar no lleva cuerpo y rechazar puede ir sin motivo
+    /// (el botón bulk de la tabla rechaza sin pedirlo).
+    /// </summary>
+    public class RechazarSalidaDto
+    {
+        /// <summary>
+        /// Motivo del rechazo que verá el solicitante en su correo. Opcional; en blanco se guarda
+        /// null. Tope 500 caracteres, el largo de la columna <c>motivo_rechazo</c>.
+        /// </summary>
+        public string? MotivoRechazo { get; set; }
+    }
 
     public class GestionSalidaCapturaDto
     {
@@ -330,7 +335,8 @@
     {
         public int Id { get; set; }
         public int Orden { get; set; }
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null en trayectos de motivos que no piden horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
         /// <summary>Detalle que escribió el trabajador cuando el motivo lo exige. Null si no aplica.</summary>
@@ -344,11 +350,20 @@
         public decimal? MontoCatalogo { get; set; }
         /// <summary>Monto efectivo: sum(capturas) si hay; sino MontoCatalogo si aplica; sino 0.</summary>
         public decimal MontoTotal { get; set; }
+        /// <summary>
+        /// Si el trayecto genera reembolso de movilidad: lo concede el motivo del catálogo
+        /// (Configuración → Motivos) y el par (origen, destino) puede anularlo, nunca al revés
+        /// (ver <c>ReembolsoTrayectoRule</c>). Null con motivo libre: no está en el catálogo, así
+        /// que no tiene el flag configurado y el detalle no muestra el pill.
+        /// </summary>
+        public bool? EsReembolsable { get; set; }
     }
 
     public class GestionSalidaDetalleDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public int WorkerId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>Área más baja del trabajador (el nodo de <c>puesto.area_destino_scope_id</c>).</summary>
@@ -368,6 +383,12 @@
         public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
         public string? MotivoRechazo { get; set; }
+        /// <summary>
+        /// True si el usuario que abre el detalle es el revisor de esta salida — lo único que
+        /// habilita los botones de aprobar/rechazar del modal. Misma regla que la del listado
+        /// (<c>GestionSalidaListItemDto.PuedeDecidir</c>) y la que re-valida el backend al decidir.
+        /// </summary>
+        public bool PuedeDecidir { get; set; }
 
         // -- Reembolso ---------------------------------------------------
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado".</summary>
@@ -427,5 +448,23 @@
         public decimal Importe { get; set; }
         /// <summary>True si el importe proviene del catálogo ga_trayecto (incluso si vale 0).</summary>
         public bool EsCatalogo { get; set; }
+    }
+
+    /// <summary>
+    /// Lo mínimo para volver a armar el PDF de una planilla que ya existe (la subsanación de una
+    /// rendición observada en primera revisión).
+    /// </summary>
+    public class RendicionParaRegenerarDto
+    {
+        public int RendicionId { get; set; }
+
+        /// <summary>Correlativo impreso en el PDF. Se reusa: es el mismo documento corregido.</summary>
+        public int? NumeroPlanilla { get; set; }
+
+        /// <summary>FK a <c>ga_estado_primera_revision</c> — el estado en el que está hoy.</summary>
+        public int EstadoPrimeraRevisionId { get; set; }
+
+        /// <summary>TODAS las salidas de la planilla, de todos sus trabajadores.</summary>
+        public List<int> SolicitudIds { get; set; } = new();
     }
 }

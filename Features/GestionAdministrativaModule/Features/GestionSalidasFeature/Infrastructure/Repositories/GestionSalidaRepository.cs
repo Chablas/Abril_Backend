@@ -3,10 +3,10 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +15,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
         private const int PageSize = 10;
+
+        /// <summary>Hora de Perú: el año del código REN-AAAA-NNNN corta a la medianoche de acá, no a las 19:00 en UTC.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Namespace del pg_advisory_xact_lock que serializa la generación del correlativo de
+        /// rendición. Propio: no comparte candado con el SOL-AAAA-NNNN de las solicitudes (8472)
+        /// ni con el REQ-AAAA-NNNN de GTH.
+        /// </summary>
+        private const int CorrelativoRendicionLockNamespace = 8473;
+
+        /// <summary>Largo de la columna <c>ga_solicitud_salida.motivo_rechazo</c>.</summary>
+        private const int MotivoRechazoMaxLength = 500;
+
+        /// <summary>
+        /// Nombre exacto del área de GTH en <c>area_item</c>. Se resuelve por texto —igual que en
+        /// <c>SalidaVisibilityResolver</c> y <c>JefeRevisorResolver</c>— porque el árbol de áreas es
+        /// administrable por UI y no hay id fijo al que agarrarse.
+        /// </summary>
+        private const string AreaGthNombre = "Gestión del Talento Humano";
+
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
 
@@ -32,7 +53,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// estable: los empates conservan el orden original (fecha de salida descendente, luego las
         /// registradas más recientemente).
         /// </summary>
-        public async Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        public async Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters)
         {
             var all = await GetAll(filters);
             var sorted = ApplySort(all, filters);
@@ -40,13 +61,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var totalRecords = sorted.Count;
             var page = filters.Page < 1 ? 1 : filters.Page;
 
-            return new PagedResult<GestionSalidaListItemDto>
+            return new GestionSalidaPagedDto
             {
                 Page = page,
                 PageSize = PageSize,
                 TotalRecords = totalRecords,
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)PageSize),
                 Data = sorted.Skip((page - 1) * PageSize).Take(PageSize).ToList(),
+                // Las tarjetas cuentan TODO lo filtrado, no la página: `all` ya está acá, así que
+                // sale gratis y no puede discrepar de lo que la tabla está mostrando.
+                Resumen = ResumenRendicionDto.De(all),
             };
         }
 
@@ -94,6 +118,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         {
             using var ctx = _factory.CreateDbContext();
 
+            // 0. Desplegable "Mes a rendir": el periodo elegido se traduce a un rango de
+            //    fecha_salida y deja la tabla solo con lo apto para rendir. Gana sobre "Hoy" —
+            //    los dos filtros son excluyentes y la pantalla apaga uno al prender el otro,
+            //    pero si por lo que sea llegan juntos, el mes manda.
+            if (filters.RendicionAnio.HasValue && filters.RendicionMes.HasValue)
+            {
+                var (desdeMes, hastaMes) = MesAnteriorPeru.RangoDe(filters.RendicionAnio.Value, filters.RendicionMes.Value);
+                filters.FechaSalidaDesde = desdeMes;
+                filters.FechaSalidaHasta = hastaMes;
+                filters.SoloHoy          = false;
+                filters.SoloAptas        = true;
+            }
+
             // 1. Filtrar solicitudes (cabecera)
             var solicitudQuery = ctx.GaSolicitudSalida.AsQueryable();
 
@@ -108,22 +145,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-            // Estado del reembolso. En modo TESORERÍA el filtro no es opcional: la bandeja del
-            // tesorero son las salidas ya firmadas por la jefatura y las ya pagadas, y lo que pida
-            // por el desplegable solo puede recortar ESE conjunto, nunca ampliarlo.
+            // Estado del reembolso: acá es solo un filtro informativo. El reembolso se decide en
+            // Gestión de Rendiciones y se paga en Reembolsos; esta pantalla llega hasta rendir y
+            // muestra el estado como columna.
             var reembId = EstadosSalida.Reembolso.IdFromNombre(filters.EstadoReembolso);
-            if (filters.EsTesorero)
-            {
-                var visiblesTesoreria = EstadosSalida.Reembolso.VisiblesParaTesoreria;
-                if (reembId.HasValue && visiblesTesoreria.Contains(reembId.Value))
-                    solicitudQuery = solicitudQuery.Where(s => s.EstadoReembolsoId == reembId.Value);
-                else
-                    solicitudQuery = solicitudQuery.Where(s => visiblesTesoreria.Contains(s.EstadoReembolsoId));
-            }
-            else if (reembId.HasValue)
-            {
+            if (reembId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoReembolsoId == reembId.Value);
-            }
 
             // Filtro "Hoy" (encendido por defecto en Gestión de Salidas): solo las solicitudes cuya
             // fecha de salida es la de hoy. El día se toma en hora de Perú (UTC-5) y no la del
@@ -148,35 +175,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 solicitudQuery = solicitudQuery.Where(s => s.FechaSalida <= hasta);
             }
 
-            // Visibilidad obligatoria (server-side): el usuario SIEMPRE ve sus propias solicitudes
-            // (worker_id → su user), sin importar rol ni área — así un trabajador cualquiera puede
-            // ver y rendir lo suyo. Además ve las que le fueron enviadas para revisar
-            // (enviado_a_correo → su email_corporativo), las que él decidió (aprobador_worker_id →
-            // su user; también cubre solicitudes antiguas donde ese campo guardaba al revisor al que
-            // se envió), MÁS las de los trabajadores que pertenecen a las áreas (area_scope) que
-            // tiene permitido ver. Si SeesAll = true no se aplica restricción por área. El servicio
-            // ya resolvió el alcance (override o algoritmo).
-            if (filters.CurrentUserId.HasValue && !filters.SeesAll && !filters.EsTesorero)
-            {
-                var uid = filters.CurrentUserId.Value;
-                var areaIds = filters.VisibleAreaScopeIds ?? new List<int>();
-                solicitudQuery = solicitudQuery.Where(s =>
-                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
-                    ||
-                    (s.AprobadorWorkerId != null &&
-                     ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
-                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
-                    ||
-                    (s.EnviadoACorreo != null &&
-                     ctx.Worker.Any(w => w.EmailCorporativo != null &&
-                         w.EmailCorporativo.Trim().ToLower() == s.EnviadoACorreo.Trim().ToLower() &&
-                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
-                    ||
-                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
-                        w.PuestoCatalogo!.AreaDestinoScopeId != null
-                        && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)));
-            }
+            // Visibilidad obligatoria (server-side). La regla vive en SalidaVisibilidadFilter
+            // porque Gestión de Rendiciones muestra el mismo universo de salidas agrupadas en
+            // planillas: con dos copias las pantallas podrían discrepar sobre quién ve qué.
+            // El servicio ya resolvió el alcance (override o algoritmo).
+            solicitudQuery = SalidaVisibilidadFilter.Aplicar(
+                solicitudQuery, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
 
             // Filtro de área elegido por el usuario (cascada): trabajadores cuya área (la de
             // destino de su puesto) esté dentro del nodo seleccionado + sus descendientes
@@ -211,13 +215,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 orderby s.FechaSalida descending, s.CreatedAt descending
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, s.Codigo, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
                     s.HoraSalidaReal, s.HoraRetornoReal, s.RendicionId,
                     s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
-                    s.ReembolsoDecididoAt, s.RevisorNotificadoAt
+                    s.ReembolsoDecididoAt
                 }
             ).ToListAsync();
 
@@ -248,6 +252,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                     // Motivo libre (sin catálogo) cuenta como hora exacta → se registra hora real.
                     EsHoraEstimada = m != null && m.EsHoraEstimada,
+                    // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
+                    // motivo libre no tiene el flag y por eso no concede nada.
+                    EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                 : lo.Nombre,
@@ -274,27 +281,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var hayWorkerTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayWorkerTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
-            // 4.b. Worker(s) del usuario actual + si es Gerente — para marcar por fila si puede
-            //      aprobar/rechazar (nadie decide sus propias salidas, salvo los gerentes).
-            var misWorkerIds = new HashSet<int>();
-            var esGerente = false;
-            if (filters.CurrentUserId.HasValue)
+            // 4.a. Áreas con capturas OPCIONALES (Configuración → Capturas): las salidas de sus
+            //      trabajadores se pueden rendir sin ninguna captura.
+            var areasCapturasOpcionales = await CapturasObligatoriasLoader.LoadAreasOpcionalesAsync(ctx);
+
+            // 4.a.bis. Feriados (Configuración → Feriados) para el plazo de rendición. Se carga una
+            //          sola vez y responde por todos los meses que traiga el listado.
+            var calendario = await CalendarioNoLaborable.CargarAsync(ctx);
+            var plazoPorMes = new Dictionary<(int, int), DateOnly>();
+            DateOnly limiteDe(DateOnly fechaSalida)
             {
-                var uidDec = filters.CurrentUserId.Value;
-                var misWorkers = await (
-                    from w in ctx.Worker
-                    join p in ctx.Person on w.PersonId equals p.PersonId
-                    where p.UserId == uidDec
-                    // La categoría sale del puesto: workers ya no la guarda.
-                    select new
-                    {
-                        w.Id,
-                        CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-                    }
-                ).ToListAsync();
-                misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
-                esGerente = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
+                var clave = (fechaSalida.Year, fechaSalida.Month);
+                if (!plazoPorMes.TryGetValue(clave, out var limite))
+                {
+                    limite = calendario.LimiteDeRendicion(clave.Year, clave.Month);
+                    plazoPorMes[clave] = limite;
+                }
+                return limite;
             }
+            var hoyPeru = MesAnteriorPeru.HoyPeru();
+
+            // 4.b. Fichas, personas y áreas del usuario actual — para marcar por fila si es el
+            //      revisor de esa salida (lo único que habilita Aprobar/Rechazar) y si la salida
+            //      es suya (habilita Cancelar). Puede tener más de una ficha por reingreso.
+            var quienDecide = await CargarQuienDecideAsync(ctx, filters.CurrentUserId);
 
             // 4.c. Área del trabajador (nodo de puesto.area_destino_scope_id, el más bajo del árbol) y
             //       jefe/revisor de cada solicitante. El revisor se resuelve en UN lote para todos
@@ -323,18 +333,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     .Select(pe => new { UserId = pe.UserId!.Value, Nombre = pe.FullName ?? "" })
                     .ToDictionaryAsync(x => x.UserId, x => x.Nombre);
 
-            var rendicionIds = solicitudes
-                .Where(x => x.RendicionId.HasValue)
-                .Select(x => x.RendicionId!.Value)
-                .Distinct()
-                .ToList();
-            var planillaFirmadaPorRendicion = rendicionIds.Count == 0
-                ? new Dictionary<int, string>()
-                : await ctx.GaRendicion
-                    .Where(r => rendicionIds.Contains(r.Id) && r.PdfFirmadoUrl != null)
-                    .Select(r => new { r.Id, Url = r.PdfFirmadoUrl! })
-                    .ToDictionaryAsync(x => x.Id, x => x.Url);
-
             // 5. Armar resultado
             var result = new List<GestionSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
@@ -345,8 +343,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 var last  = trList.LastOrDefault();
 
                 var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+                var capturasOpcionales = CapturasObligatoriasLoader.CapturasOpcionales(
+                    areasCapturasOpcionales, s.AreaScopeId);
                 bool trayectoCubierto(dynamic t)
                 {
+                    if (capturasOpcionales) return true;
                     if (trayectosConCapturas.Contains((int)t.Id)) return true;
                     if (!esTI) return false;
                     if (t.LugarOrigenId == null || t.LugarDestinoId == null) return false;
@@ -354,17 +355,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
                 var puedeRendir = trList.Count > 0 && trList.All(t => trayectoCubierto(t));
 
+                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
+                // gasto de movilidad y tiene algo que rendir.
+                var esReembolsable = trList.Any(t => t.EsReembolsable);
+
+                // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
+                // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).
+                var plazoHasta   = limiteDe(s.FechaSalida);
+                var plazoVencido = hoyPeru > plazoHasta;
+
+                var aptaParaRendir = puedeRendir
+                    && esReembolsable
+                    && !plazoVencido
+                    && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                    && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido;
+
                 revisorPorWorker.TryGetValue(s.WorkerInternalId, out var revisor);
 
                 result.Add(new GestionSalidaListItemDto
                 {
                     Id               = s.Id,
+                    Codigo           = s.Codigo,
                     WorkerId         = s.WorkerInternalId,
                     Trabajador       = s.Trabajador,
                     Area             = AreaMasBaja(s.AreaScopeId, arbolAreas),
                     RevisorNombre    = revisor?.Nombre,
                     FechaSalida      = s.FechaSalida,
-                    HoraSalida       = first?.HoraSalida ?? default,
+                    HoraSalida       = first?.HoraSalida,
                     HoraRetorno      = last?.HoraRetorno,
                     Motivo           = first?.Motivo ?? string.Empty,
                     LugarOrigen      = first?.LugarOrigen,
@@ -374,41 +391,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
+                    EsReembolsable   = esReembolsable,
+                    PlazoRendicionHasta = plazoHasta,
+                    PlazoVencido        = plazoVencido,
+                    AptaParaRendir   = aptaParaRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
                     HoraRetornoReal  = s.HoraRetornoReal,
                     // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
                     EsHoraEstimada   = trList.Count > 0 && trList.All(t => t.EsHoraEstimada),
-                    PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
-                    EsPropia         = misWorkerIds.Contains(s.WorkerId),
+                    // Solo el revisor de la salida la decide: ver EsElRevisor. Se pregunta al MISMO
+                    // resolver que eligió a quién se le mandó el correo con los botones, así que la
+                    // pantalla habilita exactamente a quien lo recibió — y es lo mismo que re-valida
+                    // EnsureEsElRevisorAsync al aprobar/rechazar.
+                    PuedeDecidir     = EsElRevisor(quienDecide, revisor, arbolAreas),
+                    EsPropia         = quienDecide.WorkerIds.Contains(s.WorkerId),
 
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
                     ObservacionReembolso = s.ObservacionReembolso,
                     ReembolsoDecididoAt  = s.ReembolsoDecididoAt,
-                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                     ReembolsoDecididoPor = s.ReembolsoDecididoPorId.HasValue
                         ? nombrePorUserId.GetValueOrDefault(s.ReembolsoDecididoPorId.Value)
                         : null,
-                    PlanillaFirmadaUrl = s.RendicionId.HasValue
-                        ? planillaFirmadaPorRendicion.GetValueOrDefault(s.RendicionId.Value)
-                        : null,
                 });
 
-                if (consolidados.TryGetValue(s.Id, out var cons))
-                {
-                    var item = result[^1];
-                    item.ConsolidadoS10Url      = cons.PdfUrl;
-                    item.ConsolidadoS10Filename = cons.PdfFilename;
-                    item.ConsolidadoS10Ambito   = cons.Ambito;
-                }
-
                 // El reembolso solo se revisa cuando la salida ya está rendida Y tiene el
-                // Consolidado del S10: es el papel que el jefe mira para dar el visto bueno.
+                // Consolidado del S10: es el papel que el jefe mira para dar el visto bueno. Acá
+                // solo evita pintar un "Pendiente" que se leería como si esperara a alguien.
                 result[^1].ReembolsoRevisable =
                     s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
                     && consolidados.ContainsKey(s.Id);
             }
 
-            return result;
+            // El recorte a "solo aptas" va al final y no en la consulta: la aptitud depende de las
+            // capturas, del área y del motivo, que recién quedan resueltos acá arriba.
+            return filters.SoloAptas ? result.Where(x => x.AptaParaRendir).ToList() : result;
         }
 
         public async Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId)
@@ -487,28 +503,46 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         }
 
         /// <summary>
-        /// Regla de negocio: un usuario NO puede aprobar ni rechazar sus propias solicitudes de
-        /// salida. Única excepción: si el usuario es Gerente (<see cref="CategoriaIds.Gerente"/>),
-        /// sí puede decidir las suyas (los gerentes salen sin pedir permiso, pero se deja
-        /// habilitado por si acaso).
+        /// Regla de negocio: una solicitud de salida la aprueba o rechaza <b>solo su revisor</b>,
+        /// el que resolvió <c>IJefeRevisorResolver</c> — el jefe personalizado del trabajador
+        /// (Gestión de Ingresos → ficha del trabajador → "Jefe personalizado") o, si no tiene, el
+        /// revisor que sale de su área subiendo por el árbol (Configuración → Revisores de Áreas,
+        /// más lo que cada revisor delega en Delegación de Revisión). Es el MISMO resolver que
+        /// decide a quién se le manda el correo con los botones, así que en la web decide
+        /// exactamente quien recibe ese correo y nadie más.
+        ///
+        /// Ver la resolución completa (incluido el fallback de GTH) en <see cref="EsElRevisor"/>.
+        /// El alcance por área (<c>ISalidaVisibilityResolver</c>) da a VER las salidas de una rama,
+        /// no a decidirlas: un gerente o recepción ven la solicitud y su detalle, pero si no son su
+        /// revisor no la aprueban.
+        ///
+        /// "Nadie decide lo suyo" queda cubierto de arranque: el revisor que se deriva del área
+        /// nunca es el propio trabajador (lo descarta <c>JefeRevisorResolver</c>), así que sobre lo
+        /// propio solo decide quien tenga el jefe personalizado apuntándose a sí mismo.
+        ///
+        /// Ojo: la 1.ª revisión de la rendición y la decisión del reembolso
+        /// (<c>GestionRendicionRepository</c>) siguen con su propia regla (nadie decide lo suyo);
+        /// esto solo cubre aprobar/rechazar la salida. La aprobación por token desde el correo
+        /// tampoco pasa por acá: ahí autoriza el token firmado, que se emitió a ese revisor.
         /// </summary>
-        private static async Task EnsurePuedeDecidirAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
+        private async Task EnsureEsElRevisorAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
         {
-            var esPropia = await ctx.Worker.AnyAsync(w => w.Id == s.WorkerId &&
-                ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == reviewerUserId));
-            if (!esPropia) return;
+            var quien   = await CargarQuienDecideAsync(ctx, reviewerUserId);
+            var revisor = await _jefeResolver.ResolveAsync(s.WorkerId);
 
-            // Un usuario puede tener más de una ficha de worker (reingreso): basta con que
-            // alguna sea Gerente. Mismo criterio que SalidaVisibilityResolver.
-            var esGerente = await (
-                from w in ctx.Worker
-                join p in ctx.Person on w.PersonId equals p.PersonId
-                where p.UserId == reviewerUserId
-                select w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-            ).AnyAsync(id => id == CategoriaIds.Gerente);
+            // El árbol solo hace falta cuando el revisor no es una persona (el fallback de GTH, o
+            // ninguno): en el caso normal se decide sin tocar la base de nuevo.
+            var arbol = revisor?.WorkerId == null
+                ? await CargarArbolAreasAsync(ctx)
+                : new Dictionary<int, (int? Padre, string Nombre)>();
 
-            if (!esGerente)
-                throw new AbrilException("No puedes aprobar ni rechazar tus propias solicitudes de salida.", 403);
+            if (EsElRevisor(quien, revisor, arbol)) return;
+
+            throw new AbrilException(
+                quien.WorkerIds.Contains(s.WorkerId)
+                    ? "No puedes aprobar ni rechazar tus propias solicitudes de salida."
+                    : "Solo el revisor asignado a esta solicitud puede aprobarla o rechazarla.",
+                403);
         }
 
         public async Task Aprobar(int id, int reviewerUserId)
@@ -516,7 +550,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
-            await EnsurePuedeDecidirAsync(ctx, s, reviewerUserId);
+            await EnsureEsElRevisorAsync(ctx, s, reviewerUserId);
             if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden aprobar solicitudes en estado Pendiente.", 400);
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
@@ -527,12 +561,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             await ctx.SaveChangesAsync();
         }
 
-        public async Task Rechazar(int id, int reviewerUserId)
+        public async Task Rechazar(int id, int reviewerUserId, string? motivoRechazo)
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
-            await EnsurePuedeDecidirAsync(ctx, s, reviewerUserId);
+            await EnsureEsElRevisorAsync(ctx, s, reviewerUserId);
+
+            var motivo = (motivoRechazo ?? string.Empty).Trim();
+            if (motivo.Length > MotivoRechazoMaxLength)
+                throw new AbrilException(
+                    $"El motivo del rechazo no puede pasar de {MotivoRechazoMaxLength} caracteres.", 400);
 
             // Se puede rechazar una solicitud Pendiente o una ya Aprobada que todavía NO haya sido
             // rendida: el revisor puede revertir una aprobación mientras no exista la rendición. Una
@@ -548,6 +587,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             }
 
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
+            // El motivo es opcional: en blanco se guarda null y el correo de rechazo sale sin él.
+            s.MotivoRechazo      = motivo.Length == 0 ? null : motivo;
             s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;
             // Decisión desde la web: quien decide (rechaza) es el worker del usuario logueado.
@@ -572,6 +613,58 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .OrderBy(f => f.GaRendicionFolderId)
                 .Select(f => f.LinkUrl)
                 .FirstOrDefaultAsync();
+        }
+
+        public async Task<RendicionParaRegenerarDto?> GetRendicionParaRegenerar(int rendicionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var planilla = await ctx.GaRendicion
+                .Where(r => r.Id == rendicionId)
+                .Select(r => new { r.Id, r.NumeroPlanilla, r.EstadoPrimeraRevisionId })
+                .FirstOrDefaultAsync();
+            if (planilla == null) return null;
+
+            var solicitudIds = await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId == rendicionId)
+                .OrderBy(s => s.Id)
+                .Select(s => s.Id)
+                .ToListAsync();
+
+            return new RendicionParaRegenerarDto
+            {
+                RendicionId             = planilla.Id,
+                NumeroPlanilla          = planilla.NumeroPlanilla,
+                EstadoPrimeraRevisionId = planilla.EstadoPrimeraRevisionId,
+                SolicitudIds            = solicitudIds,
+            };
+        }
+
+        public async Task ReemplazarPdfRendicion(
+            int rendicionId, string pdfUrl, string? pdfItemId, string pdfFilename)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var rendicion = await ctx.GaRendicion.FirstOrDefaultAsync(r => r.Id == rendicionId)
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            rendicion.PdfUrl      = pdfUrl;
+            rendicion.PdfItemId   = pdfItemId;
+            rendicion.PdfFilename = pdfFilename;
+
+            // Vuelve a "Lista para enviar" y se limpia el sello de envío: el documento que el jefe
+            // vio ya no es el vigente, así que la primera revisión arranca de nuevo cuando el
+            // trabajador reenvíe. La decisión anterior (fecha, quién y la observación) se conserva:
+            // es el registro de qué se observó y con qué hay que contrastar lo corregido.
+            rendicion.EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Borrador;
+            rendicion.EnviadaRevisionAt       = null;
+            rendicion.EnviadaRevisionPorId    = null;
+
+            // RendidoPorId / RendidoAt no se tocan: son de la rendición (que sigue siendo la misma)
+            // y RendidoAt es la clave de orden de las tres pantallas. Quién regeneró queda en el
+            // nombre del archivo nuevo, que lleva su userId.
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<List<int>> CrearRendicionYMarcarBulk(
@@ -602,14 +695,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             {
                 using var tx = await ctx.Database.BeginTransactionAsync();
 
+                // Código REN-AAAA-NNNN (RG-02). Mismo mecanismo que el SOL-AAAA-NNNN de las
+                // solicitudes: el candado por año se toma ANTES de leer los números usados, porque
+                // en READ COMMITTED dos rendiciones simultáneas leerían lo mismo, armarían el mismo
+                // código y la segunda moriría contra el índice único (no es un error transitorio,
+                // así que la execution strategy tampoco lo reintenta).
+                var anio = now.ToOffset(PeruOffset).Year;
+                await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({CorrelativoRendicionLockNamespace}, {anio})");
+
+                // El menor número libre del año, no el máximo + 1: las planillas anteriores al
+                // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
+                var usados = (await ctx.GaRendicion
+                        .Where(r => r.Anio == anio && r.Numero != null)
+                        .Select(r => r.Numero!.Value)
+                        .ToListAsync())
+                    .ToHashSet();
+                var numero = 1;
+                while (usados.Contains(numero)) numero++;
+
                 var rendicion = new GaRendicion
                 {
+                    Codigo         = $"REN-{anio}-{numero:D4}",
+                    Anio           = anio,
+                    Numero         = numero,
                     PdfUrl         = pdfUrl,
                     PdfItemId      = pdfItemId,
                     PdfFilename    = pdfFilename,
                     RendidoPorId   = userId,
                     RendidoAt      = now,
                     NumeroPlanilla = numeroPlanilla,
+                    // Nace "Lista para enviar": el PDF ya está, pero la primera revisión arranca
+                    // recién cuando el trabajador la envía desde Mis Rendiciones.
+                    EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Borrador,
                 };
                 ctx.GaRendicion.Add(rendicion);
                 await ctx.SaveChangesAsync();
@@ -664,12 +782,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
-            // Cargar info de cada solicitud + subarea del worker
+            // Cargar info de cada solicitud + subarea y área del worker (el área sale del puesto).
             var solicitudes = await (
                 from s in ctx.GaSolicitudSalida
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 where idsList.Contains(s.Id)
-                select new { s.Id, w.Subarea }
+                select new
+                {
+                    s.Id,
+                    w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                }
             ).ToListAsync();
 
             if (solicitudes.Count == 0) return idsList;
@@ -695,14 +818,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var hayTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Áreas con capturas OPCIONALES (Configuración → Capturas).
+            var areasCapturasOpcionales = await CapturasObligatoriasLoader.LoadAreasOpcionalesAsync(ctx);
+
             var incompletas = new List<int>();
             foreach (var s in solicitudes)
             {
+                // Una salida sin trayectos no se puede rendir ni siquiera con las capturas en
+                // opcional: no hay nada que rendir.
                 if (!trayectosBySol.TryGetValue(s.Id, out var trList) || trList.Count == 0)
                 {
                     incompletas.Add(s.Id);
                     continue;
                 }
+
+                if (CapturasObligatoriasLoader.CapturasOpcionales(areasCapturasOpcionales, s.AreaScopeId))
+                    continue;
 
                 var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
                 bool todosCubiertos = trList.All(t =>
@@ -719,7 +850,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return incompletas;
         }
 
-        public async Task<GestionSalidaDetalleDto?> GetDetalle(int id)
+        public async Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            // Con un solo trayecto de motivo reembolsable ya hay gasto que rendir. El motivo libre
+            // (motivo_id NULL) no concede: el flag vive en el catálogo y arranca en false.
+            var conMotivoReembolsable = await ctx.GaSolicitudTrayecto
+                .Where(t => idsList.Contains(t.SolicitudId)
+                         && ctx.GaMotivoSalida.Any(m => m.Id == t.MotivoId && m.EsReembolsable))
+                .Select(t => t.SolicitudId)
+                .Distinct()
+                .ToListAsync();
+
+            return idsList.Except(conMotivoReembolsable).ToList();
+        }
+
+        public async Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            var fechas = await ctx.GaSolicitudSalida
+                .Where(s => idsList.Contains(s.Id))
+                .Select(s => s.FechaSalida)
+                .Distinct()
+                .ToListAsync();
+
+            // El agrupado por (año, mes) va en memoria: traducir DateOnly a year/month dentro del
+            // GroupBy hace que el proveedor arme un GROUP BY por expresión y el set ya es chico.
+            return fechas
+                .Select(f => (f.Year, f.Month))
+                .Distinct()
+                .OrderBy(x => x.Year).ThenBy(x => x.Month)
+                .ToList();
+        }
+
+        public async Task<CalendarioNoLaborable> GetCalendarioNoLaborable()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await CalendarioNoLaborable.CargarAsync(ctx);
+        }
+
+        public async Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -733,7 +909,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == id
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id, w.Subarea,
+                    s.Id, s.Codigo, WorkerInternalId = w.Id, w.Subarea,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt, s.MotivoRechazo,
@@ -787,6 +963,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
+                    // Las dos mitades de la regla de reembolso: el motivo libre (sin fila en el
+                    // catálogo) no tiene el flag, y por eso se distingue del que lo tiene en false.
+                    EsMotivoDeCatalogo   = m != null,
+                    MotivoEsReembolsable = m != null && m.EsReembolsable,
                     // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
                     t.AdjuntoUrl,
                     t.AdjuntoFilename,
@@ -857,8 +1037,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var esTI = string.Equals(head.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Excepciones que anulan el reembolso del motivo. Van aparte del catálogo de montos:
+            // ese solo aplica a TI y esta regla es para todos.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+
             foreach (var raw in trayectosRaw)
             {
+                raw.Dto.EsReembolsable = ReembolsoTrayectoRule.Resolver(
+                    raw.EsMotivoDeCatalogo, raw.MotivoEsReembolsable,
+                    raw.LugarOrigenId, raw.LugarDestinoId, excluidosReembolso);
+
                 var sumCapturas = raw.Dto.Capturas.Sum(c => c.Monto);
                 if (esTI && raw.LugarOrigenId.HasValue && raw.LugarDestinoId.HasValue &&
                     catalogoMap.TryGetValue((raw.LugarOrigenId.Value, raw.LugarDestinoId.Value), out var montoCat))
@@ -872,6 +1060,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // jefe/revisor con su correo — el mismo que recibió la solicitud para aprobar.
             var arbolAreas = await CargarArbolAreasAsync(ctx);
             var revisor    = await _jefeResolver.ResolveAsync(head.WorkerInternalId);
+
+            // Y si el que está mirando el detalle es ese revisor: es lo que decide si el modal
+            // muestra los botones de aprobar/rechazar. El correo al revisor lleva justamente a
+            // este detalle, así que el botón aparece en el mismo lugar donde cae.
+            var quienDecide = await CargarQuienDecideAsync(ctx, currentUserId);
 
             // Quién decidió el reembolso, quién firmó y quién pagó: los tres son app_user, así que
             // salen de una sola consulta a person.
@@ -887,6 +1080,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return new GestionSalidaDetalleDto
             {
                 Id               = head.Id,
+                Codigo           = head.Codigo,
                 WorkerId         = head.WorkerInternalId,
                 Trabajador       = head.Trabajador,
                 Area             = AreaMasBaja(head.AreaScopeId, arbolAreas),
@@ -898,6 +1092,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(head.EstadoRendicionId),
                 CreatedAt        = head.CreatedAt,
                 MotivoRechazo    = head.MotivoRechazo,
+                PuedeDecidir     = EsElRevisor(quienDecide, revisor, arbolAreas),
 
                 EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
                 ObservacionReembolso = head.ObservacionReembolso,
@@ -993,39 +1188,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     r.Item.Area = nombreArea;
             }
 
-            // Importe por trayecto (suma de capturas)
-            var trayectoIds = rowsRaw.Select(r => r.Item.Id).ToList();
-            var importesCapturas = await ctx.GaSolicitudCaptura
-                .Where(c => trayectoIds.Contains(c.TrayectoId))
-                .GroupBy(c => c.TrayectoId)
-                .Select(g => new { TrayectoId = g.Key, Total = g.Sum(x => x.Monto) })
-                .ToDictionaryAsync(x => x.TrayectoId, x => x.Total);
-
-            // Catálogo: necesario para los trayectos sin capturas cuyo worker es TI
-            var necesitaCatalogo = rowsRaw.Any(r =>
-                string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
-                !importesCapturas.ContainsKey(r.Item.Id));
-            var catalogoMap = necesitaCatalogo ? await CargarCatalogoTrayectosAsync(ctx) : new();
+            // Importe por trayecto: capturas, o catálogo si el trabajador es de TI. La regla vive
+            // en ImporteRendidoLoader porque Mis Rendiciones muestra ese mismo monto y las dos
+            // vistas no pueden discrepar del importe que se imprime acá.
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                rowsRaw.Select(r => new ImporteRendidoLoader.TrayectoParaImporte(
+                    r.Item.Id, r.Subarea, r.LugarOrigenId, r.LugarDestinoId)).ToList());
 
             foreach (var r in rowsRaw)
             {
-                if (importesCapturas.TryGetValue(r.Item.Id, out var sumCap) && sumCap > 0m)
-                {
-                    r.Item.Importe    = sumCap;
-                    r.Item.EsCatalogo = false;
-                }
-                else if (string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
-                         r.LugarOrigenId.HasValue && r.LugarDestinoId.HasValue &&
-                         catalogoMap.TryGetValue((r.LugarOrigenId.Value, r.LugarDestinoId.Value), out var montoCat))
-                {
-                    r.Item.Importe    = montoCat;
-                    r.Item.EsCatalogo = true;
-                }
-                else
-                {
-                    r.Item.Importe    = 0m;
-                    r.Item.EsCatalogo = false;
-                }
+                if (!importes.TryGetValue(r.Item.Id, out var imp)) continue;
+                r.Item.Importe    = imp.Importe;
+                r.Item.EsCatalogo = imp.EsCatalogo;
             }
 
             return rowsRaw.Select(r => r.Item).ToList();
@@ -1062,262 +1237,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// S10 vigente (propio o heredado de su planilla) y con el reembolso todavía abierto
         /// (Pendiente o Rechazado — se puede reconsiderar un rechazo). Lo demás se ignora.
         /// </summary>
-        private static async Task<List<int>> IdsConReembolsoRevisableAsync(AppDbContext ctx, List<int> ids)
-        {
-            if (ids.Count == 0) return new();
-
-            var candidatas = await ctx.GaSolicitudSalida
-                .Where(s => ids.Contains(s.Id)
-                         && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                         && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado))
-                .Select(s => new { s.Id, s.RendicionId })
-                .ToListAsync();
-
-            if (candidatas.Count == 0) return new();
-
-            var consolidados = await ConsolidadoS10Loader.LoadAsync(
-                ctx, candidatas.ToDictionary(x => x.Id, x => x.RendicionId));
-
-            return candidatas.Where(x => consolidados.ContainsKey(x.Id)).Select(x => x.Id).ToList();
-        }
-
-        public async Task<List<int>> DecidirReembolso(
-            IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            if (!aprobar && string.IsNullOrWhiteSpace(observacion))
-                throw new AbrilException("Para rechazar un reembolso hay que escribir la observación.", 400);
-
-            using var ctx = _factory.CreateDbContext();
-
-            var elegibles = await IdsConReembolsoRevisableAsync(ctx, idsList);
-            if (elegibles.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas tiene un reembolso por decidir: deben estar " +
-                    "rendidas y con el Consolidado del S10 adjunto.", 400);
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => elegibles.Contains(s.Id))
-                .ToListAsync();
-
-            // Nadie decide el reembolso de sus propias salidas (salvo Gerente), misma regla que la
-            // aprobación de la salida. El chequeo se hace con UNA consulta para todo el lote y no
-            // con EnsurePuedeDecidirAsync por fila: eso eran dos consultas por salida seleccionada.
-            var misWorkers = await (
-                from w in ctx.Worker
-                join per in ctx.Person on w.PersonId equals per.PersonId
-                where per.UserId == reviewerUserId
-                select new
-                {
-                    w.Id,
-                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
-                }
-            ).ToListAsync();
-
-            var misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
-            var esGerente    = misWorkers.Any(x => x.CategoriaId == CategoriaIds.Gerente);
-
-            if (!esGerente && solicitudes.Any(x => misWorkerIds.Contains(x.WorkerId)))
-                throw new AbrilException(
-                    "No puedes decidir el reembolso de tus propias salidas — deselecciónalas primero.", 403);
-
-            var now  = DateTimeOffset.UtcNow;
-            var obs  = aprobar ? null : observacion!.Trim();
-            var next = aprobar ? EstadosSalida.Reembolso.Aprobado : EstadosSalida.Reembolso.Rechazado;
-
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId      = next;
-                s.ReembolsoDecididoPorId = reviewerUserId;
-                s.ReembolsoDecididoAt    = now;
-                s.UpdatedAt              = now;
-                // Al aprobar se limpia la observación: ya no hay nada que subsanar. Al rechazar se
-                // reemplaza por la nueva.
-                s.ObservacionReembolso   = obs;
-            }
-
-            await ctx.SaveChangesAsync();
-            return solicitudes.Select(s => s.Id).ToList();
-        }
-
-        public async Task<List<RendicionPorFirmarDto>> GetRendicionesPorFirmar(IEnumerable<int> ids)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            using var ctx = _factory.CreateDbContext();
-
-            var filas = await (
-                from s in ctx.GaSolicitudSalida
-                join r in ctx.GaRendicion on s.RendicionId equals r.Id
-                where idsList.Contains(s.Id)
-                   && s.EstadoReembolsoId == EstadosSalida.Reembolso.Aprobado
-                   && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                select new
-                {
-                    SolicitudId = s.Id,
-                    r.Id, r.PdfUrl, r.PdfFilename, r.PdfFirmadoUrl,
-                }
-            ).ToListAsync();
-
-            return filas
-                .GroupBy(x => x.Id)
-                .Select(g => new RendicionPorFirmarDto
-                {
-                    RendicionId   = g.Key,
-                    PdfUrl        = g.First().PdfUrl,
-                    PdfFilename   = g.First().PdfFilename,
-                    PdfFirmadoUrl = g.First().PdfFirmadoUrl,
-                    SolicitudIds  = g.Select(x => x.SolicitudId).ToList(),
-                })
-                .ToList();
-        }
-
-        public async Task MarcarFirmadas(
-            int rendicionId, IEnumerable<int> solicitudIds, int userId,
-            string? pdfUrl, string? pdfItemId, string? pdfFilename)
-        {
-            var idsList = solicitudIds?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return;
-
-            using var ctx = _factory.CreateDbContext();
-            var now = DateTimeOffset.UtcNow;
-
-            var rendicion = await ctx.GaRendicion.FirstOrDefaultAsync(r => r.Id == rendicionId)
-                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
-
-            // Solo se guarda el archivo si esta firma lo generó. Si la planilla ya venía firmada no
-            // se pisa: el PDF firmado que vale es el primero, y lo que falta es mover el estado de
-            // las salidas que aún no estaban firmadas.
-            if (!string.IsNullOrWhiteSpace(pdfUrl))
-            {
-                rendicion.PdfFirmadoUrl      = pdfUrl;
-                rendicion.PdfFirmadoItemId   = pdfItemId;
-                rendicion.PdfFirmadoFilename = pdfFilename;
-                rendicion.FirmadoPorId       = userId;
-                rendicion.FirmadoAt          = now;
-            }
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Aprobado)
-                .ToListAsync();
-
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId = EstadosSalida.Reembolso.Firmado;
-                s.FirmadoPorId      = userId;
-                s.FirmadoAt         = now;
-                s.UpdatedAt         = now;
-            }
-
-            await ctx.SaveChangesAsync();
-        }
-
-        public async Task<List<int>> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId)
-        {
-            var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
-
-            using var ctx = _factory.CreateDbContext();
-
-            var solicitudes = await ctx.GaSolicitudSalida
-                .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Firmado)
-                .ToListAsync();
-
-            if (solicitudes.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas está firmada: solo se puede marcar como pagado " +
-                    "lo que la jefatura ya firmó.", 400);
-
-            var now = DateTimeOffset.UtcNow;
-            foreach (var s in solicitudes)
-            {
-                s.EstadoReembolsoId = EstadosSalida.Reembolso.Pagado;
-                s.PagadoPorId       = tesoreroUserId;
-                s.PagadoAt          = now;
-                s.UpdatedAt         = now;
-            }
-
-            await ctx.SaveChangesAsync();
-            return solicitudes.Select(s => s.Id).ToList();
-        }
-
-        public async Task<ReembolsoCorreoInfoDto?> GetReembolsoCorreoInfo(int solicitudId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var head = await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                join u in ctx.User on (per != null ? per.UserId : null) equals (int?)u.UserId into uGroup
-                from u in uGroup.DefaultIfEmpty()
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId
-                select new
-                {
-                    s.Id, WorkerInternalId = w.Id,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    Email = u != null ? u.Email : null,
-                    s.FechaSalida, s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
-                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
-                }
-            ).FirstOrDefaultAsync();
-
-            if (head == null) return null;
-
-            var trayectoIds = await ctx.GaSolicitudTrayecto
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => t.Id)
-                .ToListAsync();
-
-            var monto = trayectoIds.Count == 0
-                ? 0m
-                : await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
-
-            string? decididoPor = null;
-            if (head.ReembolsoDecididoPorId.HasValue)
-            {
-                decididoPor = await ctx.Person
-                    .Where(pe => pe.UserId == head.ReembolsoDecididoPorId.Value)
-                    .Select(pe => pe.FullName)
-                    .FirstOrDefaultAsync();
-            }
-
-            var arbolAreas = await CargarArbolAreasAsync(ctx);
-
-            // Correlativo dentro del trabajador (el "#3" que ve él), no el id de la tabla: es el
-            // mismo numero que usan los demas correos del flujo.
-            var numeroUsuario = await ctx.GaSolicitudSalida
-                .CountAsync(x => x.WorkerId == head.WorkerInternalId && x.Id <= head.Id);
-
-            return new ReembolsoCorreoInfoDto
-            {
-                SolicitudId          = head.Id,
-                WorkerId             = head.WorkerInternalId,
-                NumeroUsuario        = numeroUsuario,
-                Trabajador           = head.Trabajador,
-                SolicitanteEmail     = head.Email,
-                Area                 = AreaMasBaja(head.AreaScopeId, arbolAreas),
-                FechaSalida          = head.FechaSalida,
-                NumeroPlanilla       = head.NumeroPlanilla.HasValue ? $"TI: {head.NumeroPlanilla.Value:D6}" : null,
-                TrayectosCount       = trayectoIds.Count,
-                MontoTotal           = monto,
-                EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
-                ObservacionReembolso = head.ObservacionReembolso,
-                DecididoPor          = decididoPor,
-            };
-        }
+        // La decisión del reembolso, la firma y el pago ya no viven acá: son pasos posteriores
+        // a rendir y se movieron a Gestión de Rendiciones (revisor) y Reembolsos (Tesorería).
 
         private const string SubareaTi              = "Tecnología de la Información";
         private const string TipoAreaEstandar       = "Área Estándar";
@@ -1417,6 +1338,126 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 actual = nodo.Padre;
             }
             return ruta;
+        }
+
+        // ── Aptitud para decidir (aprobar / rechazar) ────────────────────────
+
+        /// <summary>
+        /// Lo que hay que saber del usuario logueado para responder si es el revisor de una salida:
+        /// sus fichas de <c>workers</c> (puede tener varias por reingreso), las personas de esas
+        /// fichas y los nodos de área de sus puestos. Se carga UNA vez por consulta y sirve para
+        /// todas las filas de la página.
+        /// </summary>
+        private sealed record QuienDecide(
+            HashSet<int> WorkerIds, HashSet<int> PersonIds, List<int> AreaScopeIds)
+        {
+            public static QuienDecide Nadie() => new(new(), new(), new());
+        }
+
+        private static async Task<QuienDecide> CargarQuienDecideAsync(AppDbContext ctx, int? userId)
+        {
+            if (!userId.HasValue) return QuienDecide.Nadie();
+
+            var uid = userId.Value;
+            var fichas = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals (int?)p.PersonId
+                where p.UserId == uid
+                select new
+                {
+                    w.Id,
+                    w.PersonId,
+                    // El área sale del puesto: workers ya no la guarda.
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                }
+            ).ToListAsync();
+
+            if (fichas.Count == 0) return QuienDecide.Nadie();
+
+            return new QuienDecide(
+                fichas.Select(f => f.Id).ToHashSet(),
+                fichas.Where(f => f.PersonId.HasValue).Select(f => f.PersonId!.Value).ToHashSet(),
+                fichas.Where(f => f.AreaScopeId.HasValue).Select(f => f.AreaScopeId!.Value).Distinct().ToList());
+        }
+
+        /// <summary>
+        /// Regla única de quién está APTO para aprobar o rechazar una salida: <b>solo su revisor
+        /// resuelto</b>. Ver el alcance en <see cref="EnsureEsElRevisorAsync"/>; acá está el
+        /// cálculo puro, sin ir a la base, para poder marcarlo fila por fila en el listado.
+        ///
+        /// Dos formas de revisor, según cómo lo resolvió <c>IJefeRevisorResolver</c>:
+        ///   • una PERSONA (jefe personalizado o revisor de área) → apto si es una de las fichas
+        ///     del usuario. Se compara también por <c>person_id</c>: un reingreso deja varias
+        ///     fichas de la misma persona y el revisor puede estar configurado en cualquiera.
+        ///   • un ÁREA (el fallback de GTH, que es un correo de área y no una persona) → apto
+        ///     cualquiera que cuelgue de ese nodo, o sea todo GTH. Es el mismo criterio con el que
+        ///     <c>SalidaVisibilityResolver</c> les da a ver todas las salidas: sin esto, las
+        ///     solicitudes que caen al fallback no las podría decidir nadie desde la web.
+        ///
+        /// Y un tercer caso que no es un revisor sino su ausencia: cuando el resolver no devuelve
+        /// NADA (trabajador sin área ni jefe personalizado, con el área de GTH sin correo cargado)
+        /// también decide GTH. Es el caso que el correo al solicitante ya anuncia como "sin
+        /// jefatura inmediata identificada, el equipo administrativo será notificado": sin esta
+        /// rama esas solicitudes quedarían sin nadie que las pueda aprobar ni rechazar.
+        /// </summary>
+        private static bool EsElRevisor(
+            QuienDecide quien,
+            JefeRevisorResolution? revisor,
+            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
+        {
+            if (quien.WorkerIds.Count == 0) return false;
+
+            if (revisor?.WorkerId != null)
+                return quien.WorkerIds.Contains(revisor.WorkerId.Value)
+                    || (revisor.PersonId.HasValue && quien.PersonIds.Contains(revisor.PersonId.Value));
+
+            // Revisor de ÁREA: el nodo lo dio el resolver, así que se compara por id.
+            if (revisor?.AreaScopeId != null)
+                return quien.AreaScopeIds.Any(mio => CuelgaDe(mio, revisor.AreaScopeId.Value, arbol));
+
+            // Sin revisor resuelto: decide GTH igual que en el fallback. Acá se compara por NOMBRE
+            // subiendo por la cadena (mismo criterio que SalidaVisibilityResolver) y no eligiendo
+            // un nodo llamado GTH: el árbol admite nombres repetidos, y lo que se pregunta es si el
+            // usuario pertenece a GTH, no cuál de los nodos es "el" de GTH.
+            return quien.AreaScopeIds.Any(mio => CuelgaDeAreaLlamada(mio, AreaGthNombre, arbol));
+        }
+
+        /// <summary>
+        /// True si <paramref name="nodoId"/> es <paramref name="ancestroId"/> o desciende de él.
+        /// Camina hacia la raíz y corta ciclos por si el árbol quedó mal.
+        /// </summary>
+        private static bool CuelgaDe(
+            int nodoId, int ancestroId,
+            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
+        {
+            var vistos = new HashSet<int>();
+            int? actual = nodoId;
+            while (actual.HasValue && vistos.Add(actual.Value))
+            {
+                if (actual.Value == ancestroId) return true;
+                if (!arbol.TryGetValue(actual.Value, out var nodo)) return false;
+                actual = nodo.Padre;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True si <paramref name="nodoId"/> o alguno de sus ancestros se llama
+        /// <paramref name="nombre"/>. Corta ciclos igual que <see cref="CuelgaDe"/>.
+        /// </summary>
+        private static bool CuelgaDeAreaLlamada(
+            int nodoId, string nombre,
+            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
+        {
+            var vistos = new HashSet<int>();
+            int? actual = nodoId;
+            while (actual.HasValue && vistos.Add(actual.Value)
+                   && arbol.TryGetValue(actual.Value, out var nodo))
+            {
+                if (string.Equals(nodo.Nombre, nombre, StringComparison.OrdinalIgnoreCase)) return true;
+                actual = nodo.Padre;
+            }
+            return false;
         }
 
         /// <summary>

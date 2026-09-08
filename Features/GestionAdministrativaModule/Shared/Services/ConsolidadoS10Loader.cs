@@ -12,7 +12,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// repositorios como <see cref="ConsolidadoS10Service"/> sin duplicar la regla de precedencia.
     ///
     /// Precedencia: si la salida tiene su propio consolidado, ese manda; si no, hereda el de su
-    /// planilla de rendición (el caso normal, un consolidado por planilla).
+    /// planilla de rendición. Hoy el consolidado SIEMPRE se adjunta a la planilla (Mis
+    /// Rendiciones); el consolidado por salida solo existe en registros antiguos, y por eso se
+    /// sigue leyendo: darlo de baja escondería el respaldo de esas rendiciones.
     /// </summary>
     public static class ConsolidadoS10Loader
     {
@@ -57,6 +59,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return result;
         }
 
+        /// <summary>
+        /// Consolidado vigente de N planillas de rendición. Es la vista directa (sin herencia): la
+        /// usa Mis Rendiciones, donde la fila ES la planilla.
+        /// </summary>
+        public static async Task<Dictionary<int, ConsolidadoS10Dto>> LoadPorRendicionAsync(
+            AppDbContext ctx,
+            IReadOnlyCollection<int> rendicionIds)
+        {
+            if (rendicionIds.Count == 0) return new();
+
+            var filas = await ctx.GaConsolidadoS10
+                .Where(c => c.State && c.RendicionId != null && rendicionIds.Contains(c.RendicionId.Value))
+                .ToListAsync();
+
+            return filas.ToDictionary(c => c.RendicionId!.Value, ToDto);
+        }
+
         public static ConsolidadoS10Dto ToDto(GaConsolidadoS10 c) => new()
         {
             Id          = c.Id,
@@ -65,6 +84,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                             : ConsolidadoS10Ambito.Solicitud.ToString(),
             PdfUrl      = c.PdfUrl,
             PdfFilename = c.PdfFilename,
+            MontoTotal  = c.MontoTotal,
+            NumeroGuia  = c.NumeroGuia,
+            PdfFirmadoUrl      = c.PdfFirmadoUrl,
+            PdfFirmadoFilename = c.PdfFirmadoFilename,
+            FirmadoAt          = c.FirmadoAt,
             UploadedAt  = c.UploadedAt,
         };
     }

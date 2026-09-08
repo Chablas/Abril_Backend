@@ -13,9 +13,15 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
     /// que pudo dejar la antigua pantalla "Revisores de Trabajadores".
     ///
     /// Los filtros de <see cref="GetAsync"/> son los mismos que aplica
-    /// <see cref="JefeRevisorResolver"/> al elegir a quién notificar (viva, activa, con correo
-    /// corporativo y distinta del propio trabajador): así el checkbox del formulario muestra
-    /// al jefe que de verdad va a recibir los correos, y no uno que el resolver descartaría.
+    /// <see cref="JefeRevisorResolver"/> al elegir a quién notificar (viva, activa y con correo
+    /// corporativo): así el checkbox del formulario muestra al jefe que de verdad va a recibir
+    /// los correos, y no uno que el resolver descartaría.
+    ///
+    /// El jefe personalizado SÍ puede ser el propio trabajador (o otra ficha suya): marcar el
+    /// checkbox es una elección explícita y se respeta en toda la cadena — acá, en el paso 1 de
+    /// <see cref="JefeRevisorResolver"/> y en la tabla, a la que se le retiró el CHECK
+    /// chk_workers_revisores_no_self. La regla "nadie puede ser su propio jefe" quedó solo para
+    /// el revisor que se deriva del área, que nadie elige a mano.
     /// </summary>
     public class JefePersonalizadoService : IJefePersonalizadoService
     {
@@ -36,16 +42,10 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
             return await (
                 from r in ctx.WorkersRevisores.AsNoTracking()
-                where r.State && r.Active && r.SolicitanteId == workerId && r.RevisorId != workerId
+                where r.State && r.Active && r.SolicitanteId == workerId
                 join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
                 where w.EmailCorporativo != null
                       && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                      // Nadie es su propio jefe, ni a través de otra ficha suya: se descarta el
-                      // revisor cuya persona es la del solicitante (subconsulta para no gastar
-                      // un segundo viaje a la base de datos solo por leer su person_id).
-                      && !ctx.Worker.Any(s => s.Id == workerId
-                                              && s.PersonId != null
-                                              && s.PersonId == w.PersonId)
                 orderby r.OrdenPrioridad, r.WorkersRevisoresId
                 select new JefePersonalizadoDto
                 {
@@ -83,27 +83,19 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                 return;
             }
 
-            if (revisorId == workerId)
-                throw new AbrilException("Un trabajador no puede ser su propio jefe.", 400);
+            // El trabajador puede elegirse a sí mismo (o otra ficha suya) — es lo que se pide al
+            // marcar "Jefe personalizado" —, así que lo único que se valida es que el elegido
+            // exista y tenga correo corporativo, que es lo que necesita el envío de correos.
+            var emailRevisor = await ctx.Worker.AsNoTracking()
+                .Where(w => w.Id == revisorId)
+                .Select(w => w.EmailCorporativo)
+                .FirstOrDefaultAsync();
 
-            // Las dos fichas en un solo viaje: se valida el correo del revisor y, con las personas,
-            // que no sean la misma (un reingreso deja varias fichas para la misma persona, así que
-            // comparar solo los ids de ficha permitiría asignarse a uno mismo por la puerta de atrás).
-            var fichas = await ctx.Worker.AsNoTracking()
-                .Where(w => w.Id == workerId || w.Id == revisorId)
-                .Select(w => new { w.Id, w.PersonId, w.EmailCorporativo })
-                .ToListAsync();
-
-            var revisor = fichas.FirstOrDefault(f => f.Id == revisorId);
-            var esCorreoCorporativo = revisor?.EmailCorporativo?.Trim()
+            var esCorreoCorporativo = emailRevisor?.Trim()
                 .ToLowerInvariant().EndsWith(EmailDomainCorp) == true;
             if (!esCorreoCorporativo)
                 throw new AbrilException(
                     "El jefe seleccionado no existe o no tiene correo corporativo @abril.pe.", 400);
-
-            var personaSolicitante = fichas.FirstOrDefault(f => f.Id == workerId)?.PersonId;
-            if (personaSolicitante != null && revisor!.PersonId == personaSolicitante)
-                throw new AbrilException("Un trabajador no puede ser su propio jefe.", 400);
 
             foreach (var r in vivos.Where(r => r.RevisorId != revisorId))
             {

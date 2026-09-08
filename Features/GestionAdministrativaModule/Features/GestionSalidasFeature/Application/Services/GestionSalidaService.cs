@@ -3,10 +3,6 @@ using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dt
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
-using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Shared.Services.Firma.Interfaces;
-using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -26,11 +22,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private readonly IGraphSharePointService _sharePointService;
         private readonly ISolicitudSalidaService _solicitudSalidaService;
         private readonly ISalidaVisibilityResolver _visibilityResolver;
-        private readonly IConsolidadoS10Service _consolidadoService;
-        private readonly IFirmaPersonalRepository _firmaRepository;
-        private readonly ICorreoSalidaRecipientResolver _correoResolver;
-        private readonly IEmailService _emailService;
-        private readonly IConfiguration _configuration;
         private readonly ILogger<GestionSalidaService> _logger;
 
         public GestionSalidaService(
@@ -38,22 +29,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             IGraphSharePointService sharePointService,
             ISolicitudSalidaService solicitudSalidaService,
             ISalidaVisibilityResolver visibilityResolver,
-            IConsolidadoS10Service consolidadoService,
-            IFirmaPersonalRepository firmaRepository,
-            ICorreoSalidaRecipientResolver correoResolver,
-            IEmailService emailService,
-            IConfiguration configuration,
             ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
             _sharePointService = sharePointService;
             _solicitudSalidaService = solicitudSalidaService;
             _visibilityResolver = visibilityResolver;
-            _consolidadoService = consolidadoService;
-            _firmaRepository = firmaRepository;
-            _correoResolver = correoResolver;
-            _emailService = emailService;
-            _configuration = configuration;
             _logger = logger;
         }
 
@@ -63,13 +44,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await _repo.GetAll(filters);
         }
 
-        public async Task<Abril_Backend.Application.DTOs.PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        public async Task<GestionSalidaPagedDto> GetPaged(GestionSalidaFiltersDto filters)
         {
             await ApplyVisibilityAsync(filters);
             return await _repo.GetPaged(filters);
         }
 
-        public async Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride, bool tieneRolTesorero = false)
+        public async Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride)
         {
             // Resuelve el alcance del usuario y recorta trabajadores + árbol de áreas a ese alcance
             // (área del usuario hacia abajo). Recepción / GTH / sin usuario → ve todo, sin recorte.
@@ -79,23 +60,94 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario).
             bool seesAll = seesAllOverride || !currentUserId.HasValue;
             var visibleIds = new List<int>();
-            var esTesorero = false;
 
-            // Con el rol de tesorero hay que resolver igual aunque ya vea todo: la categoría del
-            // puesto es lo que decide el modo, y de ahí sale el flag que arma la pantalla.
-            if (!seesAll || (tieneRolTesorero && currentUserId.HasValue))
+            if (!seesAll)
             {
                 var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value);
-                esTesorero = tieneRolTesorero && vis.EsCategoriaTesorero;
-                // El tesorero filtra sobre TODA la organización (su recorte es por estado, no por
-                // área), así que sus desplegables tienen que traer el árbol completo.
-                seesAll = seesAll || vis.SeesAll || esTesorero;
+                seesAll = vis.SeesAll;
                 visibleIds = vis.AreaScopeIds.ToList();
             }
 
             var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
-            data.EsTesorero = esTesorero;
+
+            // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
+            // tarjetas— porque son las opciones de un control: se arman con el alcance completo del
+            // usuario, si no el propio filtro de mes iría borrando los meses que ofrece. La
+            // pantalla vuelve a pedir filter-data después de cada acción que los mueve.
+            data.MesesRendicion = await MesesRendicionAsync(new GestionSalidaFiltersDto
+            {
+                CurrentUserId       = currentUserId,
+                SeesAll             = seesAll,
+                VisibleAreaScopeIds = visibleIds,
+            });
+
             return data;
+        }
+
+        /// <summary>
+        /// Arma los meses del desplegable a partir de la única bandeja que importa: lo aprobado sin
+        /// rendir, de donde salen las salidas aptas.
+        ///
+        /// Se apoya en <c>_repo.GetAll</c> en vez de armar SQL propio para que la definición de
+        /// "apta para rendir" viva en un solo lugar. Es una consulta acotada a trabajo pendiente,
+        /// no a la tabla entera.
+        /// </summary>
+        private async Task<List<MesRendicionDto>> MesesRendicionAsync(GestionSalidaFiltersDto scope)
+        {
+            var pendientes = await _repo.GetAll(new GestionSalidaFiltersDto
+            {
+                CurrentUserId       = scope.CurrentUserId,
+                SeesAll             = scope.SeesAll,
+                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+                EstadoAprobacion    = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion     = EstadosSalida.Rendicion.NombreNoRendido,
+            });
+
+            var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
+
+            // Los meses vencidos no aparecen: `AptaParaRendir` ya los descarta fila por fila, así
+            // que un periodo cerrado se queda sin aptas y cae solo del desplegable.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var meses = aptas
+                .GroupBy(x => (x.FechaSalida.Year, x.FechaSalida.Month))
+                .Select(g => new MesRendicionDto
+                {
+                    Anio        = g.Key.Year,
+                    Mes         = g.Key.Month,
+                    Label       = EtiquetaMes(g.Key.Year, g.Key.Month),
+                    Cantidad    = g.Count(),
+                    FechaLimite = calendario.LimiteDeRendicion(g.Key.Year, g.Key.Month),
+                })
+                .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                .ToList();
+
+            // El mes anterior se agrega aunque no tenga nada —es el periodo que se rinde por
+            // defecto— pero SOLO si su plazo sigue abierto: ofrecer un periodo cerrado sería
+            // ofrecer una acción que el backend va a rechazar.
+            var (desdeMesAnterior, _) = MesAnteriorPeru.Rango();
+            if (!calendario.PlazoVencido(desdeMesAnterior.Year, desdeMesAnterior.Month)
+                && !meses.Any(m => m.Anio == desdeMesAnterior.Year && m.Mes == desdeMesAnterior.Month))
+            {
+                meses.Add(new MesRendicionDto
+                {
+                    Anio        = desdeMesAnterior.Year,
+                    Mes         = desdeMesAnterior.Month,
+                    Label       = EtiquetaMes(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                    Cantidad    = 0,
+                    FechaLimite = calendario.LimiteDeRendicion(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                });
+                meses = meses.OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes).ToList();
+            }
+
+            return meses;
+        }
+
+        /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>
+        private static string EtiquetaMes(int anio, int mes)
+        {
+            var cultura = CultureInfo.GetCultureInfo("es-PE");
+            var nombre  = cultura.DateTimeFormat.GetMonthName(mes);
+            return $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]} {anio}";
         }
 
         /// <summary>
@@ -106,22 +158,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             if (!filters.CurrentUserId.HasValue) return;
 
-            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver. No
-            // aplica si además trae el rol de tesorero: ahí sí hay que resolver, porque la
-            // categoría del puesto es lo que decide si entra en modo tesorería.
-            if (filters.SeesAllOverride && !filters.TieneRolTesorero)
+            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver.
+            if (filters.SeesAllOverride)
             {
                 filters.SeesAll = true;
                 return;
             }
 
             var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
-
-            // Modo TESORERÍA: rol + categoría del puesto, las dos cosas. Ve todas las áreas pero
-            // solo lo firmado y lo pagado (el recorte de estados lo aplica el repositorio).
-            filters.EsTesorero = filters.TieneRolTesorero && vis.EsCategoriaTesorero;
-
-            filters.SeesAll = filters.SeesAllOverride || vis.SeesAll || filters.EsTesorero;
+            filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
         }
 
@@ -160,7 +205,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 ws.Cell(row, 3).Value  = s.Area          ?? "—";
                 ws.Cell(row, 4).Value  = s.RevisorNombre ?? "—";
                 ws.Cell(row, 5).Value  = s.FechaSalida.ToString("dd/MM/yyyy");
-                ws.Cell(row, 6).Value  = s.HoraSalida.ToString("HH:mm");
+                ws.Cell(row, 6).Value  = s.HoraSalida.HasValue ? s.HoraSalida.Value.ToString("HH:mm") : "—";
                 ws.Cell(row, 7).Value  = s.HoraRetorno.HasValue ? s.HoraRetorno.Value.ToString("HH:mm") : "—";
                 ws.Cell(row, 8).Value  = s.Motivo;
                 ws.Cell(row, 9).Value  = s.LugarOrigen  ?? "—";
@@ -224,9 +269,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteAprobada(id);
         }
 
-        public async Task Rechazar(int id, int reviewerUserId)
+        public async Task Rechazar(int id, int reviewerUserId, string? motivoRechazo)
         {
-            await _repo.Rechazar(id, reviewerUserId);
+            await _repo.Rechazar(id, reviewerUserId, motivoRechazo);
             // Email de rechazo al solicitante (best-effort, no rompe el flujo si falla)
             await _solicitudSalidaService.NotifySolicitanteRechazada(id);
         }
@@ -261,12 +306,51 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 1.b. Bloqueo: cada trayecto de cada solicitud debe estar cubierto.
             //       Regla normal: trayecto con al menos 1 captura.
+            //       Área con capturas opcionales (Configuración → Capturas): no se exige ninguna.
             //       Regla TI (Tecnología de la Información): captura O match contra ga_trayecto.
             var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(elegiblesIds);
             if (sinCapturas.Count > 0)
                 throw new AbrilException(
                     $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin cubrir (IDs: {string.Join(", ", sinCapturas)}). " +
-                    "Cada trayecto debe tener al menos una captura con monto, o (para trabajadores de Tecnología de la Información) un trayecto registrado en el catálogo.",
+                    "Cada trayecto debe tener al menos una captura con monto, salvo que el área del trabajador tenga las capturas en opcional " +
+                    "(o, para trabajadores de Tecnología de la Información, que el trayecto esté registrado en el catálogo).",
+                    400);
+
+            // 1.b.bis. Bloqueo: una planilla de rendición es de UN SOLO MES. Mezclar meses rompe la
+            //          rendición mensual (el plazo, el correlativo y el propio documento son por
+            //          periodo), así que se corta acá aunque la pantalla ya lo impida al seleccionar.
+            var meses = await _repo.GetMesesDeSolicitudes(elegiblesIds);
+            if (meses.Count > 1)
+            {
+                var listado = string.Join(", ", meses.Select(m => $"{m.Mes:D2}/{m.Anio}"));
+                throw new AbrilException(
+                    $"No se pueden rendir salidas de meses distintos en una sola planilla (se seleccionaron {listado}). " +
+                    "Rinde un mes a la vez.", 400);
+            }
+
+            // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros días
+            //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
+            //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados
+            //          de Configuración → Feriados. Vencido, la salida solo se puede ver.
+            if (meses.Count == 1)
+            {
+                var calendario = await _repo.GetCalendarioNoLaborable();
+                var limite     = calendario.LimiteDeRendicion(meses[0].Anio, meses[0].Mes);
+                if (MesAnteriorPeru.HoyPeru() > limite)
+                    throw new AbrilException(
+                        $"El plazo para rendir las salidas de {meses[0].Mes:D2}/{meses[0].Anio} venció el " +
+                        $"{limite:dd/MM/yyyy} ({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+            }
+
+            // 1.c. Bloqueo: la salida tiene que llevar al menos un motivo marcado como reembolsable
+            //       en Configuración → Motivos. Sin eso no hay gasto de movilidad que rendir, y la
+            //       planilla saldría con filas que nadie va a reembolsar.
+            var noReembolsables = await _repo.GetIdsNoReembolsables(elegiblesIds);
+            if (noReembolsables.Count > 0)
+                throw new AbrilException(
+                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún motivo reembolsable " +
+                    $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden las salidas cuyo motivo está marcado " +
+                    "como reembolsable en Configuración → Motivos.",
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
@@ -277,9 +361,64 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
-            //    Carpeta destino configurable desde BD (ga_rendicion_folder): se guarda el link tal
-            //    cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada
-            //    entorno apunta a su propia biblioteca. Mismo patrón que ga_captura_folder.
+            var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
+
+            // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
+            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
+                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
+
+            return (pdf, rendidasIds.Count);
+        }
+
+        public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
+        {
+            // El PDF cubre la planilla entera, así que se regenera con TODAS sus salidas: acotarlo
+            // a las del trabajador que subsana dejaría fuera a los demás grupos del documento.
+            var planilla = await _repo.GetRendicionParaRegenerar(rendicionId)
+                ?? throw new AbrilException("La planilla de rendición no existe.", 404);
+
+            if (planilla.SolicitudIds.Count == 0)
+                throw new AbrilException(
+                    "La planilla no tiene salidas asociadas: no hay nada que volver a generar.", 409);
+
+            // Mismo bloqueo que al rendir: cada trayecto tiene que seguir cubierto. Al subsanar se
+            // pueden QUITAR capturas, así que sin esto una planilla podría volver a jefatura con un
+            // tramo sin sustento — justo lo contrario de lo que se pidió corregir.
+            var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(planilla.SolicitudIds);
+            if (sinCapturas.Count > 0)
+                throw new AbrilException(
+                    $"No se puede volver a generar: {sinCapturas.Count} salida(s) quedaron con trayectos sin " +
+                    "cubrir. Cada trayecto necesita al menos una captura con monto, salvo que el área del " +
+                    "trabajador tenga las capturas en opcional.", 400);
+
+            var datos = await _repo.GetRendicionData(planilla.SolicitudIds);
+
+            // El número de planilla se reusa: el correlativo del papel no se consume otra vez
+            // porque es el mismo documento corregido, no uno nuevo.
+            var numeroLabel = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla) ?? string.Empty;
+            var pdf         = GenerarPlanillaPdf(datos, numeroLabel);
+
+            var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
+
+            // El archivo anterior NO se borra de SharePoint: era el documento que el jefe observó y
+            // queda como respaldo. Lo que cambia es a cuál apunta la planilla.
+            await _repo.ReemplazarPdfRendicion(rendicionId, pdfUrl, pdfItemId, filename);
+
+            return pdf;
+        }
+
+        /// <summary>
+        /// Sube el PDF de una planilla a la carpeta configurada y devuelve dónde quedó. La carpeta
+        /// destino es configurable desde BD (<c>ga_rendicion_folder</c>): se guarda el link tal cual
+        /// y se resuelve a driveId/folderId vía Graph, así es editable sin redeploy y cada entorno
+        /// apunta a su propia biblioteca (mismo patrón que <c>ga_captura_folder</c>).
+        ///
+        /// Compartido por la rendición y por la regeneración de una planilla observada: las dos
+        /// tienen que caer en la misma biblioteca y fallar igual si no está configurada.
+        /// </summary>
+        private async Task<(string PdfUrl, string? PdfItemId, string Filename)> SubirPlanillaAsync(
+            byte[] pdf, int userId)
+        {
             var folderUrl = await _repo.GetRendicionFolderUrl();
             if (string.IsNullOrWhiteSpace(folderUrl))
                 throw new AbrilException(
@@ -291,8 +430,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
 
             var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmmss}_u{userId}.pdf";
-            string pdfUrl;
-            string? pdfItemId;
             try
             {
                 using var pdfStream = new MemoryStream(pdf);
@@ -304,8 +441,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (result?.WebUrl is null)
                     throw new AbrilException("No se pudo subir la planilla a SharePoint (respuesta vacía).", 502);
 
-                pdfUrl    = result.WebUrl;
-                pdfItemId = result.ItemId;
+                return (result.WebUrl, result.ItemId, filename);
             }
             catch (AbrilException) { throw; }
             catch (Exception ex)
@@ -315,258 +451,48 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "No se pudo guardar la planilla en SharePoint. La rendición fue cancelada — vuelve a intentarlo.",
                     502);
             }
-
-            // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
-            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
-                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
-
-            return (pdf, rendidasIds.Count);
         }
 
-        public async Task<(byte[] Pdf, int Count)> RendirMesAnterior(GestionSalidaFiltersDto filters, int userId)
+        public async Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId)
         {
             // El estado y el rango los fija la acción; los filtros de trabajador/área/proyecto que
             // trae la pantalla se respetan tal cual (se rinde lo que el usuario está viendo).
-            var (desde, hasta) = MesAnteriorPeru.Rango();
+            var (desde, hasta) = anio.HasValue && mes.HasValue
+                ? MesAnteriorPeru.RangoDe(anio.Value, mes.Value)
+                : MesAnteriorPeru.Rango();
+
+            // El plazo se revisa ANTES de buscar: si el periodo cerró, `SoloAptas` devolvería cero
+            // filas y el error diría "no hay nada listo", que es cierto pero esconde el motivo real.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var limite     = calendario.LimiteDeRendicion(desde.Year, desde.Month);
+            if (MesAnteriorPeru.HoyPeru() > limite)
+                throw new AbrilException(
+                    $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
+                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+
             filters.SoloHoy          = false;
+            filters.RendicionAnio    = null;
+            filters.RendicionMes     = null;
             filters.FechaSalidaDesde = desde;
             filters.FechaSalidaHasta = hasta;
             filters.EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado;
             filters.EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido;
+            filters.SoloAptas        = true;
 
-            // GetAll ya resuelve la visibilidad y calcula PuedeRendirse (capturas / catálogo TI),
-            // así que la elegibilidad sale de ahí sin duplicar reglas.
-            var candidatas = await GetAll(filters);
-            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
+            // GetAll ya resuelve la visibilidad y calcula AptaParaRendir (capturas / catálogo TI /
+            // motivo reembolsable), así que la elegibilidad sale de ahí sin duplicar reglas.
+            var ids = (await GetAll(filters)).Select(x => x.Id).ToList();
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No hay salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
 
             return await RendirYGenerarPlanilla(ids, userId);
         }
 
-        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
-            // Sin guard de propiedad: en Gestión de Salidas se administran las salidas de otros.
-            => _consolidadoService.Upload(solicitudId, ambito, file, userId);
+        public Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId)
+            => _repo.GetDetalle(id, currentUserId);
 
-        public Task<GestionSalidaDetalleDto?> GetDetalle(int id)
-            => _repo.GetDetalle(id);
-
-        // ══ Reembolso ═══════════════════════════════════════════════════════
-
-        public async Task<ReembolsoBulkResultDto> DecidirReembolso(
-            IEnumerable<int> ids, bool aprobar, string? observacion, int reviewerUserId)
-        {
-            var decididas = await _repo.DecidirReembolso(ids, aprobar, observacion, reviewerUserId);
-
-            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
-            // porque un correo falle (mismo criterio que la aprobación de la salida).
-            foreach (var id in decididas)
-                await NotificarDecisionReembolsoAsync(id, aprobar);
-
-            return new ReembolsoBulkResultDto
-            {
-                Procesadas = decididas.Count,
-                Message = aprobar
-                    ? $"{decididas.Count} reembolso(s) aprobado(s)."
-                    : $"{decididas.Count} reembolso(s) rechazado(s).",
-            };
-        }
-
-        public async Task<ReembolsoBulkResultDto> FirmarPlanillas(IEnumerable<int> ids, int userId)
-        {
-            var firma = await _firmaRepository.GetActiveBytesByUserId(userId)
-                // 409 y no 400: la pantalla lo distingue para abrir el modal donde el usuario dibuja
-                // su firma en el momento en vez de mandarlo a Configuración.
-                ?? throw new AbrilException(
-                    "Todavía no registraste tu firma. Dibújala una vez y vuelve a firmar.", 409);
-
-            var planillas = await _repo.GetRendicionesPorFirmar(ids);
-            if (planillas.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas se puede firmar: primero hay que aprobar su reembolso.",
-                    400);
-
-            var folderUrl = await _repo.GetRendicionFolderUrl();
-            if (string.IsNullOrWhiteSpace(folderUrl))
-                throw new AbrilException(
-                    "No se ha configurado la carpeta de SharePoint donde guardar las planillas de rendición. " +
-                    "Pide al administrador registrarla en la tabla ga_rendicion_folder.", 409);
-
-            var carpeta = await _sharePointService.ResolveSharePointFolderUrlAsync(folderUrl);
-            if (carpeta == null || !carpeta.IsFolder)
-                throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
-
-            var totalSalidas = 0;
-            var totalPlanillas = 0;
-
-            foreach (var planilla in planillas)
-            {
-                string? pdfUrl = null, pdfItemId = null, pdfFilename = null;
-
-                // Si la planilla ya está firmada no se vuelve a estampar: el documento es uno solo
-                // y ya lleva la firma. Solo se mueven de estado las salidas que faltaban.
-                if (string.IsNullOrWhiteSpace(planilla.PdfFirmadoUrl))
-                {
-                    byte[] original;
-                    try
-                    {
-                        original = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(planilla.PdfUrl);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "No se pudo descargar la planilla {RendicionId} para firmarla.", planilla.RendicionId);
-                        throw new AbrilException(
-                            "No se pudo descargar la planilla de rendición desde SharePoint para firmarla.", 502);
-                    }
-
-                    byte[] firmado;
-                    try
-                    {
-                        // Una planilla agrupa a varios trabajadores y cada grupo termina con su
-                        // propia línea de firma de jefatura, así que la firma tiene que ir en todas
-                        // las hojas: solo al pie de la última dejaría sin firma a todos los grupos
-                        // menos el último.
-                        firmado = SignaturePdfStamper.Stamp(original, firma.Bytes);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "No se pudo estampar la firma en la planilla {RendicionId}.", planilla.RendicionId);
-                        throw new AbrilException("No se pudo generar la planilla firmada.", 500);
-                    }
-
-                    pdfFilename = Path.GetFileNameWithoutExtension(planilla.PdfFilename) + "-FIRMADO.pdf";
-                    try
-                    {
-                        using var stream = new MemoryStream(firmado);
-                        var subido = await _sharePointService.UploadToOneDriveFolderAsync(
-                            carpeta.DriveId, carpeta.ItemId, pdfFilename, stream,
-                            "application/pdf", autoRenameOnLock: true);
-
-                        if (subido?.WebUrl is null)
-                            throw new AbrilException("No se pudo subir la planilla firmada a SharePoint (respuesta vacía).", 502);
-
-                        pdfUrl    = subido.WebUrl;
-                        pdfItemId = subido.ItemId;
-                    }
-                    catch (AbrilException) { throw; }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Falló la subida de la planilla firmada {RendicionId}.", planilla.RendicionId);
-                        throw new AbrilException("No se pudo guardar la planilla firmada en SharePoint.", 502);
-                    }
-
-                    totalPlanillas++;
-                }
-
-                await _repo.MarcarFirmadas(
-                    planilla.RendicionId, planilla.SolicitudIds, userId, pdfUrl, pdfItemId, pdfFilename);
-                totalSalidas += planilla.SolicitudIds.Count;
-            }
-
-            return new ReembolsoBulkResultDto
-            {
-                Procesadas        = totalSalidas,
-                PlanillasFirmadas = totalPlanillas,
-                Message           = $"{totalSalidas} salida(s) firmada(s).",
-            };
-        }
-
-        public async Task<ReembolsoBulkResultDto> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId)
-        {
-            // Las dos condiciones de tesorero: el rol lo verificó el controller contra el token;
-            // acá se verifica la otra mitad, que el puesto sea de categoría Tesorero. Se paga poco
-            // y de a lotes, así que la consulta extra no pesa.
-            var vis = await _visibilityResolver.ResolveAsync(tesoreroUserId);
-            if (!vis.EsCategoriaTesorero)
-                throw new AbrilException(
-                    "Marcar como pagado es de Tesorería: tu puesto no es de categoría Tesorero.", 403);
-
-            var pagadas = await _repo.MarcarPagadas(ids, tesoreroUserId);
-            return new ReembolsoBulkResultDto
-            {
-                Procesadas = pagadas.Count,
-                Message    = $"{pagadas.Count} reembolso(s) marcado(s) como pagado(s).",
-            };
-        }
-
-        /// <summary>
-        /// Avisa al solicitante que su reembolso quedó aprobado o rechazado. Respeta la
-        /// configuración de correos (Gestión Administrativa → Configuración → Correos): si el
-        /// correo está apagado o no queda ningún destinatario, no se envía nada.
-        /// </summary>
-        private async Task NotificarDecisionReembolsoAsync(int solicitudId, bool aprobado)
-        {
-            try
-            {
-                var info = await _repo.GetReembolsoCorreoInfo(solicitudId);
-                if (info == null) return;
-
-                if (string.IsNullOrWhiteSpace(info.SolicitanteEmail))
-                {
-                    _logger.LogWarning(
-                        "Reembolso {SolicitudId}: el solicitante no tiene correo registrado, no se avisó la decisión.",
-                        solicitudId);
-                    return;
-                }
-
-                var codigo = aprobado
-                    ? CorreoEventoCodigos.ReembolsoAprobado
-                    : CorreoEventoCodigos.ReembolsoRechazado;
-
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    codigo, new List<string> { info.SolicitanteEmail });
-
-                if (!envio.Enviar)
-                {
-                    _logger.LogInformation(
-                        "Correo {Codigo} no enviado para la salida {SolicitudId}: está apagado o sin destinatarios.",
-                        codigo, solicitudId);
-                    return;
-                }
-
-                var layout = SalidaEmailLayout.Desde(_configuration);
-                var datos  = ToCorreoDatos(info);
-                var url    = SalidaEnlaces.Autoservicio(_configuration, solicitudId);
-
-                var body = aprobado
-                    ? ReembolsoEmailTemplates.Aprobado(layout, datos, url)
-                    : ReembolsoEmailTemplates.Rechazado(layout, datos, url);
-
-                var subject = aprobado
-                    ? $"Reembolso APROBADO - salida del {info.FechaSalida:dd/MM/yyyy}"
-                    : $"Reembolso RECHAZADO - salida del {info.FechaSalida:dd/MM/yyyy}";
-
-                await _emailService.SendAsync(
-                    to: envio.Para,
-                    subject: subject,
-                    body: body,
-                    isHtml: true,
-                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error avisando la decisión del reembolso de la salida {SolicitudId}", solicitudId);
-            }
-        }
-
-        /// <summary>Pasa los datos del repositorio al shape que consumen las plantillas.</summary>
-        private static ReembolsoCorreoDatos ToCorreoDatos(ReembolsoCorreoInfoDto info) =>
-            new()
-            {
-                SolicitudId     = info.SolicitudId,
-                NumeroUsuario   = info.NumeroUsuario,
-                Trabajador      = info.Trabajador,
-                TrabajadorEmail = info.SolicitanteEmail,
-                Area            = info.Area,
-                FechaSalida     = info.FechaSalida,
-                NumeroPlanilla  = info.NumeroPlanilla,
-                TrayectosCount  = info.TrayectosCount,
-                MontoTotal      = info.MontoTotal,
-                DecididoPor     = info.DecididoPor,
-                Observacion     = info.ObservacionReembolso,
-            };
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 

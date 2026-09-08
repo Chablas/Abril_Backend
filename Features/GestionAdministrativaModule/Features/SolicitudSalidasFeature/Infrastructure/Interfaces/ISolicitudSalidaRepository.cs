@@ -1,3 +1,4 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Models;
@@ -8,6 +9,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
     {
         Task<SolicitudSalidaFormDataDto> GetFormData();
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+
+        /// <summary>
+        /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
+        /// plazo de rendición fuera del repositorio.
+        /// </summary>
+        Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
 
         /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.
@@ -31,6 +38,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
         /// <summary>Carga un trayecto verificando que pertenezca al user y que la solicitud esté aprobada + no rendida.</summary>
         Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId);
+
+        /// <summary>
+        /// Una captura del usuario que todavía se puede tocar (mismo criterio que
+        /// <see cref="GetTrayectoForUploadingCapturas"/>: antes de rendir, o al subsanar una
+        /// rendición observada). Null si no existe, no es suya o su salida está congelada.
+        /// </summary>
+        Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId);
+
+        /// <summary>
+        /// Guarda los cambios de una captura ya subida: su monto y, si se pasa
+        /// <paramref name="imagen"/>, también la imagen (la fila es la misma, se le apunta el
+        /// archivo nuevo). El guard de propiedad lo hace el servicio.
+        ///
+        /// Va en una sola operación porque en la pantalla es un solo botón: el trabajador corrige
+        /// la fila —monto, imagen o las dos— y guarda. Devuelve la captura ya actualizada para que
+        /// la pantalla repinte la miniatura sin recargar el detalle entero.
+        /// </summary>
+        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId,
+            decimal monto,
+            (string Url, string? ItemId, string Filename)? imagen);
+
+        /// <summary>Da de baja una captura (soft delete). Deja de contar para el importe rendido.</summary>
+        Task EliminarCaptura(int capturaId);
 
         Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(int trayectoId, IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items, int userId);
     }

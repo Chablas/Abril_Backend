@@ -1,4 +1,6 @@
-﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+
+namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos
 {
     public class SolicitudSalidaCapturaDto
     {
@@ -20,7 +22,8 @@
     {
         public int Id { get; set; }
         public int Orden { get; set; }
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null en trayectos de motivos que no piden horario.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public string Motivo { get; set; } = string.Empty;
         /// <summary>Detalle escrito por el trabajador cuando el motivo lo exige. Null si no aplica.</summary>
@@ -43,6 +46,13 @@
         ///   - Si no hay ni capturas ni catálogo → 0.
         /// </summary>
         public decimal MontoTotal { get; set; }
+        /// <summary>
+        /// Si el trayecto genera reembolso de movilidad: lo concede el motivo del catálogo
+        /// (Configuración → Motivos) y el par (origen, destino) puede anularlo, nunca al revés
+        /// (ver <c>ReembolsoTrayectoRule</c>). Null con motivo libre: no está en el catálogo, así
+        /// que no tiene el flag configurado y el detalle no muestra el pill.
+        /// </summary>
+        public bool? EsReembolsable { get; set; }
     }
 
     /// <summary>PDF de la planilla de rendición (SharePoint) asociado a la solicitud. Null si aún no se rindió.</summary>
@@ -57,6 +67,8 @@
     public class SolicitudSalidaDetalleDto
     {
         public int Id { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN. Null solo en solicitudes anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
         public DateOnly FechaSalida { get; set; }
         public string EstadoAprobacion { get; set; } = string.Empty;
         public string EstadoRendicion { get; set; } = "No rendido";
@@ -71,7 +83,8 @@
 
     public class TrayectoCreateDto
     {
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null cuando el motivo elegido tiene pide_horas_lugares = false.</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
 
         /// <summary>Id de ga_motivo_salida. Nulo cuando el usuario elige "Otro motivo".</summary>
@@ -116,10 +129,82 @@
         /// <summary>"Rendido" | "No rendido" | null para todos.</summary>
         public string? EstadoRendicion { get; set; }
 
+        /// <summary>
+        /// "Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos. No lo
+        /// usa la tabla (el trabajador no filtra por esto): lo usa el conteo de "Observadas" de las
+        /// tarjetas, para no traerse todo el histórico rendido solo para contar los rechazados.
+        /// </summary>
+        public string? EstadoReembolso { get; set; }
+
         /// <summary>Límite inferior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
         public DateOnly? FechaSalidaDesde { get; set; }
         /// <summary>Límite superior (inclusive) de fecha_salida. Lo usa la rendición del mes anterior.</summary>
         public DateOnly? FechaSalidaHasta { get; set; }
+
+        /// <summary>
+        /// Periodo elegido en el desplegable "Mes a rendir". Cuando viene, la lista se acota a ese
+        /// mes y deja SOLO las solicitudes aptas para rendir: es un filtro de la tabla.
+        /// </summary>
+        public int? RendicionAnio { get; set; }
+        public int? RendicionMes { get; set; }
+
+        /// <summary>
+        /// True = devolver únicamente las solicitudes aptas para rendir. Lo prende el filtro de mes;
+        /// se aplica en memoria porque la aptitud se calcula en memoria.
+        /// </summary>
+        public bool SoloAptas { get; set; }
+    }
+
+    /// <summary>Un mes ofrecido por el desplegable "Mes a rendir".</summary>
+    public class MesRendicionDto
+    {
+        public int Anio { get; set; }
+        public int Mes { get; set; }
+        /// <summary>"Agosto 2026" — ya capitalizado, la pantalla lo imprime tal cual.</summary>
+        public string Label { get; set; } = string.Empty;
+        /// <summary>Cuántas solicitudes propias aptas para rendir tiene ese mes.</summary>
+        public int Cantidad { get; set; }
+        /// <summary>
+        /// Último día para rendir ese mes (N.º día hábil del mes siguiente, N configurable). Solo se ofrecen meses
+        /// cuyo plazo sigue abierto, así que esta fecha siempre es de hoy en adelante.
+        /// </summary>
+        public DateOnly FechaLimite { get; set; }
+    }
+
+    /// <summary>
+    /// Números de las tarjetas del encabezado. Se cuentan sobre EL MISMO conjunto que muestra la
+    /// tabla (los filtros ya aplicados), así que acompañan a la búsqueda en vez de quedarse en un
+    /// total fijo. Por eso viajan en la respuesta del listado y no en <c>filter-data</c>.
+    /// </summary>
+    public class ResumenRendicionDto
+    {
+        /// <summary>Aprobadas, no rendidas, con trayectos cubiertos y motivo reembolsable.</summary>
+        public int AptasParaRendir { get; set; }
+        /// <summary>Aprobadas y no rendidas a las que les falta captura en algún trayecto.</summary>
+        public int CapturasIncompletas { get; set; }
+        /// <summary>Reembolsos rechazados: esperan que el trabajador subsane.</summary>
+        public int Observadas { get; set; }
+
+        /// <summary>
+        /// Cuenta las tres bandejas sobre las solicitudes recibidas. Cada tarjeta conserva su
+        /// definición (es lo que dice su etiqueta); lo que cambia con los filtros es el universo
+        /// sobre el que se cuenta. Se calcula en memoria sobre la lista que el repositorio ya
+        /// devolvió: no cuesta una consulta más.
+        /// </summary>
+        public static ResumenRendicionDto De(IEnumerable<SolicitudSalidaListItemDto> solicitudes)
+        {
+            var lista = solicitudes as ICollection<SolicitudSalidaListItemDto> ?? solicitudes.ToList();
+            return new ResumenRendicionDto
+            {
+                AptasParaRendir     = lista.Count(x => x.AptaParaRendir),
+                // AptaParaRendir ya exige aprobada + no rendida; acá se piden explícitas porque
+                // esta tarjeta cuenta justo a las que NO llegan a aptas por falta de captura.
+                CapturasIncompletas = lista.Count(x => !x.PuedeRendirse
+                                                    && x.EstadoAprobacion == EstadosSalida.Aprobacion.NombreAprobado
+                                                    && x.EstadoRendicion  == EstadosSalida.Rendicion.NombreNoRendido),
+                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+            };
+        }
     }
 
     public class LugarProyectoOptionDto
@@ -131,5 +216,19 @@
     public class SolicitudSalidaFilterDataDto
     {
         public List<LugarProyectoOptionDto> LugaresProyecto { get; set; } = new();
+
+        /// <summary>Meses ofrecidos por el desplegable "Mes a rendir" (los que tienen algo apto).</summary>
+        public List<MesRendicionDto> MesesRendicion { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Respuesta del listado: las filas y los números de las tarjetas, contados sobre ese mismo
+    /// conjunto filtrado. Van juntos para que un cambio de filtro se resuelva en una sola petición
+    /// y la tabla y las tarjetas no puedan discrepar.
+    /// </summary>
+    public class SolicitudSalidaListResultDto
+    {
+        public List<SolicitudSalidaListItemDto> Data { get; set; } = new();
+        public ResumenRendicionDto Resumen { get; set; } = new();
     }
 }

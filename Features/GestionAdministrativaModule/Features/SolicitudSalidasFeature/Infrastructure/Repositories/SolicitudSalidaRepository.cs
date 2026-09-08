@@ -13,6 +13,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
+        /// <summary>Hora de Perú: el año del código SOL-AAAA-NNNN corta a la medianoche de acá, no a las 19:00 en UTC.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Espacio de nombres del pg_advisory_xact_lock que serializa el correlativo anual del
+        /// código. Propio de las salidas: no comparte candado con el REQ-AAAA-NNNN de GTH.
+        /// </summary>
+        private const int CorrelativoLockNamespace = 8472;
+
         public SolicitudSalidaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
@@ -32,6 +41,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     RequiereAdjunto         = m.RequiereAdjunto,
                     EsHoraEstimada          = m.EsHoraEstimada,
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
+                    PideHorasLugares        = m.PideHorasLugares,
+                    EsReembolsable          = m.EsReembolsable,
                 })
                 .ToListAsync();
 
@@ -51,20 +62,46 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 }
             ).ToListAsync();
 
+            // Excepciones del catálogo que anulan el reembolso del motivo. Es una lista corta
+            // (hoy solo Oficina Central ↔ Bosque Real) y no depende del usuario, así que sale de
+            // acá y no del servicio: la regla aplica a todos, no solo a los de TI.
+            var noReembolsables = await ctx.GaTrayecto
+                .Where(t => t.Activo && !t.EsReembolsable)
+                .Select(t => new TrayectoNoReembolsableDto
+                {
+                    LugarOrigenId  = t.LugarOrigenId,
+                    LugarDestinoId = t.LugarDestinoId,
+                })
+                .ToListAsync();
+
             return new SolicitudSalidaFormDataDto
             {
                 Motivos = motivos,
-                Lugares = lugares
+                Lugares = lugares,
+                TrayectosNoReembolsables = noReembolsables
             };
+        }
+
+        public async Task<CalendarioNoLaborable> GetCalendarioNoLaborable()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await CalendarioNoLaborable.CargarAsync(ctx);
         }
 
         public async Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null)
         {
             using var ctx = _factory.CreateDbContext();
 
+            // El área del trabajador sale del puesto (workers ya no la guarda): decide si las
+            // capturas de movilidad son obligatorias para él.
             var workerInfo = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => new { w.Id, w.Subarea })
+                .Select(w => new
+                {
+                    w.Id,
+                    w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                })
                 .FirstOrDefaultAsync();
             if (workerInfo == null) return new();
 
@@ -73,6 +110,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
             if (filters != null)
             {
+                // Desplegable "Mes a rendir": el periodo elegido se traduce a un rango de
+                // fecha_salida y deja la tabla solo con lo apto para rendir.
+                if (filters.RendicionAnio.HasValue && filters.RendicionMes.HasValue)
+                {
+                    var (desdeMes, hastaMes) = MesAnteriorPeru.RangoDe(filters.RendicionAnio.Value, filters.RendicionMes.Value);
+                    filters.FechaSalidaDesde = desdeMes;
+                    filters.FechaSalidaHasta = hastaMes;
+                    filters.SoloAptas        = true;
+                }
+
                 var aprobId = EstadosSalida.Aprobacion.IdFromNombre(filters.EstadoAprobacion);
                 if (aprobId.HasValue)
                     query = query.Where(s => s.EstadoAprobacionId == aprobId.Value);
@@ -80,6 +127,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 var rendId = EstadosSalida.Rendicion.IdFromNombre(filters.EstadoRendicion);
                 if (rendId.HasValue)
                     query = query.Where(s => s.EstadoRendicionId == rendId.Value);
+
+                var reembId = EstadosSalida.Reembolso.IdFromNombre(filters.EstadoReembolso);
+                if (reembId.HasValue)
+                    query = query.Where(s => s.EstadoReembolsoId == reembId.Value);
 
                 if (filters.FechaSalidaDesde.HasValue)
                     query = query.Where(s => s.FechaSalida >= filters.FechaSalidaDesde.Value);
@@ -124,6 +175,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
                     Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
+                    // motivo libre no tiene el flag y por eso no concede nada.
+                    EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                  : lo.Nombre,
@@ -151,10 +205,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
-            // Consolidado del S10 vigente por solicitud (propio o heredado de su planilla).
-            var consolidados = await ConsolidadoS10Loader.LoadAsync(
-                ctx, solicitudes.ToDictionary(x => x.Id, x => x.RendicionId));
+            // Capturas opcionales por área (Configuración → Capturas): si el área del trabajador
+            // está marcada como opcional, sus salidas se pueden rendir sin subir ninguna captura.
+            var capturasOpcionales = await CapturasObligatoriasLoader.SonOpcionalesAsync(ctx, workerInfo.AreaScopeId);
 
+            // Feriados (Configuración → Feriados) para el plazo de rendición: se carga una sola vez
+            // y responde por todos los meses que traiga el listado.
+            var calendario  = await CalendarioNoLaborable.CargarAsync(ctx);
+            var plazoPorMes = new Dictionary<(int, int), DateOnly>();
+            DateOnly limiteDe(DateOnly fechaSalida)
+            {
+                var clave = (fechaSalida.Year, fechaSalida.Month);
+                if (!plazoPorMes.TryGetValue(clave, out var limite))
+                {
+                    limite = calendario.LimiteDeRendicion(clave.Year, clave.Month);
+                    plazoPorMes[clave] = limite;
+                }
+                return limite;
+            }
+            var hoyPeru = MesAnteriorPeru.HoyPeru();
+
+            // El Consolidado del S10 no se consulta acá: es de la planilla y vive en Mis
+            // Rendiciones, que es donde se adjunta y desde donde se le avisa al revisor. Esta
+            // tabla llega hasta rendir.
             var result = new List<SolicitudSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
             {
@@ -165,6 +238,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
                 bool trayectoCubierto(int trayectoId, int? origenId, int? destinoId)
                 {
+                    if (capturasOpcionales) return true;
                     if (trayectosConCapturas.Contains(trayectoId)) return true;
                     if (!esTI) return false;
                     if (!origenId.HasValue || !destinoId.HasValue) return false;
@@ -173,11 +247,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 var puedeRendir = trList.Count > 0
                     && trList.All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
 
+                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
+                // gasto de movilidad y tiene algo que rendir.
+                var esReembolsable = trList.Any(t => t.EsReembolsable);
+
+                // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
+                // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).
+                var plazoHasta   = limiteDe(s.FechaSalida);
+                var plazoVencido = hoyPeru > plazoHasta;
+
+                var aptaParaRendir = puedeRendir
+                    && esReembolsable
+                    && !plazoVencido
+                    && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                    && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido;
+
                 result.Add(new SolicitudSalidaListItemDto
                 {
                     Id           = s.Id,
+                    Codigo       = s.Codigo,
                     FechaSalida  = s.FechaSalida,
-                    HoraSalida   = first?.HoraSalida ?? default,
+                    HoraSalida   = first?.HoraSalida,
                     HoraRetorno  = last?.HoraRetorno,
                     Motivo       = first?.Motivo ?? string.Empty,
                     LugarOrigen  = first?.LugarOrigen,
@@ -187,30 +277,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
+                    EsReembolsable   = esReembolsable,
+                    PlazoRendicionHasta = plazoHasta,
+                    PlazoVencido        = plazoVencido,
+                    AptaParaRendir   = aptaParaRendir,
 
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
                     ObservacionReembolso = s.ObservacionReembolso,
-                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                 });
-
-                if (consolidados.TryGetValue(s.Id, out var cons))
-                {
-                    var item = result[^1];
-                    item.ConsolidadoS10Url      = cons.PdfUrl;
-                    item.ConsolidadoS10Filename = cons.PdfFilename;
-                    item.ConsolidadoS10Ambito   = cons.Ambito;
-                }
-
-                // Avisar al revisor tiene sentido solo cuando ya hay algo que revisar: la salida
-                // rendida, el Consolidado del S10 adjunto y el reembolso todavía abierto. Después
-                // de aprobado (o firmado, o pagado) el botón no aporta nada.
-                result[^1].PuedeNotificarRevisor =
-                    s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                    && consolidados.ContainsKey(s.Id)
-                    && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                     || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado);
             }
-            return result;
+
+            // El recorte a "solo aptas" va al final y no en la consulta: la aptitud depende de las
+            // capturas, del área y del motivo, que recién quedan resueltos acá arriba.
+            return filters?.SoloAptas == true ? result.Where(x => x.AptaParaRendir).ToList() : result;
         }
 
         public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId, Dictionary<int, List<TrayectoAdjuntoSubidoDto>>? adjuntosPorIndice = null)
@@ -266,6 +345,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             await strategy.ExecuteAsync(async () =>
             {
                 using var tx = await ctx.Database.BeginTransactionAsync();
+
+                // Código SOL-AAAA-NNNN. El candado por año se toma ANTES de leer los números
+                // usados: la transacción sola no alcanza, en READ COMMITTED dos solicitudes
+                // simultáneas leen lo mismo, arman el mismo código y la segunda muere contra el
+                // índice único (no es un error transitorio, así que la execution strategy tampoco
+                // lo reintenta). Postgres lo suelta al cerrar la transacción y, al ser por año,
+                // no serializa los registros de años distintos.
+                var anio = now.ToOffset(PeruOffset).Year;
+                await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({CorrelativoLockNamespace}, {anio})");
+
+                // El menor número libre del año, no el máximo + 1: las solicitudes anteriores al
+                // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
+                var usados = (await ctx.GaSolicitudSalida
+                        .Where(s => s.Anio == anio && s.Numero != null)
+                        .Select(s => s.Numero!.Value)
+                        .ToListAsync())
+                    .ToHashSet();
+                var numero = 1;
+                while (usados.Contains(numero)) numero++;
+
+                solicitud.Anio   = anio;
+                solicitud.Numero = numero;
+                solicitud.Codigo = $"SOL-{anio}-{numero:D4}";
+
                 ctx.GaSolicitudSalida.Add(solicitud);
                 await ctx.SaveChangesAsync();
 
@@ -391,7 +495,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 where s.Id == solicitudId && s.WorkerId == workerInfo.Id
                 select new
                 {
-                    s.Id, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
+                    s.Id, s.Codigo, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
                     s.CreatedAt, s.MotivoRechazo, s.RendicionId,
                     Rendicion = r == null ? null : new SolicitudSalidaRendicionDto
                     {
@@ -439,6 +543,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
+                    // Las dos mitades de la regla de reembolso: el motivo libre (sin fila en el
+                    // catálogo) no tiene el flag, y por eso se distingue del que lo tiene en false.
+                    EsMotivoDeCatalogo   = m != null,
+                    MotivoEsReembolsable = m != null && m.EsReembolsable,
                     // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
                     t.AdjuntoUrl,
                     t.AdjuntoFilename,
@@ -504,10 +612,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
+            // Excepciones que anulan el reembolso del motivo. Van aparte del catálogo de montos:
+            // ese solo aplica a TI y esta regla es para todos.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+
             foreach (var raw in trayectosRaw)
             {
                 if (capsByTrayecto.TryGetValue(raw.Dto.Id, out var list))
                     raw.Dto.Capturas = list;
+
+                raw.Dto.EsReembolsable = ReembolsoTrayectoRule.Resolver(
+                    raw.EsMotivoDeCatalogo, raw.MotivoEsReembolsable,
+                    raw.LugarOrigenId, raw.LugarDestinoId, excluidosReembolso);
 
                 var sumCapturas = raw.Dto.Capturas.Sum(c => c.Monto);
 
@@ -525,6 +641,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return new SolicitudSalidaDetalleDto
             {
                 Id               = solicitud.Id,
+                Codigo           = solicitud.Codigo,
                 FechaSalida      = solicitud.FechaSalida,
                 EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(solicitud.EstadoAprobacionId),
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(solicitud.EstadoRendicionId),
@@ -575,18 +692,87 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public async Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await (
-                from t in ctx.GaSolicitudTrayecto
-                join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
-                join w in ctx.Worker            on s.WorkerId    equals w.Id
-                join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
-                where t.Id == trayectoId
-                   && per.UserId == userId
-                   && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
-                   && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                select t
-            ).FirstOrDefaultAsync();
+            return await CapturasEditablesQuery(ctx, userId)
+                .Where(t => t.Id == trayectoId)
+                .FirstOrDefaultAsync();
         }
+
+        public async Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var trayectoIds = CapturasEditablesQuery(ctx, userId).Select(t => t.Id);
+            return await ctx.GaSolicitudCaptura
+                .Where(c => c.Id == capturaId && trayectoIds.Contains(c.TrayectoId))
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId,
+            decimal monto,
+            (string Url, string? ItemId, string Filename)? imagen)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
+                ?? throw new AbrilException("La captura no existe.", 404);
+
+            captura.Monto = monto;
+
+            // Reemplazo de imagen: se apunta la MISMA fila al archivo nuevo. No se da de baja la
+            // fila ni se borra el archivo viejo de SharePoint — la regla de auditoría protege
+            // filas, no columnas, y el sustento anterior sigue existiendo en la biblioteca.
+            if (imagen.HasValue)
+            {
+                captura.ImageUrl    = imagen.Value.Url;
+                captura.ImageItemId = imagen.Value.ItemId;
+                captura.Filename    = imagen.Value.Filename;
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new SolicitudSalidaCapturaDto
+            {
+                Id         = captura.Id,
+                ImageUrl   = captura.ImageUrl,
+                Filename   = captura.Filename,
+                Monto      = captura.Monto,
+                UploadedAt = captura.UploadedAt,
+            };
+        }
+
+        public async Task EliminarCaptura(int capturaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
+                ?? throw new AbrilException("La captura no existe.", 404);
+
+            // Soft delete: la fila queda para auditoría y el filtro global de GaSolicitudCaptura la
+            // saca de todas las lecturas (listados, importe rendido y planilla). El archivo no se
+            // borra de SharePoint: era el sustento que se presentó.
+            captura.State = false;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Trayectos del usuario cuyas capturas y montos se pueden tocar. Son dos momentos:
+        ///
+        ///   • antes de rendir — la salida está aprobada y todavía sin planilla;
+        ///   • al subsanar — la salida ya está rendida, pero su planilla volvió OBSERVADA de la
+        ///     primera revisión, y corregir capturas y montos es exactamente lo que se le pidió.
+        ///
+        /// Fuera de esos dos casos la salida está congelada: una planilla ya aprobada (o firmada, o
+        /// pagada) no puede cambiar de monto por debajo del documento que la jefatura revisó.
+        /// </summary>
+        private static IQueryable<GaSolicitudTrayecto> CapturasEditablesQuery(AppDbContext ctx, int userId) =>
+            from t in ctx.GaSolicitudTrayecto
+            join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
+            join w in ctx.Worker            on s.WorkerId    equals w.Id
+            join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
+            where per.UserId == userId
+               && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+               && (s.EstadoRendicionId == EstadosSalida.Rendicion.NoRendido
+                   || ctx.GaRendicion.Any(r => r.Id == s.RendicionId
+                                            && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada))
+            select t;
 
         public async Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(
             int trayectoId,

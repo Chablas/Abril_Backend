@@ -11,8 +11,10 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 using System.Net;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services
@@ -28,7 +30,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private readonly IConfiguration                _configuration;
         private readonly ILogger<SolicitudSalidaService> _logger;
         private readonly IGraphSharePointService        _sharePointService;
-        private readonly IConsolidadoS10Service         _consolidadoService;
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
@@ -39,8 +40,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             IDbContextFactory<AppDbContext> factory,
             IConfiguration configuration,
             ILogger<SolicitudSalidaService> logger,
-            IGraphSharePointService sharePointService,
-            IConsolidadoS10Service consolidadoService)
+            IGraphSharePointService sharePointService)
         {
             _repo             = repo;
             _revisorResolver  = revisorResolver;
@@ -51,7 +51,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             _configuration    = configuration;
             _logger           = logger;
             _sharePointService = sharePointService;
-            _consolidadoService = consolidadoService;
         }
 
         public async Task<SolicitudSalidaFormDataDto> GetFormData(int? userId)
@@ -63,14 +62,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 try
                 {
                     using var ctx = _factory.CreateDbContext();
+                    // El correo del usuario logueado va en la misma consulta que su ficha: es el
+                    // destinatario principal de la confirmación, igual que en el envío real.
                     var solicitante = await ctx.Worker
                         .Where(w => w.Person != null && w.Person.UserId == userId.Value)
+                        .Select(w => new
+                        {
+                            w.Id,
+                            w.Subarea,
+                            EmailUsuario = ctx.User
+                                .Where(u => u.UserId == userId.Value)
+                                .Select(u => u.Email)
+                                .FirstOrDefault(),
+                        })
                         .FirstOrDefaultAsync();
                     if (solicitante != null)
                     {
-                        // Correo del revisor (best-effort): workers_revisores → fallback GTH.
+                        // A quién le van a llegar los dos correos que salen al registrar la
+                        // solicitud (best-effort). Los dos se calculan con las MISMAS llamadas que
+                        // hace el envío real (SendNotificacionAprobadorAsync y
+                        // SendConfirmacionSolicitanteAsync) para que el formulario no anuncie un
+                        // correo a alguien que la configuración dejó fuera.
+
+                        // 1) Al revisor (botones de aprobar/rechazar). El revisor resuelto
+                        //    (workers_revisores → área → fallback GTH) es su destinatario
+                        //    principal, pero manda la configuración: puede estar apagado ahí y el
+                        //    aviso irse solo a los destinatarios configurados.
                         var revisor = await _revisorResolver.ResolveAsync(solicitante.Id);
-                        data.AprobadorEmail = revisor?.Email;
+                        var envioRevisor = await _correoResolver.ResolveEnvioAsync(
+                            CorreoEventoCodigos.Revisor,
+                            string.IsNullOrWhiteSpace(revisor?.Email)
+                                ? null
+                                : new List<string> { revisor!.Email });
+                        if (envioRevisor.Enviar)
+                        {
+                            data.CorreoRevisorPara  = envioRevisor.Para;
+                            data.CorreoRevisorCopia = envioRevisor.Copia;
+                        }
+
+                        // 2) Confirmación informativa al solicitante, con el CC de recepción
+                        //    (rol 52) de base. Sin correo del usuario el envío se corta antes de
+                        //    mirar la configuración, así que acá tampoco se anuncia nada.
+                        if (!string.IsNullOrWhiteSpace(solicitante.EmailUsuario))
+                        {
+                            var envioConfirmacion = await _correoResolver.ResolveEnvioAsync(
+                                CorreoEventoCodigos.Confirmacion,
+                                new List<string> { solicitante.EmailUsuario },
+                                await GetRecepcionRole52Async(ctx));
+                            if (envioConfirmacion.Enviar)
+                            {
+                                data.CorreoConfirmacionPara  = envioConfirmacion.Para;
+                                data.CorreoConfirmacionCopia = envioConfirmacion.Copia;
+                            }
+                        }
 
                         // Si el trabajador es TI, exponer el catálogo de trayectos para que el
                         // frontend muestre el monto automático al seleccionar origen+destino.
@@ -91,35 +135,138 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "No se pudo resolver el aprobador/catálogo para userId {UserId}", userId);
+                    _logger.LogWarning(ex, "No se pudieron resolver los destinatarios del aviso/catálogo para userId {UserId}", userId);
                 }
             }
 
             return data;
         }
 
-        public Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null) =>
-            _repo.GetByUserId(userId, filters);
+        public async Task<SolicitudSalidaListResultDto> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null)
+        {
+            // Las tarjetas se cuentan sobre lo mismo que muestra la tabla, así que salen de esta
+            // lista y no de una consulta aparte: el listado no está paginado, ya viene entero.
+            var data = await _repo.GetByUserId(userId, filters);
+            return new SolicitudSalidaListResultDto
+            {
+                Data    = data,
+                Resumen = ResumenRendicionDto.De(data),
+            };
+        }
 
-        public Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId) => _repo.GetFilterData(userId);
+        public async Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId)
+        {
+            var data = await _repo.GetFilterData(userId);
+
+            // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
+            // tarjetas— porque son las opciones de un control: se arman con TODAS las solicitudes
+            // del trabajador, si no el propio filtro de mes iría borrando los meses que ofrece. La
+            // pantalla vuelve a pedir filter-data después de cada acción que los mueve.
+            var pendientes = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+            {
+                EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido,
+            });
+            var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
+
+            // Los meses vencidos no aparecen: `AptaParaRendir` ya los descarta fila por fila, así
+            // que un periodo cerrado se queda sin aptas y cae solo del desplegable.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            data.MesesRendicion = aptas
+                .GroupBy(x => (x.FechaSalida.Year, x.FechaSalida.Month))
+                .Select(g => new MesRendicionDto
+                {
+                    Anio        = g.Key.Year,
+                    Mes         = g.Key.Month,
+                    Label       = EtiquetaMes(g.Key.Year, g.Key.Month),
+                    Cantidad    = g.Count(),
+                    FechaLimite = calendario.LimiteDeRendicion(g.Key.Year, g.Key.Month),
+                })
+                .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                .ToList();
+
+            // El mes anterior se agrega aunque no tenga nada —es el periodo que se rinde por
+            // defecto— pero SOLO si su plazo sigue abierto: ofrecer un periodo cerrado sería
+            // ofrecer una acción que el backend va a rechazar.
+            var (desdeMesAnterior, _) = MesAnteriorPeru.Rango();
+            if (!calendario.PlazoVencido(desdeMesAnterior.Year, desdeMesAnterior.Month)
+                && !data.MesesRendicion.Any(m => m.Anio == desdeMesAnterior.Year && m.Mes == desdeMesAnterior.Month))
+            {
+                data.MesesRendicion.Add(new MesRendicionDto
+                {
+                    Anio        = desdeMesAnterior.Year,
+                    Mes         = desdeMesAnterior.Month,
+                    Label       = EtiquetaMes(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                    Cantidad    = 0,
+                    FechaLimite = calendario.LimiteDeRendicion(desdeMesAnterior.Year, desdeMesAnterior.Month),
+                });
+                data.MesesRendicion = data.MesesRendicion
+                    .OrderByDescending(m => m.Anio).ThenByDescending(m => m.Mes)
+                    .ToList();
+            }
+
+            return data;
+        }
+
+        /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>
+        private static string EtiquetaMes(int anio, int mes)
+        {
+            var cultura = CultureInfo.GetCultureInfo("es-PE");
+            var nombre  = cultura.DateTimeFormat.GetMonthName(mes);
+            return $"{char.ToUpper(nombre[0], cultura)}{nombre[1..]} {anio}";
+        }
 
         public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId, IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos = null)
         {
             if (dto.Trayectos == null || dto.Trayectos.Count == 0)
                 throw new AbrilException("Debe registrar al menos un trayecto.", 400);
 
+            // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
+            //    necesitan documento adjunto, cuáles necesitan motivo adicional y cuáles no
+            //    declaran horario ni lugares. Se carga ANTES de validar porque es el motivo el
+            //    que decide qué campos son obligatorios.
+            var exigencias = await CargarExigenciasMotivosAsync(dto);
+
+            // Un motivo con pide_horas_lugares = false describe una ausencia de día completo
+            // (ej. licencia sin goce de haber), no un desplazamiento: no lleva horas ni lugares y
+            // no admite trayectos adicionales. El motivo libre ("Otro motivo") siempre los pide.
+            bool PideHorasLugares(TrayectoCreateDto t) =>
+                !t.MotivoId.HasValue
+                || !exigencias.TryGetValue(t.MotivoId.Value, out var e)
+                || e.PideHorasLugares;
+
+            if (dto.Trayectos.Count > 1 && dto.Trayectos.Any(t => !PideHorasLugares(t)))
+                throw new AbrilException(
+                    "El motivo seleccionado no admite más de un trayecto: registra la solicitud con un solo trayecto.", 400);
+
             // Validar cada trayecto
             for (int i = 0; i < dto.Trayectos.Count; i++)
             {
                 var t = dto.Trayectos[i];
                 var pos = i + 1;
-                if (t.HoraRetorno.HasValue && t.HoraRetorno.Value <= t.HoraSalida)
-                    throw new AbrilException($"Trayecto {pos}: la hora de retorno debe ser posterior a la hora de salida.", 400);
 
                 var tieneMotivoId    = t.MotivoId.HasValue;
                 var tieneMotivoLibre = !string.IsNullOrWhiteSpace(t.MotivoLibre);
                 if (!tieneMotivoId && !tieneMotivoLibre)
                     throw new AbrilException($"Trayecto {pos}: debe indicar un motivo.", 400);
+
+                // El horario y los lugares pertenecen al motivo: si el motivo no los pide, no se
+                // guarda nada aunque el cliente los haya mandado (ej. cambió de motivo sin limpiar).
+                if (!PideHorasLugares(t))
+                {
+                    t.HoraSalida        = null;
+                    t.HoraRetorno       = null;
+                    t.LugarOrigenId     = null;
+                    t.LugarOrigenLibre  = null;
+                    t.LugarDestinoId    = null;
+                    t.LugarDestinoLibre = null;
+                    continue;
+                }
+
+                if (!t.HoraSalida.HasValue)
+                    throw new AbrilException($"Trayecto {pos}: debe indicar la hora de salida.", 400);
+                if (t.HoraRetorno.HasValue && t.HoraRetorno.Value <= t.HoraSalida.Value)
+                    throw new AbrilException($"Trayecto {pos}: la hora de retorno debe ser posterior a la hora de salida.", 400);
 
                 var tieneOrigenId    = t.LugarOrigenId.HasValue;
                 var tieneOrigenLibre = !string.IsNullOrWhiteSpace(t.LugarOrigenLibre);
@@ -134,10 +281,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 if (tieneOrigenId && tieneDestinoId && t.LugarOrigenId == t.LugarDestinoId)
                     throw new AbrilException($"Trayecto {pos}: el lugar de origen y el lugar de destino no pueden ser iguales.", 400);
             }
-
-            // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
-            //    necesitan documento adjunto y cuáles necesitan motivo adicional.
-            var exigencias = await CargarExigenciasMotivosAsync(dto);
 
             // 2. Motivo adicional: se valida antes de subir nada a SharePoint para que una
             //    solicitud inválida no deje archivos huérfanos en la carpeta.
@@ -218,10 +361,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>
         /// Lee de una sola vez lo que exigen los motivos del catálogo elegidos en la solicitud:
-        /// documento adjunto y/o motivo adicional. Devuelve un diccionario motivoId → exigencias
-        /// (vacío si todos los trayectos usan "Otro motivo").
+        /// documento adjunto, motivo adicional y/o horario y lugares. Devuelve un diccionario
+        /// motivoId → exigencias (vacío si todos los trayectos usan "Otro motivo").
         /// </summary>
-        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)>>
+        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)>>
             CargarExigenciasMotivosAsync(SolicitudSalidaCreateDto dto)
         {
             var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
@@ -230,10 +373,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             using var ctx = _factory.CreateDbContext();
             var filas = await ctx.GaMotivoSalida
                 .Where(m => motivoIds.Contains(m.Id))
-                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional })
+                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares })
                 .ToListAsync();
 
-            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional));
+            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares));
         }
 
         /// <summary>
@@ -245,7 +388,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private async Task<Dictionary<int, List<TrayectoAdjuntoSubidoDto>>?> SubirAdjuntosAsync(
             SolicitudSalidaCreateDto dto,
             IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos,
-            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional)> exigencias)
+            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)> exigencias)
         {
             var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
                 .Where(a => a.File != null && a.File.Length > 0)
@@ -355,7 +498,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // Notificar al solicitante (best-effort, no rompe la respuesta HTML)
             await NotifySolicitanteAprobada(s.Id);
 
-            return RenderResultPage("Solicitud aprobada", $"Has aprobado la solicitud de salida #{s.Id}.", isSuccess: true);
+            return RenderResultPage("Solicitud aprobada", $"Has aprobado la solicitud de salida {Identificador(s)}.", isSuccess: true);
         }
 
         public async Task<string> ProcessRechazarFromEmail(string token, string? motivoRechazo)
@@ -371,8 +514,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // Notificar al solicitante (best-effort, no rompe la respuesta HTML)
             await NotifySolicitanteRechazada(s.Id);
 
-            return RenderResultPage("Solicitud rechazada", $"Has rechazado la solicitud de salida #{s.Id}.", isSuccess: true);
+            return RenderResultPage("Solicitud rechazada", $"Has rechazado la solicitud de salida {Identificador(s)}.", isSuccess: true);
         }
+
+        /// <summary>
+        /// Identificador de la solicitud para las páginas que abre el revisor desde el correo: su
+        /// código SOL-AAAA-NNNN, o "#id" en las anteriores al código (ahí el id es lo único que hay
+        /// a mano y el revisor no lo ve en ningún otro lado).
+        /// </summary>
+        private static string Identificador(GaSolicitudSalida s) =>
+            string.IsNullOrWhiteSpace(s.Codigo) ? $"#{s.Id}" : s.Codigo;
 
         public string RenderRechazarForm(string token)
         {
@@ -381,24 +532,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return RenderResultPage("Enlace inválido o expirado", "El enlace ya no es válido.", isSuccess: false);
 
             var safeToken = WebUtility.HtmlEncode(token);
-            return $@"<!DOCTYPE html>
-<html lang=""es""><head><meta charset=""utf-8""><title>Rechazar solicitud</title>
-<style>
-  body {{ font-family: Segoe UI, Arial, sans-serif; background:#f5f5f5; margin:0; padding:40px; }}
-  .card {{ max-width:520px; margin:0 auto; background:#fff; padding:32px; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.06); }}
-  h1 {{ color:#D30000; margin-top:0; }}
-  textarea {{ width:100%; min-height:120px; padding:12px; border:1px solid #E2E2E2; border-radius:8px; font:inherit; box-sizing:border-box; }}
-  button {{ margin-top:16px; background:#D30000; color:#fff; border:0; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; }}
-  button:hover {{ background:#a50000; }}
-</style></head><body><div class=""card"">
-  <h1>Rechazar solicitud #{payload.SolicitudId}</h1>
-  <p>Indica el motivo del rechazo (opcional):</p>
+            return RenderPaginaRevisor(
+                "Rechazar solicitud",
+                $@"<p style=""margin:0 0 14px;font-size:15px"">Indica el motivo del rechazo (opcional):</p>
   <form method=""post"" action=""rechazar"">
     <input type=""hidden"" name=""token"" value=""{safeToken}"" />
     <textarea name=""motivoRechazo"" placeholder=""Ej: La fecha coincide con una reunión importante...""></textarea>
     <button type=""submit"">Confirmar rechazo</button>
-  </form>
-</div></body></html>";
+  </form>",
+                "#991B1B");
         }
 
         // ── Helpers internos ─────────────────────────────────────────────────
@@ -425,12 +567,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 {
                     var m = await ctx.GaMotivoSalida
                         .Where(m => m.Id == t.MotivoId.Value)
-                        .Select(m => new { m.Descripcion, m.EsHoraEstimada })
+                        .Select(m => new { m.Descripcion, m.EsHoraEstimada, m.PideHorasLugares })
                         .FirstOrDefaultAsync();
                     motivo = m?.Descripcion ?? "—";
                     if (!string.IsNullOrWhiteSpace(t.MotivoAdicional))
                         motivo = $"{motivo} — {t.MotivoAdicional}";
-                    if (m == null || !m.EsHoraEstimada) algunaHoraExacta = true;
+                    // Un motivo que no declara horario tampoco genera horas que recuperar.
+                    if (m == null || (!m.EsHoraEstimada && m.PideHorasLugares)) algunaHoraExacta = true;
                 }
                 else
                 {
@@ -439,10 +582,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     motivo = t.MotivoLibre ?? "—";
                 }
 
-                var origen  = await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre);
-                var destino = await ResolveLugarDisplay(ctx, t.LugarDestinoId, t.LugarDestinoLibre);
-                var horaRet = t.HoraRetorno.HasValue ? t.HoraRetorno.Value.ToString("HH:mm") : "Sin retorno";
-                resueltos.Add((t.Orden + 1, t.HoraSalida.ToString("HH:mm"), horaRet, motivo, origen, destino));
+                // Los motivos que no piden horario ni lugares dejan estos campos en "": el
+                // bloque del correo omite la fila entera en vez de mostrarla vacía o con un guión.
+                var tieneOrigen  = t.LugarOrigenId.HasValue  || !string.IsNullOrWhiteSpace(t.LugarOrigenLibre);
+                var tieneDestino = t.LugarDestinoId.HasValue || !string.IsNullOrWhiteSpace(t.LugarDestinoLibre);
+                var origen  = tieneOrigen  ? await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre)  : "";
+                var destino = tieneDestino ? await ResolveLugarDisplay(ctx, t.LugarDestinoId, t.LugarDestinoLibre) : "";
+                var horaSal = t.HoraSalida.HasValue ? t.HoraSalida.Value.ToString("HH:mm") : "";
+                var horaRet = t.HoraRetorno.HasValue ? t.HoraRetorno.Value.ToString("HH:mm")
+                            : t.HoraSalida.HasValue  ? "Sin retorno"
+                            : "";
+                resueltos.Add((t.Orden + 1, horaSal, horaRet, motivo, origen, destino));
             }
             return (resueltos, algunaHoraExacta);
         }
@@ -487,8 +637,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var urlAprobar  = $"{backendUrl}{basePath}/aprobar?token={WebUtility.UrlEncode(tokenAprobar)}";
             var urlRechazar = $"{backendUrl}{basePath}/rechazar?token={WebUtility.UrlEncode(tokenRechazar)}";
 
-            var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, mostrarRecordatorio, urlAprobar, urlRechazar);
-            var subject = $"Solicitud de salida - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var datos = DatosCorreo(solicitud.Id, solicitud.Codigo, nombreSolicitante,
+                                    solicitud.FechaSalida, trayectos, mostrarRecordatorio);
+            var body    = SolicitudSalidaEmailTemplates.PorAprobar(
+                SalidaEmailLayout.Desde(_configuration), datos,
+                urlAprobar, urlRechazar, SalidaEnlaces.Gestion(_configuration, solicitud.Id));
+            var subject = $"Solicitud de salida {datos.Codigo} - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -566,12 +720,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 return;
             }
 
-            var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, solicitud.WorkerId, solicitud.Id);
+            var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, solicitud.WorkerId, solicitud.Id);
 
-            var body    = BuildEmailConfirmacionSolicitante(
-                nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio,
+            var datos = DatosCorreo(solicitud.Id, codigoSolicitud, nombreSolicitante,
+                                    solicitud.FechaSalida, trayectos, mostrarRecordatorio);
+            var body    = SolicitudSalidaEmailTemplates.EnRevision(
+                SalidaEmailLayout.Desde(_configuration), datos,
+                SalidaEnlaces.Autoservicio(_configuration, solicitud.Id),
                 enviadoRevisorA, aprobadorEmail);
-            var subject = $"Tu solicitud de salida #{numeroUsuario} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var subject = $"Tu solicitud de salida {codigoSolicitud} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -608,11 +765,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// mostrar un identificador estable y por-usuario en los correos del solicitante,
         /// en lugar del id global de la tabla.
         /// </summary>
-        private static async Task<int> GetUserSolicitudNumeroAsync(AppDbContext ctx, int workerId, int solicitudId)
+        /// <summary>
+        /// Identificador de la solicitud tal como lo ve el trabajador: su código SOL-AAAA-NNNN.
+        /// Las solicitudes anteriores al código conservan el correlativo por trabajador con el que
+        /// salieron sus correos ("#12"), para no cambiarle el número a un hilo ya enviado.
+        /// </summary>
+        private static async Task<string> GetCodigoSolicitudAsync(AppDbContext ctx, int workerId, int solicitudId)
         {
-            return await ctx.GaSolicitudSalida
+            var codigo = await ctx.GaSolicitudSalida
+                .Where(s => s.Id == solicitudId)
+                .Select(s => s.Codigo)
+                .FirstOrDefaultAsync();
+            if (!string.IsNullOrWhiteSpace(codigo)) return codigo;
+
+            var numero = await ctx.GaSolicitudSalida
                 .Where(s => s.WorkerId == workerId && s.Id <= solicitudId)
                 .CountAsync();
+            return $"#{numero}";
         }
 
         private static async Task<string> ResolveLugarDisplay(AppDbContext ctx, int? lugarId, string? lugarLibre)
@@ -637,144 +806,77 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return lugar.Nombre ?? "—";
         }
 
-        private static string BuildEmailBody(
-            string nombre, DateOnly fechaSalida,
+        /// <summary>
+        /// Empaqueta lo que ya tiene el servicio en memoria para las plantillas de correo. Está
+        /// acá y no en cada punto de envío porque los cuatro correos arman exactamente los mismos
+        /// datos y una diferencia entre ellos se leería como dos solicitudes distintas.
+        /// </summary>
+        private static SalidaCorreoDatos DatosCorreo(
+            int solicitudId, string? codigo, string solicitante, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio,
-            string urlAprobar, string urlRechazar)
+            bool mostrarRecordatorio) => new()
         {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#64BC04;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#64BC04;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">Nueva solicitud de salida</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px""><b>{esc(nombre)}</b> ha registrado una solicitud de salida que requiere tu aprobación:</p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <div style=""text-align:center;margin-top:18px"">
-        <a href=""{urlAprobar}"" style=""display:inline-block;background:#009C87;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Aprobar</a>
-        <a href=""{urlRechazar}"" style=""display:inline-block;background:#D30000;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Rechazar</a>
-      </div>
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Los enlaces son válidos por 30 días.</p>
-    </div>
-  </div>
-</body></html>";
-        }
+            SolicitudId         = solicitudId,
+            // El correo al revisor sale al crear la solicitud, así que el código siempre existe;
+            // el fallback es por si un flujo futuro arma el correo sobre una fila anterior a la
+            // columna, donde el id es el único identificador a mano.
+            Codigo              = string.IsNullOrWhiteSpace(codigo) ? $"#{solicitudId}" : codigo,
+            Solicitante         = solicitante,
+            FechaSalida         = fechaSalida,
+            Trayectos           = trayectos
+                .Select(t => new SalidaCorreoTrayecto(t.Orden, t.HoraSalida, t.HoraRetorno, t.Motivo, t.Origen, t.Destino))
+                .ToList(),
+            MostrarRecordatorio = mostrarRecordatorio,
+        };
 
         /// <summary>
-        /// Recordatorio que va en los correos de solicitud/aprobación (al solicitante y al revisor).
-        /// Solo aplica a solicitudes con al menos un trayecto de hora exacta: si TODOS los motivos
-        /// son de hora estimada, el bloque se omite (ver ResolveTrayectosForEmailAsync).
+        /// Página que ve el revisor después de aprobar o rechazar desde el correo. Es la única
+        /// pantalla del flujo que no está en la intranet (el revisor llega sin sesión, con el token
+        /// del correo), así que lleva el mismo azul y la misma barra lima del correo para que no
+        /// parezca de otra aplicación.
         /// </summary>
-        private const string RecordatorioRecuperacionHtml =
-            @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
-                 <b>Recuerda:</b> no olvides coordinar la recuperación de las horas dentro del mes calendario.
-               </p>";
+        private string RenderResultPage(string title, string message, bool isSuccess) =>
+            RenderPaginaRevisor(
+                title,
+                $@"<p style=""color:#3F4A44;line-height:1.6;margin:0;font-size:15px"">{WebUtility.HtmlEncode(message)}</p>",
+                isSuccess ? "#166534" : "#991B1B");
 
         /// <summary>
-        /// Cuerpo del correo de confirmación al solicitante. <paramref name="enviadoRevisorA"/> son
-        /// los correos a los que realmente salió la solicitud para revisión (vacío si ese correo
-        /// está apagado) y <paramref name="aprobadorAsignado"/> el revisor que la tiene asignada
-        /// aunque no le haya llegado el correo: sin eso el aviso diría que se envió a alguien que
-        /// nunca lo recibió.
+        /// Chrome de las dos páginas del revisor: tarjeta blanca sobre el lienzo verdoso, título en
+        /// el color del desenlace, barra lima y el logo al pie. Mismos colores que
+        /// <see cref="AbrilEmailLayout"/> — están escritos acá y no tomados de esa clase porque
+        /// esto es una página web normal (con &lt;style&gt;), no el HTML de tablas del correo.
         /// </summary>
-        private static string BuildEmailConfirmacionSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio,
-            List<string> enviadoRevisorA,
-            string? aprobadorAsignado)
+        private string RenderPaginaRevisor(string titulo, string cuerpoHtml, string colorTitulo)
         {
-            string esc(string s) => WebUtility.HtmlEncode(s);
+            var assets = (_configuration["App:EmailAssetsUrl"]
+                          ?? _configuration["App:FrontendUrl"]
+                          ?? "https://intranet.abril.pe").TrimEnd('/');
 
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#0086A5;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            var aprobadorBloque =
-                enviadoRevisorA.Count > 0
-                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
-                          Tu solicitud fue enviada a
-                          <b style=""color:#0086A5"">{esc(string.Join(", ", enviadoRevisorA))}</b>
-                          para su revisión.
-                        </p>"
-                : !string.IsNullOrWhiteSpace(aprobadorAsignado)
-                    ? $@"<p style=""margin:14px 0 0;color:#444;font-size:13px"">
-                          Tu solicitud quedó asignada a
-                          <b style=""color:#0086A5"">{esc(aprobadorAsignado)}</b>
-                          para su revisión.
-                        </p>"
-                    : @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
-                         Aún no se identificó a tu jefatura inmediata. El equipo administrativo será notificado para asignarla.
-                       </p>";
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#0086A5;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">Tu solicitud está en revisión</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Recibimos tu solicitud de salida <b>#{numeroUsuario}</b> y está pendiente de aprobación.
-        Te notificaremos por correo cuando sea aprobada o rechazada.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {aprobadorBloque}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
-
-        private static string RenderResultPage(string title, string message, bool isSuccess)
-        {
-            var color = isSuccess ? "#009C87" : "#D30000";
-            return $@"<!DOCTYPE html><html lang=""es""><head><meta charset=""utf-8""><title>{WebUtility.HtmlEncode(title)}</title>
+            return $@"<!DOCTYPE html>
+<html lang=""es""><head><meta charset=""utf-8"" /><meta name=""viewport"" content=""width=device-width, initial-scale=1"" />
+<title>{WebUtility.HtmlEncode(titulo)}</title>
 <style>
-  body {{ font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:60px 20px;text-align:center; }}
-  .card {{ max-width:500px;margin:0 auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.06); }}
-  h1 {{ color:{color};margin:0 0 16px; }}
-  p {{ color:#444;line-height:1.6;margin:0; }}
-</style></head><body><div class=""card"">
-  <h1>{WebUtility.HtmlEncode(title)}</h1><p>{WebUtility.HtmlEncode(message)}</p>
-</div></body></html>";
+  body {{ font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#F4F8F4;margin:0;padding:40px 16px;color:#3F4A44; }}
+  .card {{ max-width:560px;margin:0 auto;background:#fff;border:1px solid #E6EDE7;border-radius:16px;padding:36px 34px;text-align:center; }}
+  h1 {{ color:{colorTitulo};margin:0 0 10px;font-size:24px;letter-spacing:-0.4px; }}
+  .bar {{ width:84px;height:4px;background:#64BC04;border-radius:2px;margin:0 auto 22px; }}
+  .body {{ text-align:left; }}
+  .logo {{ display:block;width:150px;margin:28px auto 0; }}
+  .pie {{ margin:12px 0 0;font-size:11px;color:#9AA8A0; }}
+  textarea {{ width:100%;min-height:120px;padding:12px;border:1px solid #E6EDE7;border-radius:10px;font:inherit;box-sizing:border-box;color:#3F4A44; }}
+  textarea:focus {{ outline:none;border-color:#005D9D; }}
+  button {{ margin-top:16px;background:#991B1B;color:#fff;border:0;padding:13px 28px;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;font-family:inherit; }}
+  button:hover {{ background:#7F1D1D; }}
+</style></head><body>
+<div class=""card"">
+  <h1>{WebUtility.HtmlEncode(titulo)}</h1>
+  <div class=""bar""></div>
+  <div class=""body"">{cuerpoHtml}</div>
+  <img class=""logo"" src=""{assets}/images/emails/abril-logo.png"" alt=""ABRIL Grupo Inmobiliario"" />
+  <p class=""pie"">Correo automático de Abril One · Gestión Administrativa · Salidas.</p>
+</div>
+</body></html>";
         }
 
         // ── Detalle + capturas ──────────────────────────────────────────────
@@ -790,7 +892,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public async Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId)
         {
             var trayecto = await _repo.GetTrayectoForUploadingCapturas(trayectoId, userId)
-                ?? throw new AbrilException("No se pueden subir capturas: el trayecto no existe, no te pertenece, no está aprobado, o ya fue rendido.", 404);
+                ?? throw new AbrilException(
+                    "No se pueden subir capturas: el trayecto no existe, no te pertenece, no está aprobado, " +
+                    "o su rendición ya pasó la primera revisión.", 404);
 
             var lista = items?
                 .Where(it => it.File != null && it.File.Length > 0)
@@ -802,10 +906,73 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (lista.Any(it => it.Monto < 0))
                 throw new AbrilException("El monto no puede ser negativo.", 400);
 
-            // Destino configurable desde BD (ga_captura_folder): se guarda el link de SharePoint tal
-            // cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada entorno
-            // apunta a su propia biblioteca porque la config vive en su propia base de datos. Se
-            // resuelve una sola vez para todo el lote. Mismo patrón que gth_sustento_folder.
+            // La carpeta se resuelve UNA sola vez para todo el lote.
+            var carpeta = await ResolverCarpetaCapturasAsync();
+
+            var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
+            try
+            {
+                foreach (var it in lista)
+                {
+                    var (url, itemId, filename) = await SubirImagenCapturaAsync(
+                        carpeta, it.File, trayecto.SolicitudId, trayecto.Id);
+                    subidos.Add((url, itemId, filename, it.Monto));
+                }
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló subida de capturas para trayecto {TrayectoId}", trayectoId);
+                throw new AbrilException("Error al subir las capturas a SharePoint.", 502);
+            }
+
+            return await _repo.InsertCapturas(trayectoId, subidos, userId);
+        }
+
+        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
+            int capturaId, decimal monto, IFormFile? file, int userId)
+        {
+            if (monto < 0)
+                throw new AbrilException("El monto no puede ser negativo.", 400);
+
+            var captura = await _repo.GetCapturaEditable(capturaId, userId)
+                ?? throw new AbrilException(
+                    "No se puede editar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
+                    "primera revisión.", 404);
+
+            // Reemplazar la imagen es opcional: sin archivo se guarda solo el monto.
+            (string Url, string? ItemId, string Filename)? imagen = null;
+            if (file != null && file.Length > 0)
+            {
+                var trayecto = await _repo.GetTrayectoForUploadingCapturas(captura.TrayectoId, userId)
+                    ?? throw new AbrilException(
+                        "No se puede reemplazar la imagen: el trayecto ya no se puede editar.", 404);
+
+                var carpeta = await ResolverCarpetaCapturasAsync();
+                try
+                {
+                    imagen = await SubirImagenCapturaAsync(
+                        carpeta, file, trayecto.SolicitudId, trayecto.Id);
+                }
+                catch (AbrilException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falló el reemplazo de la imagen de la captura {CapturaId}", capturaId);
+                    throw new AbrilException("Error al subir la captura a SharePoint.", 502);
+                }
+            }
+
+            return await _repo.ActualizarCaptura(capturaId, monto, imagen);
+        }
+
+        /// <summary>
+        /// Carpeta de SharePoint donde viven las capturas de movilidad. El destino es configurable
+        /// desde BD (<c>ga_captura_folder</c>): se guarda el link tal cual y se resuelve a
+        /// driveId/folderId vía Graph, así se cambia sin redeploy y cada entorno apunta a su propia
+        /// biblioteca porque la config vive en su propia base. Mismo patrón que gth_sustento_folder.
+        /// </summary>
+        private async Task<ShareLinkResolveDto> ResolverCarpetaCapturasAsync()
+        {
             string? folderUrl;
             using (var ctx = _factory.CreateDbContext())
             {
@@ -824,69 +991,84 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (carpeta == null || !carpeta.IsFolder)
                 throw new AbrilException("No se pudo resolver la carpeta de capturas en SharePoint.", 502);
 
-            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
-            var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
-            try
-            {
-                foreach (var it in lista)
-                {
-                    var f = it.File;
-                    var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
-                    if (!allowed.Contains(ext))
-                        throw new AbrilException($"Tipo de archivo no permitido: {f.FileName}. Solo JPG/PNG/WEBP/GIF.", 400);
-
-                    var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(f.FileName));
-                    var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-                    var filename = $"s{trayecto.SolicitudId}_t{trayecto.Id}_{stamp}_{safeName}{ext}";
-
-                    using var stream = f.OpenReadStream();
-                    var result = await _sharePointService.UploadToOneDriveFolderAsync(
-                        carpeta.DriveId, carpeta.ItemId, filename, stream,
-                        f.ContentType ?? "application/octet-stream",
-                        autoRenameOnLock: true);
-
-                    if (result?.WebUrl is null)
-                        throw new AbrilException($"No se pudo subir el archivo {f.FileName}.", 502);
-
-                    subidos.Add((result.WebUrl, result.ItemId, filename, it.Monto));
-                }
-            }
-            catch (AbrilException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló subida de capturas para trayecto {TrayectoId}", trayectoId);
-                throw new AbrilException("Error al subir las capturas a SharePoint.", 502);
-            }
-
-            return await _repo.InsertCapturas(trayectoId, subidos, userId);
+            return carpeta;
         }
 
-        public async Task<List<int>> GetIdsRendiblesMesAnterior(int userId)
-        {
-            var (desde, hasta) = MesAnteriorPeru.Rango();
+        /// <summary>Extensiones aceptadas para una captura de movilidad.</summary>
+        private static readonly string[] CapturaExtensiones = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
 
-            // GetByUserId ya acota al worker del usuario y calcula PuedeRendirse (captura por
-            // trayecto, o catálogo para TI), así que la elegibilidad sale de ahí sin duplicar reglas.
-            var candidatas = await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
+        /// <summary>
+        /// Sube UNA imagen de captura a la carpeta ya resuelta y devuelve dónde quedó. El nombre
+        /// lleva solicitud, trayecto y marca de tiempo, así que un reemplazo nunca pisa al archivo
+        /// anterior: el sustento viejo sigue en la biblioteca.
+        /// </summary>
+        private async Task<(string Url, string? ItemId, string Filename)> SubirImagenCapturaAsync(
+            ShareLinkResolveDto carpeta, IFormFile file, int solicitudId, int trayectoId)
+        {
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!CapturaExtensiones.Contains(ext))
+                throw new AbrilException($"Tipo de archivo no permitido: {file.FileName}. Solo JPG/PNG/WEBP/GIF.", 400);
+
+            var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(file.FileName));
+            var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var filename = $"s{solicitudId}_t{trayectoId}_{stamp}_{safeName}{ext}";
+
+            using var stream = file.OpenReadStream();
+            var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                carpeta.DriveId, carpeta.ItemId, filename, stream,
+                file.ContentType ?? "application/octet-stream",
+                autoRenameOnLock: true);
+
+            if (result?.WebUrl is null)
+                throw new AbrilException($"No se pudo subir el archivo {file.FileName}.", 502);
+
+            return (result.WebUrl, result.ItemId, filename);
+        }
+
+        public async Task EliminarCaptura(int capturaId, int userId)
+        {
+            _ = await _repo.GetCapturaEditable(capturaId, userId)
+                ?? throw new AbrilException(
+                    "No se puede eliminar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
+                    "primera revisión.", 404);
+
+            await _repo.EliminarCaptura(capturaId);
+        }
+
+        public async Task<List<int>> GetIdsRendiblesMes(int userId, int? anio, int? mes)
+        {
+            var (desde, hasta) = anio.HasValue && mes.HasValue
+                ? MesAnteriorPeru.RangoDe(anio.Value, mes.Value)
+                : MesAnteriorPeru.Rango();
+
+            // El plazo se revisa ANTES de buscar: si el periodo cerró, `SoloAptas` devolvería cero
+            // filas y el error diría "no tienes nada listo", que es cierto pero esconde el motivo real.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var limite     = calendario.LimiteDeRendicion(desde.Year, desde.Month);
+            if (MesAnteriorPeru.HoyPeru() > limite)
+                throw new AbrilException(
+                    $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
+                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+
+            // GetByUserId ya acota al worker del usuario y calcula AptaParaRendir (captura por
+            // trayecto, catálogo para TI, área con capturas opcionales y motivo reembolsable), así
+            // que la elegibilidad sale de ahí sin duplicar reglas.
+            var ids = (await _repo.GetByUserId(userId, new SolicitudSalidaFiltersDto
             {
                 EstadoAprobacion = EstadosSalida.Aprobacion.NombreAprobado,
                 EstadoRendicion  = EstadosSalida.Rendicion.NombreNoRendido,
                 FechaSalidaDesde = desde,
                 FechaSalidaHasta = hasta,
-            });
+                SoloAptas        = true,
+            })).Select(x => x.Id).ToList();
 
-            var ids = candidatas.Where(x => x.PuedeRendirse).Select(x => x.Id).ToList();
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No tienes salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir y con las capturas de todos sus trayectos.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
 
             return ids;
         }
-
-        public Task<ConsolidadoS10Dto> UploadConsolidadoS10(int solicitudId, ConsolidadoS10Ambito ambito, IFormFile file, int userId)
-            // ownerUserId = userId: en el autoservicio solo se adjunta a salidas propias.
-            => _consolidadoService.Upload(solicitudId, ambito, file, userId, ownerUserId: userId);
 
         private static string SanitizeFilename(string name)
         {
@@ -894,105 +1076,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var invalid = Path.GetInvalidFileNameChars().Concat(new[] { ' ', '#', '%', '&', '+' }).ToHashSet();
             var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
             return clean.Length > 60 ? clean.Substring(0, 60) : clean;
-        }
-
-        // ── Aviso al revisor de que el S10 ya está adjunto ───────────────────
-
-        public async Task<string> NotificarRevisorS10(int solicitudId, int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var info = await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId
-                select new
-                {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    s.FechaSalida, s.EstadoRendicionId, s.EstadoReembolsoId, s.RendicionId,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    EsPropia   = per != null && per.UserId == userId,
-                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
-                }
-            ).FirstOrDefaultAsync()
-              ?? throw new AbrilException("La solicitud de salida no existe.", 404);
-
-            if (!info.EsPropia)
-                throw new AbrilException("Solo puedes avisar al revisor de tus propias salidas.", 403);
-
-            if (info.EstadoRendicionId != EstadosSalida.Rendicion.Rendido)
-                throw new AbrilException("La salida todavía no está rendida.", 400);
-
-            if (info.EstadoReembolsoId != EstadosSalida.Reembolso.Pendiente
-                && info.EstadoReembolsoId != EstadosSalida.Reembolso.Rechazado)
-                throw new AbrilException(
-                    "El reembolso de esta salida ya fue revisado: no hace falta volver a avisar.", 400);
-
-            var consolidado = await _consolidadoService.GetForSolicitud(solicitudId);
-            if (consolidado == null)
-                throw new AbrilException(
-                    "Primero adjunta el Consolidado del S10: es lo que el revisor tiene que mirar.", 400);
-
-            var revisor = await _revisorResolver.ResolveAsync(info.WorkerInternalId);
-            if (string.IsNullOrWhiteSpace(revisor?.Email))
-                throw new AbrilException(
-                    "No se pudo determinar el correo de tu jefe/revisor. Avisa a Gestión del Talento Humano.", 409);
-
-            var envio = await _correoResolver.ResolveEnvioAsync(
-                CorreoEventoCodigos.S10Revisor,
-                new List<string> { revisor!.Email! });
-
-            if (!envio.Enviar)
-                throw new AbrilException(
-                    "El aviso al revisor está desactivado en la configuración de correos de Gestión Administrativa.",
-                    409);
-
-            // Monto rendido y cantidad de trayectos, para que el correo diga de cuánto se trata.
-            var trayectoIds = await ctx.GaSolicitudTrayecto
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => t.Id)
-                .ToListAsync();
-            var monto = trayectoIds.Count == 0
-                ? 0m
-                : await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
-
-            var datos = new ReembolsoCorreoDatos
-            {
-                SolicitudId    = info.Id,
-                NumeroUsuario  = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id),
-                Trabajador     = info.Trabajador,
-                Area           = await ResolveAreaNombreAsync(ctx, info.AreaScopeId),
-                FechaSalida    = info.FechaSalida,
-                NumeroPlanilla = info.NumeroPlanilla.HasValue ? $"TI: {info.NumeroPlanilla.Value:D6}" : null,
-                TrayectosCount = trayectoIds.Count,
-                MontoTotal     = monto,
-            };
-
-            var url  = SalidaEnlaces.Gestion(_configuration, solicitudId);
-            var body = ReembolsoEmailTemplates.RevisionPendiente(SalidaEmailLayout.Desde(_configuration), datos, url);
-
-            await _emailService.SendAsync(
-                to: envio.Para,
-                subject: $"Reembolso por revisar - {info.Trabajador} - {info.FechaSalida:dd/MM/yyyy}",
-                body: body,
-                isHtml: true,
-                cc: envio.Copia.Count > 0 ? envio.Copia : null);
-
-            var solicitud = await ctx.GaSolicitudSalida.FirstAsync(x => x.Id == solicitudId);
-            solicitud.RevisorNotificadoAt    = DateTimeOffset.UtcNow;
-            solicitud.RevisorNotificadoPorId = userId;
-            solicitud.UpdatedAt              = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
-
-            var nombre = string.IsNullOrWhiteSpace(revisor.Nombre) ? "tu revisor" : revisor.Nombre;
-            return $"Se le avisó a {nombre}.";
         }
 
         /// <summary>Nombre del área a la que apunta el nodo (el más bajo del árbol). Null si no tiene.</summary>
@@ -1056,7 +1139,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var (resueltos, mostrarRecordatorio) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
+                var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id);
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     CorreoEventoCodigos.Aprobada,
@@ -1071,8 +1154,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, mostrarRecordatorio);
-                var subject = $"Solicitud de salida #{numeroUsuario} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
+                var datos   = DatosCorreo(info.Id, codigoSolicitud, info.Nombre,
+                                          info.FechaSalida, resueltos, mostrarRecordatorio);
+                var body    = SolicitudSalidaEmailTemplates.Aprobada(
+                    SalidaEmailLayout.Desde(_configuration), datos,
+                    SalidaEnlaces.Autoservicio(_configuration, info.Id));
+                var subject = $"Solicitud de salida {codigoSolicitud} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
                     to: envio.Para,
@@ -1134,7 +1221,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var (resueltos, _) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
+                var codigoSolicitud = await GetCodigoSolicitudAsync(ctx, info.WorkerId, info.Id);
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     CorreoEventoCodigos.Rechazada,
@@ -1149,8 +1236,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     return;
                 }
 
-                var body    = BuildEmailRechazoSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, info.MotivoRechazo);
-                var subject = $"Solicitud de salida #{numeroUsuario} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
+                var datos   = DatosCorreo(info.Id, codigoSolicitud, info.Nombre,
+                                          info.FechaSalida, resueltos, mostrarRecordatorio: false);
+                var body    = SolicitudSalidaEmailTemplates.Rechazada(
+                    SalidaEmailLayout.Desde(_configuration), datos, info.MotivoRechazo,
+                    SalidaEnlaces.Autoservicio(_configuration, info.Id));
+                var subject = $"Solicitud de salida {codigoSolicitud} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
                     to: envio.Para,
@@ -1165,98 +1256,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
         }
 
-        private static string BuildEmailRechazoSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            string? motivoRechazo)
-        {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#D30000;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            var motivoBloque = string.IsNullOrWhiteSpace(motivoRechazo)
-                ? ""
-                : $@"<p style=""margin:14px 0 0;color:#991B1B;font-size:13px;background:#FEE2E2;padding:10px 14px;border-radius:8px"">
-                      <b>Motivo del rechazo:</b> {esc(motivoRechazo.Trim())}
-                    </p>";
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#D30000;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">✕ Tu solicitud fue rechazada</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>#{numeroUsuario}</b> fue <b style=""color:#D30000"">rechazada</b>.
-        Si tienes dudas, coordina directamente con tu jefatura.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {motivoBloque}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
-
-        private static string BuildEmailAprobacionSolicitante(
-            string nombre, int numeroUsuario, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
-            bool mostrarRecordatorio)
-        {
-            string esc(string s) => WebUtility.HtmlEncode(s);
-
-            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
-            {
-                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
-                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
-                    <div style=""font-weight:600;color:#009C87;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
-                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
-                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
-                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
-                    </table>
-                  </div>";
-            }
-
-            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
-
-            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
-  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
-    <div style=""background:#009C87;padding:20px 24px;color:#fff"">
-      <h2 style=""margin:0;font-size:18px"">✓ Tu solicitud fue aprobada</h2>
-    </div>
-    <div style=""padding:24px"">
-      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
-      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
-        Tu solicitud de salida <b>#{numeroUsuario}</b> fue <b style=""color:#009C87"">aprobada</b>.
-        Recuerda subir las capturas de movilidad (imagen + monto) por cada trayecto para que la rendición pueda procesarse.
-      </p>
-      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
-      {trayectosHtml}
-      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
-    </div>
-  </div>
-</body></html>";
-        }
     }
 }

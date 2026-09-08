@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] string? estadoReembolso = null, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null, [FromQuery] bool soloHoy = false)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] string? estadoReembolso = null, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null, [FromQuery] bool soloHoy = false, [FromQuery] int? rendicionAnio = null, [FromQuery] int? rendicionMes = null)
         {
             try
             {
@@ -40,9 +40,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoReembolso     = estadoReembolso,
                     FilterAreaScopeIds  = areaScopeIds,
                     SoloHoy             = soloHoy,
+                    RendicionAnio       = rendicionAnio,
+                    RendicionMes        = rendicionMes,
                     CurrentUserId       = currentUserId,
                     SeesAllOverride     = User.IsInRole(Roles.UsuarioRecepcion),
-                    TieneRolTesorero    = User.IsInRole(Roles.Tesorero),
                     Page                = page < 1 ? 1 : page,
                     SortBy              = sortBy,
                     SortDir             = sortDir,
@@ -79,7 +80,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     SoloHoy            = soloHoy,
                     CurrentUserId      = currentUserId,
                     SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
-                    TieneRolTesorero   = User.IsInRole(Roles.Tesorero),
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(
@@ -104,7 +104,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         {
             try
             {
-                var detalle = await _service.GetDetalle(id);
+                // El usuario va solo para resolver PuedeDecidir: si el que abre el detalle es el
+                // revisor de esa salida, el modal le muestra los botones de aprobar/rechazar.
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
+                var detalle = await _service.GetDetalle(id, currentUserId);
                 if (detalle == null)
                     return NotFound(new { message = "Solicitud no encontrada." });
                 return Ok(detalle);
@@ -128,7 +133,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                 var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
                     ? uid : (int?)null;
 
-                return Ok(await _service.GetFilterData(currentUserId, User.IsInRole(Roles.UsuarioRecepcion), User.IsInRole(Roles.Tesorero)));
+                return Ok(await _service.GetFilterData(currentUserId, User.IsInRole(Roles.UsuarioRecepcion)));
             }
             catch (AbrilException ex)
             {
@@ -165,8 +170,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
         }
 
+        /// <summary>
+        /// Rechaza una solicitud. El cuerpo es opcional: el botón del detalle manda el motivo que
+        /// escribió el revisor (también opcional) y el botón bulk de la tabla no manda ninguno.
+        /// </summary>
         [HttpPatch("{id:int}/rechazar")]
-        public async Task<IActionResult> Rechazar(int id)
+        public async Task<IActionResult> Rechazar(int id, [FromBody] RechazarSalidaDto? dto = null)
         {
             try
             {
@@ -175,7 +184,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                await _service.Rechazar(id, userId.Value);
+                await _service.Rechazar(id, userId.Value, dto?.MotivoRechazo);
                 return Ok(new { message = "Solicitud rechazada." });
             }
             catch (AbrilException ex)
@@ -295,16 +304,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         /// <summary>
-        /// Rinde de una vez TODAS las salidas del mes anterior que estén listas (aprobadas, no
-        /// rendidas y con las capturas de todos sus trayectos) dentro del alcance de visibilidad del
-        /// usuario, respetando los filtros de trabajador/área/proyecto que vengan en la query — la
-        /// acción rinde lo que la pantalla está mostrando. Las que no cumplen se ignoran.
+        /// Rinde de una vez TODAS las salidas del mes indicado (sin <c>anio</c>/<c>mes</c>, el
+        /// anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
+        /// trayectos y con un motivo reembolsable— dentro del alcance de visibilidad del usuario,
+        /// respetando los filtros de trabajador/área/proyecto que vengan en la query. Es lo que la
+        /// pantalla ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
         /// </summary>
-        [HttpPatch("rendir-mes-anterior")]
-        public async Task<IActionResult> RendirMesAnterior(
+        [HttpPatch("rendir-mes")]
+        public async Task<IActionResult> RendirMes(
             [FromQuery] int? workerId,
             [FromQuery] int? lugarProyectoId,
-            [FromQuery] List<int>? areaScopeIds = null)
+            [FromQuery] List<int>? areaScopeIds = null,
+            [FromQuery] int? anio = null,
+            [FromQuery] int? mes = null)
         {
             try
             {
@@ -321,7 +333,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     CurrentUserId      = userId.Value,
                     SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };
-                var (pdfBytes, count) = await _service.RendirMesAnterior(filters, userId.Value);
+                var (pdfBytes, count) = await _service.RendirMes(filters, anio, mes, userId.Value);
 
                 Response.Headers.Append("X-Rendidas-Count", count.ToString());
                 Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
@@ -335,161 +347,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en GestionSalidaController.RendirMesAnterior");
+                _logger.LogError(ex, "Error en GestionSalidaController.RendirMes");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 
         // ── Reembolso ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Aprueba el reembolso de las salidas seleccionadas (rendidas y con Consolidado del S10).
-        /// Avisa por correo a cada solicitante.
-        /// </summary>
-        [HttpPatch("reembolso/aprobar")]
-        public async Task<IActionResult> AprobarReembolso([FromBody] ReembolsoBulkDto dto)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                if (dto?.Ids == null || dto.Ids.Count == 0)
-                    return BadRequest(new { message = "Debes seleccionar al menos una salida." });
-
-                return Ok(await _service.DecidirReembolso(dto.Ids, aprobar: true, observacion: null, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionSalidaController.AprobarReembolso");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Rechaza el reembolso de las salidas seleccionadas con una observación. El trabajador la
-        /// recibe por correo y la subsana volviendo a adjuntar el Consolidado del S10.
-        /// </summary>
-        [HttpPatch("reembolso/rechazar")]
-        public async Task<IActionResult> RechazarReembolso([FromBody] RechazarReembolsoBulkDto dto)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                if (dto?.Ids == null || dto.Ids.Count == 0)
-                    return BadRequest(new { message = "Debes seleccionar al menos una salida." });
-                if (string.IsNullOrWhiteSpace(dto.Observacion))
-                    return BadRequest(new { message = "Escribe la observación del rechazo." });
-
-                return Ok(await _service.DecidirReembolso(dto.Ids, aprobar: false, dto.Observacion, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionSalidaController.RechazarReembolso");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Firma la planilla de rendición de las salidas con reembolso aprobado. Responde 409
-        /// cuando el usuario aún no registró su firma: el frontend usa ese código para abrir el
-        /// modal donde la dibuja sin salir de la pantalla.
-        /// </summary>
-        [HttpPatch("reembolso/firmar")]
-        public async Task<IActionResult> FirmarPlanillas([FromBody] ReembolsoBulkDto dto)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                if (dto?.Ids == null || dto.Ids.Count == 0)
-                    return BadRequest(new { message = "Debes seleccionar al menos una salida." });
-
-                return Ok(await _service.FirmarPlanillas(dto.Ids, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionSalidaController.FirmarPlanillas");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Marca como pagadas las salidas firmadas seleccionadas. Es la acción de Tesorería: exige
-        /// el rol TESORERO en el token; que además el puesto sea de categoría Tesorero lo valida el
-        /// servicio al resolver la visibilidad.
-        /// </summary>
-        [HttpPatch("reembolso/pagar")]
-        [Authorize(Roles = Roles.Tesorero)]
-        public async Task<IActionResult> MarcarPagadas([FromBody] ReembolsoBulkDto dto)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                if (dto?.Ids == null || dto.Ids.Count == 0)
-                    return BadRequest(new { message = "Debes seleccionar al menos una salida." });
-
-                return Ok(await _service.MarcarPagadas(dto.Ids, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionSalidaController.MarcarPagadas");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida ya rendida.
-        /// <c>ambito</c>: "Rendicion" (cubre toda la planilla, es el default de la pantalla) o
-        /// "Solicitud" (cubre solo esta salida).
-        /// </summary>
-        [HttpPost("{id:int}/consolidado-s10")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB
-        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file, [FromForm] string? ambito)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                ConsolidadoS10Ambito ambitoEnum;
-                if (string.IsNullOrWhiteSpace(ambito))
-                    ambitoEnum = ConsolidadoS10Ambito.Rendicion;
-                else if (!Enum.TryParse(ambito.Trim(), ignoreCase: true, out ambitoEnum) || !Enum.IsDefined(ambitoEnum))
-                    return BadRequest(new { message = "Ámbito inválido: usa \"Rendicion\" o \"Solicitud\"." });
-
-                return Ok(await _service.UploadConsolidadoS10(id, ambitoEnum, file, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionSalidaController.UploadConsolidadoS10");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
 
         /// <summary>UserId del token, o null si el claim no viene o no es numérico.</summary>
         private int? GetUserId() =>

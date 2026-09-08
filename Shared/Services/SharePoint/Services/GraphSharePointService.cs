@@ -124,11 +124,63 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
         }
 
         /// <summary>
-        /// Sube el stream una sola vez. Devuelve (result, locked): si el destino está bloqueado/en uso
-        /// (HTTP 423) devuelve (null, true) sin lanzar, para que el caller pueda reintentar con otro nombre.
-        /// Otros errores no exitosos lanzan InvalidOperationException.
+        /// Graph solo acepta 4 MB en el PUT simple ".../content": por encima responde 413 ("the
+        /// server does not allow messages larger than 4194304 bytes") y hay que subir por upload
+        /// session en fragmentos. El tope es el mismo para OneDrive y para una biblioteca.
+        /// </summary>
+        private const long GraphSimpleUploadMaxBytes = 4 * 1024 * 1024;
+
+        /// <summary>Sufijo de la URL de subida simple, que es la que construyen los tres métodos públicos.</summary>
+        private const string ContentSuffix = ":/content";
+
+        /// <summary>
+        /// Sube el stream una sola vez, eligiendo el camino según el peso: PUT simple hasta 4 MB y
+        /// upload session en fragmentos por encima. Devuelve (result, locked): si el destino está
+        /// bloqueado/en uso (HTTP 423) devuelve (null, true) sin lanzar, para que el caller pueda
+        /// reintentar con otro nombre. Otros errores no exitosos lanzan InvalidOperationException.
         /// </summary>
         private async Task<(SharePointUploadResultDto? result, bool locked)> TryUploadOnceAsync(
+            string token,
+            string uploadUrl,
+            Stream fileStream,
+            string contentType)
+        {
+            // El Content-Range de cada fragmento necesita el tamaño total, así que un stream que no
+            // lo expone se bufferiza acá para conocerlo. Los callers pasan MemoryStream o el stream
+            // de un IFormFile, que sí lo tienen: esto es solo la red de seguridad.
+            var stream   = fileStream;
+            var buffered = false;
+            long length;
+            try
+            {
+                length = stream.Length;
+            }
+            catch (NotSupportedException)
+            {
+                var copia = new MemoryStream();
+                await stream.CopyToAsync(copia);
+                copia.Position = 0;
+                stream   = copia;
+                buffered = true;
+                length   = copia.Length;
+            }
+
+            try
+            {
+                return length > GraphSimpleUploadMaxBytes
+                    ? await TryUploadPorSesionAsync(token, uploadUrl, stream, length, contentType)
+                    : await TryPutSimpleAsync(token, uploadUrl, stream, contentType);
+            }
+            finally
+            {
+                if (buffered) await stream.DisposeAsync();
+            }
+        }
+
+        /// <summary>
+        /// Camino de siempre: un solo PUT con el archivo entero adentro. Vale hasta 4 MB.
+        /// </summary>
+        private async Task<(SharePointUploadResultDto? result, bool locked)> TryPutSimpleAsync(
             string token,
             string uploadUrl,
             Stream fileStream,
@@ -165,6 +217,209 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 : null;
 
             return (new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId }, false);
+        }
+
+        /// <summary>
+        /// URL de <c>createUploadSession</c> a partir de la de subida simple: es la misma ruta con
+        /// el sufijo cambiado, así que sirve para las tres formas de direccionar que usa la clase
+        /// (<c>/me/drive/root:/...</c>, <c>/sites/{id}/drives/{id}/root:/...</c> y
+        /// <c>/drives/{id}/items/{id}:/{nombre}</c>).
+        /// </summary>
+        private static string SesionUrlDesde(string uploadUrl)
+        {
+            if (!uploadUrl.EndsWith(ContentSuffix, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"La URL de subida no termina en '{ContentSuffix}', así que no se puede derivar " +
+                    $"la upload session: {uploadUrl}");
+
+            return uploadUrl.Substring(0, uploadUrl.Length - ContentSuffix.Length) + ":/createUploadSession";
+        }
+
+        /// <summary>
+        /// Sube un archivo de más de 4 MB por upload session: pide la sesión, manda el contenido en
+        /// fragmentos de 5 MB (múltiplo de 320 KiB, tal como exige Graph) y devuelve el driveItem
+        /// que responde el último fragmento. Reintenta cada fragmento hasta 3 veces ante fallos
+        /// transitorios y cancela la sesión si no puede terminar, para no dejar subidas huérfanas.
+        ///
+        /// Mismo contrato que <see cref="TryPutSimpleAsync"/>: un 423 devuelve (null, true) en vez
+        /// de lanzar, para que el bucle de auto-renombrado del caller siga funcionando igual a un
+        /// lado y al otro de los 4 MB.
+        /// </summary>
+        private async Task<(SharePointUploadResultDto? result, bool locked)> TryUploadPorSesionAsync(
+            string token,
+            string uploadUrl,
+            Stream fileStream,
+            long length,
+            string contentType)
+        {
+            const int chunkSize           = 5 * 1024 * 1024; // múltiplo de 320 KiB
+            const int maxIntentosPorChunk = 3;
+
+            var client = _httpClientFactory.CreateClient();
+
+            // El PUT simple reemplaza por defecto: la sesión tiene que hacer lo mismo para que el
+            // comportamiento no cambie al cruzar los 4 MB.
+            var payload = JsonSerializer.Serialize(new
+            {
+                item = new Dictionary<string, string>
+                {
+                    ["@microsoft.graph.conflictBehavior"] = "replace",
+                },
+            });
+
+            using var sessionRequest = new HttpRequestMessage(HttpMethod.Post, SesionUrlDesde(uploadUrl))
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+            };
+            sessionRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var sessionResponse = await client.SendAsync(sessionRequest);
+
+            if ((int)sessionResponse.StatusCode == 423)
+                return (null, true);
+
+            if (!sessionResponse.IsSuccessStatusCode)
+            {
+                var error = await sessionResponse.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo crear la upload session [{(int)sessionResponse.StatusCode}]: {error}");
+            }
+
+            using var sessionDoc = JsonDocument.Parse(await sessionResponse.Content.ReadAsStringAsync());
+            var sessionUploadUrl = sessionDoc.RootElement.TryGetProperty("uploadUrl", out var urlProp)
+                ? urlProp.GetString()
+                : null;
+
+            if (string.IsNullOrWhiteSpace(sessionUploadUrl))
+                throw new InvalidOperationException("Graph no devolvió la uploadUrl de la sesión de subida.");
+
+            if (fileStream.CanSeek) fileStream.Position = 0;
+
+            var mediaType = ResolveContentType(contentType).Split(';')[0].Trim();
+            var buffer    = new byte[chunkSize];
+            long enviados = 0;
+
+            try
+            {
+                while (enviados < length)
+                {
+                    var tamano = (int)Math.Min(chunkSize, length - enviados);
+                    var leidos = await LeerBufferCompletoAsync(fileStream, buffer, tamano);
+                    if (leidos != tamano)
+                        throw new AbrilException(
+                            "El archivo se cortó durante la lectura antes de completar la subida.", 400);
+
+                    var inicio = enviados;
+                    var fin    = enviados + tamano - 1;
+                    var ultimo = fin == length - 1;
+
+                    HttpResponseMessage? ok = null;
+                    Exception? ultimoError  = null;
+
+                    for (var intento = 1; intento <= maxIntentosPorChunk && ok is null; intento++)
+                    {
+                        try
+                        {
+                            var chunkContent = new ByteArrayContent(buffer, 0, tamano);
+                            chunkContent.Headers.ContentLength = tamano;
+                            chunkContent.Headers.ContentRange  = new ContentRangeHeaderValue(inicio, fin, length);
+                            chunkContent.Headers.ContentType   = new MediaTypeHeaderValue(mediaType);
+
+                            // La uploadUrl de la sesión ya viene pre-autorizada: no lleva Authorization.
+                            var chunkResponse = await client.PutAsync(sessionUploadUrl, chunkContent);
+
+                            if ((int)chunkResponse.StatusCode == 423)
+                            {
+                                chunkResponse.Dispose();
+                                await CancelarSesionAsync(client, sessionUploadUrl);
+                                return (null, true);
+                            }
+
+                            if (chunkResponse.IsSuccessStatusCode)
+                            {
+                                ok = chunkResponse;
+                            }
+                            else
+                            {
+                                var body = await chunkResponse.Content.ReadAsStringAsync();
+                                ultimoError = new InvalidOperationException(
+                                    $"Falló el fragmento {inicio}-{fin}/{length} " +
+                                    $"[{(int)chunkResponse.StatusCode}]: {body}");
+                                chunkResponse.Dispose();
+                            }
+                        }
+                        catch (Exception ex) when (ex is not AbrilException)
+                        {
+                            ultimoError = ex;
+                            _logger.LogWarning(ex,
+                                "Excepción subiendo el fragmento {Inicio}-{Fin}/{Total} (intento {Intento})",
+                                inicio, fin, length, intento);
+                        }
+
+                        if (ok is null && intento < maxIntentosPorChunk)
+                            await Task.Delay(TimeSpan.FromSeconds(intento)); // backoff simple
+                    }
+
+                    if (ok is null)
+                        throw ultimoError ?? new InvalidOperationException(
+                            $"Falló el fragmento {inicio}-{fin}/{length} tras {maxIntentosPorChunk} intentos.");
+
+                    enviados += tamano;
+
+                    // Solo el último fragmento devuelve el driveItem creado; los intermedios
+                    // responden 202 con los rangos que Graph todavía espera.
+                    if (!ultimo)
+                    {
+                        ok.Dispose();
+                        continue;
+                    }
+
+                    using (ok)
+                    {
+                        using var doc = JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
+
+                        var webUrl = doc.RootElement.TryGetProperty("webUrl", out var w) ? w.GetString() : null;
+                        var itemId = doc.RootElement.TryGetProperty("id", out var i) ? i.GetString() : null;
+
+                        return (new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId }, false);
+                    }
+                }
+            }
+            catch
+            {
+                await CancelarSesionAsync(client, sessionUploadUrl);
+                throw;
+            }
+
+            throw new InvalidOperationException(
+                $"La subida por sesión terminó sin recibir el archivo creado ({enviados}/{length} bytes).");
+        }
+
+        /// <summary>Cancela la sesión para no dejar una subida a medias en SharePoint. Best-effort.</summary>
+        private async Task CancelarSesionAsync(HttpClient client, string sessionUploadUrl)
+        {
+            try
+            {
+                using var cancel = new HttpRequestMessage(HttpMethod.Delete, sessionUploadUrl);
+                await client.SendAsync(cancel);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo cancelar la upload session huérfana de SharePoint");
+            }
+        }
+
+        /// <summary>Lee exactamente <paramref name="cantidad"/> bytes, salvo que el stream se acabe antes.</summary>
+        private static async Task<int> LeerBufferCompletoAsync(Stream stream, byte[] buffer, int cantidad)
+        {
+            var leidos = 0;
+            while (leidos < cantidad)
+            {
+                var n = await stream.ReadAsync(buffer.AsMemory(leidos, cantidad - leidos));
+                if (n == 0) break; // fin de stream
+                leidos += n;
+            }
+            return leidos;
         }
 
         private async Task<SharePointUploadResultDto?> UploadStreamAsync(

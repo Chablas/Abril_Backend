@@ -1,9 +1,11 @@
-namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos
+﻿namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Application.Dtos
 {
     /// <summary>
     /// Todo lo que necesita la pantalla de Onboarding al entrar, en una sola petición: tarjetas de
-    /// resumen, embudo de fases, tabla de colaboradores ingresados y los candidatos que ya pueden
-    /// entrar al proceso (el desplegable del modal «Nuevo ingreso»).
+    /// resumen, embudo de fases y tabla de colaboradores.
+    ///
+    /// Ya no viajan «candidatos aptos»: el que termina reclutamiento entra solo a la lista (ver
+    /// <c>MaterializarPendientes</c>), así que no hay nada que elegir en un desplegable.
     /// </summary>
     public class BandejaOnboardingDto
     {
@@ -13,13 +15,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         public List<FaseOnboardingDto> Fases { get; set; } = new();
 
         public List<OnboardingListItemDto> Colaboradores { get; set; } = new();
-
-        /// <summary>
-        /// Candidatos aptos para iniciar onboarding: seleccionados de requerimientos ya CERRADOS —o
-        /// sea, con su carta oferta firmada y aprobada— que todavía no tienen un onboarding abierto.
-        /// Es el desplegable del modal «Nuevo ingreso».
-        /// </summary>
-        public List<CandidatoAptoDto> CandidatosAptos { get; set; } = new();
     }
 
     public class ResumenOnboardingDto
@@ -35,9 +30,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
         /// <summary>Onboardings iniciados en los últimos 7 días.</summary>
         public int ColaboradoresNuevos { get; set; }
-
-        /// <summary>Cuántos candidatos hay esperando que GTH les abra el onboarding.</summary>
-        public int CandidatosPorIngresar { get; set; }
     }
 
     public class FaseOnboardingDto
@@ -130,6 +122,76 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
 
         /// <summary>Fecha en que se abrió el onboarding, ya en hora de Perú.</summary>
         public DateTime? IniciadoEn { get; set; }
+
+        // ── Aviso al responsable de obra (fase «Correo de bienvenida») ────────
+
+        /// <summary>
+        /// false cuando este ingreso no lleva ese aviso: a Oficina Central no hay obra que avisarle,
+        /// y un proyecto sin coordinador administrativo no tiene a quién escribirle.
+        /// </summary>
+        public bool AvisoObraAplica { get; set; }
+
+        /// <summary>Por qué no aplica, para decirlo en la pantalla. null cuando sí aplica.</summary>
+        public string? AvisoObraMotivoNoAplica { get; set; }
+
+        /// <summary>Nombre del coordinador administrativo del proyecto (el destinatario).</summary>
+        public string? AvisoObraDestinatario { get; set; }
+
+        /// <summary>
+        /// Buzón del aviso: el que quedó registrado si ya salió, o el del coordinador administrativo
+        /// de hoy si todavía no.
+        /// </summary>
+        public string? AvisoObraEmail { get; set; }
+
+        /// <summary>Cuándo salió el aviso, en hora de Perú. null = todavía no.</summary>
+        public DateTime? AvisoObraEnviadoEn { get; set; }
+
+        // ── Correo de bienvenida y formulario del colaborador ─────────────────
+
+        /// <summary>Cuándo salió el correo de bienvenida, en hora de Perú. null = todavía no.</summary>
+        public DateTime? BienvenidaEnviadaEn { get; set; }
+
+        /// <summary>
+        /// Buzón al que salió (o al que saldría): el correo personal de su ficha maestra. null
+        /// cuando esa ficha no tiene correo, que es lo único que impide mandar la bienvenida.
+        /// </summary>
+        public string? BienvenidaEmail { get; set; }
+
+        /// <summary>Hasta cuándo tiene el colaborador para completar su formulario.</summary>
+        public DateOnly? FormularioFechaLimite { get; set; }
+
+        /// <summary>Cuándo envió su formulario, en hora de Perú. null = todavía no lo mandó.</summary>
+        public DateTime? FormularioCompletadoEn { get; set; }
+    }
+
+    /// <summary>
+    /// Todo lo que el correo al responsable de obra necesita, resuelto en una sola consulta: los
+    /// datos del ingreso y el coordinador administrativo del proyecto destino.
+    /// </summary>
+    public class AvisoObraContextoDto
+    {
+        public int OnboardingId { get; set; }
+
+        /// <summary>Código del requerimiento que originó la contratación.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        public string Nombre { get; set; } = string.Empty;
+        public string? Puesto { get; set; }
+        public string? Area { get; set; }
+        public string? Empresa { get; set; }
+        public string? ProyectoObra { get; set; }
+        public string? JefeDirecto { get; set; }
+        public DateOnly? FechaIngreso { get; set; }
+
+        public string? CoordAdminNombre { get; set; }
+        public string? CoordAdminEmail { get; set; }
+
+        /// <summary>false = este ingreso no lleva aviso (ver <see cref="MotivoNoAplica"/>).</summary>
+        public bool Aplica { get; set; }
+        public string? MotivoNoAplica { get; set; }
+
+        /// <summary>Cuándo salió (UTC), si ya salió.</summary>
+        public DateTimeOffset? EnviadoEn { get; set; }
     }
 
     /// <summary>Resultado de avanzar de fase: la fila ya actualizada.</summary>
@@ -141,70 +203,4 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.App
         public OnboardingListItemDto? Colaborador { get; set; }
     }
 
-    /// <summary>
-    /// Candidato que terminó reclutamiento y puede pasar a onboarding: una opción del desplegable
-    /// del modal «Nuevo ingreso».
-    /// </summary>
-    public class CandidatoAptoDto
-    {
-        public int CandidatoId { get; set; }
-        public int RequerimientoId { get; set; }
-
-        /// <summary>
-        /// Ficha del candidato en la base maestra. Sale de su carta oferta, que no se pudo enviar sin
-        /// ella, así que en la práctica siempre viene llena.
-        /// </summary>
-        public int? PersonId { get; set; }
-
-        /// <summary>Nombre del colaborador (el de su ficha de la base maestra).</summary>
-        public string Nombre { get; set; } = string.Empty;
-
-        /// <summary>Código del requerimiento: es lo que distingue dos procesos de la misma persona.</summary>
-        public string Codigo { get; set; } = string.Empty;
-
-        public string? Puesto { get; set; }
-        public string? Area { get; set; }
-        public string? Empresa { get; set; }
-        public string? ProyectoObra { get; set; }
-
-        /// <summary>Correo personal del colaborador (de su ficha de la base maestra).</summary>
-        public string? Correo { get; set; }
-
-        /// <summary>Jefe directo (el solicitante de la vacante), para mostrarlo en el resumen del modal.</summary>
-        public string? JefeDirecto { get; set; }
-
-        /// <summary>
-        /// Fecha de ingreso pactada en su carta oferta. Es lo que prellena el modal: GTH la puede
-        /// ajustar si el ingreso se movió entre la firma y la apertura del onboarding.
-        /// </summary>
-        public DateOnly? FechaIngreso { get; set; }
-
-        /// <summary>
-        /// Carpeta del file digital que abrió su carta oferta, para mostrarla en el modal. El
-        /// onboarding la hereda tal cual: es el mismo expediente.
-        /// </summary>
-        public string? FileDigitalCarpeta { get; set; }
-    }
-
-    /// <summary>Datos del modal «Nuevo ingreso».</summary>
-    public class OnboardingCreateDto
-    {
-        public int CandidatoId { get; set; }
-
-        /// <summary>
-        /// Fecha de ingreso. Si no viene, se usa la que quedó pactada en la carta oferta.
-        /// </summary>
-        public DateOnly? FechaIngreso { get; set; }
-
-        public string? Observacion { get; set; }
-    }
-
-    public class OnboardingCreateResultDto
-    {
-        public int OnboardingId { get; set; }
-        public string Message { get; set; } = string.Empty;
-
-        /// <summary>La fila ya lista para insertarse en la tabla sin recargar la bandeja completa.</summary>
-        public OnboardingListItemDto? Colaborador { get; set; }
-    }
 }

@@ -245,6 +245,34 @@
         public const string CartaOfertaFinalizada = "CARTA_OFERTA_FINALIZADA";
 
         /// <summary>
+        /// Correo de "prevé espacio y condiciones para el que entra" (va al <b>coordinador
+        /// administrativo del proyecto</b>). Es el único correo de Onboarding y sale de la fase
+        /// «Correo de bienvenida», con un clic de GTH — no es automático: hasta ese momento la
+        /// fecha de ingreso puede moverse, y avisar antes obliga a corregir después.
+        ///
+        /// Solo aplica a los ingresos a una obra o sede: en Oficina Central no hay espacio de obra
+        /// que preparar y su proyecto no tiene coordinador administrativo a quién escribirle.
+        ///
+        /// El destinatario principal es SIEMPRE el coordinador administrativo del proyecto destino
+        /// (<c>project.workers_coord_admin_id</c> → <c>workers.email_corporativo</c>), que cambia
+        /// con cada colaborador; la configuración aporta principales adicionales y copias.
+        /// </summary>
+        public const string AvisoObra = "AVISO_OBRA";
+
+        /// <summary>
+        /// Correo de <b>bienvenida</b> (va al colaborador que entra). Es la primera actividad del
+        /// onboarding y lo manda GTH con un clic: le abre su formulario «Nuevos Talentos», le da el
+        /// enlace, le dice qué documentación tiene que enviar y hasta cuándo.
+        ///
+        /// Es de los pocos correos del sistema que sí explica el proceso: quien lo recibe todavía
+        /// no tiene ninguna pantalla donde verlo.
+        ///
+        /// El destinatario principal es SIEMPRE el colaborador (el correo personal de su ficha
+        /// maestra); la configuración aporta principales adicionales y copias.
+        /// </summary>
+        public const string OnbBienvenida = "ONB_BIENVENIDA";
+
+        /// <summary>
         /// Traduce el slug de la URL (<c>aprobacion-gg</c> / <c>aprobacion-reemplazo</c> /
         /// <c>aprobacion-reemplazo-gth</c> / <c>aviso-gerente-area</c> / <c>solicitud</c> /
         /// <c>reemplazo-aprobado</c> / <c>ti-vacantes</c> /
@@ -283,6 +311,8 @@
             "carta-oferta"            => CartaOferta,
             "carta-oferta-firmada"    => CartaOfertaFirmada,
             "carta-oferta-finalizada" => CartaOfertaFinalizada,
+            "aviso-obra"              => AvisoObra,
+            "onb-bienvenida"          => OnbBienvenida,
             _ => null,
         };
     }

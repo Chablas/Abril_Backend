@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -50,7 +50,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     _logger.LogWarning(
                         "El correo {Evento} no está en ga_correo_evento; se envía solo con los destinatarios base.",
                         eventoCodigo);
-                    return Armar(principal, copiaBase, null, null, true);
+                    return Armar(principal, copiaBase, null, true);
                 }
 
                 // Apagado desde la configuración: no se envía y no hace falta leer sus reglas.
@@ -64,7 +64,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     where r.EventoId == evento.Id && r.State && r.Active
                     select new
                     {
-                        r.EsExclusion,
                         TipoCodigo = t.Codigo,
                         r.WorkerId,
                         r.AreaScopeId,
@@ -74,7 +73,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 ).ToListAsync();
 
                 if (reglas.Count == 0)
-                    return Armar(principal, copiaBase, null, null, evento.DestinatarioPrincipalActivo);
+                    return Armar(principal, copiaBase, null, evento.DestinatarioPrincipalActivo);
 
                 // 3) Correos de los trabajadores referenciados (1 query).
                 var workerIds = reglas
@@ -120,13 +119,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         .ToDictionary(g => g.Key, g => g.Select(m => m.Email).ToList());
                 }
 
-                // 5) Armar inclusiones / exclusiones.
+                // 5) Armar la lista de destinatarios configurados.
                 var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var excludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var r in reglas)
                 {
-                    var target = r.EsExclusion ? excludes : includes;
+                    var target = includes;
                     switch (r.TipoCodigo)
                     {
                         case TipoTrabajador:
@@ -146,35 +144,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     }
                 }
 
-                return Armar(principal, copiaBase, includes, excludes, evento.DestinatarioPrincipalActivo);
+                return Armar(principal, copiaBase, includes, evento.DestinatarioPrincipalActivo);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
                     "Error resolviendo destinatarios configurados del correo {Evento}; se usa solo la base.",
                     eventoCodigo);
-                return Armar(principal, copiaBase, null, null, true);
+                return Armar(principal, copiaBase, null, true);
             }
         }
 
         /// <summary>
         /// Reparte los correos entre "Para" y "Copia": el principal va al Para (salvo que su
-        /// interruptor esté apagado) y las exclusiones solo recortan las copias. Si el Para
-        /// queda vacío, las copias lo ocupan — así apagar al principal deja el correo en manos
-        /// de los destinatarios configurados en vez de mandarlo sin nadie en el Para.
+        /// interruptor esté apagado) y los destinatarios configurados van a la copia, sin repetir
+        /// a quien ya esté en el Para. Si el Para queda vacío, las copias lo ocupan — así apagar
+        /// al principal deja el correo en manos de los destinatarios configurados en vez de
+        /// mandarlo sin nadie en el Para.
         /// </summary>
         private static CorreoSalidaEnvioDto Armar(
             List<string> principal,
             List<string> copiaBase,
             HashSet<string>? includes,
-            HashSet<string>? excludes,
             bool principalActivo)
         {
             var para = principalActivo ? Limpiar(principal, null) : new List<string>();
-            var yaEnPara = new HashSet<string>(para, StringComparer.OrdinalIgnoreCase);
-
-            var fuera = new HashSet<string>(yaEnPara, StringComparer.OrdinalIgnoreCase);
-            if (excludes != null) foreach (var e in excludes) fuera.Add(e);
+            var fuera = new HashSet<string>(para, StringComparer.OrdinalIgnoreCase);
 
             var copia = Limpiar(copiaBase.Concat(includes ?? Enumerable.Empty<string>()), fuera);
 

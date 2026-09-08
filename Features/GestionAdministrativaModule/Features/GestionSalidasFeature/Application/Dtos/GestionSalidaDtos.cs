@@ -51,7 +51,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public bool EsReembolsable { get; set; }
 
         /// <summary>
-        /// Último día para rendir esta salida: el 7.º día hábil del mes siguiente al de su
+        /// Último día para rendir esta salida: el N.º día hábil del mes siguiente al de su
         /// <c>fecha_salida</c> (sin sábados, domingos ni los feriados de Configuración → Feriados).
         /// </summary>
         public DateOnly PlazoRendicionHasta { get; set; }
@@ -81,13 +81,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </summary>
         public bool EsHoraEstimada { get; set; }
         /// <summary>
-        /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
-        /// es propia (worker del propio usuario) y él no es su propio revisor — nadie aprueba sus
-        /// propias salidas salvo quien tenga el jefe personalizado apuntándose a sí mismo, que es
-        /// además quien recibe el correo con los botones. Solo afecta Aprobar/Rechazar, no la
-        /// rendición.
+        /// True si el usuario logueado puede aprobar/rechazar ESTA salida, o sea si es su revisor:
+        /// el jefe personalizado del trabajador, el revisor que sale de su área subiendo por el
+        /// árbol, o cualquiera de GTH cuando la resolución cayó al fallback del área de GTH. Ver
+        /// alcance en el resolver. Ver la salida no alcanza: el alcance por área da a ver una rama
+        /// (un gerente, recepción), decidir es solo del revisor. Solo afecta Aprobar/Rechazar, no
+        /// la rendición.
         /// </summary>
-        public bool PuedeDecidir { get; set; } = true;
+        public bool PuedeDecidir { get; set; }
 
         /// <summary>
         /// True si la salida es del propio usuario logueado (su worker). Habilita el botón
@@ -226,7 +227,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Cuántas solicitudes aptas para rendir tiene ese mes dentro del alcance del usuario.</summary>
         public int Cantidad { get; set; }
         /// <summary>
-        /// Último día para rendir ese mes (7.º día hábil del mes siguiente). Solo se ofrecen meses
+        /// Último día para rendir ese mes (N.º día hábil del mes siguiente, N configurable). Solo se ofrecen meses
         /// cuyo plazo sigue abierto, así que esta fecha siempre es de hoy en adelante.
         /// </summary>
         public DateOnly FechaLimite { get; set; }
@@ -301,7 +302,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string NombreDisplay { get; set; } = string.Empty;
     }
 
-    public class AprobarRechazarDto { }
+    /// <summary>
+    /// Cuerpo del rechazo. Todo opcional: aprobar no lleva cuerpo y rechazar puede ir sin motivo
+    /// (el botón bulk de la tabla rechaza sin pedirlo).
+    /// </summary>
+    public class RechazarSalidaDto
+    {
+        /// <summary>
+        /// Motivo del rechazo que verá el solicitante en su correo. Opcional; en blanco se guarda
+        /// null. Tope 500 caracteres, el largo de la columna <c>motivo_rechazo</c>.
+        /// </summary>
+        public string? MotivoRechazo { get; set; }
+    }
 
     public class GestionSalidaCapturaDto
     {
@@ -371,6 +383,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
         public string? MotivoRechazo { get; set; }
+        /// <summary>
+        /// True si el usuario que abre el detalle es el revisor de esta salida — lo único que
+        /// habilita los botones de aprobar/rechazar del modal. Misma regla que la del listado
+        /// (<c>GestionSalidaListItemDto.PuedeDecidir</c>) y la que re-valida el backend al decidir.
+        /// </summary>
+        public bool PuedeDecidir { get; set; }
 
         // -- Reembolso ---------------------------------------------------
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado".</summary>

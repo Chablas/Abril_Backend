@@ -54,6 +54,10 @@ using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa
@@ -131,9 +135,15 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IDelegacionRevisionRepository, DelegacionRevisionRepository>();
             services.AddScoped<IDelegacionRevisionService, DelegacionRevisionService>();
 
-            // Configuración de correos (destinatarios por correo: se enviará a / nunca se enviará a).
+            // Configuración de correos por pantalla (cada pantalla del flujo administra los correos
+            // que se originan en ella, desde su propio botón «Configuración»).
             services.AddScoped<ICorreoConfigRepository, CorreoConfigRepository>();
             services.AddScoped<ICorreoConfigService, CorreoConfigService>();
+
+            // Plazo de rendición (sección "Días reembolsables" de Mis Rendiciones → Configuración:
+            // los días hábiles que dura el plazo para rendir un mes, antes hardcodeados en 7)
+            services.AddScoped<IPlazoRendicionRepository, PlazoRendicionRepository>();
+            services.AddScoped<IPlazoRendicionService, PlazoRendicionService>();
             // Resolver consumido por SolicitudSalidaService para armar el CC de cada correo.
             services.AddScoped<ICorreoSalidaRecipientResolver, CorreoSalidaRecipientResolver>();
 

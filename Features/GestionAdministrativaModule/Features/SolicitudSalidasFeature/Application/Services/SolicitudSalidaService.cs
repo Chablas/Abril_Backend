@@ -1048,7 +1048,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (MesAnteriorPeru.HoyPeru() > limite)
                 throw new AbrilException(
                     $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
-                    "(7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
 
             // GetByUserId ya acota al worker del usuario y calcula AptaParaRendir (captura por
             // trayecto, catálogo para TI, área con capturas opcionales y motivo reembolsable), así

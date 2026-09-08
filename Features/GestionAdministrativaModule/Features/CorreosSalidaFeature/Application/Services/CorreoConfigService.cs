@@ -1,33 +1,45 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Services
 {
-    /// <summary>Wrapper delgado sobre el repositorio de configuración de correos.</summary>
+    /// <summary>
+    /// Wrapper delgado sobre el repositorio de configuración de correos. Lo único propio es
+    /// traducir el segmento de URL de la pantalla al código del catálogo: un segmento que no
+    /// corresponde a ninguna pantalla sale como 404 en vez de listar o escribir de más.
+    /// </summary>
     public class CorreoConfigService : ICorreoConfigService
     {
         private readonly ICorreoConfigRepository _repo;
 
         public CorreoConfigService(ICorreoConfigRepository repo) => _repo = repo;
 
-        public Task<CorreoConfigInicialDto> GetInicialAsync() => _repo.GetInicialAsync();
+        private static string Pantalla(string segmento) =>
+            CorreoPantallaCodigos.DesdeSegmento(segmento)
+            ?? throw new AbrilException($"La pantalla indicada no existe: '{segmento}'.", 404);
 
-        public Task SetEventoActiveAsync(string eventoCodigo, bool active) =>
-            _repo.SetEventoActiveAsync(eventoCodigo, active);
+        public Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaSegmento) =>
+            _repo.GetInicialAsync(Pantalla(pantallaSegmento));
 
-        public Task SetPrincipalActiveAsync(string eventoCodigo, bool active) =>
-            _repo.SetPrincipalActiveAsync(eventoCodigo, active);
+        public Task SetEventoActiveAsync(string pantallaSegmento, string eventoCodigo, bool active) =>
+            _repo.SetEventoActiveAsync(Pantalla(pantallaSegmento), eventoCodigo, active);
 
-        public Task<int> CrearDestinatarioAsync(string eventoCodigo, CorreoDestinatarioInputDto dto) =>
-            _repo.CrearDestinatarioAsync(eventoCodigo, dto);
+        public Task SetPrincipalActiveAsync(string pantallaSegmento, string eventoCodigo, bool active) =>
+            _repo.SetPrincipalActiveAsync(Pantalla(pantallaSegmento), eventoCodigo, active);
 
-        public Task ActualizarDestinatarioAsync(int id, CorreoDestinatarioInputDto dto) =>
-            _repo.ActualizarDestinatarioAsync(id, dto);
+        public Task<int> CrearDestinatarioAsync(string pantallaSegmento, string eventoCodigo, CorreoDestinatarioInputDto dto) =>
+            _repo.CrearDestinatarioAsync(Pantalla(pantallaSegmento), eventoCodigo, dto);
 
-        public Task SetDestinatarioActiveAsync(int id, bool active) =>
-            _repo.SetDestinatarioActiveAsync(id, active);
+        public Task ActualizarDestinatarioAsync(string pantallaSegmento, int id, CorreoDestinatarioInputDto dto) =>
+            _repo.ActualizarDestinatarioAsync(Pantalla(pantallaSegmento), id, dto);
 
-        public Task EliminarDestinatarioAsync(int id) => _repo.EliminarDestinatarioAsync(id);
+        public Task SetDestinatarioActiveAsync(string pantallaSegmento, int id, bool active) =>
+            _repo.SetDestinatarioActiveAsync(Pantalla(pantallaSegmento), id, active);
+
+        public Task EliminarDestinatarioAsync(string pantallaSegmento, int id) =>
+            _repo.EliminarDestinatarioAsync(Pantalla(pantallaSegmento), id);
     }
 }

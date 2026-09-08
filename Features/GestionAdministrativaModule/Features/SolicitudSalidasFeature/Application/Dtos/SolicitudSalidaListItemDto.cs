@@ -35,7 +35,7 @@
         public bool EsReembolsable { get; set; }
 
         /// <summary>
-        /// Último día para rendir esta salida: el 7.º día hábil del mes siguiente al de su
+        /// Último día para rendir esta salida: el N.º día hábil del mes siguiente al de su
         /// <c>fecha_salida</c> (sin sábados, domingos ni los feriados de Configuración → Feriados).
         /// </summary>
         public DateOnly PlazoRendicionHasta { get; set; }

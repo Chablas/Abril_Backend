@@ -21,8 +21,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </summary>
         Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride);
         Task<byte[]> GetExcel(GestionSalidaFiltersDto filters);
+        /// <summary>
+        /// Aprueba una solicitud Pendiente. Solo la puede aprobar su revisor (403 en caso
+        /// contrario) — ver la regla en <c>GestionSalidaRepository.EnsureEsElRevisorAsync</c>.
+        /// </summary>
         Task Aprobar(int id, int reviewerUserId);
-        Task Rechazar(int id, int reviewerUserId);
+
+        /// <summary>
+        /// Rechaza una solicitud Pendiente o Aprobada aún no rendida. Mismo guard de revisor que
+        /// <see cref="Aprobar"/>. <paramref name="motivoRechazo"/> es opcional: si viene, se guarda
+        /// y sale en el correo de rechazo al solicitante; en blanco se guarda null.
+        /// </summary>
+        Task Rechazar(int id, int reviewerUserId, string? motivoRechazo);
 
         /// <summary>
         /// El propio solicitante cancela una salida SUYA que esté Pendiente. Reutiliza la misma
@@ -69,8 +79,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <returns>Los bytes del PDF nuevo, para que la pantalla lo pueda descargar.</returns>
         Task<byte[]> RegenerarPlanilla(int rendicionId, int userId);
 
-        /// <summary>Detalle de una solicitud para el modal — devuelve null si no existe.</summary>
-        Task<GestionSalidaDetalleDto?> GetDetalle(int id);
+        /// <summary>
+        /// Detalle de una solicitud para el modal — devuelve null si no existe.
+        /// <paramref name="currentUserId"/> solo se usa para resolver <c>PuedeDecidir</c> (si quien
+        /// mira es el revisor); el detalle en sí es el mismo para todos.
+        /// </summary>
+        Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId);
 
         /// <summary>Registra (o limpia) la hora real de salida. Para uso del rol USUARIO DE RECEPCIÓN.</summary>
         Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId);

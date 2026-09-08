@@ -104,7 +104,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         {
             try
             {
-                var detalle = await _service.GetDetalle(id);
+                // El usuario va solo para resolver PuedeDecidir: si el que abre el detalle es el
+                // revisor de esa salida, el modal le muestra los botones de aprobar/rechazar.
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
+                var detalle = await _service.GetDetalle(id, currentUserId);
                 if (detalle == null)
                     return NotFound(new { message = "Solicitud no encontrada." });
                 return Ok(detalle);
@@ -165,8 +170,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
         }
 
+        /// <summary>
+        /// Rechaza una solicitud. El cuerpo es opcional: el botón del detalle manda el motivo que
+        /// escribió el revisor (también opcional) y el botón bulk de la tabla no manda ninguno.
+        /// </summary>
         [HttpPatch("{id:int}/rechazar")]
-        public async Task<IActionResult> Rechazar(int id)
+        public async Task<IActionResult> Rechazar(int id, [FromBody] RechazarSalidaDto? dto = null)
         {
             try
             {
@@ -175,7 +184,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                await _service.Rechazar(id, userId.Value);
+                await _service.Rechazar(id, userId.Value, dto?.MotivoRechazo);
                 return Ok(new { message = "Solicitud rechazada." });
             }
             catch (AbrilException ex)

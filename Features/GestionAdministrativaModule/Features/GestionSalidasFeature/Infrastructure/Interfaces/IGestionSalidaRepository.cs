@@ -21,7 +21,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// </summary>
         Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId);
         Task Aprobar(int id, int reviewerUserId);
-        Task Rechazar(int id, int reviewerUserId);
+
+        /// <summary><paramref name="motivoRechazo"/> es opcional; en blanco se guarda null.</summary>
+        Task Rechazar(int id, int reviewerUserId, string? motivoRechazo);
 
         /// <summary>
         /// Crea un registro <c>GaRendicion</c> con la info del PDF subido y marca como rendidas
@@ -95,8 +97,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// </summary>
         Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
 
-        /// <summary>Detalle completo (cabecera + trayectos con capturas + rendición si existe).</summary>
-        Task<GestionSalidaDetalleDto?> GetDetalle(int id);
+        /// <summary>
+        /// Detalle completo (cabecera + trayectos con capturas + rendición si existe).
+        /// <paramref name="currentUserId"/> resuelve <c>PuedeDecidir</c>: si quien abre el detalle
+        /// es el revisor de esa salida y por lo tanto puede aprobarla o rechazarla desde el modal.
+        /// </summary>
+        Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId);
 
         /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
         Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);

@@ -250,9 +250,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
         // ── Configuración de correos de salidas (destinatarios por correo) ──────
+        // ga_correo_pantalla agrupa los correos por la pantalla donde se originan: cada una
+        // administra los suyos desde su propio botón «Configuración».
+        public DbSet<GaCorreoPantalla> GaCorreoPantalla { get; set; }
         public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
         public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }
         public DbSet<GaCorreoRegla> GaCorreoRegla { get; set; }
+        // Plazo de rendición configurable (fila única). Lo lee CalendarioNoLaborable.
+        public DbSet<GaRendicionConfig> GaRendicionConfig { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();

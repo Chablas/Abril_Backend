@@ -1,3 +1,4 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,8 +18,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// </summary>
     public sealed class CalendarioNoLaborable
     {
-        /// <summary>Días hábiles que dura el plazo para rendir un mes, contados sobre el mes siguiente.</summary>
-        public const int DiasHabilesDePlazo = 7;
+        /// <summary>
+        /// Días hábiles de plazo con los que se responde si <c>ga_rendicion_config</c> está vacía
+        /// (base sin sembrar). Es el valor con el que nació la regla, antes de que fuera
+        /// configurable: así una base a medio migrar no abre el plazo de par en par ni lo cierra.
+        /// </summary>
+        public const int DiasHabilesDePlazoPorDefecto = 7;
 
         /// <summary>Fechas concretas (no recurrentes), tal cual están registradas.</summary>
         private readonly HashSet<DateOnly> _fijos;
@@ -26,11 +31,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// <summary>(mes, día) de los feriados que se repiten todos los años.</summary>
         private readonly HashSet<(int Mes, int Dia)> _recurrentes;
 
-        private CalendarioNoLaborable(HashSet<DateOnly> fijos, HashSet<(int, int)> recurrentes)
+        private CalendarioNoLaborable(HashSet<DateOnly> fijos, HashSet<(int, int)> recurrentes, int diasDePlazo)
         {
-            _fijos       = fijos;
-            _recurrentes = recurrentes;
+            _fijos              = fijos;
+            _recurrentes        = recurrentes;
+            DiasHabilesDePlazo  = diasDePlazo;
         }
+
+        /// <summary>
+        /// Días hábiles que dura el plazo para rendir un mes, contados sobre el mes siguiente. Sale
+        /// de <c>ga_rendicion_config</c> (Mis Rendiciones → Configuración → Días reembolsables), así
+        /// que es un dato del calendario cargado y no una constante.
+        /// </summary>
+        public int DiasHabilesDePlazo { get; }
+
+        /// <summary>
+        /// El plazo escrito como lo dicen los mensajes y los tooltips: "5.º día hábil del mes
+        /// siguiente". Está acá para que el número no se vuelva a escribir a mano en cada texto.
+        /// </summary>
+        public string DiasHabilesDePlazoTexto => $"{DiasHabilesDePlazo}.º día hábil del mes siguiente";
 
         public static async Task<CalendarioNoLaborable> CargarAsync(AppDbContext ctx)
         {
@@ -38,6 +57,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .Where(h => h.State && h.Active)
                 .Select(h => new { h.HolidayDate, h.RecurringYearly })
                 .ToListAsync();
+
+            var diasDePlazo = await LeerDiasDePlazoAsync(ctx);
 
             var fijos       = new HashSet<DateOnly>();
             var recurrentes = new HashSet<(int, int)>();
@@ -47,8 +68,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 else                   fijos.Add(d.HolidayDate);
             }
 
-            return new CalendarioNoLaborable(fijos, recurrentes);
+            return new CalendarioNoLaborable(fijos, recurrentes, diasDePlazo);
         }
+
+        /// <summary>
+        /// Plazo configurado (fila única de <c>ga_rendicion_config</c>). Se expone aparte porque la
+        /// pantalla de configuración lo necesita solo, sin cargar los feriados.
+        /// </summary>
+        public static async Task<int> LeerDiasDePlazoAsync(AppDbContext ctx)
+        {
+            var configurado = await ctx.GaRendicionConfig
+                .Where(c => c.State)
+                .OrderBy(c => c.Id)
+                .Select(c => (int?)c.DiasHabilesPlazo)
+                .FirstOrDefaultAsync();
+
+            return Acotar(configurado ?? DiasHabilesDePlazoPorDefecto);
+        }
+
+        /// <summary>
+        /// Deja el plazo dentro del rango que valida la base (CHECK de 1 a 28). Una fila torcida por
+        /// SQL a mano no puede hacer que <see cref="LimiteDeRendicion"/> devuelva otro mes.
+        /// </summary>
+        public static int Acotar(int dias) =>
+            Math.Clamp(dias, GaRendicionConfig.DiasMinimo, GaRendicionConfig.DiasMaximo);
 
         /// <summary>Sábado, domingo, feriado o día no laborable registrado.</summary>
         public bool EsNoLaborable(DateOnly fecha)
@@ -59,11 +102,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <summary>
-        /// Último día para rendir las salidas de <paramref name="anio"/>/<paramref name="mes"/>:
-        /// el 7.º día hábil del mes SIGUIENTE. Las salidas de agosto, por ejemplo, se rinden hasta
-        /// el 7.º día hábil de setiembre; pasado ese día el periodo queda cerrado.
+        /// Último día para rendir las salidas de <paramref name="anio"/>/<paramref name="mes"/>: el
+        /// <see cref="DiasHabilesDePlazo"/>.º día hábil del mes SIGUIENTE. Con 5, las salidas de
+        /// agosto se rinden hasta el 5.º día hábil de setiembre; pasado ese día el periodo queda
+        /// cerrado.
         ///
-        /// Si el mes siguiente no llegara a tener 7 días hábiles (caso teórico), el plazo es su
+        /// Si el mes siguiente no llegara a tener tantos días hábiles (caso teórico), el plazo es su
         /// último día: nunca se devuelve una fecha de otro mes.
         /// </summary>
         public DateOnly LimiteDeRendicion(int anio, int mes)

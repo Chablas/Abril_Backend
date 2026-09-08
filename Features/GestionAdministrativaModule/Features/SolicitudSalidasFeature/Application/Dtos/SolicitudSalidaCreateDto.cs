@@ -165,7 +165,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// <summary>Cuántas solicitudes propias aptas para rendir tiene ese mes.</summary>
         public int Cantidad { get; set; }
         /// <summary>
-        /// Último día para rendir ese mes (7.º día hábil del mes siguiente). Solo se ofrecen meses
+        /// Último día para rendir ese mes (N.º día hábil del mes siguiente, N configurable). Solo se ofrecen meses
         /// cuyo plazo sigue abierto, así que esta fecha siempre es de hoy en adelante.
         /// </summary>
         public DateOnly FechaLimite { get; set; }

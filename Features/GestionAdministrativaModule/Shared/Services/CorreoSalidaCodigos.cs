@@ -48,6 +48,50 @@
         public const string ReembolsoRechazado = "REEMBOLSO_RECHAZADO";
     }
 
+    /// <summary>
+    /// Códigos estables del catálogo ga_correo_pantalla: la pantalla donde se ORIGINA cada correo
+    /// y, por lo tanto, la que lo administra en su botón «Configuración».
+    /// </summary>
+    public static class CorreoPantallaCodigos
+    {
+        /// <summary>Los que salen al crear la solicitud (al revisor y al solicitante).</summary>
+        public const string SolicitudSalidas = "SOLICITUD_SALIDAS";
+
+        /// <summary>
+        /// Los que dispara el trabajador desde Mis Rendiciones: enviar la planilla a primera
+        /// revisión (con su acuse) y avisar que adjuntó el Consolidado del S10.
+        /// </summary>
+        public const string Rendiciones = "RENDICIONES";
+
+        /// <summary>La decisión del revisor sobre la solicitud: aprobada o rechazada.</summary>
+        public const string GestionSalidas = "GESTION_SALIDAS";
+
+        /// <summary>Las dos decisiones del revisor sobre la planilla: primera revisión y reembolso.</summary>
+        public const string GestionRendiciones = "GESTION_RENDICIONES";
+
+        /// <summary>
+        /// Tesorería. Hoy no origina ningún correo (marcar pagado no envía nada); está en el
+        /// catálogo para que su Configuración exista y un correo nuevo entre sin tocar código.
+        /// </summary>
+        public const string Reembolsos = "REEMBOLSOS";
+
+        /// <summary>
+        /// Traduce el segmento de URL de la pantalla (el que usa el frontend y la ruta del
+        /// controller) al código del catálogo. Devuelve null si el segmento no es una pantalla
+        /// conocida, para que el controller responda 404 en vez de listar todo.
+        /// </summary>
+        public static string? DesdeSegmento(string? segmento) =>
+            (segmento ?? string.Empty).Trim().ToLowerInvariant() switch
+            {
+                "solicitud-salidas"   => SolicitudSalidas,
+                "rendiciones"         => Rendiciones,
+                "gestion-salidas"     => GestionSalidas,
+                "gestion-rendiciones" => GestionRendiciones,
+                "reembolsos"          => Reembolsos,
+                _                     => null,
+            };
+    }
+
     /// <summary>Códigos estables del catálogo ga_correo_tipo_destinatario.</summary>
     public static class CorreoTipoCodigos
     {

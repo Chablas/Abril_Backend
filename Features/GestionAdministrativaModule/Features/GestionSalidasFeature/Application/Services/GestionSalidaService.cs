@@ -269,9 +269,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteAprobada(id);
         }
 
-        public async Task Rechazar(int id, int reviewerUserId)
+        public async Task Rechazar(int id, int reviewerUserId, string? motivoRechazo)
         {
-            await _repo.Rechazar(id, reviewerUserId);
+            await _repo.Rechazar(id, reviewerUserId, motivoRechazo);
             // Email de rechazo al solicitante (best-effort, no rompe el flujo si falla)
             await _solicitudSalidaService.NotifySolicitanteRechazada(id);
         }
@@ -328,9 +328,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "Rinde un mes a la vez.", 400);
             }
 
-            // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros 7 días
-            //          hábiles del mes siguiente, sin sábados, domingos ni los feriados de
-            //          Configuración → Feriados. Vencido, la salida solo se puede ver.
+            // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros días
+            //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
+            //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados
+            //          de Configuración → Feriados. Vencido, la salida solo se puede ver.
             if (meses.Count == 1)
             {
                 var calendario = await _repo.GetCalendarioNoLaborable();
@@ -338,7 +339,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (MesAnteriorPeru.HoyPeru() > limite)
                     throw new AbrilException(
                         $"El plazo para rendir las salidas de {meses[0].Mes:D2}/{meses[0].Anio} venció el " +
-                        $"{limite:dd/MM/yyyy} (7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+                        $"{limite:dd/MM/yyyy} ({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
             }
 
             // 1.c. Bloqueo: la salida tiene que llevar al menos un motivo marcado como reembolsable
@@ -467,7 +468,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (MesAnteriorPeru.HoyPeru() > limite)
                 throw new AbrilException(
                     $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
-                    "(7.º día hábil del mes siguiente). Ya no se pueden rendir.", 400);
+                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
 
             filters.SoloHoy          = false;
             filters.RendicionAnio    = null;
@@ -489,8 +490,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await RendirYGenerarPlanilla(ids, userId);
         }
 
-        public Task<GestionSalidaDetalleDto?> GetDetalle(int id)
-            => _repo.GetDetalle(id);
+        public Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId)
+            => _repo.GetDetalle(id, currentUserId);
 
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────

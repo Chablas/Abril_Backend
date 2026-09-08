@@ -12,6 +12,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
     /// Configuración de los correos del flujo de salidas. La pantalla guarda al momento de tocar
     /// cada control, así que cada operación toca una sola fila: no hay reemplazo completo de la
     /// lista (pisaría lo que otro editor acabara de cambiar en otra fila).
+    ///
+    /// Todo va acotado a una pantalla (ga_correo_pantalla): cada pantalla del flujo administra
+    /// solo los correos que se originan en ella, y ese filtro se aplica también en las escrituras
+    /// — un id de otra pantalla sale como 404 en vez de escribirse.
     /// </summary>
     public class CorreoConfigRepository : ICorreoConfigRepository
     {
@@ -22,12 +26,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         // ── Lectura ──────────────────────────────────────────────────────────
 
-        public async Task<CorreoConfigInicialDto> GetInicialAsync()
+        public async Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaCodigo)
         {
             using var ctx = _factory.CreateDbContext();
 
+            var pantallaId = await ResolverPantallaIdAsync(ctx, pantallaCodigo);
+
             var eventos = await ctx.GaCorreoEvento
-                .Where(e => e.State)
+                .Where(e => e.State && e.PantallaId == pantallaId)
                 .OrderBy(e => e.Orden)
                 .Select(e => new CorreoEventoDto
                 {
@@ -44,10 +50,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 })
                 .ToListAsync();
 
+            // Reembolsos hoy no origina ningún correo (Tesorería solo marca pagado). Sin correos no
+            // hay reglas que traer ni desplegables que llenar: se corta acá y se ahorran 4 consultas.
+            if (eventos.Count == 0) return new CorreoConfigInicialDto();
+
+            var eventoIds = eventos.Select(e => e.Id).ToList();
+
             var reglas = await (
                 from r in ctx.GaCorreoRegla
                 join t in ctx.GaCorreoTipoDestinatario on r.TipoId equals t.Id
-                where r.State
+                where r.State && eventoIds.Contains(r.EventoId)
                 orderby r.Orden, r.Id
                 select new
                 {
@@ -201,10 +213,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         // ── Interruptores del correo ─────────────────────────────────────────
 
-        public async Task SetEventoActiveAsync(string eventoCodigo, bool active)
+        public async Task SetEventoActiveAsync(string pantallaCodigo, string eventoCodigo, bool active)
         {
             using var ctx = _factory.CreateDbContext();
-            var evento = await BuscarEventoAsync(ctx, eventoCodigo);
+            var evento = await BuscarEventoAsync(ctx, pantallaCodigo, eventoCodigo);
 
             if (evento.Active == active) return;
             if (!evento.PermiteDesactivarEnvio)
@@ -215,10 +227,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetPrincipalActiveAsync(string eventoCodigo, bool active)
+        public async Task SetPrincipalActiveAsync(string pantallaCodigo, string eventoCodigo, bool active)
         {
             using var ctx = _factory.CreateDbContext();
-            var evento = await BuscarEventoAsync(ctx, eventoCodigo);
+            var evento = await BuscarEventoAsync(ctx, pantallaCodigo, eventoCodigo);
 
             if (evento.DestinatarioPrincipalActivo == active) return;
             if (!evento.PermiteDesactivarPrincipal)
@@ -231,10 +243,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         // ── Destinatarios configurados ───────────────────────────────────────
 
-        public async Task<int> CrearDestinatarioAsync(string eventoCodigo, CorreoDestinatarioInputDto dto)
+        public async Task<int> CrearDestinatarioAsync(string pantallaCodigo, string eventoCodigo, CorreoDestinatarioInputDto dto)
         {
             using var ctx = _factory.CreateDbContext();
-            var evento = await BuscarEventoAsync(ctx, eventoCodigo);
+            var evento = await BuscarEventoAsync(ctx, pantallaCodigo, eventoCodigo);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
             var (workerId, areaScopeId, correo) = await NormalizarAsync(ctx, tipoCodigo, dto);
@@ -267,10 +279,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             return regla.Id;
         }
 
-        public async Task ActualizarDestinatarioAsync(int id, CorreoDestinatarioInputDto dto)
+        public async Task ActualizarDestinatarioAsync(string pantallaCodigo, int id, CorreoDestinatarioInputDto dto)
         {
             using var ctx = _factory.CreateDbContext();
-            var regla = await BuscarReglaAsync(ctx, id);
+            var regla = await BuscarReglaAsync(ctx, pantallaCodigo, id);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
             var (workerId, areaScopeId, correo) = await NormalizarAsync(ctx, tipoCodigo, dto);
@@ -286,10 +298,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetDestinatarioActiveAsync(int id, bool active)
+        public async Task SetDestinatarioActiveAsync(string pantallaCodigo, int id, bool active)
         {
             using var ctx = _factory.CreateDbContext();
-            var regla = await BuscarReglaAsync(ctx, id);
+            var regla = await BuscarReglaAsync(ctx, pantallaCodigo, id);
 
             if (regla.Active == active) return;
             regla.Active = active;
@@ -297,10 +309,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             await ctx.SaveChangesAsync();
         }
 
-        public async Task EliminarDestinatarioAsync(int id)
+        public async Task EliminarDestinatarioAsync(string pantallaCodigo, int id)
         {
             using var ctx = _factory.CreateDbContext();
-            var regla = await BuscarReglaAsync(ctx, id);
+            var regla = await BuscarReglaAsync(ctx, pantallaCodigo, id);
 
             // Soft delete: la fila se conserva para saber a quién se le mandó este correo antes.
             regla.State = false;
@@ -310,13 +322,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         // ── Helpers ──────────────────────────────────────────────────────────
 
-        private static async Task<GaCorreoEvento> BuscarEventoAsync(AppDbContext ctx, string eventoCodigo) =>
-            await ctx.GaCorreoEvento.FirstOrDefaultAsync(e => e.Codigo == eventoCodigo && e.State)
-            ?? throw new AbrilException("El correo indicado no existe.", 404);
+        private static async Task<int> ResolverPantallaIdAsync(AppDbContext ctx, string pantallaCodigo)
+        {
+            var buscado = (pantallaCodigo ?? string.Empty).Trim().ToUpperInvariant();
+            var id = await ctx.GaCorreoPantalla
+                .Where(p => p.State && p.Codigo.ToUpper() == buscado)
+                .Select(p => (int?)p.Id)
+                .FirstOrDefaultAsync();
 
-        private static async Task<GaCorreoRegla> BuscarReglaAsync(AppDbContext ctx, int id) =>
-            await ctx.GaCorreoRegla.FirstOrDefaultAsync(r => r.Id == id && r.State)
-            ?? throw new AbrilException("El destinatario indicado no existe.", 404);
+            return id ?? throw new AbrilException($"La pantalla indicada no existe: '{pantallaCodigo}'.", 404);
+        }
+
+        /// <summary>
+        /// El correo, pero solo si se origina en esa pantalla: así la Configuración de una pantalla
+        /// no puede prender ni apagar un correo de otra pasándole su código a mano.
+        /// </summary>
+        private static async Task<GaCorreoEvento> BuscarEventoAsync(
+            AppDbContext ctx, string pantallaCodigo, string eventoCodigo)
+        {
+            var pantallaId = await ResolverPantallaIdAsync(ctx, pantallaCodigo);
+
+            return await ctx.GaCorreoEvento
+                .FirstOrDefaultAsync(e => e.Codigo == eventoCodigo && e.State && e.PantallaId == pantallaId)
+                ?? throw new AbrilException("El correo indicado no existe.", 404);
+        }
+
+        /// <summary>
+        /// El destinatario, pero solo si su correo se origina en esa pantalla (mismo motivo que
+        /// <see cref="BuscarEventoAsync"/>: el id viaja desde el navegador).
+        /// </summary>
+        private static async Task<GaCorreoRegla> BuscarReglaAsync(
+            AppDbContext ctx, string pantallaCodigo, int id)
+        {
+            var pantallaId = await ResolverPantallaIdAsync(ctx, pantallaCodigo);
+
+            var regla = await ctx.GaCorreoRegla.FirstOrDefaultAsync(r => r.Id == id && r.State)
+                ?? throw new AbrilException("El destinatario indicado no existe.", 404);
+
+            var deLaPantalla = await ctx.GaCorreoEvento
+                .AnyAsync(e => e.Id == regla.EventoId && e.State && e.PantallaId == pantallaId);
+            if (!deLaPantalla)
+                throw new AbrilException("El destinatario indicado no existe.", 404);
+
+            return regla;
+        }
 
         private static async Task<(int TipoId, string TipoCodigo)> ResolverTipoAsync(AppDbContext ctx, string? codigo)
         {

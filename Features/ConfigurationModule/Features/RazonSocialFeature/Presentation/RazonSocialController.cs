@@ -40,6 +40,23 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
             }
         }
 
+        /// <summary>
+        /// Trabajadores que hoy están en Abril bajo esa razón social, para el modal de detalle.
+        /// Va aparte de la bandeja: una razón social puede tener cientos de fichas y el detalle
+        /// casi nunca se abre, así que la tabla solo carga el conteo.
+        /// </summary>
+        [HttpGet("{id:int}/trabajadores")]
+        public async Task<IActionResult> GetTrabajadores(int id)
+        {
+            try { return Ok(await _service.GetTrabajadores(id)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en RazonSocialController.GetTrabajadores");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Consulta de RUC a SUNAT para el alta.</summary>
         [HttpGet("ruc/{ruc}")]
         public async Task<IActionResult> ConsultarRuc(string ruc)

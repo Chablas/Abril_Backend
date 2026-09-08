@@ -9,5 +9,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
 
         Task<RazonSocialDto> Create(RazonSocialCreateDto dto, int? userId);
         Task<RazonSocialDto> Update(int contributorId, RazonSocialUpdateDto dto, int? userId);
+
+        /// <summary>Trabajadores que hoy están en Abril bajo esa razón social.</summary>
+        Task<List<RazonSocialTrabajadorDto>> GetTrabajadores(int contributorId);
     }
 }

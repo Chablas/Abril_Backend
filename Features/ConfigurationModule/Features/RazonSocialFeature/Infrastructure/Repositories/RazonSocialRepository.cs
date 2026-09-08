@@ -3,6 +3,8 @@ using Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature.App
 using Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature.Infrastructure.Repositories
@@ -31,6 +33,16 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
                 .OrderBy(b => b.Orden).ThenBy(b => b.Nombre)
                 .Select(b => new BancoOpcionDto { Id = b.BancoId, Nombre = b.Nombre })
                 .ToListAsync();
+
+            // Un GROUP BY para toda la tabla, no un COUNT por fila: son cientos de empresas y el
+            // conteo se muestra en cada una.
+            var porRazon = await Trabajadores(ctx)
+                .GroupBy(w => w.ContributorId!.Value)
+                .Select(g => new { ContributorId = g.Key, Total = g.Count() })
+                .ToDictionaryAsync(x => x.ContributorId, x => x.Total);
+
+            foreach (var razon in razonesSociales)
+                razon.CantidadTrabajadores = porRazon.GetValueOrDefault(razon.Id);
 
             return new RazonSocialBandejaDto { RazonesSociales = razonesSociales, Bancos = bancos };
         }
@@ -94,6 +106,46 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
             return await Leer(ctx, entity.ContributorId);
         }
 
+        public async Task<List<RazonSocialTrabajadorDto>> GetTrabajadores(int contributorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await Trabajadores(ctx)
+                .AsNoTracking()
+                .Where(w => w.ContributorId == contributorId)
+                .OrderBy(w => w.Person!.FullName).ThenBy(w => w.Id)
+                .Select(w => new RazonSocialTrabajadorDto
+                {
+                    WorkerId            = w.Id,
+                    NombreCompleto      = w.Person!.FullName ?? "",
+                    EmailCorporativo    = w.EmailCorporativo,
+                    TipoUbicacionId     = w.ObraOficinaStaffId,
+                    // Las fichas del padrón viejo no tienen tipo de ubicación cargado: el ternario
+                    // deja el nombre en null (mismo idioma que el resto de los repositorios que lo
+                    // leen).
+                    TipoUbicacionNombre = w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null,
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Los trabajadores que le cuentan a una razón social: los que están en Abril HOY
+        /// (<c>workers_estado.esta_adentro = true</c> — ACTIVO e INHABILITADO_SSOMA). Deja fuera a
+        /// los RETIRADOS y a las fichas de pre-ingreso, que todavía no son trabajadores de Abril.
+        ///
+        /// Definición única a propósito: el conteo de la tabla y la lista del detalle viajan en
+        /// peticiones distintas, y con la condición duplicada bastaría tocar una para que el modal
+        /// mostrara diez filas bajo un chip que dice doce.
+        ///
+        /// El estado se filtra por id y no con un join a <c>workers_estado</c>: ninguna de las dos
+        /// consultas necesita otra columna del catálogo (ver
+        /// <see cref="WorkersEstadoIds.EstanAdentro"/>). Las fichas eliminadas las saca el filtro
+        /// global de <c>AppDbContext</c>.
+        /// </summary>
+        private static IQueryable<Worker> Trabajadores(AppDbContext ctx) =>
+            ctx.Worker.Where(w => w.ContributorId != null
+                               && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId));
+
         /// <summary>Proyección única de la fila: la comparten la bandeja, el alta y la edición.</summary>
         private static IQueryable<RazonSocialDto> Query(AppDbContext ctx) =>
             ctx.Contributor
@@ -117,8 +169,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
                 });
 
         /// <summary>Relee la fila ya escrita para devolverla con el nombre de su banco resuelto.</summary>
-        private static async Task<RazonSocialDto> Leer(AppDbContext ctx, int contributorId) =>
-            await Query(ctx).FirstOrDefaultAsync(r => r.Id == contributorId)
-            ?? throw new AbrilException("No se pudo releer la razón social guardada.", 500);
+        private static async Task<RazonSocialDto> Leer(AppDbContext ctx, int contributorId)
+        {
+            var dto = await Query(ctx).FirstOrDefaultAsync(r => r.Id == contributorId)
+                      ?? throw new AbrilException("No se pudo releer la razón social guardada.", 500);
+
+            // En el alta siempre da 0, pero la edición tiene que devolverlo de verdad: la pantalla
+            // reemplaza la fila entera con lo que responde el PUT, y sin esto el chip de la razón
+            // social recién editada se iría a cero hasta la próxima recarga.
+            dto.CantidadTrabajadores = await Trabajadores(ctx)
+                .CountAsync(w => w.ContributorId == contributorId);
+
+            return dto;
+        }
     }
 }

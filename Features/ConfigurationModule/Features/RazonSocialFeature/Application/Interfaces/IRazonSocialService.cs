@@ -13,5 +13,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
 
         Task<RazonSocialDto> Create(RazonSocialCreateDto dto, int? userId);
         Task<RazonSocialDto> Update(int contributorId, RazonSocialUpdateDto dto, int? userId);
+
+        /// <summary>
+        /// Trabajadores que hoy están en Abril bajo esa razón social, para el modal de detalle.
+        /// Va aparte de la bandeja a propósito: una razón social puede tener cientos de fichas y
+        /// el detalle casi nunca se abre, así que la tabla solo carga el conteo.
+        /// </summary>
+        Task<List<RazonSocialTrabajadorDto>> GetTrabajadores(int contributorId);
     }
 }

@@ -30,6 +30,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
 
         public Task<SunatContributorDto?> ConsultarRuc(string ruc) => _sunat.GetByRucAsync(ruc);
 
+        public Task<List<RazonSocialTrabajadorDto>> GetTrabajadores(int contributorId) =>
+            _repo.GetTrabajadores(contributorId);
+
         public Task<RazonSocialDto> Create(RazonSocialCreateDto dto, int? userId)
         {
             if (dto == null)

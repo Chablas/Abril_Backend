@@ -20,6 +20,35 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.RazonSocialFeature
         /// </summary>
         public int? BancoId { get; set; }
         public string? BancoNombre { get; set; }
+
+        /// <summary>
+        /// Trabajadores que hoy están en Abril bajo esta razón social. No es el histórico: deja
+        /// fuera a los retirados y a las fichas de pre-ingreso (<c>workers_estado.esta_adentro</c>).
+        /// Es solo el conteo — quiénes son se piden aparte, ver
+        /// <see cref="RazonSocialTrabajadorDto"/>.
+        /// </summary>
+        public int CantidadTrabajadores { get; set; }
+    }
+
+    /// <summary>
+    /// Fila del detalle "trabajadores de esta razón social". Es una ficha de <c>workers</c>, no
+    /// una persona: quien reingresó tiene más de una, y las dos salen si ambas apuntan a esta
+    /// razón social — a propósito, para que la lista cuadre con
+    /// <see cref="RazonSocialDto.CantidadTrabajadores"/>.
+    /// </summary>
+    public class RazonSocialTrabajadorDto
+    {
+        public int WorkerId { get; set; }
+        public string NombreCompleto { get; set; } = string.Empty;
+        public string? EmailCorporativo { get; set; }
+
+        /// <summary>
+        /// Tipo de ubicación laboral (<c>workers_obra_oficina_staff</c>): Obra, Staff, Oficina
+        /// Central o Personal Externo. Null en las fichas del padrón viejo que nunca lo tuvieron
+        /// cargado.
+        /// </summary>
+        public int? TipoUbicacionId { get; set; }
+        public string? TipoUbicacionNombre { get; set; }
     }
 
     /// <summary>

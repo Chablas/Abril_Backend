@@ -740,6 +740,73 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         await ctx.SaveChangesAsync();
     }
 
+    // ── Antecedentes de eventos ──────────────────────────────────────────────
+
+    public async Task<(List<AntecedenteItemDto> Items, int Total)> BuscarAntecedentesAsync(
+        string palabraClave, int? proyectoId, int? tipoId,
+        DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize)
+    {
+        var where = new List<string>
+        {
+            "(a.descripcion ~* @kw OR a.dano_proceso ~* @kw OR a.acciones_inmediatas ~* @kw OR a.lugar_exacto ~* @kw)"
+        };
+        var p = new DynamicParameters();
+        p.Add("kw", palabraClave);
+        p.Add("offset", (page - 1) * pageSize);
+        p.Add("limit", pageSize);
+
+        if (proyectoId.HasValue) { where.Add("a.proyecto_id = @pid"); p.Add("pid", proyectoId); }
+        if (tipoId.HasValue)     { where.Add("a.tipo_id = @tid"); p.Add("tid", tipoId); }
+        if (fechaDesde.HasValue) { where.Add("a.fecha >= @fd"); p.Add("fd", fechaDesde.Value.Date); }
+        if (fechaHasta.HasValue) { where.Add("a.fecha <= @fh"); p.Add("fh", fechaHasta.Value.Date); }
+
+        var whereClause = "WHERE " + string.Join(" AND ", where);
+
+        var sql = $"""
+            SELECT
+                a.id, a.codigo, t.nombre AS tipo_nombre, p.project_description AS proyecto_nombre,
+                a.fecha, a.lugar_exacto, a.descripcion, a.dano_proceso, a.acciones_inmediatas,
+                rm.mecanismo, rm.agente_causante
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_investigacion_rm050 rm ON rm.accidente_incidente_id = a.id
+            {whereClause}
+            ORDER BY a.fecha DESC, a.id DESC
+            LIMIT @limit OFFSET @offset;
+
+            SELECT COUNT(*) FROM ss_accidente_incidente a {whereClause};
+            """;
+
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        await using var multi = await conn.QueryMultipleAsync(sql, p);
+        var items = (await multi.ReadAsync<AntecedenteItemDto>()).ToList();
+        var total = await multi.ReadSingleAsync<int>();
+        return (items, total);
+    }
+
+    public async Task<List<AntecedenteItemDto>> GetAntecedentesPorIdsAsync(List<int> ids)
+    {
+        const string sql = """
+            SELECT
+                a.id, a.codigo, t.nombre AS tipo_nombre, p.project_description AS proyecto_nombre,
+                a.fecha, a.lugar_exacto, a.descripcion, a.dano_proceso, a.acciones_inmediatas,
+                rm.mecanismo, rm.agente_causante
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_investigacion_rm050 rm ON rm.accidente_incidente_id = a.id
+            WHERE a.id = ANY(@ids)
+            ORDER BY a.fecha DESC, a.id DESC;
+            """;
+
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        var rows = await conn.QueryAsync<AntecedenteItemDto>(sql, new { ids = ids.ToArray() });
+        return rows.ToList();
+    }
+
     public async Task ReclasificarTipoAsync(int id, int tipoId, string tipoCodigo, string tipoNombre)
     {
         using var ctx = _factory.CreateDbContext();

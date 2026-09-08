@@ -411,4 +411,22 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
         return 0;
     }
+
+    // ── Antecedentes de eventos ──────────────────────────────────────────────
+
+    public async Task<object> BuscarAntecedentesAsync(string palabraClave, int? proyectoId, int? tipoId,
+        DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize)
+    {
+        var (items, total) = await _repo.BuscarAntecedentesAsync(palabraClave, proyectoId, tipoId, fechaDesde, fechaHasta, page, pageSize);
+        return new { items, total, page, pageSize, totalPages = (int)Math.Ceiling((double)total / pageSize) };
+    }
+
+    public async Task<byte[]> GenerarPdfAntecedentesAsync(ExportarAntecedentesRequest req)
+    {
+        if (req.Ids.Count == 0)
+            throw new AbrilException("Debe seleccionar al menos un antecedente para exportar.", 400);
+
+        var items = await _repo.GetAntecedentesPorIdsAsync(req.Ids);
+        return AntecedentesPdfService.Generar(req.Titulo, req.PalabraClave, items);
+    }
 }

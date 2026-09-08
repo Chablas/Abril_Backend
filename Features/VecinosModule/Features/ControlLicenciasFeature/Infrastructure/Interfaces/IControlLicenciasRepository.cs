@@ -90,6 +90,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>Residente y Administrador del proyecto (project.residente_workers_id / project.workers_coord_admin_id), para el recordatorio de visita.</summary>
         Task<List<string>> ResolverDestinatariosVisita(int projectId);
 
+        /// <summary>
+        /// Correos de todo el personal activo de la subárea "Unidad de Proyectos" (workers.subarea),
+        /// para el aviso urgente de Interferencia de Vías. No depende del proyecto: UDP recibe el
+        /// aviso de cualquier obra.
+        /// </summary>
+        Task<List<string>> ResolverDestinatariosUdp();
+
         /// <summary>Edita las fechas ampliadas del dashboard (inscripción/inicio/renovación) y Mes Activo.</summary>
         Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId);
 

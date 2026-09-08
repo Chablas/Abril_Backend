@@ -40,4 +40,10 @@ public interface IAccidenteIncidenteRepository
 
     // Reclasificar
     Task ReclasificarTipoAsync(int id, int tipoId, string tipoCodigo, string tipoNombre);
+
+    // Antecedentes de eventos
+    Task<(List<AntecedenteItemDto> Items, int Total)> BuscarAntecedentesAsync(
+        string palabraClave, int? proyectoId, int? tipoId,
+        DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize);
+    Task<List<AntecedenteItemDto>> GetAntecedentesPorIdsAsync(List<int> ids);
 }

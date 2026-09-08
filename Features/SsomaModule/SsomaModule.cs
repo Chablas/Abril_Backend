@@ -55,10 +55,22 @@ using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
@@ -266,11 +278,25 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IInduccionProgramacionRepository, InduccionProgramacionRepository>();
             services.AddScoped<IInduccionProgramacionService, InduccionProgramacionService>();
 
+            // Programación de Inspecciones Cruzadas (rotación mensual por anillo de proyectos)
+            services.AddScoped<IInspeccionCruzadaProgramacionRepository, InspeccionCruzadaProgramacionRepository>();
+            services.AddScoped<IInspeccionCruzadaProgramacionService, InspeccionCruzadaProgramacionService>();
+
             // PETS — catálogo de pasos, piloto para que OPT (y a futuro Estándares/IPERC)
             // jalen automáticamente la estructura en vez de tipearla a mano.
             services.AddScoped<IPetsRepository, PetsRepository>();
             services.AddScoped<IPetsService, PetsService>();
             services.AddScoped<IPetsImportService, PetsImportService>();
+
+            // Activos Rotativos — equipos que circulan entre proyectos (tambores retráctiles,
+            // frenos de cuerda, etc.). Solo visibilidad + contacto, sin flujo de aprobación.
+            services.AddScoped<IActivoRotativoRepository, ActivoRotativoRepository>();
+            services.AddScoped<IActivoRotativoService, ActivoRotativoService>();
+
+            // Cumplimiento SSOMA — guía de actividades mínimas diarias/semanales/mensuales
+            // del Coordinador SSOMA y el Prevencionista, por proyecto.
+            services.AddScoped<ICumplimientoRepository, CumplimientoRepository>();
+            services.AddScoped<ICumplimientoService, CumplimientoService>();
 
             return services;
         }

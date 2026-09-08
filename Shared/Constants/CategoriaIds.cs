@@ -155,6 +155,6 @@
         /// las que entran por área/subárea/jefatura).
         /// </summary>
         public static readonly int[] DestinatariosFlashReport =
-            { Medico, GerenteGeneral, GerenteAdministracionFinanzas };
+            { Medico, GerenteGeneral };
     }
 }

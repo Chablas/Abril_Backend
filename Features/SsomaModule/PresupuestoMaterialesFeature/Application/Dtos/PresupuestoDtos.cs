@@ -18,6 +18,11 @@ public class ActualizarLineaPresupuestoDto
     public string?  NotasLinea      { get; set; }
 }
 
+public class ActualizarCantidadManualDto
+{
+    public decimal? CantidadManual { get; set; }
+}
+
 // ── Response ──────────────────────────────────────────────────────────────────
 
 public class PresupuestoResumenDto
@@ -75,6 +80,12 @@ public class PresupuestoLineaDto
     public decimal  TotalEfectivo      => Math.Round(CantidadEfectiva * PrecioEfectivo, 2);
 }
 
+public class PresupuestoDestinatarioDto
+{
+    public string Rol   { get; set; } = null!;
+    public string Email { get; set; } = null!;
+}
+
 // ── Ratio recomendado (interno, usado por el servicio) ────────────────────────
 
 public class RatioRecomendadoDto
@@ -84,6 +95,7 @@ public class RatioRecomendadoDto
     public int      TipoId             { get; set; }
     public string   NombreTipo         { get; set; } = null!;
     public string   VariableBase       { get; set; } = null!;
+    public string?  UnidadMedida       { get; set; }
     public decimal  RatioRecomendado   { get; set; }
     public decimal  PrecioRecomendado  { get; set; }
     public int      NProyectos         { get; set; }

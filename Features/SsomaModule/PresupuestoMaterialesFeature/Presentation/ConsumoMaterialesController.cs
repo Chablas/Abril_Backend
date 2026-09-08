@@ -71,6 +71,22 @@ public class ConsumoMaterialesController : ControllerBase
     }
 
     /// <summary>
+    /// Proyecto donde el usuario logueado está actualmente vinculado como trabajador (su obra
+    /// real de RRHH) — para preseleccionarlo por defecto en pantallas como esta. Null si no tiene
+    /// vinculación activa (p. ej. personal de oficina sin ficha de trabajador).
+    /// </summary>
+    [HttpGet("proyectos/mi-actual")]
+    public async Task<IActionResult> ObtenerProyectoActual()
+    {
+        try
+        {
+            var projectId = await _consumoService.ObtenerProyectoActualDelUsuarioAsync(UsuarioId);
+            return Ok(new { projectId });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al obtener el proyecto actual." }); }
+    }
+
+    /// <summary>
     /// Asigna cada línea de consumo del proyecto al hito real del cronograma (/projects) que le
     /// corresponde según su fecha de guía. Se puede volver a correr cuando el cronograma cambie.
     /// </summary>

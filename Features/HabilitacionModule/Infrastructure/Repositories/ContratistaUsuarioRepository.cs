@@ -99,6 +99,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             existing.Scope = entity.Scope;
             existing.Activo = entity.Activo;
             existing.Modulos = entity.Modulos;
+            existing.WorkerId = entity.WorkerId;
 
             if (proyectoIds is not null)
             {

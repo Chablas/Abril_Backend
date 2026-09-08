@@ -70,4 +70,13 @@ public class ControlConsumoService : IControlConsumoService
 
     public Task<DashboardPresupuestoDto?> ObtenerDashboardAsync(int presupuestoId) =>
         _repo.ObtenerDashboardAsync(presupuestoId);
+
+    public async Task<DashboardPresupuestoDto?> ObtenerDashboardPorProyectoAsync(int projectId)
+    {
+        var presupuestoId = await _repo.ObtenerPresupuestoVigenteIdAsync(projectId);
+        return presupuestoId is null ? null : await _repo.ObtenerDashboardAsync(presupuestoId.Value);
+    }
+
+    public Task<DashboardAcumuladoDto> ObtenerDashboardAcumuladoAsync() =>
+        _repo.ObtenerDashboardAcumuladoAsync();
 }

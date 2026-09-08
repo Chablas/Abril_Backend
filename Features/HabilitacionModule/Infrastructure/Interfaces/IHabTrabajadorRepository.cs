@@ -22,7 +22,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 
         Task CambiarObraAsync(int workerId, WorkerCambiarObraDto dto);
 
-        Task ReingresoAsync(int workerId, WorkerReingresoDto dto);
+        /// <summary>Reingresa a un trabajador retirado. Si el retiro más reciente fue automático
+        /// (por documentación) y todavía hay ítems con requiere_vigencia sin Aprobar, bloquea con
+        /// 400 salvo que <paramref name="esOverrideAutorizado"/> sea true (Administrador/Coordinador
+        /// SSOMA de Abril — nunca una sesión de contratista).</summary>
+        Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false);
 
         Task<int?> GetEmpresaActivaWorkerAsync(int workerId);
 
@@ -53,5 +57,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         /// <summary>Interconsultas médicas pendientes (widget junto a "EMOs Programados"), con
         /// solo razón social/proyecto actual/días de retraso — sin datos clínicos.</summary>
         Task<List<InterconsultaPendienteHabDto>> GetInterconsultasPendientesAsync();
+
+        /// <summary>Retiros automáticos ejecutados en los últimos <paramref name="dias"/> días
+        /// (widget "Retiros Automáticos", mismo lugar que "Interconsultas Pendientes").</summary>
+        Task<List<RetiroAutomaticoRecienteDto>> GetRetirosAutomaticosRecientesAsync(int dias);
     }
 }

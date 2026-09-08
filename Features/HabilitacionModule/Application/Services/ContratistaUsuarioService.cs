@@ -203,13 +203,25 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                     throw new AbrilException("Debe seleccionar al menos un proyecto.", 400);
             }
 
+            int? workerId = existing.WorkerId;
+            if (dto.VincularWorker)
+            {
+                if (dto.WorkerId.HasValue)
+                {
+                    var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId.Value)
+                        ?? throw new AbrilException("Trabajador no encontrado.", 404);
+                }
+                workerId = dto.WorkerId;
+            }
+
             var entityUpdate = new SsContratistaUsuario
             {
                 ContractorId = contractorId,
                 RolId = rolId,
                 Scope = scope,
                 Activo = dto.Activo ?? existing.Activo,
-                Modulos = dto.Modulos?.Trim().ToUpper() ?? existing.Modulos
+                Modulos = dto.Modulos?.Trim().ToUpper() ?? existing.Modulos,
+                WorkerId = workerId
             };
 
             var proyectosActualizar = scope == "POR_PROYECTO" ? dto.ProyectoIds : (scope == "TODOS" ? new List<int>() : null);

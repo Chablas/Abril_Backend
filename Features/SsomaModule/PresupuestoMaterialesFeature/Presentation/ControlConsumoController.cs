@@ -15,7 +15,12 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
 public class ControlConsumoController : ControllerBase
 {
     private readonly IControlConsumoService _service;
-    public ControlConsumoController(IControlConsumoService service) => _service = service;
+    private readonly ILogger<ControlConsumoController> _logger;
+    public ControlConsumoController(IControlConsumoService service, ILogger<ControlConsumoController> logger)
+    {
+        _service = service;
+        _logger = logger;
+    }
 
     private int? UserId => int.TryParse(
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
@@ -102,5 +107,35 @@ public class ControlConsumoController : ControllerBase
             return Ok(resultado);
         }
         catch (Exception) { return StatusCode(500, new { message = "Error al obtener dashboard." }); }
+    }
+
+    /// <summary>
+    /// Mismo dashboard, resuelto por proyecto en vez de por presupuestoId — toma automáticamente
+    /// la versión más reciente del presupuesto del proyecto. Para pantallas que solo conocen el
+    /// proyecto seleccionado (p. ej. Cargar Consumos) y no quieren obligar a elegir versión.
+    /// </summary>
+    [HttpGet("proyectos/{projectId}/dashboard")]
+    public async Task<IActionResult> DashboardPorProyecto(int projectId)
+    {
+        try
+        {
+            var resultado = await _service.ObtenerDashboardPorProyectoAsync(projectId);
+            if (resultado is null) return NotFound(new { message = "El proyecto no tiene un presupuesto generado todavía." });
+            return Ok(resultado);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener dashboard del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener dashboard." });
+        }
+    }
+
+    /// <summary>Vista gerencial acumulada: un renglón por proyecto (presupuesto más reciente) con
+    /// total presupuestado vs. consumido real, para ver todos los proyectos de un vistazo.</summary>
+    [HttpGet("dashboard-acumulado")]
+    public async Task<IActionResult> DashboardAcumulado()
+    {
+        try { return Ok(await _service.ObtenerDashboardAcumuladoAsync()); }
+        catch (Exception) { return StatusCode(500, new { message = "Error al obtener el dashboard acumulado." }); }
     }
 }

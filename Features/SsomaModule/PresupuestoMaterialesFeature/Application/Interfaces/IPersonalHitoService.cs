@@ -7,4 +7,5 @@ public interface IPersonalHitoService
     Task<List<PersonalHitoDto>> ObtenerPorProyectoAsync(int projectId);
     Task<List<HitoCriticoDisponibleDto>> ObtenerHitosCriticosAsync(int projectId);
     Task GuardarAsync(int projectId, PersonalHitoGuardarDto dto, int userId);
+    Task<PersonalTarifasSugeridasDto> ObtenerTarifasSugeridasAsync();
 }

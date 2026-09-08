@@ -158,6 +158,9 @@ public class ConsumoService : IConsumoService
     public async Task<int> AsignarHitosAsync(int projectId) =>
         await _repo.AsignarHitosPorFechaAsync(projectId);
 
+    public async Task<int?> ObtenerProyectoActualDelUsuarioAsync(int usuarioId) =>
+        await _repo.ObtenerProyectoActualDelUsuarioAsync(usuarioId);
+
     private static string ClaveDe(SsConsumoLinea l) => ClaveDe(l.NroGuia, l.RecursoCrudo, l.FechaGuia, l.Movimiento, l.Ocurrencia);
 
     private static string ClaveDe(string? nroGuia, string recurso, DateOnly fecha, string? movimiento, int ocurrencia) =>

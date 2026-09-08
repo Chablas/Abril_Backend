@@ -19,4 +19,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public DateOnly FechaApertura { get; set; }
         public DateOnly FechaCierre { get; set; }
     }
+
+    public class EvPeriodoExtenderDto
+    {
+        /// <summary>Nueva fecha de cierre. Debe ser posterior a la fecha de cierre actual del período.</summary>
+        public DateOnly NuevaFechaCierre { get; set; }
+    }
 }

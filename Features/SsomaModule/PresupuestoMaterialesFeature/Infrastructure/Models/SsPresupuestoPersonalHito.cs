@@ -6,8 +6,10 @@ public class SsPresupuestoPersonalHito
 {
     public int Id { get; set; }
     public int PresupuestoId { get; set; }
-    /// <summary>Apunta al hito REAL del cronograma del proyecto (MilestoneSchedule).</summary>
+    /// <summary>Apunta al hito REAL del cronograma del proyecto (MilestoneSchedule) — etapa de ingreso.</summary>
     public int HitoId { get; set; }
+    /// <summary>Etapa de salida (opcional) — si está seteada, Semanas se calcula desde las fechas reales.</summary>
+    public int? HitoSalidaId { get; set; }
     // VIGIA | MONITOR | PREVENCIONISTA | ENCAPSULADOR | CAPATAZ | OFICIAL | OPERARIO | PEON | AYUDANTE
     public string Rol { get; set; } = null!;
     public int Cantidad { get; set; }

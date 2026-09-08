@@ -17,13 +17,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     {
         private readonly IMilestoneScheduleHistoryService _service;
         private readonly IEmailService _emailService;
+        private readonly ILogger<MilestoneScheduleHistoryController> _logger;
 
         public MilestoneScheduleHistoryController(
             IMilestoneScheduleHistoryService service,
-            IEmailService emailService)
+            IEmailService emailService,
+            ILogger<MilestoneScheduleHistoryController> logger)
         {
             _service = service;
             _emailService = emailService;
+            _logger = logger;
         }
 
         [Authorize]
@@ -53,12 +56,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
                 if (result.Changes.Any())
                 {
+                    // Fire-and-forget: la notificación de cambios no debe bloquear la respuesta al
+                    // usuario. Antes se hacía `await` acá mismo — si el proveedor de correo (SMTP/
+                    // SendGrid/PowerAutomate) no respondía, la petición entera (y "Guardar cronograma"
+                    // en el frontend) se quedaba colgada indefinidamente.
                     var body = BuildEmailBody(result);
-                    await _emailService.SendAsync(
-                        to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com" },
-                        subject: "Cambios en el cronograma",
-                        body: body,
-                        isHtml: false);
+                    _ = EnviarNotificacionCambiosAsync(body);
                 }
 
                 return Ok(new { message = "Cronograma creado exitosamente" });
@@ -70,6 +73,22 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             catch (Exception)
             {
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        private async Task EnviarNotificacionCambiosAsync(string body)
+        {
+            try
+            {
+                await _emailService.SendAsync(
+                    to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com" },
+                    subject: "Cambios en el cronograma",
+                    body: body,
+                    isHtml: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo enviar la notificación de cambios de cronograma.");
             }
         }
 

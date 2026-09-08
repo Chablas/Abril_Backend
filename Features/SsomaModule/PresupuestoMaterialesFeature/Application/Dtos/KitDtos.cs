@@ -40,7 +40,17 @@ public class KitCreateDto
     public List<KitItemInputDto> Items { get; set; } = [];
 }
 
-/// <summary>Resultado de multiplicar el BOM del kit por la cantidad de kits que necesita el proyecto.</summary>
+/// <summary>Reemplaza el BOM completo de un kit ya existente (cambiar cantidades, agregar o quitar
+/// materiales) — no toca nombre/tipo del kit.</summary>
+public class KitEditarDto
+{
+    public List<KitItemInputDto> Items { get; set; } = [];
+}
+
+/// <summary>Resultado de multiplicar el BOM del kit por la cantidad de kits que necesita el proyecto.
+/// PrecioUnitario/Total ya vienen poblados tanto en la vista previa (CalcularAsync, precio en vivo
+/// desde Ratios) como en lo YA GUARDADO en el presupuesto (snapshot al momento de guardar) — pueden
+/// diferir levemente si el precio de Ratios cambió entre el cálculo y el guardado.</summary>
 public class KitCalculoLineaDto
 {
     public int FamiliaId { get; set; }
@@ -48,4 +58,22 @@ public class KitCalculoLineaDto
     public decimal CantidadPorKit { get; set; }
     public decimal CantidadTotal { get; set; }
     public bool EsConsumible { get; set; }
+    public decimal PrecioUnitario { get; set; }
+    public decimal Total { get; set; }
+}
+
+public class KitProyectoGuardarDto
+{
+    public int KitId { get; set; }
+    public decimal CantidadKits { get; set; }
+}
+
+/// <summary>Kit ya guardado en el presupuesto del proyecto (o null si todavía no se guardó ninguno).</summary>
+public class KitProyectoGuardadoDto
+{
+    public int KitId { get; set; }
+    public string NombreKit { get; set; } = "";
+    public decimal CantidadKits { get; set; }
+    public List<KitCalculoLineaDto> Lineas { get; set; } = [];
+    public decimal Total { get; set; }
 }

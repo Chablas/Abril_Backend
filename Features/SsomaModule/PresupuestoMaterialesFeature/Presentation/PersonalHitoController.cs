@@ -36,6 +36,19 @@ public class PersonalHitoController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al obtener los hitos críticos del proyecto." }); }
     }
 
+    /// <summary>Tarifa mensual sugerida por categoría (Oficial/Peón), estimada desde lo cargado en
+    /// otros proyectos recientemente. Es solo un punto de partida — el usuario la puede editar.</summary>
+    [HttpGet("tarifas-sugeridas")]
+    public async Task<IActionResult> ObtenerTarifasSugeridas(int projectId)
+    {
+        try
+        {
+            var tarifas = await _service.ObtenerTarifasSugeridasAsync();
+            return Ok(tarifas);
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al calcular las tarifas sugeridas." }); }
+    }
+
     [HttpGet]
     public async Task<IActionResult> Obtener(int projectId)
     {

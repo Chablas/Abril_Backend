@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
@@ -320,5 +321,23 @@ public class ConsumoRepository : IConsumoRepository
             linea.PrecioUnitarioReal = linea.Cantidad > 0 ? linea.PrecioTotal / linea.Cantidad : 0;
         }
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int?> ObtenerProyectoActualDelUsuarioAsync(int usuarioId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await ctx.Database.OpenConnectionAsync();
+        var conn = ctx.Database.GetDbConnection();
+        return await conn.QueryFirstOrDefaultAsync<int?>(
+            """
+            SELECT wv.proyecto_id
+            FROM app_user au
+            JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+            JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+            WHERE au.user_id = @UsuarioId
+            ORDER BY wv.id DESC
+            LIMIT 1
+            """,
+            new { UsuarioId = usuarioId });
     }
 }

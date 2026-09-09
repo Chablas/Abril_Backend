@@ -19,6 +19,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         Task<GestionRendicionDetalleDto> GetDetalle(int rendicionId, GestionRendicionFiltersDto scope);
 
         /// <summary>
+        /// Qué correos saldrían si se toma una de las decisiones de la pantalla sobre la selección
+        /// indicada, y a quién. Lo piden las confirmaciones —las de los botones masivos y las del
+        /// modal de detalle— para nombrar las direcciones reales en vez de prometer "se le avisará
+        /// por correo". Lista vacía = esa decisión hoy no manda ningún correo.
+        /// </summary>
+        Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(
+            CorreoPreviewRequestDto request, GestionRendicionFiltersDto scope);
+
+        /// <summary>
         /// Aprueba u observa la PRIMERA revisión de las planillas seleccionadas (RG-30). Aprobar
         /// habilita al trabajador a cargar el Consolidado del S10; observar le pide corregir las
         /// capturas y los montos y volver a generar la rendición con el mismo código.

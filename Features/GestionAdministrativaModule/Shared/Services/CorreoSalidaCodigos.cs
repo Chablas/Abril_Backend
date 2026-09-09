@@ -46,6 +46,21 @@
 
         /// <summary>El jefe rechazó el reembolso — se avisa al solicitante con la observación.</summary>
         public const string ReembolsoRechazado = "REEMBOLSO_RECHAZADO";
+
+        // ── Tesorería ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// A Tesorería: la jefatura ya firmó una planilla y su reembolso entró a la bandeja de
+        /// pago (RF-TES-01). Se origina en Gestión de Rendiciones, que es donde se firma; el
+        /// destinatario principal se resuelve por puesto (categoría Tesorero), no por área.
+        /// </summary>
+        public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
+
+        /// <summary>
+        /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Es el único correo
+        /// que se origina en Reembolsos y cierra el ciclo.
+        /// </summary>
+        public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
     }
 
     /// <summary>
@@ -69,10 +84,7 @@
         /// <summary>Las dos decisiones del revisor sobre la planilla: primera revisión y reembolso.</summary>
         public const string GestionRendiciones = "GESTION_RENDICIONES";
 
-        /// <summary>
-        /// Tesorería. Hoy no origina ningún correo (marcar pagado no envía nada); está en el
-        /// catálogo para que su Configuración exista y un correo nuevo entre sin tocar código.
-        /// </summary>
+        /// <summary>Tesorería: el aviso de pago al solicitante, que es lo que cierra el ciclo.</summary>
         public const string Reembolsos = "REEMBOLSOS";
 
         /// <summary>

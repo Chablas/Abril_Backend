@@ -80,11 +80,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
 
         /// <summary>
-        /// Correos de los solicitantes de las salidas de la planilla que todavía tienen el
+        /// Correos de los solicitantes de las salidas de la selección que todavía tienen el
         /// reembolso por decidir. Son los destinatarios principales del aviso de la decisión, y la
-        /// pantalla los usa para anunciar a quién le va a llegar antes de aprobar.
+        /// pantalla los usa para anunciar a quién le va a llegar antes de aprobar o rechazar.
+        ///
+        /// Toma la misma selección que la escritura (planillas y/o salidas sueltas) y le aplica el
+        /// mismo recorte por visibilidad y la misma elegibilidad, para que el preview no anuncie a
+        /// alguien a quien la acción no va a tocar. Vacío si no queda ninguna.
         /// </summary>
-        Task<List<string>> GetCorreosSolicitantesPorDecidir(int rendicionId);
+        Task<List<string>> GetCorreosSolicitantesPorDecidir(
+            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, GestionRendicionFiltersDto scope);
+
+        /// <summary>
+        /// Correos de los solicitantes a los que llegaría el aviso de la decisión de la PRIMERA
+        /// REVISIÓN de las planillas seleccionadas. Mismo criterio que
+        /// <see cref="GetCorreosSolicitantesPorDecidir"/>: recorta por visibilidad y por la
+        /// elegibilidad de la escritura (solo planillas esperando la primera revisión).
+        /// </summary>
+        Task<List<string>> GetCorreosSolicitantesPrimeraRevision(
+            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope);
+
+        /// <summary>
+        /// Correos de quienes atienden la bandeja de Reembolsos, destinatarios principales del
+        /// aviso a Tesorería que dispara la aprobación del reembolso. No dependen de la planilla
+        /// —se resuelven por puesto y rol, igual que en <see cref="GetTesoreriaCorreoInfo"/>— así
+        /// que el preview de una selección los resuelve una sola vez.
+        /// </summary>
+        Task<List<string>> GetCorreosTesoreria();
 
         /// <summary>Carpeta de SharePoint donde se guardan las planillas (y sus copias firmadas).</summary>
         Task<string?> GetRendicionFolderUrl();
@@ -94,5 +116,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// monto rendido y a quién avisar). Null si la salida no existe.
         /// </summary>
         Task<ReembolsoCorreoInfoDto?> GetReembolsoCorreoInfo(int solicitudId);
+
+        /// <summary>
+        /// Lo que necesita el aviso a Tesorería de que una planilla quedó firmada (RF-TES-01): sus
+        /// datos y los correos de quienes atienden esa bandeja. Es por planilla y no por
+        /// trabajador —Tesorería paga el documento completo— y devuelve null si la planilla no
+        /// existe. Los destinatarios pueden venir vacíos: no hay nadie con puesto de Tesorería.
+        /// </summary>
+        Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId);
     }
 }

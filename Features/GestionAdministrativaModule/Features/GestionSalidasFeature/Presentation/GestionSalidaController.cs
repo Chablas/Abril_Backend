@@ -125,6 +125,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
         }
 
+        /// <summary>
+        /// El correo que saldría al aprobar o rechazar las salidas enviadas, con sus destinatarios
+        /// reales. Lo piden las confirmaciones (el botón masivo y el del modal de detalle) para
+        /// nombrar las direcciones en vez de prometer un aviso genérico. Es POST porque la
+        /// selección viaja en el cuerpo y puede ser larga.
+        /// </summary>
+        [HttpPost("correo-preview")]
+        public async Task<IActionResult> GetCorreoPreview([FromBody] CorreoPreviewRequestDto dto)
+        {
+            try
+            {
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
+                var scope = new GestionSalidaFiltersDto
+                {
+                    CurrentUserId   = currentUserId,
+                    SeesAllOverride = User.IsInRole(Roles.UsuarioRecepcion),
+                };
+
+                return Ok(await _service.GetCorreoPreview(dto, scope));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.GetCorreoPreview");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("filter-data")]
         public async Task<IActionResult> GetFilterData()
         {

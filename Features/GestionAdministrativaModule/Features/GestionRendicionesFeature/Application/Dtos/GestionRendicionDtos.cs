@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos
@@ -155,13 +156,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     {
         public List<GestionRendicionSalidaDto> Salidas { get; set; } = new();
 
-        /// <summary>
-        /// A quién le llega el aviso de "reembolso aprobado" si el revisor aprueba esta planilla,
-        /// ya aplicada la configuración de Configuración → Correos → «Reembolso OK». El
-        /// destinatario principal es cada solicitante de las salidas por decidir, así que la lista
-        /// es de esta planilla y no de la pantalla.
-        /// </summary>
-        public CorreoDestinatariosDto CorreoReembolsoAprobado { get; set; } = new();
+        // Los destinatarios de los correos de las decisiones NO viajan acá: se piden aparte con
+        // GetCorreoPreview cuando el revisor aprieta el botón. Antes había un
+        // CorreoReembolsoAprobado en este DTO que nadie llenaba, así que el modal decía siempre
+        // "nadie recibirá el aviso" aunque el correo estuviera activo. Un preview por acción
+        // también evita resolver cinco listas de correos cada vez que se abre el detalle.
+    }
+
+    /// <summary>
+    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. Los
+    /// destinatarios se resuelven por PUESTO (categoría Tesorero) y no por área ni por una lista
+    /// escrita a mano: es la misma condición que abre la bandeja de Reembolsos, así que el correo
+    /// le llega exactamente a quien puede actuar sobre él.
+    /// </summary>
+    public class TesoreriaCorreoInfoDto
+    {
+        public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
+        /// <summary>Correos corporativos de Tesorería. Vacío si no hay ningún puesto asignado.</summary>
+        public List<string> Destinatarios { get; set; } = new();
     }
 
     public class GestionRendicionFiltersDto

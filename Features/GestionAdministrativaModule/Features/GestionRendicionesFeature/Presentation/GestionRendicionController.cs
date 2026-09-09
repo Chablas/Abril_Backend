@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -104,6 +105,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionRendicionController.GetDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Los correos que saldrían si se toma una de las decisiones de la pantalla sobre la
+        /// selección enviada, con sus destinatarios reales. Lo piden las confirmaciones —tanto las
+        /// de los botones masivos como las del modal de detalle— para nombrar las direcciones en
+        /// vez de prometer un correo genérico. Es POST y no GET porque la selección viaja en el
+        /// cuerpo: puede ser larga y lleva dos listas de ids.
+        /// </summary>
+        [HttpPost("correo-preview")]
+        public async Task<IActionResult> GetCorreoPreview([FromBody] CorreoPreviewRequestDto dto)
+        {
+            try
+            {
+                return Ok(await _service.GetCorreoPreview(dto, Scope()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetCorreoPreview");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

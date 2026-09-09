@@ -29,6 +29,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             public string EstadoReembolso => EstadosSalida.Reembolso.Nombre(EstadoReembolsoId);
             public string? ObservacionReembolso { get; init; }
             public DateTimeOffset? RevisorNotificadoAt { get; init; }
+
+            // Los dos pasos de Tesorería. Van acá y no en una consulta aparte de Reembolsos para
+            // no repetir el recorrido de las salidas: son columnas de la misma fila.
+            public DateTimeOffset? RevisionTesoreriaAt { get; init; }
+            public int? RevisionTesoreriaPorId { get; init; }
+            public DateTimeOffset? PagadoAt { get; init; }
+            public int? PagadoPorId { get; init; }
+
             public decimal Monto { get; set; }
             public string Motivo { get; set; } = string.Empty;
             public string? LugarOrigen { get; set; }
@@ -56,6 +64,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             public string? PdfFirmadoUrl { get; init; }
             public string? PdfFirmadoFilename { get; init; }
             public DateTimeOffset? FirmadoAt { get; init; }
+            /// <summary>app_user del jefe que firmó. Tesorería lo muestra como firma electrónica.</summary>
+            public int? FirmadoPorId { get; init; }
             public ConsolidadoS10Dto? ConsolidadoS10 { get; init; }
 
             public List<SalidaFila> Salidas { get; init; } = new();
@@ -107,6 +117,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     s.EstadoReembolsoId,
                     s.ObservacionReembolso,
                     s.RevisorNotificadoAt,
+                    s.RevisionTesoreriaAt,
+                    s.RevisionTesoreriaPorId,
+                    s.PagadoAt,
+                    s.PagadoPorId,
                 }
             ).ToListAsync();
 
@@ -179,6 +193,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                             EstadoReembolsoId    = x.EstadoReembolsoId,
                             ObservacionReembolso = x.ObservacionReembolso,
                             RevisorNotificadoAt  = x.RevisorNotificadoAt,
+                            RevisionTesoreriaAt  = x.RevisionTesoreriaAt,
+                            RevisionTesoreriaPorId = x.RevisionTesoreriaPorId,
+                            PagadoAt             = x.PagadoAt,
+                            PagadoPorId          = x.PagadoPorId,
                             Monto                = montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m,
                             Motivo               = det.Motivo ?? string.Empty,
                             LugarOrigen          = det.Origen,
@@ -211,6 +229,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     PdfFirmadoUrl      = planilla.PdfFirmadoUrl,
                     PdfFirmadoFilename = planilla.PdfFirmadoFilename,
                     FirmadoAt          = planilla.FirmadoAt,
+                    FirmadoPorId       = planilla.FirmadoPorId,
                     ConsolidadoS10     = consolidado,
                     Salidas            = filas,
                     Periodo            = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),

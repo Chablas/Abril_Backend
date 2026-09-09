@@ -32,6 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         [HttpGet]
         public async Task<IActionResult> GetAll(
             [FromQuery] int? workerId,
+            [FromQuery] string? q,
             [FromQuery] string? estadoReembolso,
             [FromQuery] List<int>? areaScopeIds = null,
             [FromQuery] int? periodoAnio = null,
@@ -42,15 +43,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
 
-                var filters = new ReembolsoFiltersDto
-                {
-                    WorkerId           = workerId,
-                    EstadoReembolso    = estadoReembolso,
-                    FilterAreaScopeIds = areaScopeIds,
-                    PeriodoAnio        = periodoAnio,
-                    PeriodoMes         = periodoMes,
-                };
-                return Ok(await _service.GetAll(filters, userId.Value));
+                return Ok(await _service.GetAll(
+                    Filtros(workerId, q, estadoReembolso, areaScopeIds, periodoAnio, periodoMes), userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -103,8 +97,61 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
             }
         }
 
+        /// <summary>
+        /// Seguimiento de pagos por colaborador. Va aparte del listado porque es la otra vista de
+        /// la pantalla y se arma distinto: agrupa por persona en vez de por planilla.
+        /// </summary>
+        [HttpGet("seguimiento")]
+        public async Task<IActionResult> GetSeguimiento(
+            [FromQuery] int? workerId,
+            [FromQuery] string? q,
+            [FromQuery] List<int>? areaScopeIds = null,
+            [FromQuery] int? periodoAnio = null,
+            [FromQuery] int? periodoMes = null)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+
+                return Ok(await _service.GetSeguimiento(
+                    Filtros(workerId, q, null, areaScopeIds, periodoAnio, periodoMes), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.GetSeguimiento");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Paso 1 de Tesorería: confirmar la revisión documental (RG-26).</summary>
+        [HttpPatch("confirmar-revision")]
+        public async Task<IActionResult> ConfirmarRevision([FromBody] ReembolsoSeleccionDto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.ConfirmarRevision(dto, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.ConfirmarRevision");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Paso 2 de Tesorería: registrar el pago y cerrar el ciclo.</summary>
         [HttpPatch("pagar")]
-        public async Task<IActionResult> MarcarPagadas([FromBody] PagarDto dto)
+        public async Task<IActionResult> MarcarPagadas([FromBody] ReembolsoSeleccionDto dto)
         {
             try
             {
@@ -122,5 +169,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>
+        /// A quién le llegaría el aviso de pago de lo seleccionado. Lo piden las confirmaciones
+        /// (el botón masivo y el del modal de detalle) para nombrar las direcciones reales. No hay
+        /// preview para confirmar la revisión: ese paso no manda ningún correo.
+        /// </summary>
+        [HttpPost("pagar/correo-preview")]
+        public async Task<IActionResult> GetCorreoPreviewPago([FromBody] ReembolsoSeleccionDto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.GetCorreoPreviewPago(dto, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.GetCorreoPreviewPago");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        private static ReembolsoFiltersDto Filtros(
+            int? workerId, string? texto, string? estadoReembolso,
+            List<int>? areaScopeIds, int? periodoAnio, int? periodoMes) =>
+            new()
+            {
+                WorkerId           = workerId,
+                Texto              = texto,
+                EstadoReembolso    = estadoReembolso,
+                FilterAreaScopeIds = areaScopeIds,
+                PeriodoAnio        = periodoAnio,
+                PeriodoMes         = periodoMes,
+            };
     }
 }

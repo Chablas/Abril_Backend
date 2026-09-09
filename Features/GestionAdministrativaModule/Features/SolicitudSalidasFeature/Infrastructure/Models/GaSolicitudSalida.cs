@@ -84,6 +84,15 @@
         public int? FirmadoPorId { get; set; }
         public DateTimeOffset? FirmadoAt { get; set; }
 
+        /// <summary>
+        /// FK a <c>app_user.user_id</c> del tesorero que confirmó la revisión documental (RG-26):
+        /// miró la planilla, el Consolidado del S10, la firma de la jefatura y los tramos, y dejó
+        /// el reembolso en <see cref="EstadosSalida.Reembolso.PorPagar"/>. Es el paso que habilita
+        /// el pago — sin él la salida sigue Firmada y no se puede desembolsar.
+        /// </summary>
+        public int? RevisionTesoreriaPorId { get; set; }
+        public DateTimeOffset? RevisionTesoreriaAt { get; set; }
+
         /// <summary>FK a <c>app_user.user_id</c> del tesorero que marcó el reembolso como pagado.</summary>
         public int? PagadoPorId { get; set; }
         public DateTimeOffset? PagadoAt { get; set; }

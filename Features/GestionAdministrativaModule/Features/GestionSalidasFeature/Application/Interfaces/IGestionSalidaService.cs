@@ -21,6 +21,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// </summary>
         Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride);
         Task<byte[]> GetExcel(GestionSalidaFiltersDto filters);
+
+        /// <summary>
+        /// Qué correo saldría al aprobar o rechazar las salidas de <c>SolicitudIds</c>, y a quién.
+        /// Lo piden las confirmaciones (el botón masivo y el del modal de detalle) para nombrar las
+        /// direcciones reales. Lista vacía = esa decisión hoy no manda ningún correo.
+        /// </summary>
+        Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(
+            CorreoPreviewRequestDto request, GestionSalidaFiltersDto scope);
         /// <summary>
         /// Aprueba una solicitud Pendiente. Solo la puede aprobar su revisor (403 en caso
         /// contrario) — ver la regla en <c>GestionSalidaRepository.EnsureEsElRevisorAsync</c>.

@@ -868,6 +868,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return idsList.Except(conMotivoReembolsable).ToList();
         }
 
+        public async Task<List<string>> GetCorreosSolicitantes(
+            IEnumerable<int> ids, GestionSalidaFiltersDto scope)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            // Mismo recorte de visibilidad que la tabla: el preview no puede delatar el correo de
+            // un trabajador de un área que el usuario no ve, aunque mande su id a mano.
+            var visibles = SalidaVisibilidadFilter.Aplicar(
+                ctx.GaSolicitudSalida.Where(s => idsList.Contains(s.Id)),
+                ctx, scope.CurrentUserId, scope.SeesAll, scope.VisibleAreaScopeIds);
+
+            return await (
+                from s   in visibles
+                join w   in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                join u   in ctx.User on (int?)per.UserId equals (int?)u.UserId
+                where u.Email != null && u.Email != ""
+                select u.Email!
+            ).Distinct().ToListAsync();
+        }
+
         public async Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids)
         {
             using var ctx = _factory.CreateDbContext();

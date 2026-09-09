@@ -50,25 +50,39 @@
         /// moverse cuando la salida está Rendida Y tiene adjunto el Consolidado del S10, que es lo
         /// que el jefe revisa para dar el visto bueno al gasto.
         ///
-        /// Pendiente → Aprobado → Firmado → Pagado, o Rechazado (con observación) hasta que el
-        /// trabajador subsane volviendo a subir el Consolidado del S10, que lo devuelve a Pendiente.
-        /// Los ids reflejan las filas de <c>ga_estado_reembolso</c>.
+        /// Pendiente → Firmado → Proceder con el reembolso → Pagado, o Rechazado (con observación)
+        /// hasta que el trabajador subsane volviendo a subir el Consolidado del S10, que lo
+        /// devuelve a Pendiente. Los ids reflejan las filas de <c>ga_estado_reembolso</c>.
         /// </summary>
         public static class Reembolso
         {
             public const int Pendiente = 1;
+            /// <summary>
+            /// Sin uso desde que aprobar el reembolso pasó a ser el mismo acto que firmarlo: la
+            /// aprobación deja la salida directamente en <see cref="Firmado"/>. La constante se
+            /// conserva para poder leer las filas viejas que quedaron acá.
+            /// </summary>
             public const int Aprobado  = 2;
             public const int Rechazado = 3;
             /// <summary>El jefe ya firmó la planilla de rendición de esta salida.</summary>
             public const int Firmado   = 4;
             /// <summary>Tesorería ya pagó el reembolso. Estado terminal.</summary>
             public const int Pagado    = 5;
+            /// <summary>
+            /// Tesorería ya revisó la documentación (planilla, Consolidado del S10, firma de la
+            /// jefatura y tramos) y confirmó que el reembolso puede desembolsarse (RG-26). Es el
+            /// ÚNICO estado desde el que se puede pagar: sin esa confirmación previa el pago está
+            /// bloqueado, aunque la planilla ya esté firmada.
+            /// </summary>
+            public const int PorPagar  = 6;
 
             public const string NombrePendiente = "Pendiente";
             public const string NombreAprobado  = "Aprobado";
             public const string NombreRechazado = "Rechazado";
             public const string NombreFirmado   = "Firmado";
             public const string NombrePagado    = "Pagado";
+            /// <summary>El nombre es el del requerimiento funcional (RG-26 / RF-TES-07), literal.</summary>
+            public const string NombrePorPagar  = "Proceder con el reembolso";
 
             /// <summary>id → nombre para exponer en DTOs.</summary>
             public static string Nombre(int id) => id switch
@@ -78,6 +92,7 @@
                 Rechazado => NombreRechazado,
                 Firmado   => NombreFirmado,
                 Pagado    => NombrePagado,
+                PorPagar  => NombrePorPagar,
                 _         => string.Empty,
             };
 
@@ -89,13 +104,15 @@
                 NombreRechazado => Rechazado,
                 NombreFirmado   => Firmado,
                 NombrePagado    => Pagado,
+                NombrePorPagar  => PorPagar,
                 _               => null,
             };
 
             /// <summary>
-            /// Los dos estados que ve Tesorería: lo que ya firmó la jefatura y lo que ya se pagó.
+            /// Los tres estados que ve Tesorería, en el orden de su flujo: lo que la jefatura ya
+            /// firmó (por revisar), lo que ella misma confirmó (por pagar) y lo que ya pagó.
             /// </summary>
-            public static readonly int[] VisiblesParaTesoreria = { Firmado, Pagado };
+            public static readonly int[] VisiblesParaTesoreria = { Firmado, PorPagar, Pagado };
         }
 
         /// <summary>

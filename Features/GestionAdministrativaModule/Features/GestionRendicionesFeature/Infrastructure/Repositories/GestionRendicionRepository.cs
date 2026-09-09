@@ -2,9 +2,11 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -555,28 +557,85 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             return solicitudes;
         }
 
-        public async Task<List<string>> GetCorreosSolicitantesPorDecidir(int rendicionId)
+        public async Task<List<string>> GetCorreosSolicitantesPorDecidir(
+            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, GestionRendicionFiltersDto scope)
+        {
+            // El recorte por visibilidad es el mismo que hace la escritura: sin esto, el preview de
+            // un rendicion_id delataría los correos de trabajadores de áreas que el usuario no ve.
+            var visibles = await ResolverSolicitudIds(rendicionIds, solicitudIds, scope);
+            if (visibles.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+
+            var porDecidir = await IdsConReembolsoRevisableAsync(ctx, visibles);
+            if (porDecidir.Count == 0) return new();
+
+            return await CorreosSolicitantesAsync(ctx, porDecidir);
+        }
+
+        public async Task<List<string>> GetCorreosSolicitantesPrimeraRevision(
+            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope)
+        {
+            var idsList = rendicionIds?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Mismo recorte que DecidirPrimeraRevision: solo las planillas de las que el usuario ve
+            // alguna salida, y de esas solo las que de verdad están esperando la primera revisión.
+            var visibles = await SalidasVisibles(ctx, SoloVisibilidad(scope))
+                .Where(s => s.RendicionId != null && idsList.Contains(s.RendicionId!.Value))
+                .Select(s => new { s.Id, RendicionId = s.RendicionId!.Value })
+                .ToListAsync();
+            if (visibles.Count == 0) return new();
+
+            var enRevision = await ctx.GaRendicion
+                .Where(r => visibles.Select(x => x.RendicionId).Distinct().Contains(r.Id)
+                         && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.EnRevision)
+                .Select(r => r.Id)
+                .ToListAsync();
+            if (enRevision.Count == 0) return new();
+
+            var solicitudes = visibles
+                .Where(x => enRevision.Contains(x.RendicionId))
+                .Select(x => x.Id)
+                .ToList();
+
+            return await CorreosSolicitantesAsync(ctx, solicitudes);
+        }
+
+        public async Task<List<string>> GetCorreosTesoreria()
         {
             using var ctx = _factory.CreateDbContext();
 
-            var salidas = await ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId == rendicionId)
-                .Select(s => s.Id)
-                .ToListAsync();
+            // Los mismos dos requisitos que abren la bandeja y que usa el envío
+            // (GetTesoreriaCorreoInfo): puesto de categoría Tesorero + rol TESORERO.
+            var rolTesorero = int.Parse(Roles.Tesorero);
+            return await (
+                from w   in ctx.Worker
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
+                where w.PuestoCatalogo!.CategoriaId == CategoriaIds.Tesorero
+                   && ur.RoleId == rolTesorero && ur.State && ur.Active
+                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
+                select w.EmailCorporativo!
+            ).Distinct().ToListAsync();
+        }
 
-            var porDecidir = await IdsConReembolsoRevisableAsync(ctx, salidas);
-            if (porDecidir.Count == 0) return new();
+        /// <summary>Correos de los dueños de las salidas indicadas, sin repetir.</summary>
+        private static async Task<List<string>> CorreosSolicitantesAsync(
+            AppDbContext ctx, ICollection<int> solicitudIds)
+        {
+            if (solicitudIds.Count == 0) return new();
 
-            var correos = await (
+            return await (
                 from s in ctx.GaSolicitudSalida
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 join u in ctx.User on (int?)per.UserId equals (int?)u.UserId
-                where porDecidir.Contains(s.Id) && u.Email != null && u.Email != ""
+                where solicitudIds.Contains(s.Id) && u.Email != null && u.Email != ""
                 select u.Email!
             ).Distinct().ToListAsync();
-
-            return correos;
         }
 
         public async Task<string?> GetRendicionFolderUrl()
@@ -660,6 +719,101 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
                 ObservacionReembolso = head.ObservacionReembolso,
                 DecididoPor          = decididoPor,
+            };
+        }
+
+        public async Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var planilla = await ctx.GaRendicion
+                .Where(r => r.Id == rendicionId)
+                .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla, r.FirmadoPorId })
+                .FirstOrDefaultAsync();
+            if (planilla == null) return null;
+
+            // Todas las salidas de la planilla, sin recorte de visibilidad: lo que Tesorería va a
+            // pagar es el documento completo, no la parte que ve el revisor que firmó.
+            var salidas = await (
+                from s   in ctx.GaSolicitudSalida.Where(x => x.RendicionId == rendicionId)
+                join w   in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                select new
+                {
+                    s.Id,
+                    w.Subarea,
+                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
+                    Area       = w.Area,
+                    s.FechaSalida,
+                }
+            ).ToListAsync();
+            if (salidas.Count == 0) return null;
+
+            var solicitudIds = salidas.Select(s => s.Id).ToList();
+
+            var trayectos = await ctx.GaSolicitudTrayecto
+                .Where(t => solicitudIds.Contains(t.SolicitudId))
+                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+                .ToListAsync();
+
+            var subareaPorSolicitud = salidas.ToDictionary(s => s.Id, s => s.Subarea);
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos
+                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                        t.Id,
+                        subareaPorSolicitud.TryGetValue(t.SolicitudId, out var sub) ? sub : null,
+                        t.LugarOrigenId,
+                        t.LugarDestinoId))
+                    .ToList());
+
+            var consolidado = (await ConsolidadoS10Loader.LoadPorRendicionAsync(
+                ctx, new List<int> { rendicionId })).GetValueOrDefault(rendicionId);
+
+            string? firmadoPor = null;
+            if (planilla.FirmadoPorId.HasValue)
+            {
+                firmadoPor = await ctx.Person
+                    .Where(p => p.UserId == planilla.FirmadoPorId.Value)
+                    .Select(p => p.FullName)
+                    .FirstOrDefaultAsync();
+            }
+
+            // Los mismos dos requisitos que abren la bandeja: el puesto de categoría Tesorero y el
+            // rol TESORERO. Con uno solo el correo le llegaría a alguien que no puede entrar.
+            var rolTesorero = int.Parse(Roles.Tesorero);
+            var destinatarios = await (
+                from w   in ctx.Worker
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
+                where w.PuestoCatalogo!.CategoriaId == CategoriaIds.Tesorero
+                   && ur.RoleId == rolTesorero && ur.State && ur.Active
+                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
+                select w.EmailCorporativo!
+            ).Distinct().ToListAsync();
+
+            var nombres = salidas.Select(s => s.Trabajador).Distinct().ToList();
+            var primera = salidas[0];
+
+            return new TesoreriaCorreoInfoDto
+            {
+                Destinatarios = destinatarios,
+                Datos = new ReembolsoPlanillaCorreoDatos
+                {
+                    RendicionId    = rendicionId,
+                    Codigo         = PlanillaRendicionHelper.CodigoRendicion(planilla.Codigo, rendicionId),
+                    // Una planilla puede agrupar a varios: se nombra al primero y se cuenta el resto.
+                    Trabajador     = nombres.Count > 1 ? $"{nombres[0]} +{nombres.Count - 1}" : nombres[0],
+                    Area           = nombres.Count > 1 ? null : primera.Area,
+                    NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
+                    Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(
+                                        salidas.Min(s => s.FechaSalida), salidas.Max(s => s.FechaSalida)),
+                    SalidasCount   = salidas.Count,
+                    MontoTotal     = trayectos.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m),
+                    NumeroGuia     = consolidado?.NumeroGuia,
+                    FirmadoPor     = firmadoPor,
+                },
             };
         }
 

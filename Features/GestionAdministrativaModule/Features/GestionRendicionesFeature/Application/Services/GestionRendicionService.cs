@@ -72,6 +72,84 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 ?? throw new AbrilException("La planilla de rendición no existe o no está en tu alcance.", 404);
         }
 
+        /// <summary>
+        /// Qué correos dispararía una de las cuatro decisiones de la pantalla sobre la selección
+        /// indicada, y a quién le llegarían. Se resuelve con las MISMAS llamadas que hacen los
+        /// envíos (<see cref="NotificarPrimeraRevisionAsync"/>,
+        /// <see cref="NotificarDecisionReembolsoAsync"/> y <see cref="NotificarTesoreriaAsync"/>),
+        /// así que la confirmación no puede prometer un correo que la configuración dejó fuera ni
+        /// decir que no le llega a nadie cuando sí está activo.
+        ///
+        /// Lo consumen tanto los botones masivos de la tabla como los del modal de detalle: en los
+        /// dos casos el conjunto lo resuelve el servidor con el recorte de visibilidad y la
+        /// elegibilidad de la escritura, así que el preview no anuncia a nadie a quien la acción no
+        /// vaya a tocar.
+        ///
+        /// Best-effort: ante un error devuelve una lista vacía en vez de romper la confirmación.
+        /// Que el preview falle no puede impedir decidir.
+        /// </summary>
+        public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(
+            CorreoPreviewRequestDto request, GestionRendicionFiltersDto scope)
+        {
+            try
+            {
+                await ApplyVisibilityAsync(scope);
+
+                var esPrimeraRevision = string.Equals(
+                    request.Accion, CorreoPreviewAcciones.PrimeraRevision, StringComparison.OrdinalIgnoreCase);
+
+                var solicitantes = esPrimeraRevision
+                    ? await _repo.GetCorreosSolicitantesPrimeraRevision(request.RendicionIds, scope)
+                    : await _repo.GetCorreosSolicitantesPorDecidir(
+                        request.RendicionIds, request.SolicitudIds, scope);
+
+                var codigo = esPrimeraRevision
+                    ? (request.Aprobar
+                        ? CorreoEventoCodigos.RendicionPrimeraAprobada
+                        : CorreoEventoCodigos.RendicionPrimeraObservada)
+                    : (request.Aprobar
+                        ? CorreoEventoCodigos.ReembolsoAprobado
+                        : CorreoEventoCodigos.ReembolsoRechazado);
+
+                var avisos = new List<CorreoAvisoPreviewDto>();
+                await AgregarAvisoAsync(avisos, "Al solicitante", codigo, solicitantes);
+
+                // Aprobar el reembolso ES firmar, y la firma es lo que mete la planilla en la
+                // bandeja de Tesorería: por eso esa acción dispara un segundo correo.
+                if (!esPrimeraRevision && request.Aprobar)
+                    await AgregarAvisoAsync(
+                        avisos, "A Tesorería",
+                        CorreoEventoCodigos.TesoreriaReembolso,
+                        await _repo.GetCorreosTesoreria());
+
+                return avisos;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error resolviendo el preview de correos de la acción {Accion}", request.Accion);
+                return new List<CorreoAvisoPreviewDto>();
+            }
+        }
+
+        /// <summary>
+        /// Agrega un correo al preview solo si hoy se enviaría. Un aviso sin destinatarios no entra
+        /// en la lista: la pantalla distingue "no sale ningún correo" de "sale a estas direcciones".
+        /// </summary>
+        private async Task AgregarAvisoAsync(
+            List<CorreoAvisoPreviewDto> avisos, string etiqueta, string eventoCodigo, List<string> principal)
+        {
+            var envio = await _correoResolver.ResolveEnvioAsync(eventoCodigo, principal);
+            if (!envio.Enviar || envio.Para.Count == 0) return;
+
+            avisos.Add(new CorreoAvisoPreviewDto
+            {
+                Etiqueta = etiqueta,
+                Para     = envio.Para,
+                Copia    = envio.Copia,
+            });
+        }
+
         public async Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId)
         {
@@ -113,14 +191,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             if (ids.Count == 0)
                 throw new AbrilException("No hay salidas en la selección dentro de tu alcance.", 400);
 
+            var rendicionesFirmadas = new List<int>();
             var decididas = aprobar
-                ? await AprobarFirmandoAsync(ids, reviewerUserId)
+                ? await AprobarFirmandoAsync(ids, reviewerUserId, rendicionesFirmadas)
                 : await _repo.RechazarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
 
             // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
             // porque un correo falle (mismo criterio que la aprobación de la salida).
             foreach (var id in decididas)
                 await NotificarDecisionReembolsoAsync(id, aprobar);
+
+            // Y el aviso a Tesorería, que es por PLANILLA: lo que se paga es el documento entero.
+            if (decididas.Count > 0)
+                foreach (var rendicionId in rendicionesFirmadas.Distinct())
+                    await NotificarTesoreriaAsync(rendicionId);
 
             return new ReembolsoBulkResultDto
             {
@@ -141,7 +225,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// salida aprobada sin su respaldo firmado (al revés solo deja archivos huérfanos, que no
         /// rompen nada).
         /// </summary>
-        private async Task<List<int>> AprobarFirmandoAsync(List<int> ids, int userId)
+        /// <param name="rendicionesFirmadas">
+        /// Se llena con las planillas que se firmaron. Sale por acá y no en el retorno porque el
+        /// aviso a Tesorería es por planilla mientras que la decisión (y su correo al solicitante)
+        /// es por salida: sin esta lista habría que volver a la base a agrupar lo mismo.
+        /// </param>
+        private async Task<List<int>> AprobarFirmandoAsync(
+            List<int> ids, int userId, List<int> rendicionesFirmadas)
         {
             var firma = await _firmaRepository.GetActiveBytesByUserId(userId)
                 // 409 y no 400: la pantalla lo distingue para abrir el modal donde el usuario dibuja
@@ -174,7 +264,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 firmadas.Add(firmada);
             }
 
-            return await _repo.AprobarReembolsoFirmado(firmadas, userId);
+            var decididas = await _repo.AprobarReembolsoFirmado(firmadas, userId);
+            if (decididas.Count > 0)
+                rendicionesFirmadas.AddRange(firmadas.Select(f => f.RendicionId));
+
+            return decididas;
         }
 
         /// <summary>
@@ -425,6 +519,47 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error avisando la decisión del reembolso de la salida {SolicitudId}", solicitudId);
+            }
+        }
+
+        /// <summary>
+        /// Avisa a Tesorería que una planilla quedó firmada y su reembolso ya está en su bandeja
+        /// (RF-TES-01). Los destinatarios salen del puesto (categoría Tesorero) y no de una lista
+        /// escrita a mano; los de <c>Configuración → Correos</c> se suman como copia. Best-effort,
+        /// igual que el resto: la firma ya está guardada.
+        /// </summary>
+        private async Task NotificarTesoreriaAsync(int rendicionId)
+        {
+            try
+            {
+                var info = await _repo.GetTesoreriaCorreoInfo(rendicionId);
+                if (info == null) return;
+
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    CorreoEventoCodigos.TesoreriaReembolso, info.Destinatarios);
+
+                if (!envio.Enviar)
+                {
+                    _logger.LogInformation(
+                        "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado, "
+                        + "sin destinatarios configurados o sin nadie con puesto de Tesorería.",
+                        CorreoEventoCodigos.TesoreriaReembolso, rendicionId);
+                    return;
+                }
+
+                var layout = SalidaEmailLayout.Desde(_configuration);
+                var url    = SalidaEnlaces.Reembolsos(_configuration, rendicionId);
+
+                await _emailService.SendAsync(
+                    to: envio.Para,
+                    subject: $"Reembolso por pagar - rendición {info.Datos.Codigo}",
+                    body: ReembolsoEmailTemplates.PorPagarTesoreria(layout, info.Datos, url),
+                    isHtml: true,
+                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error avisando a Tesorería de la rendición firmada {RendicionId}", rendicionId);
             }
         }
 

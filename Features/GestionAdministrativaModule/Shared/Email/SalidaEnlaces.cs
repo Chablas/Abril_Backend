@@ -55,5 +55,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// </summary>
         public static string Rendiciones(IConfiguration configuration, int rendicionId) =>
             $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
+
+        /// <summary>
+        /// Reembolsos abierta en esa planilla — la bandeja de Tesorería, donde se confirma la
+        /// revisión documental y se paga. Es el destino del aviso que le llega a Tesorería cuando
+        /// la jefatura firma.
+        /// </summary>
+        public static string Reembolsos(IConfiguration configuration, int rendicionId) =>
+            $"{Base(configuration)}/gestion-administrativa/reembolsos?rendicion={rendicionId}";
     }
 }

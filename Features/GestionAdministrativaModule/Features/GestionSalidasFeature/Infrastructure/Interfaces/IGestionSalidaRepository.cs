@@ -86,6 +86,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids);
 
         /// <summary>
+        /// Correos de los dueños de las salidas indicadas, recortadas al alcance de visibilidad
+        /// del usuario. Son los destinatarios principales de los avisos de la decisión (aprobada /
+        /// rechazada) y la pantalla los usa para nombrarlos en la confirmación.
+        /// </summary>
+        Task<List<string>> GetCorreosSolicitantes(IEnumerable<int> ids, GestionSalidaFiltersDto scope);
+
+        /// <summary>
         /// Los meses (año, mes de <c>fecha_salida</c>) distintos que abarca el set dado, ordenados.
         /// Una planilla de rendición es de UN solo mes, así que más de un elemento es un error.
         /// </summary>

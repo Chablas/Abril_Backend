@@ -22,6 +22,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private readonly IGraphSharePointService _sharePointService;
         private readonly ISolicitudSalidaService _solicitudSalidaService;
         private readonly ISalidaVisibilityResolver _visibilityResolver;
+        private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly ILogger<GestionSalidaService> _logger;
 
         public GestionSalidaService(
@@ -29,12 +30,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             IGraphSharePointService sharePointService,
             ISolicitudSalidaService solicitudSalidaService,
             ISalidaVisibilityResolver visibilityResolver,
+            ICorreoSalidaRecipientResolver correoResolver,
             ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
             _sharePointService = sharePointService;
             _solicitudSalidaService = solicitudSalidaService;
             _visibilityResolver = visibilityResolver;
+            _correoResolver = correoResolver;
             _logger = logger;
         }
 
@@ -260,6 +263,46 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
             return stream.ToArray();
+        }
+
+        /// <summary>
+        /// Qué correo saldría al aprobar o rechazar las salidas seleccionadas, y a quién. Se
+        /// resuelve con la MISMA llamada que hace el envío (NotifySolicitanteAprobada /
+        /// NotifySolicitanteRechazada), así que la confirmación no promete un aviso que la
+        /// configuración dejó fuera. Lo usan el botón masivo y el del modal de detalle.
+        ///
+        /// Best-effort: ante un error devuelve una lista vacía y la confirmación sale sin correos.
+        /// Que el preview falle no puede impedir decidir.
+        /// </summary>
+        public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(
+            CorreoPreviewRequestDto request, GestionSalidaFiltersDto scope)
+        {
+            try
+            {
+                await ApplyVisibilityAsync(scope);
+
+                var solicitantes = await _repo.GetCorreosSolicitantes(request.SolicitudIds, scope);
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    request.Aprobar ? CorreoEventoCodigos.Aprobada : CorreoEventoCodigos.Rechazada,
+                    solicitantes);
+
+                if (!envio.Enviar || envio.Para.Count == 0) return new();
+
+                return new List<CorreoAvisoPreviewDto>
+                {
+                    new()
+                    {
+                        Etiqueta = "Al solicitante",
+                        Para     = envio.Para,
+                        Copia    = envio.Copia,
+                    },
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resolviendo el preview de correos de la decisión de la salida");
+                return new();
+            }
         }
 
         public async Task Aprobar(int id, int reviewerUserId)

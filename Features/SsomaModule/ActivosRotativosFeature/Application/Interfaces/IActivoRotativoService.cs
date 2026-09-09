@@ -4,10 +4,13 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application
 {
     public interface IActivoRotativoService
     {
-        // Categorías
-        Task<List<ActivoRotativoCategoriaDto>> GetCategoriasAsync();
-        Task<ActivoRotativoCategoriaDto> CreateCategoriaAsync(ActivoRotativoCategoriaUpsertDto dto);
-        Task UpdateCategoriaAsync(int categoriaId, ActivoRotativoCategoriaUpsertDto dto);
+        // Materiales
+        Task<List<ActivoRotativoMaterialDto>> GetMaterialesAsync();
+        Task<ActivoRotativoMaterialDto> CreateMaterialAsync(ActivoRotativoMaterialUpsertDto dto);
+        Task UpdateMaterialAsync(int materialId, ActivoRotativoMaterialUpsertDto dto);
+        Task DeleteMaterialAsync(int materialId);
+        Task<List<PresupuestoItemBuscarDto>> BuscarItemsPresupuestoAsync(string q);
+        Task<List<ResponsableSsomaDto>> GetResponsablesSsomaAsync();
 
         // Activos
         Task<List<ActivoRotativoListDto>> GetActivosAsync();
@@ -15,5 +18,6 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application
         Task<ActivoRotativoDetalleDto> CreateActivoAsync(ActivoRotativoUpsertDto dto);
         Task UpdateActivoAsync(int activoId, ActivoRotativoUpsertDto dto);
         Task<ActivoRotativoDetalleDto> MoverActivoAsync(int activoId, ActivoRotativoMoverDto dto, int? userId);
+        Task DeleteActivoAsync(int activoId);
     }
 }

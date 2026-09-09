@@ -15,6 +15,16 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Presentatio
     {
         private readonly IActivoRotativoService _service;
 
+        // Eliminar un activo es irreversible (no queda historial, a diferencia de "dar de
+        // baja"), así que se restringe a un único correo, mismo criterio que
+        // EmailAutorizadoParaBorrar en TrabajadorRestringidoController / EmailAutorizadoParaEditar
+        // en AmonestacionController — cuando haya más de una persona con este acceso, esto
+        // debería pasar a un rol/permiso propio en vez de un email hardcodeado.
+        private const string EmailAutorizadoParaEliminar = "sjustiniani@abril.pe";
+
+        private bool PuedeEliminar() =>
+            string.Equals(User.FindFirst(ClaimTypes.Email)?.Value, EmailAutorizadoParaEliminar, StringComparison.OrdinalIgnoreCase);
+
         public ActivoRotativoController(IActivoRotativoService service)
         {
             _service = service;
@@ -27,32 +37,62 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Presentatio
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // CATEGORÍAS
+        // MATERIALES (catálogo único)
         // ─────────────────────────────────────────────────────────────────
 
-        [HttpGet("categorias")]
-        public async Task<IActionResult> GetCategorias()
+        [HttpGet("materiales")]
+        public async Task<IActionResult> GetMateriales()
         {
-            try { return Ok(await _service.GetCategoriasAsync()); }
+            try { return Ok(await _service.GetMaterialesAsync()); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
 
-        [HttpPost("categorias")]
-        public async Task<IActionResult> CreateCategoria([FromBody] ActivoRotativoCategoriaUpsertDto dto)
+        [HttpPost("materiales")]
+        public async Task<IActionResult> CreateMaterial([FromBody] ActivoRotativoMaterialUpsertDto dto)
         {
-            try { return Ok(await _service.CreateCategoriaAsync(dto)); }
+            try { return Ok(await _service.CreateMaterialAsync(dto)); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
 
-        [HttpPut("categorias/{categoriaId:int}")]
-        public async Task<IActionResult> UpdateCategoria(int categoriaId, [FromBody] ActivoRotativoCategoriaUpsertDto dto)
+        [HttpPut("materiales/{materialId:int}")]
+        public async Task<IActionResult> UpdateMaterial(int materialId, [FromBody] ActivoRotativoMaterialUpsertDto dto)
         {
             try
             {
-                await _service.UpdateCategoriaAsync(categoriaId, dto);
+                await _service.UpdateMaterialAsync(materialId, dto);
                 return NoContent();
             }
             catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Elimina un material del catálogo, solo si no tiene activos registrados.</summary>
+        [HttpDelete("materiales/{materialId:int}")]
+        public async Task<IActionResult> DeleteMaterial(int materialId)
+        {
+            try
+            {
+                await _service.DeleteMaterialAsync(materialId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Coordinadores SSOMA y Prevencionistas de Abril (staff propio), para el selector de "Responsable/contacto".</summary>
+        [HttpGet("responsables-ssoma")]
+        public async Task<IActionResult> GetResponsablesSsoma()
+        {
+            try { return Ok(await _service.GetResponsablesSsomaAsync()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Busca ítems del catálogo de Presupuesto Materiales (S10) para vincular un Material. No requiere el feature de Presupuesto.</summary>
+        [HttpGet("materiales/buscar-item-presupuesto")]
+        public async Task<IActionResult> BuscarItemPresupuesto([FromQuery] string? q)
+        {
+            try { return Ok(await _service.BuscarItemsPresupuestoAsync(q ?? "")); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
 
@@ -98,6 +138,22 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Presentatio
             try
             {
                 await _service.UpdateActivoAsync(activoId, dto);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Elimina el activo por completo (no "dar de baja") — para registros de prueba que nunca debieron contabilizarse. Acceso restringido — ver PuedeEliminar().</summary>
+        [HttpDelete("{activoId:int}")]
+        public async Task<IActionResult> DeleteActivo(int activoId)
+        {
+            try
+            {
+                if (!PuedeEliminar())
+                    return StatusCode(403, new { message = "No tiene permisos para eliminar activos." });
+
+                await _service.DeleteActivoAsync(activoId);
                 return NoContent();
             }
             catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }

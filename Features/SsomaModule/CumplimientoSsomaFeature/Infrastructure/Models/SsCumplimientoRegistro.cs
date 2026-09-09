@@ -26,6 +26,15 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
         [Column("cumplido")]
         public bool Cumplido { get; set; } = false;
 
+        // "pendiente" | "cumplido" | "no_aplica". "Cumplido" (bool) se mantiene en paralelo
+        // por compatibilidad (true solo cuando Estado == "cumplido") — no leer Cumplido en
+        // código nuevo, usar Estado.
+        [Column("estado")]
+        public string Estado { get; set; } = "pendiente";
+
+        [Column("motivo_no_aplica")]
+        public string? MotivoNoAplica { get; set; }
+
         [Column("fecha_cumplimiento")]
         public DateTimeOffset? FechaCumplimiento { get; set; }
 

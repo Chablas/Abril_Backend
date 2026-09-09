@@ -10,4 +10,5 @@ public interface IRevisionMaterialesService
     Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesGlobalAsync();
     Task<RevisionResultDto> ProcesarRevisionGlobalAsync(List<RevisionDecisionDto> decisiones, int usuarioId);
     Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync();
+    Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync();
 }

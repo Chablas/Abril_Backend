@@ -112,5 +112,17 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
             try { return Ok(await _revisionService.ObtenerNoSsomaAsync()); }
             catch (Exception) { return StatusCode(500, new { message = "Error al obtener el reporte de materiales no-SSOMA." }); }
         }
+
+        // ─── Vista general: todas las líneas de todos los proyectos, cualquier estado ──────
+
+        /// <summary>Todo lo cargado del S10 de todos los proyectos en una sola lista — cantidades y
+        /// precios tal como llegaron, con su clasificación SSOMA sí/no/pendiente. Para filtrar rápido
+        /// sin tener que entrar a cada sección por separado.</summary>
+        [HttpGet("todo")]
+        public async Task<IActionResult> ObtenerTodo()
+        {
+            try { return Ok(await _revisionService.ObtenerTodoGlobalAsync()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error al obtener la vista general de materiales." }); }
+        }
     }
 }

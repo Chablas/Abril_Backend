@@ -13,5 +13,13 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
         // --- Cumplimiento por proyecto ---
         Task<CumplimientoResumenDto> GetResumenProyectoAsync(int proyectoId, string? rol);
         Task<CumplimientoItemDto> MarcarAsync(int proyectoId, int actividadId, CumplimientoMarcarDto dto, int? userId);
+
+        // --- "Mi" checklist: resuelve rol + proyecto actual del usuario logueado ---
+        Task<int?> GetProyectoActualDeUsuarioAsync(int userId);
+        Task<string?> GetRolDeUsuarioAsync(int userId);
+        Task<CumplimientoMiResumenDto> GetMiResumenAsync(int userId);
+
+        // --- Histórico / indicadores ---
+        Task<CumplimientoHistoricoDto> GetHistoricoAsync(int proyectoId, string frecuencia, DateOnly desde, DateOnly hasta);
     }
 }

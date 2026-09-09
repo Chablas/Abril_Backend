@@ -21,5 +21,18 @@ namespace Abril_Backend.Features.GestionGthModule.Shared.Correos
         /// fila simplemente no aporta a nadie.
         /// </param>
         Task<SolicitudDestinatariosDto> ResolverAsync(string tipoCodigo, int? areaScopeId = null);
+
+        /// <summary>
+        /// Lo mismo para varios correos a la vez, en una sola lectura de la configuración y
+        /// resolviendo los destinatarios dinámicos una sola vez para todos. La usa quien tiene que
+        /// mostrar (o mandar) más de un correo del mismo acto: el aviso del modal de nueva
+        /// solicitud, donde qué correos salen depende del tipo de cada vacante.
+        /// </summary>
+        /// <returns>
+        /// Un DTO por cada código pedido, incluidos los que no existen o están apagados: esos
+        /// llegan con las listas vacías.
+        /// </returns>
+        Task<IReadOnlyDictionary<string, SolicitudDestinatariosDto>> ResolverVariosAsync(
+            IReadOnlyList<string> tipoCodigos, int? areaScopeId = null);
     }
 }

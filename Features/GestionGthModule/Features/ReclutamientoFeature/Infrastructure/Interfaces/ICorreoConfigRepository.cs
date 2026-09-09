@@ -23,6 +23,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<CorreoEnvioConfigDto> GetEnvioConfigAsync(string tipoCodigo);
 
+        /// <summary>
+        /// Lo mismo para varios correos <b>en una sola consulta</b>: la usa quien tiene que resolver
+        /// más de uno a la vez (el aviso del modal de nueva solicitud, que muestra los de todos los
+        /// tipos de vacante que se puedan pedir). Los códigos que no existen no traen entrada, así
+        /// que el llamador se cae a un <see cref="CorreoEnvioConfigDto"/> vacío.
+        /// </summary>
+        Task<IReadOnlyDictionary<string, CorreoEnvioConfigDto>> GetEnvioConfigAsync(
+            IReadOnlyList<string> tipoCodigos);
+
         /// <summary>Gerente General vigente (puesto "GERENTE GENERAL"); null si no hay uno con correo.</summary>
         Task<CorreoDestinatarioResueltoDto?> GetGerenteGeneralAsync();
 

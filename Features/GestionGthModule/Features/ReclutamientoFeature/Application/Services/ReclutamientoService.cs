@@ -112,17 +112,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var dto = await _repo.GetFormData(userId, scope.EsGth);
 
-            // Aviso "a quién le llegará esta solicitud" del modal. Va en la misma petición que los
-            // catálogos (una sola llamada al abrir el formulario) y sale del mismo resolver que usa
-            // el envío, así que lo que se muestra es exactamente lo que se va a enviar.
-            dto.Destinatarios = await _destinatarios.ResolverAsync(
-                CorreoTipoGth.AprobacionGg, dto.AreaScopeId);
+            // Aviso "a quién le llegará esta solicitud" del modal. Van TODOS los correos que el
+            // alta puede disparar y no solo el de Gerencia General: cuáles salen lo decide el tipo
+            // de cada vacante (nueva → Gerencia General; reemplazo → gerente del área y después
+            // GTH; ingreso directo → GTH), y ese tipo se elige dentro del modal, así que el aviso
+            // se arma en el frontend con lo que haya elegido en cada momento. Se resuelven de una
+            // sola vez —una lectura de la configuración y los dinámicos una sola vez para todos—
+            // y con el mismo resolver que usa el envío, así que lo que se muestra es exactamente
+            // lo que se va a enviar.
+            var tipos = new List<string>
+            {
+                CorreoTipoGth.AprobacionGg,
+                CorreoTipoGth.AvisoGerenteArea,
+                CorreoTipoGth.AprobacionReemplazo,
+                CorreoTipoGth.AprobacionReemplazoGth,
+            };
 
             // Una vacante de ingreso directo no la aprueba nadie: su aviso va derecho a GTH y con
             // otros destinatarios. Solo para quien puede marcar la casilla —GTH— porque al resto el
-            // formulario ni le muestra el bloque y sería un roundtrip por un aviso que no se ve.
+            // formulario ni le muestra el bloque y sería trabajo por un aviso que no se ve.
+            if (dto.PuedePedirIngresoDirecto) tipos.Add(CorreoTipoGth.FftSolicitudGg);
+
+            var destinatarios = await _destinatarios.ResolverVariosAsync(tipos, dto.AreaScopeId);
+
+            dto.DestinatariosNuevas        = destinatarios[CorreoTipoGth.AprobacionGg];
+            dto.DestinatariosNuevasAviso   = destinatarios[CorreoTipoGth.AvisoGerenteArea];
+            dto.DestinatariosReemplazos    = destinatarios[CorreoTipoGth.AprobacionReemplazo];
+            dto.DestinatariosReemplazosGth = destinatarios[CorreoTipoGth.AprobacionReemplazoGth];
             if (dto.PuedePedirIngresoDirecto)
-                dto.DestinatariosFft = await _destinatarios.ResolverAsync(CorreoTipoGth.FftSolicitudGg);
+                dto.DestinatariosFft = destinatarios[CorreoTipoGth.FftSolicitudGg];
 
             return dto;
         }

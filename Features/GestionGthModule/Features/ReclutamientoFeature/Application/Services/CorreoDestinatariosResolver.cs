@@ -27,8 +27,77 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<SolicitudDestinatariosDto> ResolverAsync(string tipoCodigo, int? areaScopeId = null)
         {
-            var config = await _config.GetEnvioConfigAsync(tipoCodigo);
+            var todos = await ResolverVariosAsync(new[] { tipoCodigo }, areaScopeId);
+            return todos[tipoCodigo];
+        }
 
+        public async Task<IReadOnlyDictionary<string, SolicitudDestinatariosDto>> ResolverVariosAsync(
+            IReadOnlyList<string> tipoCodigos, int? areaScopeId = null)
+        {
+            var configs = await _config.GetEnvioConfigAsync(tipoCodigos);
+
+            // Los dinámicos se resuelven UNA vez para todos los correos pedidos: son el mismo dato
+            // (el Gerente General de hoy, el correo del área de GTH…) y consultarlos correo por
+            // correo multiplicaría los roundtrips sin cambiar el resultado. Solo se consulta lo que
+            // alguna fila activa necesita, y en el warning van los correos que lo pedían para que
+            // el log siga diciendo a cuál se le quedó sin resolver un destinatario.
+            var quienPide = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (tipo, config) in configs)
+                foreach (var fila in config.Filas.Where(f => !string.IsNullOrWhiteSpace(f.Codigo)))
+                {
+                    if (!quienPide.TryGetValue(fila.Codigo!, out var tipos))
+                        quienPide[fila.Codigo!] = tipos = new List<string>();
+                    if (!tipos.Contains(tipo)) tipos.Add(tipo);
+                }
+
+            string? Pide(string codigo) =>
+                quienPide.TryGetValue(codigo, out var tipos) ? string.Join(", ", tipos) : null;
+
+            var pideGerenteGeneral = Pide(CorreoDestinatarioCodigo.GerenteGeneral);
+            var gerenteGeneral = pideGerenteGeneral != null
+                ? await ResolverGerenteGeneralAsync(pideGerenteGeneral)
+                : null;
+
+            var pideGth = Pide(CorreoDestinatarioCodigo.GthArea);
+            var emailGth = pideGth != null
+                ? await ResolverAreaAsync(pideGth, "Gestión del Talento Humano", _config.GetEmailAreaGthAsync)
+                : null;
+
+            var pideTi = Pide(CorreoDestinatarioCodigo.TiArea);
+            var emailTi = pideTi != null
+                ? await ResolverAreaAsync(pideTi, "Tecnología de la Información", _config.GetEmailAreaTiAsync)
+                : null;
+
+            var pideGerenteArea = Pide(CorreoDestinatarioCodigo.GerenteArea);
+            var gerenteArea = pideGerenteArea != null
+                ? await ResolverGerenteAreaAsync(pideGerenteArea, areaScopeId)
+                : null;
+
+            // Una entrada por código pedido, incluidos los que no existen o están apagados: así el
+            // llamador puede leerlos todos sin preguntar si están.
+            var resultado = new Dictionary<string, SolicitudDestinatariosDto>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tipoCodigo in tipoCodigos)
+            {
+                if (resultado.ContainsKey(tipoCodigo)) continue;
+                var config = configs.TryGetValue(tipoCodigo, out var c) ? c : new CorreoEnvioConfigDto();
+                resultado[tipoCodigo] = Armar(tipoCodigo, config, gerenteGeneral, emailGth, emailTi, gerenteArea);
+            }
+
+            return resultado;
+        }
+
+        /// <summary>
+        /// Expande las filas configuradas de UN correo a los buzones concretos que las cumplen hoy,
+        /// con los destinatarios dinámicos ya resueltos.
+        /// </summary>
+        private SolicitudDestinatariosDto Armar(
+            string tipoCodigo,
+            CorreoEnvioConfigDto config,
+            CorreoDestinatarioResueltoDto? gerenteGeneral,
+            string? emailGth,
+            string? emailTi,
+            GerenteAreaDto? gerenteArea)
+        {
             // El interruptor del principal automático es independiente del maestro: viaja siempre,
             // incluso cuando el correo está apagado y no hay ninguna fila que resolver.
             var dto = new SolicitudDestinatariosDto
@@ -39,27 +108,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Correo apagado con el interruptor maestro → el repositorio no devuelve ninguna fila.
             var filas = config.Filas;
             if (filas.Count == 0) return dto;
-
-            var codigosActivos = new HashSet<string>(
-                filas.Where(f => !string.IsNullOrWhiteSpace(f.Codigo)).Select(f => f.Codigo!),
-                StringComparer.OrdinalIgnoreCase);
-
-            // Solo se consulta lo que alguna fila activa necesita.
-            var gerenteGeneral = codigosActivos.Contains(CorreoDestinatarioCodigo.GerenteGeneral)
-                ? await ResolverGerenteGeneralAsync(tipoCodigo)
-                : null;
-
-            var emailGth = codigosActivos.Contains(CorreoDestinatarioCodigo.GthArea)
-                ? await ResolverAreaAsync(tipoCodigo, "Gestión del Talento Humano", _config.GetEmailAreaGthAsync)
-                : null;
-
-            var emailTi = codigosActivos.Contains(CorreoDestinatarioCodigo.TiArea)
-                ? await ResolverAreaAsync(tipoCodigo, "Tecnología de la Información", _config.GetEmailAreaTiAsync)
-                : null;
-
-            var gerenteArea = codigosActivos.Contains(CorreoDestinatarioCodigo.GerenteArea)
-                ? await ResolverGerenteAreaAsync(tipoCodigo, areaScopeId)
-                : null;
 
             var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             void Agregar(List<DestinatarioSolicitudDto> lista, string? email, string? nombre, string origen)

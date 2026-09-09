@@ -108,21 +108,49 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public List<OpcionDto> TrabajadoresArea { get; set; } = new();
 
+        // ── A quién le llega la solicitud ─────────────────────────────────────
+        // No hay un solo destinatario posible: cada vacante sale por la ruta de su tipo y cada
+        // ruta tiene su propio correo con su propia configuración. Viajan todos porque el
+        // tipo se elige DENTRO del modal, así que a quién se le va a notificar cambia mientras se
+        // llena el formulario y no se puede resolver al abrirlo. Los resuelve el mismo servicio
+        // que hace el envío real, así que el aviso no puede divergir de lo que sale; listas
+        // vacías = ese correo hoy no le llega a nadie (hay que configurarlo).
+
         /// <summary>
-        /// A quién le llegará el correo si se envía la solicitud en este momento. Lo resuelve el
-        /// mismo servicio que hace el envío real, así que el aviso del modal no puede divergir de
-        /// lo que sale. Listas vacías = no hay a quién notificar (hay que configurarlo).
+        /// Vacantes NUEVAS: la firma que se pide (correo <c>APROBACION_GG</c>, a Gerencia General).
         /// </summary>
-        public SolicitudDestinatariosDto Destinatarios { get; set; } = new();
+        public SolicitudDestinatariosDto DestinatariosNuevas { get; set; } = new();
+
+        /// <summary>
+        /// Vacantes NUEVAS: el aviso informativo que sale junto con el anterior (correo
+        /// <c>AVISO_GERENTE_AREA</c>). El gerente del área no las aprueba —eso es de Gerencia
+        /// General— pero tiene que enterarse.
+        /// </summary>
+        public SolicitudDestinatariosDto DestinatariosNuevasAviso { get; set; } = new();
+
+        /// <summary>
+        /// REEMPLAZOS: la primera de sus dos firmas (correo <c>APROBACION_REEMPLAZO</c>, al gerente
+        /// del área del solicitante). Es la única que sale al registrar: la de GTH se pide recién
+        /// cuando el área aprueba.
+        /// </summary>
+        public SolicitudDestinatariosDto DestinatariosReemplazos { get; set; } = new();
+
+        /// <summary>
+        /// REEMPLAZOS: la segunda firma (correo <c>APROBACION_REEMPLAZO_GTH</c>). No sale ahora
+        /// —la dispara la aprobación del gerente del área— pero el aviso la nombra para que el
+        /// solicitante sepa por dónde va a seguir su pedido.
+        /// </summary>
+        public SolicitudDestinatariosDto DestinatariosReemplazosGth { get; set; } = new();
 
         /// <summary>
         /// A quién le llegaría el aviso a GTH de una vacante de ingreso directo <b>FFT</b> (correo
         /// <c>FFT_SOLICITUD_GG</c>). Un ingreso directo no lo aprueba nadie, así que su aviso
-        /// reemplaza al de <see cref="Destinatarios"/> en esas vacantes, y una solicitud que mezcle
-        /// las dos clases manda los dos correos.
+        /// reemplaza al de <see cref="DestinatariosNuevas"/> y al de
+        /// <see cref="DestinatariosReemplazos"/> en esas vacantes, y una solicitud que mezcle
+        /// clases manda los correos de todas.
         ///
         /// Null cuando <see cref="PuedePedirIngresoDirecto"/> es false: sin la casilla no hay
-        /// ingreso directo posible y resolverlo sería un roundtrip para un aviso que no se muestra.
+        /// ingreso directo posible y resolverlo sería trabajo por un aviso que no se muestra.
         /// </summary>
         public SolicitudDestinatariosDto? DestinatariosFft { get; set; }
     }

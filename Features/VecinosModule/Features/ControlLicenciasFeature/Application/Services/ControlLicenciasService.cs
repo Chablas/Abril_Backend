@@ -194,36 +194,49 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
             var result = new RecordatoriosResultDto();
             var emailsPorProyecto = new Dictionary<int, List<string>>();
+            List<string>? emailsUdp = null;
 
             foreach (var recordatorio in pendientes)
             {
                 try
                 {
+                    emailsUdp ??= await _repository.ResolverDestinatariosUdp();
+
                     if (!emailsPorProyecto.TryGetValue(recordatorio.ProjectId, out var emails))
                     {
                         // Residente/Coordinador SSOMA/Administración salen de la ficha del proyecto
                         // (mismo criterio que EMOs); los adicionales (ej. Jefe SSOMA) son a mano.
+                        // Unidad de Proyectos (UDP) se avisa de todos los vencimientos, de cualquier obra.
                         var automaticos = await _repository.ResolverDestinatariosAutomaticos(recordatorio.ProjectId);
                         var adicionales = await _repository.GetDestinatariosAdicionales(recordatorio.ProjectId);
-                        emails = automaticos.Concat(adicionales).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        emails = automaticos.Concat(adicionales).Concat(emailsUdp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                         emailsPorProyecto[recordatorio.ProjectId] = emails;
                     }
+
+                    // Interferencia de vías sale marcada como urgente (además de ya incluir a UDP arriba).
+                    var esInterferenciaVias = recordatorio.TipoDescripcion.Contains("interferencia", StringComparison.OrdinalIgnoreCase);
 
                     if (emails.Count == 0)
                         continue; // Proyecto sin destinatarios resueltos: no hay a quién avisar.
 
                     var diasRestantes = recordatorio.FechaVencimiento.DayNumber - hoy.DayNumber;
-                    var subject = diasRestantes >= 0
+                    var subjectBase = diasRestantes >= 0
                         ? $"Recordatorio: la licencia \"{recordatorio.TipoDescripcion}\" vence el {recordatorio.FechaVencimiento:dd/MM/yyyy}"
                         : $"Alerta: la licencia \"{recordatorio.TipoDescripcion}\" venció el {recordatorio.FechaVencimiento:dd/MM/yyyy}";
+                    var subject = esInterferenciaVias ? $"🔴 URGENTE: {subjectBase}" : subjectBase;
 
                     var detalleDias = diasRestantes > 1 ? $"Faltan <b>{diasRestantes} días</b> para su vencimiento."
                         : diasRestantes == 1 ? "Vence <b>mañana</b>."
                         : diasRestantes == 0 ? "Vence <b>hoy</b>."
                         : $"Venció hace <b>{-diasRestantes} día(s)</b>.";
 
+                    var avisoUrgente = esInterferenciaVias
+                        ? """<p style="background:#fdecea;color:#b71c1c;border-left:4px solid #b71c1c;padding:8px 12px;"><b>URGENTE — Interferencia de vías.</b> Este trámite requiere gestión inmediata ante la municipalidad.</p>"""
+                        : "";
+
                     var body = $"""
                         <p>Estimados,</p>
+                        {avisoUrgente}
                         <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
                         <p>La licencia <b>{recordatorio.TipoDescripcion}</b> vence el <b>{recordatorio.FechaVencimiento:dd/MM/yyyy}</b>. {detalleDias}</p>
                         <p>Puede revisarla en la intranet:

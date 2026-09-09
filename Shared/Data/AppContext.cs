@@ -39,6 +39,7 @@ using Abril_Backend.Features.AlmacenModule.Features.OrdenesCompraFeature.Infrast
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -211,6 +212,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsInduccionRotacionProyecto> SsInduccionRotacionProyecto => Set<SsInduccionRotacionProyecto>();
         public DbSet<SsInduccionProgramacion> SsInduccionProgramacion => Set<SsInduccionProgramacion>();
         public DbSet<SsInduccionRotacionCursor> SsInduccionRotacionCursor => Set<SsInduccionRotacionCursor>();
+        public DbSet<SsInspeccionCruzadaAnillo> SsInspeccionCruzadaAnillo => Set<SsInspeccionCruzadaAnillo>();
+        public DbSet<SsInspeccionCruzadaRotacion> SsInspeccionCruzadaRotacion => Set<SsInspeccionCruzadaRotacion>();
+        public DbSet<SsInspeccionCruzadaCursor> SsInspeccionCruzadaCursor => Set<SsInspeccionCruzadaCursor>();
+        public DbSet<SsInspeccionCruzadaProgramacion> SsInspeccionCruzadaProgramacion => Set<SsInspeccionCruzadaProgramacion>();
         public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
@@ -484,10 +489,21 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador> SsomaAccidenteTrabajador => Set<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador>();
 
         // Checklist SSOMA
+        public DbSet<SsChecklistPartida> SsChecklistPartida => Set<SsChecklistPartida>();
         public DbSet<SsChecklistPlantilla> SsChecklistPlantilla => Set<SsChecklistPlantilla>();
         public DbSet<SsChecklistPlantillaItem> SsChecklistPlantillaItem => Set<SsChecklistPlantillaItem>();
+        public DbSet<SsChecklistPlantillaItemImagen> SsChecklistPlantillaItemImagen => Set<SsChecklistPlantillaItemImagen>();
         public DbSet<SsChecklistProyecto> SsChecklistProyecto => Set<SsChecklistProyecto>();
         public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
+
+        // Activos Rotativos SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoCategoria> SsActivoRotativoCategoria => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoCategoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo> SsActivoRotativo => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento> SsActivoRotativoMovimiento => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento>();
+
+        // Cumplimiento SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad> SsCumplimientoActividad => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad>();
+        public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro> SsCumplimientoRegistro => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro>();
 
         // Habilitación de proyectos para SSOMA
         public DbSet<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado> SsProyectoHabilitado => Set<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado>();

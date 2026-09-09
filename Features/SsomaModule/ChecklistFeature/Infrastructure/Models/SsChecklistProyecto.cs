@@ -17,9 +17,21 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Mod
         [Column("plantilla_id")]
         public int PlantillaId { get; set; }
 
-        // "pendiente" | "en_progreso" | "completado"
+        // "pendiente" | "en_progreso" | "completado" | "no_aplica"
         [Column("estado")]
         public string Estado { get; set; } = "pendiente";
+
+        // "No aplica": para proyectos avanzados que ya pasaron esa etapa antes de
+        // que este checklist existiera, o que genuinamente no les corresponde.
+        // Requiere motivo — queda de auditoría, no es un simple descarte.
+        [Column("no_aplica_motivo")]
+        public string? NoAplicaMotivo { get; set; }
+
+        [Column("no_aplica_por_id")]
+        public int? NoAplicaPorId { get; set; }
+
+        [Column("no_aplica_fecha")]
+        public DateTimeOffset? NoAplicaFecha { get; set; }
 
         [Column("porcentaje_completado")]
         public decimal PorcentajeCompletado { get; set; } = 0;

@@ -32,11 +32,19 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Mod
         [Column("activo")]
         public bool Activo { get; set; } = true;
 
+        // Partida/etapa constructiva a la que pertenece (ej. "Muro Anclado").
+        // Null = checklist general/documentario, sin partida asociada.
+        [Column("partida_id")]
+        public int? PartidaId { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; }
 
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
+
+        [ForeignKey(nameof(PartidaId))]
+        public SsChecklistPartida? Partida { get; set; }
 
         public ICollection<SsChecklistPlantillaItem> Items { get; set; } = new List<SsChecklistPlantillaItem>();
         public ICollection<SsChecklistProyecto> ChecklistsProyecto { get; set; } = new List<SsChecklistProyecto>();

@@ -32,5 +32,7 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Mod
 
         [ForeignKey(nameof(PlantillaId))]
         public SsChecklistPlantilla? Plantilla { get; set; }
+
+        public ICollection<SsChecklistPlantillaItemImagen> ImagenesReferencia { get; set; } = new List<SsChecklistPlantillaItemImagen>();
     }
 }

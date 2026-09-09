@@ -706,14 +706,22 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
+            int noAplicaId = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.Descripcion == "No aplica" && e.State)
+                .Select(e => e.VecinoLicenciaControlEstadoId)
+                .FirstOrDefaultAsync();
+
             // Se trae un rango un poco más amplio (hasta 2 días adelante) porque un recordatorio
             // del sábado o domingo próximo ya debe salir hoy si hoy es el viernes anterior.
+            // lic.VecinoLicenciaControlEstadoId != noAplicaId: si el documento se marcó "No aplica"
+            // después de haber sido cargado (ya no se requiere ampliar/renovar), sus recordatorios
+            // pendientes quedan obsoletos y no deben seguir avisando.
             var candidatos = await (
                 from rec in ctx.VecinoLicenciaControlRecordatorio
                 where rec.State && rec.Active && rec.EnviadoDateTime == null
                     && rec.FechaRecordatorio <= hoy.AddDays(2)
                 join lic in ctx.VecinoLicenciaControl on rec.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
-                where lic.State && lic.Active && lic.ArchivoUrl != null
+                where lic.State && lic.Active && lic.ArchivoUrl != null && lic.VecinoLicenciaControlEstadoId != noAplicaId
                 join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
                 select new
                 {
@@ -801,13 +809,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Mismo criterio de fin de semana que los recordatorios de vencimiento.
+            int noAplicaId = await ctx.VecinoLicenciaControlEstado
+                .Where(e => e.Descripcion == "No aplica" && e.State)
+                .Select(e => e.VecinoLicenciaControlEstadoId)
+                .FirstOrDefaultAsync();
+
+            // Mismo criterio de fin de semana que los recordatorios de vencimiento, y mismo filtro
+            // de "No aplica": si el documento dejó de requerirse, sus visitas pendientes ya no avisan.
             var candidatos = await (
                 from vis in ctx.VecinoLicenciaControlVisita
                 where vis.State && vis.Active && vis.RecordatorioEnviadoDateTime == null
                     && vis.FechaRecordatorio <= hoy.AddDays(2)
                 join lic in ctx.VecinoLicenciaControl on vis.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
-                where lic.State && lic.Active
+                where lic.State && lic.Active && lic.VecinoLicenciaControlEstadoId != noAplicaId
                 join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
                 select new
                 {
@@ -856,6 +870,16 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 .Select(a => a.Email!.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        public async Task<List<string>> ResolverDestinatariosUdp()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Worker.AsNoTracking()
+                .Where(w => w.State && w.Subarea == "Unidad de Proyectos" && !string.IsNullOrEmpty(w.EmailCorporativo))
+                .Select(w => w.EmailCorporativo!.Trim())
+                .Distinct()
+                .ToListAsync();
         }
 
         public async Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId)

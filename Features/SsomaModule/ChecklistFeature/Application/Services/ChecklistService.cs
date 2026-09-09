@@ -8,19 +8,28 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Servic
 {
     public class ChecklistService : IChecklistService
     {
+        private const string ContainerImagenesReferencia = "ssoma-checklist-referencias";
+        private const string ContainerEvidenciasCumplimiento = "ssoma-checklist-evidencias";
+
         private readonly IChecklistRepository _repo;
         private readonly IEmailService _emailService;
+        private readonly IFileStorageService _storage;
         private readonly ILogger<ChecklistService> _logger;
 
         public ChecklistService(
             IChecklistRepository repo,
             IEmailService emailService,
+            IFileStorageService storage,
             ILogger<ChecklistService> logger)
         {
             _repo         = repo;
             _emailService = emailService;
+            _storage      = storage;
             _logger       = logger;
         }
+
+        public Task<int?> GetProyectoActualDeUsuarioAsync(int userId)
+            => _repo.GetProyectoActualDeUsuarioAsync(userId);
 
         // ── PLANTILLAS ───────────────────────────────────────────────────
 
@@ -30,14 +39,40 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Servic
         public Task<ChecklistPlantillaDetalleDto?> GetPlantillaDetalleAsync(int plantillaId)
             => _repo.GetPlantillaDetalleAsync(plantillaId);
 
+        // Regla de negocio: un checklist con partida asignada es, por definición,
+        // obligatorio para TODOS los proyectos desde el día 1 — no algo que se
+        // active manualmente por proyecto. Se fuerzan los flags acá para que no
+        // dependa de que quien lo edite recuerde marcarlos a mano.
+        private static void AplicarReglaPartidaObligatoria(ChecklistPlantillaUpsertDto dto)
+        {
+            if (dto.PartidaId.HasValue)
+            {
+                dto.EsObligatorio = true;
+                dto.TipoActivacion = "automatico";
+            }
+        }
+
         public async Task<ChecklistPlantillaDetalleDto> CreatePlantillaAsync(ChecklistPlantillaUpsertDto dto, int userId)
         {
+            AplicarReglaPartidaObligatoria(dto);
             var entity = await _repo.CreatePlantillaAsync(dto, userId);
+
+            // Obligatorio + automático: no esperar al próximo proyecto que se cree —
+            // se propaga de inmediato a todos los proyectos activos existentes.
+            if (dto.EsObligatorio && dto.TipoActivacion == "automatico")
+                await _repo.PropagarATodosLosProyectosAsync(entity.Id, userId);
+
             return (await _repo.GetPlantillaDetalleAsync(entity.Id))!;
         }
 
-        public Task UpdatePlantillaAsync(int plantillaId, ChecklistPlantillaUpsertDto dto)
-            => _repo.UpdatePlantillaAsync(plantillaId, dto);
+        public async Task UpdatePlantillaAsync(int plantillaId, ChecklistPlantillaUpsertDto dto)
+        {
+            AplicarReglaPartidaObligatoria(dto);
+            await _repo.UpdatePlantillaAsync(plantillaId, dto);
+
+            if (dto.EsObligatorio && dto.TipoActivacion == "automatico")
+                await _repo.PropagarATodosLosProyectosAsync(plantillaId, null);
+        }
 
         public async Task<ChecklistPlantillaItemDto> AddItemToPlantillaAsync(int plantillaId, ChecklistPlantillaItemCreateDto dto)
         {
@@ -55,6 +90,73 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Servic
         public Task UpdatePlantillaItemAsync(int itemId, ChecklistPlantillaItemEditDto dto)
             => _repo.UpdatePlantillaItemAsync(itemId, dto);
 
+        public Task SetOrdenItemAsync(int itemId, int nuevoOrden)
+            => _repo.SetOrdenItemAsync(itemId, nuevoOrden);
+
+        // ── PARTIDAS ─────────────────────────────────────────────────────
+
+        public Task<List<ChecklistPartidaDto>> GetPartidasAsync()
+            => _repo.GetPartidasAsync();
+
+        // Crear una partida debe dejar de inmediato su checklist listo (aunque
+        // vacío) para todos los proyectos activos — no un paso manual aparte que
+        // alguien puede olvidar. Se va llenando de ítems con el tiempo.
+        public async Task<ChecklistPartidaDto> CreatePartidaAsync(ChecklistPartidaUpsertDto dto, int userId)
+        {
+            var entity = await _repo.CreatePartidaAsync(dto);
+
+            var plantilla = await _repo.CreatePlantillaAsync(new ChecklistPlantillaUpsertDto
+            {
+                Nombre = entity.Nombre,
+                Descripcion = null,
+                TipoActivacion = "automatico",
+                EsObligatorio = true,
+                Orden = entity.Orden,
+                PartidaId = entity.Id,
+            }, userId);
+            await _repo.PropagarATodosLosProyectosAsync(plantilla.Id, userId);
+
+            return new ChecklistPartidaDto
+            {
+                Id = entity.Id,
+                Nombre = entity.Nombre,
+                Descripcion = entity.Descripcion,
+                Orden = entity.Orden,
+                Activo = entity.Activo,
+                TotalPlantillas = 1
+            };
+        }
+
+        public Task UpdatePartidaAsync(int partidaId, ChecklistPartidaUpsertDto dto)
+            => _repo.UpdatePartidaAsync(partidaId, dto);
+
+        public Task DeletePartidaAsync(int partidaId)
+            => _repo.DeletePartidaAsync(partidaId);
+
+        // ── IMÁGENES DE REFERENCIA ──────────────────────────────────────
+
+        public async Task<ChecklistItemImagenDto> SubirImagenReferenciaAsync(int plantillaItemId, Stream fileStream, string fileName)
+        {
+            var urls = await _storage.UploadFilesAsync([(fileStream, fileName)], ContainerImagenesReferencia);
+            var url = urls.FirstOrDefault()
+                ?? throw new InvalidOperationException("No se pudo subir la imagen de referencia.");
+
+            return await _repo.AddImagenReferenciaAsync(plantillaItemId, url);
+        }
+
+        public Task EliminarImagenReferenciaAsync(int imagenId)
+            => _repo.DeleteImagenReferenciaAsync(imagenId);
+
+        // Evidencia de cumplimiento (adjunto del propio ítem de proyecto, no la
+        // foto de referencia de la plantilla): sube el archivo y devuelve la URL,
+        // que el frontend recién manda junto con el toggle de "completado".
+        public async Task<string> SubirAdjuntoItemAsync(Stream fileStream, string fileName)
+        {
+            var urls = await _storage.UploadFilesAsync([(fileStream, fileName)], ContainerEvidenciasCumplimiento);
+            return urls.FirstOrDefault()
+                ?? throw new InvalidOperationException("No se pudo subir el adjunto.");
+        }
+
         // ── PROYECTO ─────────────────────────────────────────────────────
 
         public Task<ChecklistProyectoResumenDto> GetResumenProyectoAsync(int proyectoId)
@@ -69,8 +171,20 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Servic
             return (await _repo.GetChecklistDetalleAsync(entity.Id))!;
         }
 
+        public Task DesactivarChecklistAsync(int checklistProyectoId)
+            => _repo.DesactivarChecklistAsync(checklistProyectoId);
+
+        public Task MarcarNoAplicaAsync(int checklistProyectoId, string motivo, int? userId)
+            => _repo.MarcarNoAplicaAsync(checklistProyectoId, motivo, userId);
+
+        public Task ReactivarChecklistAsync(int checklistProyectoId)
+            => _repo.ReactivarChecklistAsync(checklistProyectoId);
+
         public Task SeedChecklistsObligatoriosAsync(int proyectoId, int userId)
             => _repo.SeedChecklistsObligatoriosAsync(proyectoId, userId);
+
+        public Task PropagarATodosLosProyectosAsync(int plantillaId, int? userId)
+            => _repo.PropagarATodosLosProyectosAsync(plantillaId, userId);
 
         // ── ITEMS ────────────────────────────────────────────────────────
 

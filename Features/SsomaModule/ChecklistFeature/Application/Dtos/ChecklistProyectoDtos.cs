@@ -13,6 +13,8 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos
         public int PlantillaId { get; set; }
         public string NombrePlantilla { get; set; } = null!;
         public bool EsObligatorio { get; set; }
+        public int? PartidaId { get; set; }
+        public string? PartidaNombre { get; set; }
         public string Estado { get; set; } = null!;
         public decimal PorcentajeCompletado { get; set; }
         public int TotalItems { get; set; }
@@ -20,6 +22,7 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos
         public DateTimeOffset FechaActivacion { get; set; }
         public DateTimeOffset? FechaCompletado { get; set; }
         public string? ActivadoPor { get; set; }
+        public string? NoAplicaMotivo { get; set; }
     }
 
     // Detalle completo de un checklist de proyecto con sus items
@@ -35,6 +38,9 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos
         public decimal PorcentajeCompletado { get; set; }
         public DateTimeOffset FechaActivacion { get; set; }
         public DateTimeOffset? FechaCompletado { get; set; }
+        public string? NoAplicaMotivo { get; set; }
+        public string? NoAplicaPor { get; set; }
+        public DateTimeOffset? NoAplicaFecha { get; set; }
         public List<ChecklistProyectoItemDto> Items { get; set; } = new();
     }
 
@@ -50,6 +56,7 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos
         public string? CompletadoPor { get; set; }
         public string? Observacion { get; set; }
         public string? UrlAdjunto { get; set; }
+        public List<ChecklistItemImagenDto> ImagenesReferencia { get; set; } = new();
     }
 
     // Para activar manualmente un checklist en un proyecto
@@ -64,5 +71,11 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos
         public bool Completado { get; set; }
         public string? Observacion { get; set; }
         public string? UrlAdjunto { get; set; }
+    }
+
+    // Para marcar un checklist de proyecto como "no aplica" (con motivo obligatorio)
+    public class ChecklistNoAplicaDto
+    {
+        public string Motivo { get; set; } = null!;
     }
 }

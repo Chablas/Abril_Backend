@@ -410,3 +410,27 @@ public class CrearLeccionDesdeAccionRequest
     public int AreaId { get; set; }
     public string? ImpactDescription { get; set; }
 }
+
+// ── Antecedentes de eventos (búsqueda temática) ───────────────────────────────
+
+public class AntecedenteItemDto
+{
+    public int Id { get; set; }
+    public string Codigo { get; set; } = string.Empty;
+    public string TipoNombre { get; set; } = string.Empty;
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public DateTime Fecha { get; set; }
+    public string LugarExacto { get; set; } = string.Empty;
+    public string Descripcion { get; set; } = string.Empty;
+    public string? DanoProceso { get; set; }
+    public string? AccionesInmediatas { get; set; }
+    public string? Mecanismo { get; set; }
+    public string? AgenteCausante { get; set; }
+}
+
+public class ExportarAntecedentesRequest
+{
+    public string Titulo { get; set; } = string.Empty;
+    public string PalabraClave { get; set; } = string.Empty;
+    public List<int> Ids { get; set; } = [];
+}

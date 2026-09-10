@@ -6075,3 +6075,38 @@ Continuación directa de la sesión anterior: completar los últimos mecanismos 
 - Decidir y aplicar la exclusión por `tipo_id` completo (Botiquín/Estación de Emergencia/lo que sea "Antiderrame") en `ObtenerRatiosRecomendadosAsync` — revertida a pedido del usuario, retomar la próxima sesión.
 - Corregir `cantidad_real` en `ss_hh_carga_linea`/Kardex de Vigilancia para que refleje turnos reales por línea (hoy siempre 1) — permitiría volver a calcular el precio de Vigilancia desde Ratios en vez del valor fijo S/3,500.
 - Regenerar los presupuestos ya creados antes del fix de doble conteo (quedan con líneas duplicadas viejas).
+
+## Sesión 2026-09-10 — Presupuesto/cierre de periodo en Costos, Devoluciones+import Excel en Almacén, auditoría de módulos en curso
+
+### Contexto
+Sesión centrada en dos módulos de Arquitectura Comercial (Costos y Almacén), pedidos explícitamente por el usuario para reemplazar el control manual en Excel. Sobre la marcha, el usuario pidió compilar y verificar TODO el trabajo pendiente en el repo (incluyendo el de otras sesiones sin commitear: Penalidades desacoplado de RAC, PETS, Dashboard de Arquitectura Comercial, Presupuesto Materiales), así que también se auditaron y corrigieron bugs ahí.
+
+### Cambios — Costos (Arquitectura Comercial)
+- **Presupuesto aprobado por proyecto**: nueva entidad `AcCostoPresupuesto` (por partida, no por mes — el techo contra el que se mide el gasto real acumulado). Endpoint `GET/POST /costos/presupuesto`. Nueva pestaña "Presupuesto" en el frontend con desviación % (verde/rojo/gris) por partida y total.
+- **Cierre de periodo**: nueva entidad `AcCostoCierre` (proyecto+año+mes). `UpsertRegistro` rechaza con 409 si el periodo está cerrado. Endpoints `POST /costos/periodo/cerrar` y `/reabrir`, protegidos por `arquitectura-comercial.costos.configurar`. La proyección al mes siguiente queda a propósito sin bloquear (es una estimación hacia adelante, no el histórico real).
+- Migraciones manuales nuevas: `20260909_CreateAcCostoPresupuestos.sql`, `20260910_CreateAcCostoCierres.sql` — ya aplicadas en la BD por el usuario.
+
+### Cambios — Almacén
+- Nuevo tipo de movimiento `Devolucion` (Error | Sobrante) — suma al saldo igual que un Ingreso, se distingue en la lista y dashboard vía `TipoMovimientoAlmacen.SumanStock`.
+- Importación de movimientos desde Excel (`POST /almacen/movimientos/importar`, ClosedXML): detecta columnas por nombre (Fecha, Proyecto, Codigo, Articulo, Unidad, Tipo, Cantidad, Origen, Motivo, Comentario), crea materiales nuevos al vuelo si el código no existe, resuelve proyecto por nombre exacto, y deduplica contra la BD y dentro del mismo archivo por clave `(proyecto|material|fecha|tipo|cantidad)`.
+- Gestión de materiales: `GetMateriales`/`UpdateMaterial` — editar nombre/unidad/umbrales y alternar Activo/Inactivo desde el frontend.
+- Migración manual: `20260909_AddAlmacenDevolucionYMotivo.sql` (columna `motivo_devolucion`) — ya aplicada.
+
+### Cambios — Observaciones/Revisiones (Arquitectura Comercial)
+- `FechaLevantamiento` ahora se muestra en la lista y es editable al levantar (antes se fijaba siempre a `DateTime.UtcNow`, sin poder regularizar levantamientos hechos en campo antes de subir la evidencia). Observaciones convierte Lima↔UTC (`AUtc`/`AHoraLima`, como el resto de sus campos de fecha); Revisiones no convierte, igual que el resto de su módulo — a propósito, cada uno siguiendo su propia convención existente.
+
+### Bugs reales encontrados y corregidos en trabajo de OTRAS sesiones (sin commitear, no de esta sesión)
+1. **RAC/Penalidades**: `PenalidadCatalogosController` tenía POST/PUT para infracciones pero le faltaba el GET (405 al abrir Catálogos de Penalidades) — el GET existente vivía en otro controller con otra firma (sin `soloActivas`, siempre solo activas). Agregado `[HttpGet("infracciones")]` con soporte de `soloActivas` en el controller correcto.
+2. **RAC**: referencia colgante a `TotalConPenalidad` en `RacService.GetDashboardAsync` — la otra sesión ya había eliminado el cálculo viejo (basado en `AplicaPenalidad`, deprecado) tanto de este archivo como del DTO del frontend, pero quedó una línea suelta sin borrar rompiendo el build. Se completó el borrado (no se reintrodujo el stat — así lo quería esa refactorización).
+3. **Penalidades**: typo real en `PenalidadService.DecidirGerenciaAsync` — asignaba `req.MontoAjusteMonto` (que no existe) en vez de `req.MotivoAjusteMonto`.
+4. Frontend (`rac-lista.ts`, `rac-nuevo.ts`, `rac.service.ts`): limpieza de 3 referencias más a campos ya eliminados del desacople Penalidad/RAC (`filtroSoloConPenalidad`, `descripcionOcurrido` muerto sin UI).
+5. **PETS** (`pets-detalle.ts`): dos sitios indexando `Record<PetSeccionTexto,string>` con `string` genérico — cast agregado, el código ya garantizaba en runtime que solo se accede con claves válidas.
+6. **Dashboard Arquitectura Comercial** (`dashboard.ts`): dos objetos placeholder (solo usan `userId`/`nombre` para abrir un modal) les faltaba el campo nuevo `totalPonderado` del DTO.
+7. **Solicitud de Salidas** (bug ya existente en el último commit, no de ninguna sesión de hoy): el backend devuelve `{ data, resumen }` pero el frontend local esperaba un array plano — resultó ser que el frontend local estaba 24 commits detrás de `origin/master` (el fix real ya venía en el pull). Se hizo `git pull` (stash de 4 archivos en conflicto de otras sesiones en curso, fast-forward limpio, stash pop sin conflictos).
+
+### Verificado
+`dotnet build` (a carpeta de output separada, para evitar el falso error de copia por tener el backend corriendo) → **0 errores**, en todo el repo, no solo en los archivos de esta sesión.
+
+### Pendiente
+- Probar en navegador el flujo completo de Costos (cerrar/reabrir periodo, presupuesto vs desviación) y Almacén (devoluciones, import Excel con archivo real, gestión de materiales).
+- RAC todavía no tiene ningún botón que llame al nuevo `PenalidadService` — el flujo "crear penalidad desde un RAC" no está conectado en la UI todavía (no es un bug, es una parte de la feature de Penalidades sin construir aún).

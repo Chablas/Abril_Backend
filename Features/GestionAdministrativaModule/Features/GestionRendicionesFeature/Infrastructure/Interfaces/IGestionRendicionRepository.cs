@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// apuntándose a sí mismo).
         /// </summary>
         /// <returns>Ids de las salidas que efectivamente cambiaron de estado.</returns>
-        Task<List<int>> RechazarReembolso(IEnumerable<int> ids, string observacion, int reviewerUserId);
+        Task<List<int>> ObservarReembolso(IEnumerable<int> ids, string observacion, int reviewerUserId);
 
         /// <summary>
         /// Planillas cuyo reembolso se puede aprobar, con los documentos que hay que firmar (su PDF

@@ -6,6 +6,10 @@ using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applicatio
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Interfaces;
@@ -89,6 +93,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Reembolsos (la bandeja de Tesorería: paga lo que la jefatura ya firmó)
             services.AddScoped<IReembolsoRepository, ReembolsoRepository>();
             services.AddScoped<IReembolsoService, ReembolsoService>();
+
+            // Correcciones S10 (la bandeja del Coordinador ERP: el paso del medio de la
+            // subsanación, cuando la corrección tiene que hacerse dentro del S10)
+            services.AddScoped<ICorreccionS10Repository, CorreccionS10Repository>();
+            services.AddScoped<ICorreccionS10Service, CorreccionS10Service>();
 
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();

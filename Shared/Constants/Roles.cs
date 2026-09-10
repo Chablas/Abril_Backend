@@ -60,10 +60,17 @@
         public const string UsuarioRevisorSalidas             = "78"; // USUARIO REVISOR DE SALIDAS
 
         /// <summary>
-        /// TESORERO. No basta con tenerlo: las features que concede solo se otorgan si además el
-        /// puesto del trabajador es de categoría <c>CategoriaIds.Tesorero</c> (46) — lo aplica
-        /// <c>AuthRepository.GetAllowedFeaturesAsync</c>.
+        /// TESORERO. Alcanza con tenerlo: concede sus features como cualquier otro rol. Durante un
+        /// tiempo exigió además un puesto de categoría <c>CategoriaIds.Tesorero</c> (46) y esa
+        /// condición extra se quitó de <c>AuthRepository.GetAllowedFeaturesAsync</c>.
         /// </summary>
         public const string Tesorero                          = "83"; // TESORERO
+
+        /// <summary>
+        /// COORDINADOR ERP. Único rol que entra a "Correcciones S10", la bandeja donde atiende las
+        /// solicitudes de corrección del Consolidado del S10 (§10.5 del requerimiento de salidas).
+        /// Alcanza con tenerlo, como el resto: no se le exige ningún puesto ni categoría.
+        /// </summary>
+        public const string CoordinadorErp                    = "84"; // COORDINADOR ERP
     }
 }

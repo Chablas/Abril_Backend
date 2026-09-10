@@ -177,19 +177,12 @@ namespace Abril_Backend.Infrastructure.Repositories
                 // no le quitaba el acceso: seguía entrando hasta que la fila se borrara duro.
                 // feature y role_feature no tienen columna state, no hay nada que filtrar ahí.
                 //
-                // Excepción del rol TESORERO: ver la nota de abajo — es el único rol cuyas
-                // features dependen además del puesto del trabajador.
-                // El rol TESORERO es el único que además exige un puesto: sus features solo se
-                // conceden si alguno de los workers vivos del usuario tiene un puesto de categoría
-                // Tesorero. Tener el rol sin ese puesto no abre nada, y el puesto sin el rol
-                // tampoco. Va en la misma consulta y no en un post-filtro en C# para no sumar un
-                // roundtrip al login, que es el camino más caliente de la app.
-                //
-                // Las features que ese usuario también recibe por OTRO rol no se ven afectadas: el
-                // recorte es por fila de role_feature, no por feature.
-                var rolTesorero = int.Parse(Shared.Constants.Roles.Tesorero);
-                var categoriaTesorero = Shared.Constants.CategoriaIds.Tesorero;
-
+                // El rol alcanza: ningún rol exige además un puesto para conceder sus features.
+                // TESORERO fue la excepción por un tiempo (pedía también un puesto de categoría
+                // Tesorero) y se quitó: tener el rol sin ese puesto dejaba el ítem fuera del
+                // sidebar sin ningún aviso, imposible de diagnosticar desde Seguridad. Si una
+                // pantalla necesita recortar lo que se VE según la categoría del puesto, eso va
+                // dentro de la pantalla sobre sus datos, no acá negando la entrada.
                 return await _context.Database
                     .SqlQuery<string>($"""
                         SELECT DISTINCT f.feature_key
@@ -200,18 +193,6 @@ namespace Abril_Backend.Infrastructure.Repositories
                         WHERE ur.user_id = {userId}
                           AND ur.state
                           AND r.state
-                          AND (
-                                r.role_id <> {rolTesorero}
-                             OR EXISTS (
-                                    SELECT 1
-                                    FROM workers w
-                                    JOIN person p  ON p.person_id  = w.person_id
-                                    JOIN puesto pu ON pu.puesto_id = w.puesto_id
-                                    WHERE p.user_id = {userId}
-                                      AND w.state
-                                      AND pu.categoria_id = {categoriaTesorero}
-                                )
-                          )
                         """)
                     .ToListAsync();
             }

@@ -114,6 +114,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     $"El monto total del Consolidado del S10 (S/ {monto:N2}) no coincide con el monto " +
                     $"de la planilla (S/ {totalPlanilla:N2}). Corrígelo antes de adjuntarlo.", 400);
 
+            // Si el Coordinador ERP ANULÓ el registro del S10, la guía anterior quedó inservible y
+            // hay que sacar una nueva (HU-ERP-03 / CA-19). Se valida acá, con el resto de lo que se
+            // mira antes de tocar SharePoint: dejar pasar la guía vieja mandaría a la jefatura a
+            // revisar un consolidado que el S10 ya no reconoce.
+            var correccion = await ctx.GaCorreccionS10
+                .Where(c => c.State && c.RendicionId == rendicionId)
+                .FirstOrDefaultAsync();
+
+            if (correccion != null
+                && correccion.GuiaAnulada
+                && !string.IsNullOrWhiteSpace(correccion.NumeroGuia)
+                && string.Equals(correccion.NumeroGuia!.Trim(), guia, StringComparison.OrdinalIgnoreCase))
+                throw new AbrilException(
+                    $"La guía {correccion.NumeroGuia} se anuló en el S10 y no se puede reutilizar. " +
+                    "Genera una guía nueva y vuelve a adjuntar el consolidado.", 400);
+
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var folderUrl = await ctx.GaRendicionFolder
                 .Where(f => f.State && f.Active)
@@ -177,15 +193,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 State        = true,
             };
 
-            // Subsanación: si el jefe había RECHAZADO el reembolso, adjuntar otra vez el
+            // Subsanación: si el jefe había OBSERVADO el reembolso, adjuntar otra vez el
             // consolidado es exactamente lo que se le pidió al trabajador, así que el reembolso
             // vuelve a Pendiente y le reaparece al revisor. La observación NO se borra: sigue
             // siendo lo que se observó y el jefe la necesita para contrastar.
             //
-            // El archivo cubre TODA la planilla, así que reabre todas sus salidas rechazadas.
+            // El archivo cubre TODA la planilla, así que reabre todas sus salidas observadas.
             var reabrir = await ctx.GaSolicitudSalida
                 .Where(x => x.RendicionId == rendicionId
-                         && x.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado)
+                         && x.EstadoReembolsoId == EstadosSalida.Reembolso.Observado)
                 .ToListAsync();
 
             var strategy = ctx.Database.CreateExecutionStrategy();
@@ -205,6 +221,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 {
                     r.EstadoReembolsoId = EstadosSalida.Reembolso.Pendiente;
                     r.UpdatedAt         = now;
+                }
+
+                // Y la gestión con el ERP se cierra: recargar el consolidado ES el final de ese
+                // ciclo. Va en la MISMA transacción que reabre el reembolso porque son la misma
+                // subsanación — dejar la corrección viva sobre un reembolso ya Pendiente
+                // bloquearía la próxima si la jefatura vuelve a observar.
+                //
+                // Se cierra incluso si el ERP todavía no la había atendido: el trabajador puede
+                // haber resuelto el S10 por otro lado, y en ese caso el pedido ya no tiene sentido
+                // (desaparece de la bandeja del ERP en vez de quedar ahí sin dueño).
+                if (correccion != null)
+                {
+                    correccion.State           = false;
+                    correccion.UpdatedDateTime = now;
                 }
 
                 await ctx.SaveChangesAsync();

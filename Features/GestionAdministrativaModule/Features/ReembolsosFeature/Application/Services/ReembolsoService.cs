@@ -1,6 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Interfaces;
@@ -14,7 +13,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
     public class ReembolsoService : IReembolsoService
     {
         private readonly IReembolsoRepository           _repo;
-        private readonly ISalidaVisibilityResolver      _visibilityResolver;
         private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly IEmailService                  _emailService;
         private readonly IConfiguration                 _configuration;
@@ -22,37 +20,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
         public ReembolsoService(
             IReembolsoRepository repo,
-            ISalidaVisibilityResolver visibilityResolver,
             ICorreoSalidaRecipientResolver correoResolver,
             IEmailService emailService,
             IConfiguration configuration,
             ILogger<ReembolsoService> logger)
         {
             _repo               = repo;
-            _visibilityResolver = visibilityResolver;
             _correoResolver     = correoResolver;
             _emailService       = emailService;
             _configuration      = configuration;
             _logger             = logger;
         }
 
-        /// <summary>
-        /// La segunda mitad del criterio de Tesorería: el rol lo verificó el controller contra el
-        /// token, acá se verifica que el puesto sea de categoría Tesorero, que vive en la base.
-        /// Mirando solo el rol se le habría abierto la bandeja a alguien con el rol pero sin el
-        /// puesto, con un botón de pagar que el backend rechaza.
-        /// </summary>
-        public async Task EnsureTesoreroAsync(int userId)
+        public async Task<ReembolsoListResultDto> GetAll(ReembolsoFiltersDto filters)
         {
-            var vis = await _visibilityResolver.ResolveAsync(userId);
-            if (!vis.EsCategoriaTesorero)
-                throw new AbrilException(
-                    "Reembolsos es de Tesorería: tu puesto no es de categoría Tesorero.", 403);
-        }
-
-        public async Task<ReembolsoListResultDto> GetAll(ReembolsoFiltersDto filters, int userId)
-        {
-            await EnsureTesoreroAsync(userId);
             var data = await _repo.GetAll(filters);
             return new ReembolsoListResultDto
             {
@@ -61,31 +42,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             };
         }
 
-        public async Task<ReembolsoFilterDataDto> GetFilterData(int userId)
+        public async Task<ReembolsoFilterDataDto> GetFilterData()
         {
-            await EnsureTesoreroAsync(userId);
             return await _repo.GetFilterData();
         }
 
-        public async Task<ReembolsoDetalleDto> GetDetalle(int rendicionId, int userId)
+        public async Task<ReembolsoDetalleDto> GetDetalle(int rendicionId)
         {
-            await EnsureTesoreroAsync(userId);
             return await _repo.GetDetalle(rendicionId)
                 ?? throw new AbrilException(
                     "La planilla no existe o todavía no está firmada por la jefatura.", 404);
         }
 
-        public async Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters, int userId)
+        public async Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters)
         {
-            await EnsureTesoreroAsync(userId);
             return await _repo.GetSeguimiento(filters);
         }
 
         public async Task<ReembolsoBulkResultDto> ConfirmarRevision(
             ReembolsoSeleccionDto dto, int tesoreroUserId)
         {
-            await EnsureTesoreroAsync(tesoreroUserId);
-
             var ids = await _repo.ResolverSolicitudIds(
                 dto.RendicionIds, dto.SolicitudIds, EstadosSalida.Reembolso.Firmado);
 
@@ -108,8 +84,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         public async Task<ReembolsoBulkResultDto> MarcarPagadas(
             ReembolsoSeleccionDto dto, int tesoreroUserId)
         {
-            await EnsureTesoreroAsync(tesoreroUserId);
-
             var ids = await _repo.ResolverSolicitudIds(
                 dto.RendicionIds, dto.SolicitudIds, EstadosSalida.Reembolso.PorPagar);
 
@@ -142,12 +116,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         /// Best-effort: ante un error devuelve una lista vacía y la confirmación sale sin correos.
         /// </summary>
         public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(
-            ReembolsoSeleccionDto dto, int tesoreroUserId)
+            ReembolsoSeleccionDto dto)
         {
             try
             {
-                await EnsureTesoreroAsync(tesoreroUserId);
-
                 var ids = await _repo.ResolverSolicitudIds(
                     dto.RendicionIds, dto.SolicitudIds, EstadosSalida.Reembolso.PorPagar);
                 if (ids.Count == 0) return new();

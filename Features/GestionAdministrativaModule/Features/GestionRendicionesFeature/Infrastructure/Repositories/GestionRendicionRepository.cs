@@ -359,14 +359,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
         // ══ Reembolso ═══════════════════════════════════════════════════════
 
-        public async Task<List<int>> RechazarReembolso(
+        public async Task<List<int>> ObservarReembolso(
             IEnumerable<int> ids, string observacion, int reviewerUserId)
         {
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
             if (string.IsNullOrWhiteSpace(observacion))
-                throw new AbrilException("Para rechazar un reembolso hay que escribir la observación.", 400);
+                throw new AbrilException("Para observar un reembolso hay que escribir la observación.", 400);
 
             using var ctx = _factory.CreateDbContext();
 
@@ -377,7 +377,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
             foreach (var s in solicitudes)
             {
-                s.EstadoReembolsoId      = EstadosSalida.Reembolso.Rechazado;
+                s.EstadoReembolsoId      = EstadosSalida.Reembolso.Observado;
                 s.ReembolsoDecididoPorId = reviewerUserId;
                 s.ReembolsoDecididoAt    = now;
                 s.UpdatedAt              = now;
@@ -478,7 +478,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var solicitudes = await ctx.GaSolicitudSalida
                 .Where(s => solicitudIds.Contains(s.Id)
                          && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado))
+                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado))
                 .ToListAsync();
 
             var vivas = solicitudes.Select(s => s.Id).ToHashSet();
@@ -608,15 +608,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Los mismos dos requisitos que abren la bandeja y que usa el envío
-            // (GetTesoreriaCorreoInfo): puesto de categoría Tesorero + rol TESORERO.
+            // El mismo requisito que abre la bandeja y que usa el envío
+            // (GetTesoreriaCorreoInfo): el rol TESORERO. Ya no se pide además el puesto de
+            // categoría Tesorero — si se pidiera, el aviso dejaría fuera a gente que sí entra.
             var rolTesorero = int.Parse(Roles.Tesorero);
             return await (
                 from w   in ctx.Worker
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
-                where w.PuestoCatalogo!.CategoriaId == CategoriaIds.Tesorero
-                   && ur.RoleId == rolTesorero && ur.State && ur.Active
+                where ur.RoleId == rolTesorero && ur.State && ur.Active
                    && w.EmailCorporativo != null && w.EmailCorporativo != ""
                 select w.EmailCorporativo!
             ).Distinct().ToListAsync();
@@ -780,15 +780,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                     .FirstOrDefaultAsync();
             }
 
-            // Los mismos dos requisitos que abren la bandeja: el puesto de categoría Tesorero y el
-            // rol TESORERO. Con uno solo el correo le llegaría a alguien que no puede entrar.
+            // El mismo requisito que abre la bandeja: el rol TESORERO. La categoría del puesto ya
+            // no entra en la cuenta, así que el aviso llega a todos los que pueden trabajarlo.
             var rolTesorero = int.Parse(Roles.Tesorero);
             var destinatarios = await (
                 from w   in ctx.Worker
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
-                where w.PuestoCatalogo!.CategoriaId == CategoriaIds.Tesorero
-                   && ur.RoleId == rolTesorero && ur.State && ur.Active
+                where ur.RoleId == rolTesorero && ur.State && ur.Active
                    && w.EmailCorporativo != null && w.EmailCorporativo != ""
                 select w.EmailCorporativo!
             ).Distinct().ToListAsync();
@@ -904,7 +903,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .Where(s => ids.Contains(s.Id)
                          && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
                          && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado))
+                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado))
                 .Select(s => new { s.Id, s.RendicionId })
                 .ToListAsync();
 

@@ -689,12 +689,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return rows.ToDictionary(r => (r.LugarOrigenId, r.LugarDestinoId), r => r.Monto);
         }
 
-        public async Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId)
+        public async Task<List<TrayectoEditableDto>> GetTrayectosEditablesDeSolicitud(int solicitudId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
             return await CapturasEditablesQuery(ctx, userId)
-                .Where(t => t.Id == trayectoId)
-                .FirstOrDefaultAsync();
+                .Where(t => t.SolicitudId == solicitudId)
+                .Select(t => new TrayectoEditableDto
+                {
+                    Id = t.Id,
+                    // Las eliminadas quedan fuera por el filtro global de GaSolicitudCaptura: una
+                    // captura dada de baja no se puede volver a editar.
+                    CapturaIds = ctx.GaSolicitudCaptura
+                        .Where(c => c.TrayectoId == t.Id)
+                        .Select(c => c.Id)
+                        .ToList(),
+                })
+                .ToListAsync();
         }
 
         public async Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId)
@@ -704,39 +714,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return await ctx.GaSolicitudCaptura
                 .Where(c => c.Id == capturaId && trayectoIds.Contains(c.TrayectoId))
                 .FirstOrDefaultAsync();
-        }
-
-        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
-            int capturaId,
-            decimal monto,
-            (string Url, string? ItemId, string Filename)? imagen)
-        {
-            using var ctx = _factory.CreateDbContext();
-            var captura = await ctx.GaSolicitudCaptura.FirstOrDefaultAsync(c => c.Id == capturaId)
-                ?? throw new AbrilException("La captura no existe.", 404);
-
-            captura.Monto = monto;
-
-            // Reemplazo de imagen: se apunta la MISMA fila al archivo nuevo. No se da de baja la
-            // fila ni se borra el archivo viejo de SharePoint — la regla de auditoría protege
-            // filas, no columnas, y el sustento anterior sigue existiendo en la biblioteca.
-            if (imagen.HasValue)
-            {
-                captura.ImageUrl    = imagen.Value.Url;
-                captura.ImageItemId = imagen.Value.ItemId;
-                captura.Filename    = imagen.Value.Filename;
-            }
-
-            await ctx.SaveChangesAsync();
-
-            return new SolicitudSalidaCapturaDto
-            {
-                Id         = captura.Id,
-                ImageUrl   = captura.ImageUrl,
-                Filename   = captura.Filename,
-                Monto      = captura.Monto,
-                UploadedAt = captura.UploadedAt,
-            };
         }
 
         public async Task EliminarCaptura(int capturaId)
@@ -774,35 +751,53 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                                             && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada))
             select t;
 
-        public async Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(
-            int trayectoId,
-            IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items,
+        public async Task GuardarCapturas(
+            IReadOnlyList<(int TrayectoId, string Url, string? ItemId, string Filename, decimal Monto)> nuevas,
+            IReadOnlyList<(int CapturaId, decimal Monto, (string Url, string? ItemId, string Filename)? Imagen)> ediciones,
             int userId)
         {
             using var ctx = _factory.CreateDbContext();
             var now = DateTimeOffset.UtcNow;
-            var entities = items.Select(it => new GaSolicitudCaptura
-            {
-                TrayectoId   = trayectoId,
-                ImageUrl     = it.Url,
-                ImageItemId  = it.ItemId,
-                Filename     = it.Filename,
-                Monto        = it.Monto,
-                UploadedById = userId,
-                UploadedAt   = now,
-            }).ToList();
 
-            ctx.GaSolicitudCaptura.AddRange(entities);
+            if (nuevas.Count > 0)
+                ctx.GaSolicitudCaptura.AddRange(nuevas.Select(n => new GaSolicitudCaptura
+                {
+                    TrayectoId   = n.TrayectoId,
+                    ImageUrl     = n.Url,
+                    ImageItemId  = n.ItemId,
+                    Filename     = n.Filename,
+                    Monto        = n.Monto,
+                    UploadedById = userId,
+                    UploadedAt   = now,
+                }));
+
+            if (ediciones.Count > 0)
+            {
+                var ids = ediciones.Select(e => e.CapturaId).ToList();
+                var filas = await ctx.GaSolicitudCaptura
+                    .Where(c => ids.Contains(c.Id))
+                    .ToDictionaryAsync(c => c.Id);
+
+                foreach (var e in ediciones)
+                {
+                    if (!filas.TryGetValue(e.CapturaId, out var fila)) continue;
+
+                    fila.Monto = e.Monto;
+
+                    // Reemplazo de imagen: se apunta la MISMA fila al archivo nuevo. No se da de
+                    // baja la fila ni se borra el archivo viejo de SharePoint — la regla de
+                    // auditoría protege filas, no columnas, y el sustento anterior sigue existiendo
+                    // en la biblioteca.
+                    if (e.Imagen.HasValue)
+                    {
+                        fila.ImageUrl    = e.Imagen.Value.Url;
+                        fila.ImageItemId = e.Imagen.Value.ItemId;
+                        fila.Filename    = e.Imagen.Value.Filename;
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
-
-            return entities.Select(c => new SolicitudSalidaCapturaDto
-            {
-                Id         = c.Id,
-                ImageUrl   = c.ImageUrl,
-                Filename   = c.Filename,
-                Monto      = c.Monto,
-                UploadedAt = c.UploadedAt,
-            }).ToList();
         }
     }
 }

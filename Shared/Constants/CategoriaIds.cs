@@ -84,9 +84,9 @@
         public const int Empleado = 42;
 
         /// <summary>
-        /// Tesorería. Gestión de Salidas la exige JUNTO con el rol
-        /// <c>Roles.Tesorero</c>: tener el rol sin este puesto no abre la pantalla, y esta
-        /// categoría sin el rol tampoco.
+        /// Tesorería. Ya NO condiciona el acceso a ninguna pantalla: entrar a Reembolsos depende
+        /// solo del rol <c>Roles.Tesorero</c>. Queda como categoría de puesto y para lo que se
+        /// quiera recortar por datos dentro de una pantalla.
         ///
         /// El id lo fijó producción (ahí se creó primero); dev se alineó con
         /// <c>Migrations_Manual/_dev_alinear_categorias_roles_con_prod.sql</c>, que de paso trajo

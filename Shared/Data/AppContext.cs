@@ -254,6 +254,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
+        // Solicitudes de corrección del Consolidado del S10 al Coordinador ERP (bandeja
+        // "Correcciones S10"). Van por planilla, igual que el consolidado.
+        public DbSet<GaCorreccionS10> GaCorreccionS10 { get; set; }
         // ── Configuración de correos de salidas (destinatarios por correo) ──────
         // ga_correo_pantalla agrupa los correos por la pantalla donde se originan: cada una
         // administra los suyos desde su propio botón «Configuración».
@@ -1069,6 +1072,11 @@ namespace Abril_Backend.Infrastructure.Data
             // snake_case (los digitos no cuentan como corte), pero el mapeo se fija a mano igual
             // para que quede explicito y no dependa de ese detalle de la convencion.
             modelBuilder.Entity<GaConsolidadoS10>().ToTable("ga_consolidado_s10");
+            // Mismo caso que el consolidado: se fija a mano para no depender de cómo la
+            // convención snake_case parte el "S10".
+            modelBuilder.Entity<GaCorreccionS10>().ToTable("ga_correccion_s10");
+            modelBuilder.Entity<GaCorreccionS10>()
+                .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
 
             modelBuilder.Entity<SsomaPasoCategoria>().ToTable("ssoma_paso_categoria");
             modelBuilder.Entity<SsomaPaso>().ToTable("ssoma_paso");

@@ -195,6 +195,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
             }
         }
 
+        /// <summary>
+        /// Le pide al Coordinador ERP que corrija el Consolidado del S10 (§10.5 / RG-21). Es el
+        /// camino alternativo a recargar el consolidado cuando el arreglo tiene que hacerse dentro
+        /// del S10. El motivo es obligatorio (CA-17) y viaja en el cuerpo.
+        /// </summary>
+        [HttpPost("{id:int}/correccion-s10")]
+        public async Task<IActionResult> SolicitarCorreccionS10(
+            int id, [FromBody] SolicitarCorreccionS10Dto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.SolicitarCorreccionS10(id, dto?.Motivo ?? string.Empty, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en RendicionController.SolicitarCorreccionS10");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPatch("{id:int}/notificar-revisor")]
         public async Task<IActionResult> NotificarRevisor(int id)
         {

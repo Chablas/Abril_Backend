@@ -6,6 +6,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using ClosedXML.Excel;
 using Humanizer;
@@ -547,6 +548,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Máximo de líneas que puede ocupar el texto de una celda de la tabla.</summary>
         private const int TablaMaxLineas = 2;
 
+        /// <summary>Margen de la hoja, salvo el inferior (ver <see cref="MargenInferiorPt"/>).</summary>
+        private const float MargenPt = 25f;
+
+        /// <summary>
+        /// Alto reservado bajo la línea para la leyenda "Firma de Jefatura / Gerencia".
+        /// </summary>
+        private const float FirmaLeyendaAltoPt = 13f;
+
+        /// <summary>
+        /// Margen inferior de la hoja. Es menor que el resto a propósito: la leyenda va DEBAJO de
+        /// la línea de firma y la línea tiene que quedar exactamente donde
+        /// <see cref="SignaturePdfStamper"/> apoya la firma al aprobar el reembolso
+        /// (<see cref="SignaturePdfStamper.SignatureMarginPt"/> del borde inferior). El número de
+        /// registro y la paginación compensan esta diferencia con un padding para seguir cayendo a
+        /// <see cref="MargenPt"/> como antes.
+        /// </summary>
+        private const float MargenInferiorPt = (float)SignaturePdfStamper.SignatureMarginPt - FirmaLeyendaAltoPt;
+
         /// <summary>
         /// Texto de la columna MOTIVO de la planilla: el motivo del catálogo con su detalle pegado
         /// cuando el motivo lo exige (requiere_motivo_adicional), que es lo que justifica el gasto.
@@ -598,22 +617,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     container.Page(page =>
                     {
                         page.Size(PageSizes.A4.Landscape());
-                        page.Margin(25);
+                        page.MarginTop(MargenPt);
+                        page.MarginHorizontal(MargenPt);
+                        page.MarginBottom(MargenInferiorPt);
                         page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
 
                         page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel));
 
-                        // Pie de página común a todas las páginas — número de registro (izq)
-                        // y "Página X de Y" (der) cuando aplique.
-                        var pageNum_   = pag.pageNum;
+                        // Pie de página común a todas las páginas — número de registro (izq),
+                        // "Página X de Y" cuando aplique y, al cerrar cada trabajador, su línea
+                        // de firma pegada al borde inferior derecho.
+                        var pageNum_    = pag.pageNum;
                         var totalPages_ = pag.totalPages;
+                        var isLast_     = pag.isLast;
                         page.Footer().PaddingTop(4).Row(footerRow =>
                         {
-                            footerRow.RelativeItem().AlignLeft()
-                                .Text(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
-                            footerRow.RelativeItem().AlignRight()
-                                .Text(totalPages_ > 1 ? $"Página {pageNum_} de {totalPages_}" : "")
-                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                            // Se compensa el margen inferior recortado para que el número de
+                            // registro y la paginación sigan cayendo a MargenPt del borde.
+                            footerRow.RelativeItem()
+                                .PaddingBottom(MargenPt - MargenInferiorPt)
+                                .AlignBottom()
+                                .Row(datos =>
+                                {
+                                    datos.RelativeItem().AlignLeft()
+                                        .Text(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
+                                    datos.RelativeItem().AlignRight()
+                                        .Text(totalPages_ > 1 ? $"Página {pageNum_} de {totalPages_}" : "")
+                                        .FontSize(9).FontColor(Colors.Grey.Medium);
+                                });
+
+                            // El ancho es el mismo de la firma estampada y el bloque termina en el
+                            // margen derecho: así la línea queda justo debajo de la firma en vez
+                            // de al lado. Solo en la hoja que cierra al trabajador.
+                            footerRow.ConstantItem((float)SignaturePdfStamper.SignatureWidthPt)
+                                .Element(c => { if (isLast_) LineaFirma(c); });
                         });
                     });
                 }
@@ -755,23 +792,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     }
                 });
 
-                // ── Firmas (solo última página del trabajador) ───────────────
-                if (isLastPage)
-                {
-                    col.Item().PaddingTop(24).Row(row =>
-                    {
-                        row.RelativeItem(); // mitad izquierda vacía: empuja la firma a la derecha
-                        row.ConstantItem(60); // spacer
-                        row.RelativeItem().AlignCenter().Column(fc =>
-                        {
-                            fc.Item().LineHorizontal(0.7f);
-                            fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma de Jefatura / Gerencia").FontSize(9).Italic();
-                        });
-                    });
-                }
+                // (La línea de firma va en el pie de la página, no acá: tiene que quedar
+                //  siempre al borde inferior derecho, que es donde se estampa la firma.)
+            });
+        }
 
-                // (El indicador "Página X de Y" se muestra ahora en el footer global de la página.)
+        /// <summary>
+        /// Línea de firma con su leyenda debajo, pensada para el pie derecho de la hoja. Al aprobar
+        /// el reembolso, <see cref="SignaturePdfStamper"/> estampa la firma anclada a esa misma
+        /// esquina, así que la línea se dibuja justo sobre el borde inferior de la imagen: cae
+        /// encima de la línea y no suelta en cualquier parte de la hoja.
+        /// </summary>
+        private static void LineaFirma(IContainer container)
+        {
+            container.AlignBottom().Column(fc =>
+            {
+                fc.Item().LineHorizontal(0.7f);
+                // MinHeight y no Height: si la leyenda no entrara en una línea, sube en vez de
+                // reventar el layout (desalineada, pero el PDF sale).
+                fc.Item().MinHeight(FirmaLeyendaAltoPt).AlignMiddle().AlignCenter()
+                    .Text("Firma de Jefatura / Gerencia").FontSize(9).Italic();
             });
         }
 

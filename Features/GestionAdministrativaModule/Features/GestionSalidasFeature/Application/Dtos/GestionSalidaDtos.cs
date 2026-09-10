@@ -265,7 +265,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 CapturasIncompletas = lista.Count(x => !x.PuedeRendirse
                                                     && x.EstadoAprobacion == EstadosSalida.Aprobacion.NombreAprobado
                                                     && x.EstadoRendicion  == EstadosSalida.Rendicion.NombreNoRendido),
-                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+                Observadas          = lista.Count(x => x.EstadoReembolso == EstadosSalida.Reembolso.NombreObservado),
             };
         }
     }

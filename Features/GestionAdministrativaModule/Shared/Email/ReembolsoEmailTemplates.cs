@@ -21,9 +21,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int TrayectosCount { get; set; }
         /// <summary>Suma de lo rendido en la salida (capturas o catálogo), en soles.</summary>
         public decimal MontoTotal { get; set; }
-        /// <summary>Nombre de quien tomó la decisión (el jefe que aprobó o rechazó).</summary>
+        /// <summary>Nombre de quien tomó la decisión (el jefe que aprobó u observó).</summary>
         public string? DecididoPor { get; set; }
-        /// <summary>Observación del rechazo. Solo la usa el correo de rechazo.</summary>
+        /// <summary>Comentario de la observación. Solo lo usa el correo de observada.</summary>
         public string? Observacion { get; set; }
     }
 
@@ -64,7 +64,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///   <item>Al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 y hay un reembolso
     ///     esperando su revisión.</item>
     ///   <item>Al trabajador: su reembolso quedó aprobado.</item>
-    ///   <item>Al trabajador: su reembolso quedó rechazado, con la observación a subsanar.</item>
+    ///   <item>Al trabajador: su reembolso volvió observado, con el comentario a subsanar.</item>
     ///   <item>A Tesorería: la jefatura firmó una planilla y su reembolso entró a la bandeja.</item>
     ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo.</item>
     /// </list>
@@ -79,7 +79,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         // hace falta un juego propio de salidas para tres correos.
         private const string IconoRevisar     = "req-solicitud";
         private const string IconoAprobado    = "req-aprobada";
-        private const string IconoRechazado   = "req-decision";
+        private const string IconoObservado   = "req-decision";
         private const string IconoFranjaOk    = "req-check";
         private const string IconoFranjaNo    = "req-rechazadas";
         private const string IconoFranjaAviso = "req-aviso";
@@ -140,10 +140,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 l.EnlaceDirecto(urlVer));
 
         /// <summary>
-        /// Al solicitante: su reembolso quedó rechazado. La observación va en la franja roja porque
-        /// es lo único que tiene que leer, y el botón lo deja en la solicitud exacta a subsanar.
+        /// Al solicitante: su reembolso volvió OBSERVADO de la segunda revisión. La observación va
+        /// en la franja roja porque es lo único que tiene que leer, y el botón lo deja en la
+        /// planilla exacta a subsanar.
+        ///
+        /// La franja ámbar nombra los DOS caminos que tiene desde ahí: volver a adjuntar el
+        /// Consolidado del S10 corregido, o pedirle la corrección al Coordinador ERP cuando el
+        /// arreglo tiene que hacerse dentro del S10 (§10.5 del requerimiento).
         /// </summary>
-        public static string Rechazado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlSubsanar)
+        public static string Observado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlSubsanar)
         {
             var observacion = string.IsNullOrWhiteSpace(d.Observacion)
                 ? "Sin observación registrada. Coordina con tu jefatura antes de volver a enviarlo."
@@ -151,13 +156,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
-                    IconoRechazado,
-                    "Reembolso rechazado",
+                    IconoObservado,
+                    "Reembolso observado",
                     $"Tu solicitud de salida <b>{d.Codigo}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
                     + "volvió con observaciones."),
                 l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
                     $"<b>Observación:</b> {observacion}"),
                 l.Tarjeta(FilasBase(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Ambar,
+                    "Vuelve a adjuntar el Consolidado del S10 corregido, o solicita la corrección al "
+                    + "Coordinador ERP si el arreglo tiene que hacerse dentro del S10."),
                 l.Boton("Subsanar observaciones", urlSubsanar),
                 l.EnlaceDirecto(urlSubsanar));
         }
@@ -239,7 +247,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Las filas comunes a los correos de decisión (aprobado/rechazado), que sí son de UNA
+        /// Las filas comunes a los correos de decisión (aprobado/observado), que sí son de UNA
         /// salida. Las que no tienen dato no se agregan: una tarjeta con "—" repetidos no informa
         /// nada.
         /// </summary>

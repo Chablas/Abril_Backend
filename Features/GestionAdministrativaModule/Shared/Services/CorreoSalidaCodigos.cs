@@ -44,8 +44,32 @@
         /// <summary>El jefe aprobó el reembolso de una salida rendida — se avisa al solicitante.</summary>
         public const string ReembolsoAprobado = "REEMBOLSO_APROBADO";
 
-        /// <summary>El jefe rechazó el reembolso — se avisa al solicitante con la observación.</summary>
-        public const string ReembolsoRechazado = "REEMBOLSO_RECHAZADO";
+        /// <summary>
+        /// La jefatura observó el reembolso — se avisa al solicitante con la observación y con
+        /// los dos caminos para subsanar (arreglar el S10 él mismo o pedírselo al Coordinador ERP).
+        ///
+        /// El código de la fila NO cambió cuando el estado pasó de llamarse "Rechazado" a
+        /// "Observado": es la clave del catálogo y renombrarla habría desconectado la
+        /// configuración de destinatarios que ya está cargada.
+        /// </summary>
+        public const string ReembolsoObservado = "REEMBOLSO_RECHAZADO";
+
+        // ── Subsanación con el Coordinador ERP ───────────────────────────────
+        // Los dos correos del paso del medio de la subsanación (§10.5): el trabajador le pide la
+        // corrección al ERP y el ERP le confirma que ya la hizo. Ver EstadosSalida.CorreccionS10.
+
+        /// <summary>
+        /// Al Coordinador ERP: hay una corrección del Consolidado del S10 esperándolo, con la
+        /// guía, la observación de la jefatura y el «MOTIVO *» del trabajador (RF-OBS-06). Lo
+        /// dispara el trabajador desde Mis Rendiciones, así que se administra ahí.
+        /// </summary>
+        public const string CorreccionS10Solicitada = "CORRECCION_S10_SOLICITADA";
+
+        /// <summary>
+        /// Al solicitante: el ERP ya corrigió en el S10 y puede recargar el Consolidado
+        /// (RF-OBS-08). Se origina en la bandeja del ERP, que es su propia pantalla.
+        /// </summary>
+        public const string CorreccionS10Atendida = "CORRECCION_S10_ATENDIDA";
 
         // ── Tesorería ────────────────────────────────────────────────────────
 
@@ -88,6 +112,12 @@
         public const string Reembolsos = "REEMBOLSOS";
 
         /// <summary>
+        /// La bandeja del Coordinador ERP: el único correo que se origina acá es el aviso al
+        /// trabajador de que la corrección ya se hizo en el S10.
+        /// </summary>
+        public const string CorreccionesS10 = "CORRECCIONES_S10";
+
+        /// <summary>
         /// Traduce el segmento de URL de la pantalla (el que usa el frontend y la ruta del
         /// controller) al código del catálogo. Devuelve null si el segmento no es una pantalla
         /// conocida, para que el controller responda 404 en vez de listar todo.
@@ -100,6 +130,7 @@
                 "gestion-salidas"     => GestionSalidas,
                 "gestion-rendiciones" => GestionRendiciones,
                 "reembolsos"          => Reembolsos,
+                "correcciones-s10"    => CorreccionesS10,
                 _                     => null,
             };
     }

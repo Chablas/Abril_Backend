@@ -18,8 +18,16 @@ namespace Abril_Backend.Shared.Services.Pdf
     /// </summary>
     public static class SignaturePdfStamper
     {
-        private const double SignatureWidthPt = 140; // ancho objetivo de la firma
-        private const double MarginPt = 24;          // margen respecto al borde inferior/derecho
+        /// <summary>Ancho objetivo de la firma, en puntos.</summary>
+        /// <remarks>
+        /// Público porque quien GENERA un documento firmable necesita saber dónde va a caer la
+        /// firma para poder dibujar su línea justo ahí (lo hace la planilla de rendición).
+        /// Repetir el número allá lo desalinearía en silencio el día que se toque acá.
+        /// </remarks>
+        public const double SignatureWidthPt = 140;
+
+        /// <summary>Margen de la firma respecto al borde inferior/derecho de la hoja, en puntos.</summary>
+        public const double SignatureMarginPt = 24;
 
         public static byte[] Stamp(byte[] source, byte[] signaturePng)
         {
@@ -104,8 +112,8 @@ namespace Abril_Backend.Shared.Services.Pdf
                 h = w * sig.PixelHeight / sig.PixelWidth;
             }
 
-            double x = pageW - MarginPt - w;
-            double y = pageH - MarginPt - h;
+            double x = pageW - SignatureMarginPt - w;
+            double y = pageH - SignatureMarginPt - h;
             gfx.DrawImage(sig, x, y, w, h);
         }
     }

@@ -207,9 +207,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         public Task<IActionResult> AprobarReembolso([FromBody] ReembolsoAccionDto dto) =>
             DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso));
 
-        [HttpPatch("reembolso/rechazar")]
-        public Task<IActionResult> RechazarReembolso([FromBody] ReembolsoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: false, nameof(RechazarReembolso));
+        [HttpPatch("reembolso/observar")]
+        public Task<IActionResult> ObservarReembolso([FromBody] ReembolsoAccionDto dto) =>
+            DecidirAsync(dto, aprobar: false, nameof(ObservarReembolso));
 
         private async Task<IActionResult> DecidirAsync(ReembolsoAccionDto dto, bool aprobar, string accion)
         {

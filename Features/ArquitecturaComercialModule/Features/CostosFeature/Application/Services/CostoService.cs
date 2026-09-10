@@ -46,6 +46,8 @@ public class CostoService : ICostoService
 
     public Task<CostoDashboardDTO> GetDashboard(int anio, int mes) => _repository.GetDashboard(anio, mes);
 
+    public Task<List<CostoDesviacionResumenItemDTO>> GetResumenDesviacion() => _repository.GetResumenDesviacion();
+
     public Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses)
     {
         if (cantidadMeses < 1 || cantidadMeses > 24) cantidadMeses = 12;

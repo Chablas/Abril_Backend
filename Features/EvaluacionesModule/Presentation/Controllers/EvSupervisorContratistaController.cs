@@ -213,7 +213,10 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
-                if (!await _repo.EsJefeSsomaAsync(GetUserId()))
+                // Coordinador SSOMA y Prevencionista son quienes REALIZAN esta evaluación
+                // (Flujo A) — deben poder ver el consolidado de lo que ellos mismos
+                // evaluaron, no solo el Jefe SSOMA. Mismo gate que evaluar/crear.
+                if (!await PuedeEvaluarSupervisoresAsync(GetUserId()))
                     return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
 
                 return Ok(await _repo.GetVerInicioAsync(periodoId, proyectoId));

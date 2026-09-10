@@ -33,5 +33,11 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
 
         Task<EvJefeSsomaCumplimientoDto> GetCumplimientoAsync(int periodoId);
         Task<EvJefeSsomaResultadosDto> GetResultadosAsync(int? periodoId);
+
+        // ─── Plan de acción (redactado por el Jefe SSOMA sobre sus propios resultados) ──
+        Task<List<EvJefeSsomaPlanAccionDto>> GetPlanAccionAsync(int periodoId);
+        Task<EvJefeSsomaPlanAccionDto> CrearPlanAccionAsync(int periodoId, int userId, EvJefeSsomaPlanAccionCreateDto dto);
+        Task<EvJefeSsomaPlanAccionDto?> ActualizarPlanAccionAsync(int id, EvJefeSsomaPlanAccionUpdateDto dto);
+        Task<bool> EliminarPlanAccionAsync(int id);
     }
 }

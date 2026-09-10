@@ -3,6 +3,7 @@ using Abril_Backend.Features.Ssoma.Penalidad.Dtos;
 using Abril_Backend.Features.Ssoma.Penalidad.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Services;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -148,6 +149,78 @@ public class PenalidadService : IPenalidadService
         };
     }
 
+    public async Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var racQuery = ctx.SsomaRacs.Where(r => r.EmpresaReportadaId != null);
+        if (empresaId.HasValue) racQuery = racQuery.Where(r => r.EmpresaReportadaId == empresaId.Value);
+        if (proyectoId.HasValue) racQuery = racQuery.Where(r => r.ProyectoId == proyectoId.Value);
+
+        var racCandidatos = await racQuery
+            .Where(r => !ctx.SsomaPenalidades.Any(p => p.OrigenTipo == "RAC" && p.OrigenId == r.Id))
+            .OrderByDescending(r => r.FechaReporte)
+            .Select(r => new OrigenCandidatoDto
+            {
+                OrigenTipo     = "RAC",
+                Id             = r.Id,
+                Codigo         = r.Codigo,
+                Descripcion    = r.Descripcion,
+                EmpresaId      = r.EmpresaReportadaId!.Value,
+                ProyectoId     = r.ProyectoId,
+                Severidad      = r.Severidad,
+                Fecha          = r.FechaReporte,
+            })
+            .ToListAsync();
+
+        var amonestacionQuery = ctx.SsomaAmonestaciones.Where(a => a.AplicaPenalizacion && a.State);
+        if (proyectoId.HasValue) amonestacionQuery = amonestacionQuery.Where(a => a.ProyectoId == proyectoId.Value);
+
+        var amonestacionCandidatos = await amonestacionQuery
+            .Where(a => !ctx.SsomaPenalidades.Any(p => p.OrigenTipo == "AMONESTACION" && p.OrigenId == a.Id))
+            .OrderByDescending(a => a.Fecha)
+            .Select(a => new OrigenCandidatoDto
+            {
+                OrigenTipo           = "AMONESTACION",
+                Id                   = a.Id,
+                Codigo               = a.Codigo,
+                Descripcion          = a.Descripcion,
+                ProyectoId           = a.ProyectoId,
+                InfraccionSugeridaId = a.SancionInfraccionId,
+                Fecha                = a.Fecha,
+            })
+            .ToListAsync();
+
+        // Amonestación no guarda la empresa contratista directamente (es sobre el trabajador) —
+        // se resuelve vía Worker.CompanyId, igual que en el resto del módulo SSOMA.
+        var amonestacionIds = amonestacionCandidatos.Select(a => a.Id).ToList();
+        var empresaPorAmonestacion = await ctx.SsomaAmonestaciones
+            .Where(a => amonestacionIds.Contains(a.Id))
+            .Join(ctx.Worker, a => a.WorkerId, w => w.Id, (a, w) => new { a.Id, w.ContributorId })
+            .ToDictionaryAsync(x => x.Id, x => x.ContributorId);
+
+        foreach (var c in amonestacionCandidatos)
+            if (empresaPorAmonestacion.TryGetValue(c.Id, out var empId) && empId.HasValue)
+                c.EmpresaId = empId.Value;
+
+        var candidatos = racCandidatos.Concat(amonestacionCandidatos.Where(c => c.EmpresaId > 0)).ToList();
+        if (empresaId.HasValue)
+            candidatos = candidatos.Where(c => c.OrigenTipo == "RAC" || c.EmpresaId == empresaId.Value).ToList();
+
+        var proyectoIds = candidatos.Select(c => c.ProyectoId).Distinct().ToList();
+        var empresaIds  = candidatos.Select(c => c.EmpresaId).Distinct().ToList();
+        var nombresProyecto = await ctx.Project.Where(p => proyectoIds.Contains(p.ProjectId)).ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+        var nombresEmpresa  = await ctx.Contributor.Where(c => empresaIds.Contains(c.ContributorId)).ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+        foreach (var c in candidatos)
+        {
+            c.ProyectoNombre = nombresProyecto.GetValueOrDefault(c.ProyectoId);
+            c.EmpresaNombre  = nombresEmpresa.GetValueOrDefault(c.EmpresaId);
+        }
+
+        return candidatos.OrderByDescending(c => c.Fecha).ToList();
+    }
+
     // ── Registro + tipificación ──────────────────────────────────────────────
 
     public async Task<PenalidadCreadaDto> RegistrarAsync(PenalidadRegistrarRequest req, int userId)
@@ -180,6 +253,21 @@ public class PenalidadService : IPenalidadService
         }
         if (monto <= 0m)
             throw new AbrilException("La infracción no tiene un monto fijo ni un factor UIT configurado.", 422);
+
+        if (req.OrigenTipo is "RAC" or "AMONESTACION")
+        {
+            if (!req.OrigenId.HasValue)
+                throw new AbrilException("Debe indicar el RAC o Amonestación de origen.", 400);
+
+            var origenExiste = req.OrigenTipo == "RAC"
+                ? await ctx.SsomaRacs.AnyAsync(r => r.Id == req.OrigenId.Value)
+                : await ctx.SsomaAmonestaciones.AnyAsync(a => a.Id == req.OrigenId.Value);
+            if (!origenExiste)
+                throw new AbrilException($"El {(req.OrigenTipo == "RAC" ? "RAC" : "amonestación")} de origen indicado no existe.", 404);
+
+            if (await ctx.SsomaPenalidades.AnyAsync(p => p.OrigenTipo == req.OrigenTipo && p.OrigenId == req.OrigenId.Value))
+                throw new AbrilException("Ese origen ya tiene una penalidad registrada.", 409);
+        }
 
         var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == req.ProyectoId)
             ?? throw new AbrilException("Proyecto no encontrado.", 404);

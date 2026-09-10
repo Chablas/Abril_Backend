@@ -96,6 +96,16 @@ public class CostoDashboardDTO
     public List<CostoDashboardItemDTO> Proyectos { get; set; } = [];
 }
 
+public class CostoDesviacionResumenItemDTO
+{
+    public int ProyectoId { get; set; }
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public decimal TotalPresupuestado { get; set; }
+    public decimal TotalEjecutado { get; set; }
+    public decimal TotalDesviacion { get; set; }
+    public decimal? TotalDesviacionPct { get; set; }
+}
+
 public class CostoEvolucionPuntoDTO
 {
     public int Anio { get; set; }

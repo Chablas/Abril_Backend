@@ -99,6 +99,20 @@ public class PetsImportService : IPetsImportService
         // Restricciones). Ahora también corta el tramo, pero como sección aparte
         // ("no reconocida") — nunca se asigna sola, el usuario decide a qué pestaña
         // enviarla.
+        // Marcador conocido más cercano hacia atrás de un índice dado — para decidir si un
+        // subtítulo (nivel > 1) que no calzó con ningún marcador está colgando de una
+        // sección con destino real (Responsabilidades, Procedimiento...), en cuyo caso NO
+        // debe cortarla, o de una sección "solo delimitadora" (Marco Legal, Gestión de
+        // personal, Anexos), en cuyo caso sí debe seguir ofreciéndose para triaje manual.
+        (int Indice, string? SeccionTexto, string? SeccionArbol)? MarcadorAnterior(int indice)
+        {
+            (int Indice, string? SeccionTexto, string? SeccionArbol)? mejor = null;
+            foreach (var l in limitesConocidos)
+                if (l.Indice < indice && (mejor is null || l.Indice > mejor.Value.Indice))
+                    mejor = l;
+            return mejor;
+        }
+
         var limitesDesconocidos = new List<(int Indice, string Titulo)>();
         for (var i = 0; i < paragraphs.Count; i++)
         {
@@ -107,8 +121,16 @@ public class PetsImportService : IPetsImportService
             if (string.IsNullOrWhiteSpace(texto)) continue;
             var styleId = paragraphs[i].ParagraphProperties?.ParagraphStyleId?.Val?.Value;
             var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
-            if (EsEncabezadoGenerico(texto, styleName))
-                limitesDesconocidos.Add((i, texto));
+            if (!EsEncabezadoGenerico(texto, styleName)) continue;
+
+            if (NivelEncabezado(styleName) > 1)
+            {
+                var anterior = MarcadorAnterior(i);
+                if (anterior is { SeccionArbol: not null } or { SeccionTexto: not null })
+                    continue; // subtítulo anidado dentro de una sección con destino real: es contenido de esa sección, no un corte propio.
+            }
+
+            limitesDesconocidos.Add((i, texto));
         }
 
         if (limitesConocidos.Count == 0 && limitesDesconocidos.Count == 0)
@@ -146,14 +168,35 @@ public class PetsImportService : IPetsImportService
             }
             else if (actual.SeccionArbol != null)
             {
-                seccionesArbol[actual.SeccionArbol] = enTramo.Select(ToPublicDto).ToList();
+                var pasos = enTramo.Select(ToPublicDto).ToList();
+                // Las imágenes solo tienen sentido como evidencia de un paso de Procedimiento;
+                // en Responsabilidades (roles y funciones, puro texto) una imagen colada suele
+                // ser ruido del diseño del Word original (logos, firmas de la carátula), no
+                // contenido real de esa fila.
+                if (actual.SeccionArbol != "procedimiento")
+                    foreach (var p in pasos) p.ImagenBase64 = null;
+                seccionesArbol[actual.SeccionArbol] = pasos;
             }
             else if (actual.SeccionTexto != null)
             {
                 var texto = string.Join("\n\n", enTramo.Where(p => !string.IsNullOrWhiteSpace(p.Texto)).Select(p => p.Texto));
                 if (!string.IsNullOrWhiteSpace(texto)) seccionesTexto[actual.SeccionTexto] = texto;
             }
-            // ambos null (Marco Legal, Gestión de personal, Anexos): solo delimitaba, se descarta.
+            else
+            {
+                // Marcador conocido "solo delimitador" (Marco Legal, Gestión de personal,
+                // Anexos): no tiene una pestaña de destino automática porque son catálogo
+                // (normas, EPP, recursos), no texto/árbol libre. En vez de descartar su
+                // contenido en silencio, se ofrece igual que un encabezado no reconocido para
+                // que el usuario triangule cada ítem a mano (norma → Marco Legal, EPP básico →
+                // EPP, etc.) usando el mismo selector "Enviar a..." que ya existe.
+                var tituloConocido = GetParagraphText(paragraphs[actual.Indice]).Trim();
+                var clave = tituloConocido;
+                var sufijo = 2;
+                while (seccionesNoReconocidas.ContainsKey(clave))
+                    clave = $"{tituloConocido} ({sufijo++})";
+                seccionesNoReconocidas[clave] = enTramo.Select(ToPublicDto).ToList();
+            }
         }
 
         return new PetsImportPreviewDto
@@ -194,6 +237,7 @@ public class PetsImportService : IPetsImportService
             var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
 
             var (tipo, nivel) = ClasificarTipo(texto, styleName);
+            var textoGuardado = LimpiarPrefijoParaGuardar(texto, tipo);
 
             if (tipo == "subtitulo")
             {
@@ -201,20 +245,23 @@ public class PetsImportService : IPetsImportService
                     pilaSubtitulos.RemoveAt(pilaSubtitulos.Count - 1);
 
                 var parentIndice = pilaSubtitulos.Count > 0 ? pilaSubtitulos[^1].Indice : (int?)null;
-                resultado.Add(new ParrafoAnotado(i, parentIndice, tipo, nivel, texto, imagen));
+                resultado.Add(new ParrafoAnotado(i, parentIndice, tipo, nivel, textoGuardado, imagen));
                 pilaSubtitulos.Add((i, nivel));
             }
             else
             {
                 var parentIndice = pilaSubtitulos.Count > 0 ? pilaSubtitulos[^1].Indice : (int?)null;
-                resultado.Add(new ParrafoAnotado(i, parentIndice, tipo, 0, texto, imagen));
+                resultado.Add(new ParrafoAnotado(i, parentIndice, tipo, 0, textoGuardado, imagen));
             }
         }
 
         return resultado;
     }
 
-    private static readonly Regex NumeracionAnidada = new(@"^(\d+(?:\.\d+)+)\.?\s", RegexOptions.Compiled);
+    // "\s*" (no "\s") a propósito: documentos reales como "8.7.2.Colocación de acero..." no
+    // dejan espacio entre el punto final de la numeración y el texto — exigir un espacio
+    // ahí hacía que ese sub-subtítulo cayera como "paso" suelto en vez de anidarse bajo 8.7.
+    private static readonly Regex NumeracionAnidada = new(@"^(\d+(?:\.\d+)+)\.?\s*", RegexOptions.Compiled);
 
     // Heurística de clasificación: estilo "Heading N" -> subtítulo de nivel N;
     // numeración anidada al inicio ("7.1", "7.1.2") -> subtítulo "informal" aunque el
@@ -244,10 +291,27 @@ public class PetsImportService : IPetsImportService
         return ("paso", 0);
     }
 
+    // La plataforma ya numera solita cada subtítulo/letra al mostrarlos (`nodo.numero` en
+    // la pantalla de detalle) — si el texto importado conserva su propio prefijo ("5.1",
+    // "a.", "-") el número queda duplicado en pantalla. Se recorta acá el MISMO prefijo que
+    // ClasificarTipo usó para reconocer el tipo, nunca un intento nuevo de adivinar.
+    private static string LimpiarPrefijoParaGuardar(string texto, string tipo)
+    {
+        var t = texto.TrimStart();
+        return tipo switch
+        {
+            "subtitulo" => NumeracionAnidada.IsMatch(t) ? NumeracionAnidada.Replace(t, "", 1).TrimStart() : t,
+            "letra" => Regex.Replace(t, @"^[a-z]\.\s*", ""),
+            "guion" => Regex.Replace(t, @"^[-•\*]\s*", ""),
+            _ => t,
+        };
+    }
+
     public async Task ConfirmarImportacionAsync(int petId, ConfirmarImportacionRequest request)
     {
-        foreach (var (seccion, pasos) in request.SeccionesArbol)
+        foreach (var (seccion, pasosOriginales) in request.SeccionesArbol)
         {
+            var pasos = pasosOriginales.Where(p => !string.IsNullOrWhiteSpace(p.Texto)).ToList();
             if (pasos.Count == 0) continue;
 
             // Reimportando una versión corregida del mismo documento: se limpia la
@@ -255,37 +319,29 @@ public class PetsImportService : IPetsImportService
             if (request.Reemplazar)
                 await _petsService.DesactivarSeccionAsync(petId, seccion);
 
-            // Mapea el "Indice" del preview (posición original en el Word) al id REAL
-            // que le asigna la base de datos al crearlo, para poder resolver ParentId
-            // conforme se van creando — el padre siempre se crea antes que su hijo
-            // porque el documento se recorre en el mismo orden en que aparece.
-            var idPorIndice = new Dictionary<int, int>();
+            // Inserta TODO el árbol de la sección de un tirón (un SaveChanges por nivel de
+            // profundidad, no uno por paso) — antes, un PETS con 200+ pasos tardaba varios
+            // minutos porque cada paso hacía su propio viaje a la base de datos y encima
+            // releía todos sus hermanos existentes en cada llamada. Devuelve el mapa
+            // "Indice del preview" -> id real, que se sigue necesitando para resolver a qué
+            // paso le corresponde cada imagen.
+            var idPorIndice = await _petsService.AgregarPasosBulkAsync(petId, seccion, pasos);
 
-            foreach (var paso in pasos)
+            // Las imágenes SÍ se suben en paralelo (son independientes entre sí, no hay
+            // relación padre/hijo que respetar) — es la parte que de verdad demora al
+            // hablar con storage externo, así que aquí es donde vale la pena paralelizar.
+            var pasosConImagen = pasos.Where(p => !string.IsNullOrEmpty(p.ImagenBase64) && idPorIndice.ContainsKey(p.Indice)).ToList();
+            const int maxEnParalelo = 4;
+            for (var i = 0; i < pasosConImagen.Count; i += maxEnParalelo)
             {
-                if (string.IsNullOrWhiteSpace(paso.Texto)) continue;
-
-                int? parentIdReal = null;
-                if (paso.ParentIndice.HasValue && idPorIndice.TryGetValue(paso.ParentIndice.Value, out var pid))
-                    parentIdReal = pid;
-
-                var pasoId = await _petsService.AgregarPasoAsync(petId, new CrearPetPasoRequest
+                var lote = pasosConImagen.Skip(i).Take(maxEnParalelo);
+                await Task.WhenAll(lote.Select(async paso =>
                 {
-                    Descripcion = paso.Texto,
-                    Seccion = seccion,
-                    ParentId = parentIdReal,
-                    Tipo = paso.Tipo,
-                });
-
-                idPorIndice[paso.Indice] = pasoId;
-
-                if (!string.IsNullOrEmpty(paso.ImagenBase64))
-                {
-                    var base64 = paso.ImagenBase64.Contains(',') ? paso.ImagenBase64.Split(',')[1] : paso.ImagenBase64;
+                    var base64 = paso.ImagenBase64!.Contains(',') ? paso.ImagenBase64.Split(',')[1] : paso.ImagenBase64;
                     var bytes = Convert.FromBase64String(base64);
                     using var ms = new MemoryStream(bytes);
-                    await _petsService.SubirImagenPasoAsync(petId, pasoId, ms, "importado.png");
-                }
+                    await _petsService.SubirImagenPasoAsync(petId, idPorIndice[paso.Indice], ms, "importado.png");
+                }));
             }
         }
 
@@ -352,11 +408,30 @@ public class PetsImportService : IPetsImportService
         return !char.IsLetterOrDigit(siguiente);
     }
 
+    // Nivel del encabezado a partir del dígito final del nombre de estilo (Heading1,
+    // Heading2, Ttulo1, Título2...). Sin dígito -> nivel 1 (no hay forma de saber que es
+    // un subnivel, se asume el nivel más alto, como ya hacía el resto del archivo).
+    private static int NivelEncabezado(string? styleName)
+    {
+        if (string.IsNullOrEmpty(styleName) || !Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase))
+            return 0;
+        var m = Regex.Match(styleName, @"(\d+)\s*$");
+        return m.Success ? int.Parse(m.Groups[1].Value) : 1;
+    }
+
     // Heurística para "esto ES un título de sección, aunque no sepamos cuál todavía":
     // estilo de encabezado real (Heading/Título) y corto — no un párrafo de cuerpo
     // largo que por error haya quedado con ese estilo. Mismo umbral de longitud que
     // el heading "conocido" usa en EsTituloDeSeccion, un poco más laxo (100 en vez de
     // 60) porque acá no hay un marcador contra el cual comparar el prefijo.
+    //
+    // El nivel (Heading1 vs Heading2...) NO se filtra acá — se decide más arriba, en
+    // PreviewDesdeDocx, según de qué sección known cuelga cada candidato: un subtítulo
+    // (5.1, 7.1...) anidado dentro de una sección con destino real (Responsabilidades,
+    // Procedimiento) no debe cortarla; pero ese mismo subtítulo colgando de una sección
+    // "solo delimitadora" (Marco Legal, Gestión de personal) SÍ debe seguir apareciendo
+    // como bloque "no reconocido" — es la única forma de triar a mano cosas como EPP o
+    // Recursos, que son catálogo y no texto/árbol.
     private static bool EsEncabezadoGenerico(string texto, string? styleName)
     {
         if (styleName == null || !Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase)) return false;

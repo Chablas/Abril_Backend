@@ -318,6 +318,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionJefeSsoma> EvEvaluacionesJefeSsoma => Set<EvEvaluacionJefeSsoma>();
         public DbSet<EvEvaluacionJefeSsomaDetalle> EvEvaluacionesJefeSsomaDetalle => Set<EvEvaluacionJefeSsomaDetalle>();
         public DbSet<EvEvaluacionJefeSsomaCumplimiento> EvEvaluacionesJefeSsomaCumplimiento => Set<EvEvaluacionJefeSsomaCumplimiento>();
+        public DbSet<EvJefeSsomaPlanAccion> EvJefeSsomaPlanAccion => Set<EvJefeSsomaPlanAccion>();
+        public DbSet<EvGestionSsomaPlanAccion> EvGestionSsomaPlanAccion => Set<EvGestionSsomaPlanAccion>();
         public DbSet<EvPrevencionistaPlantilla> EvPrevencionistaPlantillas => Set<EvPrevencionistaPlantilla>();
         public DbSet<EvEvaluacionPrevencionista> EvEvaluacionesPrevencionista => Set<EvEvaluacionPrevencionista>();
         public DbSet<EvEvaluacionPrevencionistaDetalle> EvEvaluacionesPrevencionistaDetalle => Set<EvEvaluacionPrevencionistaDetalle>();
@@ -1356,6 +1358,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionPrevencionista>(entity =>
             {
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvJefeSsomaPlanAccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvGestionSsomaPlanAccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
             });
 
             modelBuilder.Entity<ProjectSubContractor>(entity =>

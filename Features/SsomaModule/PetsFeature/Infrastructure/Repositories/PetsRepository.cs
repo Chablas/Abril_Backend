@@ -242,6 +242,75 @@ public class PetsRepository : IPetsRepository
         return nuevo.Id;
     }
 
+    public async Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccionRaw, List<ImportPasoConfirmDto> pasos)
+    {
+        using var ctx = _factory.CreateDbContext();
+        _ = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        var seccion = ValidarSeccion(seccionRaw);
+
+        var idPorIndice = new Dictionary<int, int>();
+        // Próximo "Orden" disponible por padre real (0 = raíz), cacheado en memoria durante
+        // todo el batch: solo se consulta la base la PRIMERA vez que aparece cada padre: el
+        // resto de hermanos del mismo padre solo incrementan el contador en memoria. Antes
+        // cada paso releía la lista completa de hermanos existentes, así que insertar 200
+        // pasos hermanos hacía ~200 consultas cada vez más grandes (cuadrático).
+        var ordenSiguientePorPadre = new Dictionary<int, int>();
+
+        async Task<int> SiguienteOrden(int? parentIdReal)
+        {
+            var key = parentIdReal ?? 0;
+            if (!ordenSiguientePorPadre.TryGetValue(key, out var siguiente))
+            {
+                var maxActual = await ctx.SsomaPetPaso
+                    .Where(p => p.PetId == petId && p.Activo && p.Seccion == seccion && p.ParentId == parentIdReal)
+                    .MaxAsync(p => (int?)p.Orden) ?? 0;
+                siguiente = maxActual + 1;
+            }
+            ordenSiguientePorPadre[key] = siguiente + 1;
+            return siguiente;
+        }
+
+        // Se procesa nivel por nivel (BFS del árbol reconstruido en el preview): un paso
+        // solo puede insertarse una vez que su padre (si tiene) ya tiene un id real de base
+        // de datos, así que cada vuelta procesa todos los que YA están listos y hace un solo
+        // SaveChanges para ese nivel completo.
+        var pendientes = new List<ImportPasoConfirmDto>(pasos);
+        var vueltasRestantes = pendientes.Count + 5; // corte de seguridad — no debería hacer falta.
+        while (pendientes.Count > 0 && vueltasRestantes-- > 0)
+        {
+            var listos = pendientes.Where(p => p.ParentIndice is null || idPorIndice.ContainsKey(p.ParentIndice.Value)).ToList();
+            if (listos.Count == 0) break; // padre nunca resuelto (dato inconsistente del preview) — se descarta el resto, igual que antes fallaba solo esa fila.
+
+            var nuevos = new List<(int Indice, SsomaPetPaso Entidad)>();
+            foreach (var item in listos)
+            {
+                int? parentIdReal = item.ParentIndice.HasValue ? idPorIndice[item.ParentIndice.Value] : null;
+                var orden = await SiguienteOrden(parentIdReal);
+                var entidad = new SsomaPetPaso
+                {
+                    PetId = petId,
+                    Seccion = seccion,
+                    ParentId = parentIdReal,
+                    Tipo = ValidarTipo(item.Tipo),
+                    Descripcion = item.Texto,
+                    Orden = orden,
+                    Activo = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                ctx.SsomaPetPaso.Add(entidad);
+                nuevos.Add((item.Indice, entidad));
+            }
+
+            await ctx.SaveChangesAsync();
+            foreach (var (indice, entidad) in nuevos)
+                idPorIndice[indice] = entidad.Id;
+
+            pendientes = pendientes.Where(p => !idPorIndice.ContainsKey(p.Indice)).ToList();
+        }
+
+        return idPorIndice;
+    }
+
     public async Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request)
     {
         using var ctx = _factory.CreateDbContext();

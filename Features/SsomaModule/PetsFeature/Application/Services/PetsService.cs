@@ -137,6 +137,9 @@ public class PetsService : IPetsService
 
     public Task<int> AgregarPasoAsync(int petId, CrearPetPasoRequest request) => _repo.AgregarPasoAsync(petId, request);
 
+    public Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccion, List<ImportPasoConfirmDto> pasos)
+        => _repo.AgregarPasosBulkAsync(petId, seccion, pasos);
+
     public Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request)
         => _repo.ActualizarPasoAsync(petId, pasoId, request);
 

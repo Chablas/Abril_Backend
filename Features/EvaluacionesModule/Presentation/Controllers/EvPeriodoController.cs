@@ -4,6 +4,7 @@ using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
 {
@@ -13,13 +14,18 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
     public class EvPeriodoController : ControllerBase
     {
         private readonly IEvPeriodoRepository _repo;
+        private readonly IEvJefeSsomaRepository _jefeSsomaRepo;
         private readonly ILogger<EvPeriodoController> _logger;
 
-        public EvPeriodoController(IEvPeriodoRepository repo, ILogger<EvPeriodoController> logger)
+        public EvPeriodoController(IEvPeriodoRepository repo, IEvJefeSsomaRepository jefeSsomaRepo, ILogger<EvPeriodoController> logger)
         {
             _repo = repo;
+            _jefeSsomaRepo = jefeSsomaRepo;
             _logger = logger;
         }
+
+        private int GetUserId() =>
+            int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
         [HttpGet("activo")]
         public async Task<IActionResult> GetActivo()
@@ -65,6 +71,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
+                if (!await _jefeSsomaRepo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var periodo = new EvPeriodo
                 {
                     Mes = dto.Mes,
@@ -84,6 +93,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
+                if (!await _jefeSsomaRepo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var p = await _repo.GetByIdAsync(id)
                     ?? throw new AbrilException("Período no encontrado.", 404);
                 p.Activo = true;
@@ -102,6 +114,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
+                if (!await _jefeSsomaRepo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var p = await _repo.GetByIdAsync(id)
                     ?? throw new AbrilException("Período no encontrado.", 404);
 
@@ -125,6 +140,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         {
             try
             {
+                if (!await _jefeSsomaRepo.EsJefeSsomaPuestoAsync(GetUserId()))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
                 var p = await _repo.GetByIdAsync(id)
                     ?? throw new AbrilException("Período no encontrado.", 404);
                 p.Activo = false;

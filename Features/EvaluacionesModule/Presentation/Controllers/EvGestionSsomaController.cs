@@ -144,5 +144,98 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.GetResultados"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // ─── Mis resultados (Coordinador SSOMA / Prevencionista sobre sí mismos) ──
+
+        [HttpGet("mis-resultados")]
+        [Authorize]
+        public async Task<IActionResult> GetMisResultados([FromQuery] int? periodoId)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await ParticipaDeGestionSsomaAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetMisResultadosAsync(userId, periodoId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.GetMisResultados"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("plan-accion")]
+        [Authorize]
+        public async Task<IActionResult> GetPlanAccion([FromQuery] int periodoId)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await ParticipaDeGestionSsomaAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                return Ok(await _repo.GetPlanAccionAsync(periodoId, userId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.GetPlanAccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("plan-accion")]
+        [Authorize]
+        public async Task<IActionResult> CrearPlanAccion([FromQuery] int periodoId, [FromBody] EvGestionSsomaPlanAccionCreateDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await ParticipaDeGestionSsomaAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                if (string.IsNullOrWhiteSpace(dto.Accion) || string.IsNullOrWhiteSpace(dto.Meta))
+                    throw new AbrilException("La acción y la meta medible son obligatorias.", 400);
+
+                var creado = await _repo.CrearPlanAccionAsync(periodoId, userId, dto);
+                return StatusCode(201, creado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.CrearPlanAccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("plan-accion/{id:int}")]
+        [Authorize]
+        public async Task<IActionResult> ActualizarPlanAccion(int id, [FromBody] EvGestionSsomaPlanAccionUpdateDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await ParticipaDeGestionSsomaAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                if (string.IsNullOrWhiteSpace(dto.Accion) || string.IsNullOrWhiteSpace(dto.Meta))
+                    throw new AbrilException("La acción y la meta medible son obligatorias.", 400);
+
+                var actualizado = await _repo.ActualizarPlanAccionAsync(id, userId, dto)
+                    ?? throw new AbrilException("No se encontró el ítem del plan de acción.", 404);
+                return Ok(actualizado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.ActualizarPlanAccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("plan-accion/{id:int}")]
+        [Authorize]
+        public async Task<IActionResult> EliminarPlanAccion(int id)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (!await ParticipaDeGestionSsomaAsync(userId))
+                    return StatusCode(403, new { message = "No tiene acceso a esta pantalla." });
+
+                var eliminado = await _repo.EliminarPlanAccionAsync(id, userId);
+                if (!eliminado) throw new AbrilException("No se encontró el ítem del plan de acción.", 404);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvGestionSsomaController.EliminarPlanAccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

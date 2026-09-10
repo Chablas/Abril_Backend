@@ -471,6 +471,149 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<EvGestionSsomaMisResultadosDto> GetMisResultadosAsync(int userId, int? periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            int targetPeriodo;
+            if (periodoId.HasValue)
+            {
+                targetPeriodo = periodoId.Value;
+            }
+            else
+            {
+                var ultimo = await conn.QueryFirstOrDefaultAsync<int?>(
+                    "SELECT id FROM ev_periodo ORDER BY anio DESC, mes DESC LIMIT 1");
+                if (!ultimo.HasValue) return new EvGestionSsomaMisResultadosDto();
+                targetPeriodo = ultimo.Value;
+            }
+
+            var periodo = await conn.QueryFirstOrDefaultAsync<EvPeriodoRaw>(
+                "SELECT id, mes, anio, fecha_apertura, fecha_cierre, activo FROM ev_periodo WHERE id = @Id",
+                new { Id = targetPeriodo });
+
+            var evaluaciones = await conn.QueryAsync<MiEvalRaw>(
+                @"SELECT e.id AS Id, e.nota AS Nota, e.fortalezas AS Fortalezas, e.oportunidades_mejora AS OportunidadesMejora
+                  FROM ev_evaluacion_gestion_ssoma e
+                  WHERE e.periodo_id = @PeriodoId AND e.evaluado_user_id = @UserId",
+                new { PeriodoId = targetPeriodo, UserId = userId });
+
+            var promediosCriterio = await conn.QueryAsync<EvGestionSsomaCriterioPromedioDto>(
+                @"SELECT d.criterio AS Criterio, ROUND(AVG(d.puntaje)::NUMERIC, 2) AS Promedio
+                  FROM ev_evaluacion_gestion_ssoma_detalle d
+                  JOIN ev_evaluacion_gestion_ssoma e ON e.id = d.evaluacion_gestion_ssoma_id
+                  WHERE e.periodo_id = @PeriodoId AND e.evaluado_user_id = @UserId
+                  GROUP BY d.criterio, d.plantilla_id
+                  ORDER BY MIN(d.id)",
+                new { PeriodoId = targetPeriodo, UserId = userId });
+
+            var tendencia = await conn.QueryAsync<TendenciaRaw>(
+                @"SELECT ep.mes AS Mes, ep.anio AS Anio, ROUND(AVG(e.nota)::NUMERIC, 2) AS Promedio
+                  FROM ev_evaluacion_gestion_ssoma e
+                  JOIN ev_periodo ep ON ep.id = e.periodo_id
+                  WHERE e.evaluado_user_id = @UserId
+                    AND e.periodo_id IN (SELECT id FROM ev_periodo ORDER BY anio DESC, mes DESC LIMIT 6)
+                  GROUP BY ep.mes, ep.anio
+                  ORDER BY ep.anio, ep.mes",
+                new { UserId = userId });
+
+            var conNota = evaluaciones.Where(e => e.Nota.HasValue).ToList();
+            var comentarios = new List<string>();
+            foreach (var e in evaluaciones)
+            {
+                var tieneFortalezas = !string.IsNullOrWhiteSpace(e.Fortalezas);
+                var tieneOportunidades = !string.IsNullOrWhiteSpace(e.OportunidadesMejora);
+                if (tieneFortalezas) comentarios.Add($"Fortaleza: {e.Fortalezas}");
+                if (tieneOportunidades) comentarios.Add($"Oportunidad de mejora: {e.OportunidadesMejora}");
+            }
+
+            return new EvGestionSsomaMisResultadosDto
+            {
+                Periodo = periodo != null ? MapPeriodo(periodo) : null,
+                TotalRespuestas = evaluaciones.Count(),
+                PromedioGeneral = conNota.Count > 0 ? Math.Round(conNota.Average(e => e.Nota!.Value), 2) : null,
+                PromediosPorCriterio = promediosCriterio.ToList(),
+                Comentarios = comentarios,
+                Tendencia = tendencia.Select(t => new EvGestionSsomaTendenciaDto
+                {
+                    Mes = t.Mes,
+                    Anio = t.Anio,
+                    NombreMes = new DateTime(t.Anio, t.Mes, 1).ToString("MMM", new System.Globalization.CultureInfo("es-PE")),
+                    Promedio = t.Promedio
+                }).ToList()
+            };
+        }
+
+        public async Task<List<EvGestionSsomaPlanAccionDto>> GetPlanAccionAsync(int periodoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvGestionSsomaPlanAccion
+                .Where(p => p.PeriodoId == periodoId && p.CreatedByUserId == userId)
+                .OrderBy(p => p.Id)
+                .Select(p => MapPlanAccion(p))
+                .ToListAsync();
+        }
+
+        public async Task<EvGestionSsomaPlanAccionDto> CrearPlanAccionAsync(int periodoId, int userId, EvGestionSsomaPlanAccionCreateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = new EvGestionSsomaPlanAccion
+            {
+                PeriodoId = periodoId,
+                Criterio = dto.Criterio,
+                Accion = dto.Accion,
+                Meta = dto.Meta,
+                FechaLimite = dto.FechaLimite,
+                CreatedByUserId = userId,
+            };
+            ctx.EvGestionSsomaPlanAccion.Add(entity);
+            await ctx.SaveChangesAsync();
+            return MapPlanAccion(entity);
+        }
+
+        public async Task<EvGestionSsomaPlanAccionDto?> ActualizarPlanAccionAsync(int id, int userId, EvGestionSsomaPlanAccionUpdateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.EvGestionSsomaPlanAccion.FirstOrDefaultAsync(p => p.Id == id && p.CreatedByUserId == userId);
+            if (entity == null) return null;
+
+            entity.Accion = dto.Accion;
+            entity.Meta = dto.Meta;
+            entity.FechaLimite = dto.FechaLimite;
+            entity.Estado = dto.Estado;
+            entity.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+            return MapPlanAccion(entity);
+        }
+
+        public async Task<bool> EliminarPlanAccionAsync(int id, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.EvGestionSsomaPlanAccion.FirstOrDefaultAsync(p => p.Id == id && p.CreatedByUserId == userId);
+            if (entity == null) return false;
+            ctx.EvGestionSsomaPlanAccion.Remove(entity);
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        private static EvGestionSsomaPlanAccionDto MapPlanAccion(EvGestionSsomaPlanAccion p) => new()
+        {
+            Id = p.Id,
+            PeriodoId = p.PeriodoId,
+            Criterio = p.Criterio,
+            Accion = p.Accion,
+            Meta = p.Meta,
+            FechaLimite = p.FechaLimite,
+            Estado = p.Estado,
+            CreatedAt = p.CreatedAt,
+            UpdatedAt = p.UpdatedAt,
+        };
+
+        private record MiEvalRaw(int Id, decimal? Nota, string? Fortalezas, string? OportunidadesMejora);
+        private record TendenciaRaw(int Mes, int Anio, decimal? Promedio);
+
         private static string ResolverRelacion(int? evaluadorUserId, string evaluadorRol, string evaluadoRol)
         {
             if (evaluadorUserId == null) return "D4"; // anónima: Prevencionista -> Coordinador

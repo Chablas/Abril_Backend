@@ -61,4 +61,36 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public string NombreMes { get; set; } = string.Empty;
         public decimal? Promedio { get; set; }
     }
+
+    // ─── PLAN DE ACCIÓN (redactado por el Jefe SSOMA sobre sus propios resultados) ──
+    public class EvJefeSsomaPlanAccionDto
+    {
+        public int Id { get; set; }
+        public int PeriodoId { get; set; }
+        public int? PlantillaId { get; set; }
+        public string Criterio { get; set; } = string.Empty;
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+        public string Estado { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class EvJefeSsomaPlanAccionCreateDto
+    {
+        public int? PlantillaId { get; set; }
+        public string Criterio { get; set; } = string.Empty;
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+    }
+
+    public class EvJefeSsomaPlanAccionUpdateDto
+    {
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+        public string Estado { get; set; } = string.Empty;
+    }
 }

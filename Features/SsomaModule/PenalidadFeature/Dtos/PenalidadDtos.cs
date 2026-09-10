@@ -88,6 +88,26 @@ public class PenalidadDetalleDto : PenalidadListItemDto
     public List<PenalidadEstadoHistorialDto> Historial { get; set; } = new();
 }
 
+/// <summary>
+/// RAC o Amonestación aún sin penalidad vinculada — candidato para el selector "Origen" del
+/// formulario de Nueva Penalidad, en vez de que el usuario teclee el id a mano.
+/// </summary>
+public class OrigenCandidatoDto
+{
+    /// <summary>RAC | AMONESTACION</summary>
+    public string OrigenTipo { get; set; } = "";
+    public int Id { get; set; }
+    public string Codigo { get; set; } = "";
+    public string Descripcion { get; set; } = "";
+    public int EmpresaId { get; set; }
+    public int ProyectoId { get; set; }
+    public string? EmpresaNombre { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string? Severidad { get; set; }
+    public int? InfraccionSugeridaId { get; set; }
+    public DateTime Fecha { get; set; }
+}
+
 public class PenalidadRegistrarRequest
 {
     /// <summary>RAC | AMONESTACION | DIRECTO</summary>

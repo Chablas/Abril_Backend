@@ -170,6 +170,46 @@ public class CostoRepository : ICostoRepository
         return new CostoDashboardDTO { Anio = anio, Mes = mes, Proyectos = items };
     }
 
+    public async Task<List<CostoDesviacionResumenItemDTO>> GetResumenDesviacion()
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var proyectos = await ctx.Project
+            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active)
+            .Select(p => new { p.ProjectId, p.ProjectDescription })
+            .ToListAsync();
+
+        var presupuestadoPorProyecto = await ctx.AcCostoPresupuestos
+            .GroupBy(p => p.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(p => p.Monto) })
+            .ToListAsync();
+
+        var ejecutadoPorProyecto = await ctx.AcCostoRegistros
+            .GroupBy(r => r.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(r => r.Monto) })
+            .ToListAsync();
+
+        return proyectos
+            .Select(p =>
+            {
+                var presupuestado = presupuestadoPorProyecto.FirstOrDefault(x => x.ProyectoId == p.ProjectId)?.Total ?? 0m;
+                var ejecutado = ejecutadoPorProyecto.FirstOrDefault(x => x.ProyectoId == p.ProjectId)?.Total ?? 0m;
+                var desviacion = ejecutado - presupuestado;
+                return new CostoDesviacionResumenItemDTO
+                {
+                    ProyectoId = p.ProjectId,
+                    ProyectoNombre = p.ProjectDescription,
+                    TotalPresupuestado = presupuestado,
+                    TotalEjecutado = ejecutado,
+                    TotalDesviacion = desviacion,
+                    TotalDesviacionPct = Pct(desviacion, presupuestado),
+                };
+            })
+            .Where(i => i.TotalPresupuestado > 0m)
+            .OrderByDescending(i => i.TotalDesviacionPct ?? 0m)
+            .ToList();
+    }
+
     public async Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses)
     {
         using var ctx = _factory.CreateDbContext();

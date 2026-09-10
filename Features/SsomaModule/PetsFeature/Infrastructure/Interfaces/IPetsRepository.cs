@@ -10,6 +10,12 @@ public interface IPetsRepository
     Task<int> CrearAsync(CrearPetRequest request);
     Task ActualizarAsync(int id, ActualizarPetRequest request);
     Task<int> AgregarPasoAsync(int petId, CrearPetPasoRequest request);
+
+    // Inserta muchos pasos de un tirón (import de Word): agrupa por profundidad del árbol
+    // y hace un solo SaveChanges por nivel en vez de uno por paso — evita las decenas/
+    // cientos de viajes redondos a la base de datos que hacían que importar un PETS grande
+    // tomara varios minutos. Devuelve el id real asignado a cada "Indice" del preview.
+    Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccion, List<ImportPasoConfirmDto> pasos);
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);

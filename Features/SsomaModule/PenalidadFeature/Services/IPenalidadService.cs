@@ -8,6 +8,10 @@ public interface IPenalidadService
     Task<PagedResult<PenalidadListItemDto>> GetListAsync(PenalidadListQuery q);
     Task<PenalidadDetalleDto?> GetDetalleAsync(int id);
 
+    /// <summary>RAC y Amonestaciones que aún no tienen una penalidad vinculada (candidatos para
+    /// el selector de origen al registrar una penalidad nueva).</summary>
+    Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId);
+
     Task<PenalidadCreadaDto> RegistrarAsync(PenalidadRegistrarRequest req, int userId);
 
     Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId);

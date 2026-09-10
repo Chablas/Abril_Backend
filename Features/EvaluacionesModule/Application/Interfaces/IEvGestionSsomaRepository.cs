@@ -52,5 +52,17 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
 
         Task<EvGestionSsomaCumplimientoDto> GetCumplimientoAsync(int periodoId);
         Task<EvGestionSsomaResultadosDto> GetResultadosAsync(int? periodoId);
+
+        /// <summary>
+        /// Resultados de UN evaluado (coordinador o prevencionista viendo lo que
+        /// recibió) — mismo período que GetResultadosAsync pero filtrado por
+        /// evaluado_user_id, sin exponer autoría (ya de por sí no vive en el resumen).
+        /// </summary>
+        Task<EvGestionSsomaMisResultadosDto> GetMisResultadosAsync(int userId, int? periodoId);
+
+        Task<List<EvGestionSsomaPlanAccionDto>> GetPlanAccionAsync(int periodoId, int userId);
+        Task<EvGestionSsomaPlanAccionDto> CrearPlanAccionAsync(int periodoId, int userId, EvGestionSsomaPlanAccionCreateDto dto);
+        Task<EvGestionSsomaPlanAccionDto?> ActualizarPlanAccionAsync(int id, int userId, EvGestionSsomaPlanAccionUpdateDto dto);
+        Task<bool> EliminarPlanAccionAsync(int id, int userId);
     }
 }

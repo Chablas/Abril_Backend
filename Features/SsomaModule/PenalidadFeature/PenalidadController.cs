@@ -77,6 +77,15 @@ public class PenalidadController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetDetalle"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("origenes-candidatos")]
+    [RequireFeature("ssoma.gestion.penalidades.crear")]
+    public async Task<IActionResult> GetOrigenesCandidatos([FromQuery] int? empresaId, [FromQuery] int? proyectoId)
+    {
+        try { return Ok(await _service.GetOrigenesCandidatosAsync(empresaId, proyectoId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetOrigenesCandidatos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost]
     [RequireFeature("ssoma.gestion.penalidades.crear")]
     public async Task<IActionResult> Registrar([FromBody] PenalidadRegistrarRequest req)

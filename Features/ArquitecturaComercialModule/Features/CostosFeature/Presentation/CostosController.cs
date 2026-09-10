@@ -109,6 +109,20 @@ public class CostosController : ControllerBase
         }
     }
 
+    [HttpGet("desviacion-resumen")]
+    public async Task<IActionResult> GetResumenDesviacion()
+    {
+        try
+        {
+            return Ok(await _service.GetResumenDesviacion());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en CostosController.GetResumenDesviacion");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
     [HttpGet("evolucion")]
     public async Task<IActionResult> GetEvolucion([FromQuery] int anioDesde, [FromQuery] int mesDesde, [FromQuery] int cantidadMeses = 12)
     {

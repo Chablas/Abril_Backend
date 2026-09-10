@@ -9,6 +9,7 @@ public interface ICostoService
     Task UpsertRegistro(UpsertCostoRegistroDTO body, string? creadoPor);
     Task UpsertProyeccion(UpsertCostoProyeccionDTO body, string? creadoPor);
     Task<CostoDashboardDTO> GetDashboard(int anio, int mes);
+    Task<List<CostoDesviacionResumenItemDTO>> GetResumenDesviacion();
     Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses);
     Task UpsertMeta(UpsertCostoMetaDTO body, string? creadoPor);
     Task<CostoPresupuestoResumenDTO> GetPresupuesto(int proyectoId);

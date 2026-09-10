@@ -14,6 +14,7 @@ public interface IPetsService
     // catálogo) como borrador nuevo para partir de él — no copia firmas ni anexos.
     Task<int> DuplicarAsync(int petId);
     Task<int> AgregarPasoAsync(int petId, CrearPetPasoRequest request);
+    Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccion, List<ImportPasoConfirmDto> pasos);
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);

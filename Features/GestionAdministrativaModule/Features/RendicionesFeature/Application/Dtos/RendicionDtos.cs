@@ -89,7 +89,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         // ── Reembolso ────────────────────────────────────────────────────
         /// <summary>
         /// Estado del reembolso de la planilla, resumido a partir de las salidas propias: gana el
-        /// que más atención pide (Rechazado > Pendiente > Aprobado > Firmado > Pagado), porque
+        /// que más atención pide (Observado > Pendiente > Aprobado > Firmado > Pagado), porque
         /// mientras una salida siga atrás la planilla no está cerrada.
         /// </summary>
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
@@ -97,7 +97,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// <summary>True si las salidas propias no están todas en el mismo estado de reembolso.</summary>
         public bool ReembolsoMixto { get; set; }
 
-        /// <summary>Observación del rechazo: es lo que hay que subsanar. Null si no hay rechazo.</summary>
+        /// <summary>
+        /// Comentario con el que la jefatura observó el reembolso: es lo que hay que subsanar.
+        /// Null si no está observado.
+        /// </summary>
         public string? ObservacionReembolso { get; set; }
 
         /// <summary>Última vez que se le avisó al revisor por esta planilla. Null si nunca.</summary>
@@ -105,13 +108,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
 
         /// <summary>
         /// True cuando se puede adjuntar o reemplazar el Consolidado del S10: la primera revisión
-        /// tiene que estar APROBADA (RG-35) y el reembolso seguir abierto (Pendiente o Rechazado)
+        /// tiene que estar APROBADA (RG-35) y el reembolso seguir abierto (Pendiente u Observado)
         /// — después de aprobado no tendría a quién avisarle ni qué reabrir.
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 
         /// <summary>True cuando ya hay consolidado adjunto y el reembolso sigue abierto.</summary>
         public bool PuedeNotificarRevisor { get; set; }
+
+        // ── Corrección con el Coordinador ERP ────────────────────────────
+        // El camino alternativo cuando la jefatura observa el reembolso y el arreglo tiene que
+        // hacerse DENTRO del S10, donde el trabajador no tiene permiso (§10.5).
+
+        /// <summary>
+        /// La solicitud de corrección viva de esta planilla. Null en el caso normal: la mayoría de
+        /// las planillas nunca pasa por el ERP. Cuando está, su estado dice de quién es la pelota
+        /// (esperando al ERP, o ya atendida y esperando la recarga del consolidado).
+        /// </summary>
+        public CorreccionS10Dto? CorreccionS10 { get; set; }
+
+        /// <summary>
+        /// True cuando el trabajador puede PEDIRLE la corrección al Coordinador ERP: el reembolso
+        /// tiene que estar observado, con el Consolidado del S10 adjunto (es el documento que hay
+        /// que corregir) y sin otra corrección ya en curso.
+        ///
+        /// Es un camino ALTERNATIVO, no obligatorio: si el trabajador puede arreglar el S10 él
+        /// mismo, vuelve a adjuntar el consolidado y listo. Pedir el paso por el ERP para algo que
+        /// resuelve solo sería fricción.
+        /// </summary>
+        public bool PuedeSolicitarCorreccion { get; set; }
     }
 
     /// <summary>Una salida dentro de la planilla, para el detalle.</summary>
@@ -142,7 +167,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// </summary>
         public string? EstadoPrimeraRevision { get; set; }
 
-        /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | "Firmado" | "Pagado" | null para todos.</summary>
+        /// <summary>"Pendiente" | "Aprobado" | "Observado" | "Firmado" | "Pagado" | null para todos.</summary>
         public string? EstadoReembolso { get; set; }
 
         /// <summary>true = solo con consolidado adjunto; false = solo sin él; null = todas.</summary>
@@ -172,10 +197,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public int PorAvisar { get; set; }
         /// <summary>
         /// Lo que espera al trabajador: la primera revisión observada (rehacer la rendición) o el
-        /// reembolso rechazado (volver a adjuntar el consolidado). Van juntas porque para él son la
+        /// reembolso observado (volver a adjuntar el consolidado). Van juntas porque para él son la
         /// misma cosa —algo suyo volvió con observaciones— y la fila dice cuál de las dos es.
         /// </summary>
         public int Observadas { get; set; }
+        /// <summary>
+        /// Con una corrección del S10 en curso: la pelota está en el Coordinador ERP y al
+        /// trabajador no le toca nada hasta que confirme. Va aparte de Observadas justamente por
+        /// eso — verlas juntas haría pensar que hay algo que hacer.
+        /// </summary>
+        public int EnErp { get; set; }
 
         /// <summary>Cuenta las cuatro bandejas sobre las planillas recibidas (el conjunto ya filtrado).</summary>
         public static ResumenRendicionesDto De(IEnumerable<RendicionListItemDto> rendiciones)
@@ -188,9 +219,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
                                               && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
                 PorAvisar      = lista.Count(x => x.PuedeNotificarRevisor && x.RevisorNotificadoAt == null),
                 Observadas     = lista.Count(x => x.PuedeSubsanar
-                                              || x.EstadoReembolso == EstadosSalida.Reembolso.NombreRechazado),
+                                              || x.EstadoReembolso == EstadosSalida.Reembolso.NombreObservado),
+                EnErp          = lista.Count(x => x.CorreccionS10?.EsperandoErp == true),
             };
         }
+    }
+
+    /// <summary>
+    /// Cuerpo de "Solicitar corrección al ERP". Un solo campo, que es el «MOTIVO *» del
+    /// requerimiento: viaja en el cuerpo y no en la query porque es texto libre y largo.
+    /// </summary>
+    public class SolicitarCorreccionS10Dto
+    {
+        /// <summary>Qué corrección se necesita en el S10. Obligatorio (RG-21 / CA-17).</summary>
+        public string Motivo { get; set; } = string.Empty;
     }
 
     /// <summary>Respuesta del listado: las planillas y las tarjetas de ese mismo conjunto.</summary>
@@ -230,6 +272,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// Correos → «S10 al revisor»). Lo dispara "Avisar al revisor".
         /// </summary>
         public CorreoDestinatariosDto CorreoS10Revisor { get; set; } = new();
+
+        /// <summary>
+        /// A quién le llega la solicitud de corrección del S10. A diferencia de los otros dos, su
+        /// destinatario principal se resuelve por ROL (COORDINADOR ERP) y no por el organigrama del
+        /// trabajador: el responsable ERP es uno para toda la organización.
+        /// </summary>
+        public CorreoDestinatariosDto CorreoCorreccionS10 { get; set; } = new();
     }
 
     /// <summary>

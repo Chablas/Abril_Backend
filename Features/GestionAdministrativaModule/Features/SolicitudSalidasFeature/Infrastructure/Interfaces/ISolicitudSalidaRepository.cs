@@ -36,33 +36,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>Detalle de la solicitud (con trayectos y capturas). Solo retorna si pertenece al usuario.</summary>
         Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId);
 
-        /// <summary>Carga un trayecto verificando que pertenezca al user y que la solicitud esté aprobada + no rendida.</summary>
-        Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId);
+        /// <summary>
+        /// Trayectos de UNA solicitud que todavía se pueden tocar —antes de rendir, o al subsanar
+        /// una rendición observada en primera revisión—, cada uno con los ids de sus capturas
+        /// vivas. Es la validación entera del lote del modal de capturas en una sola consulta.
+        /// Lista vacía si la solicitud no existe, no es del usuario o ya está congelada.
+        /// </summary>
+        Task<List<TrayectoEditableDto>> GetTrayectosEditablesDeSolicitud(int solicitudId, int userId);
 
         /// <summary>
         /// Una captura del usuario que todavía se puede tocar (mismo criterio que
-        /// <see cref="GetTrayectoForUploadingCapturas"/>: antes de rendir, o al subsanar una
+        /// <see cref="GetTrayectosEditablesDeSolicitud"/>: antes de rendir, o al subsanar una
         /// rendición observada). Null si no existe, no es suya o su salida está congelada.
         /// </summary>
         Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId);
 
-        /// <summary>
-        /// Guarda los cambios de una captura ya subida: su monto y, si se pasa
-        /// <paramref name="imagen"/>, también la imagen (la fila es la misma, se le apunta el
-        /// archivo nuevo). El guard de propiedad lo hace el servicio.
-        ///
-        /// Va en una sola operación porque en la pantalla es un solo botón: el trabajador corrige
-        /// la fila —monto, imagen o las dos— y guarda. Devuelve la captura ya actualizada para que
-        /// la pantalla repinte la miniatura sin recargar el detalle entero.
-        /// </summary>
-        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
-            int capturaId,
-            decimal monto,
-            (string Url, string? ItemId, string Filename)? imagen);
-
         /// <summary>Da de baja una captura (soft delete). Deja de contar para el importe rendido.</summary>
         Task EliminarCaptura(int capturaId);
 
-        Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(int trayectoId, IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items, int userId);
+        /// <summary>
+        /// Escribe de un saque el lote del modal de capturas: da de alta las nuevas y aplica sobre
+        /// las que ya estaban su monto y, si vino imagen, también la imagen (la fila es la misma,
+        /// se le apunta el archivo nuevo). Un solo SaveChanges: o entra el lote entero o no entra
+        /// nada. Los guards de propiedad los hace el servicio.
+        /// </summary>
+        Task GuardarCapturas(
+            IReadOnlyList<(int TrayectoId, string Url, string? ItemId, string Filename, decimal Monto)> nuevas,
+            IReadOnlyList<(int CapturaId, decimal Monto, (string Url, string? ItemId, string Filename)? Imagen)> ediciones,
+            int userId);
     }
 }

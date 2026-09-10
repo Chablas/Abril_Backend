@@ -84,6 +84,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                         CorreoEventoCodigos.RendicionPrimeraRevision, principal);
                     data.CorreoS10Revisor = await ResolverDestinatariosAsync(
                         CorreoEventoCodigos.S10Revisor, principal);
+
+                    // Este no va al revisor sino al Coordinador ERP, que se resuelve por rol y
+                    // no por el organigrama: por eso su destinatario principal es otro.
+                    data.CorreoCorreccionS10 = await ResolverDestinatariosAsync(
+                        CorreoEventoCodigos.CorreccionS10Solicitada,
+                        await _repo.GetCorreosCoordinadorErp());
                 }
                 catch (Exception ex)
                 {
@@ -250,6 +256,72 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
 
             var nombre = string.IsNullOrWhiteSpace(revisor.Nombre) ? "tu revisor" : revisor.Nombre;
             return $"Se le avisó a {nombre}.";
+        }
+
+
+        // ── Corrección con el Coordinador ERP ────────────────────────────────
+
+        public async Task<CorreccionS10Dto> SolicitarCorreccionS10(
+            int rendicionId, string motivo, int userId)
+        {
+            // El detalle ya trae el guard de propiedad y el estado del reembolso; el repositorio
+            // vuelve a validar lo mismo al escribir, así que la carrera entre los dos no puede
+            // dejar una corrección sobre una planilla que la jefatura acaba de aprobar.
+            var planilla = await GetDetalle(rendicionId, userId);
+
+            if (!planilla.PuedeSolicitarCorreccion)
+                throw new AbrilException(
+                    planilla.CorreccionS10 != null
+                        ? "Ya hay una corrección en curso para esta rendición."
+                        : planilla.ConsolidadoS10 == null
+                            ? "Primero adjunta el Consolidado del S10: es el documento que el ERP tiene que corregir."
+                            : "Solo se puede pedir una corrección al ERP cuando la jefatura observó el reembolso.",
+                    400);
+
+            // El correo se resuelve ANTES de escribir: una corrección que el ERP nunca ve deja al
+            // trabajador esperando algo que no va a pasar. Es la excepción al best-effort del resto
+            // de los avisos de esta pantalla, y por eso corta con 409 en vez de seguir.
+            var envio = await _correoResolver.ResolveEnvioAsync(
+                CorreoEventoCodigos.CorreccionS10Solicitada,
+                await _repo.GetCorreosCoordinadorErp());
+
+            if (!envio.Enviar || envio.Para.Count == 0)
+                throw new AbrilException(
+                    "No hay ningún Coordinador ERP con correo al que enviarle la solicitud. Avisa al "
+                    + "administrador del sistema.", 409);
+
+            var correccion = await _repo.CrearCorreccion(rendicionId, motivo, userId);
+
+            var quien = await _repo.GetSolicitante(rendicionId, userId);
+
+            var datos = new CorreccionS10CorreoDatos
+            {
+                CorreccionId   = correccion.Id,
+                RendicionId    = rendicionId,
+                Codigo         = planilla.Codigo,
+                Trabajador     = quien?.Trabajador ?? "Colaborador",
+                Area           = quien?.Area,
+                Periodo        = planilla.Periodo,
+                NumeroPlanilla = planilla.NumeroPlanilla,
+                NumeroGuia     = correccion.NumeroGuia,
+                MontoTotal     = planilla.MontoTotalPlanilla,
+                Motivo         = correccion.Motivo,
+                MotivoJefatura = correccion.MotivoJefatura,
+            };
+
+            // El botón abre la bandeja del ERP en esta corrección: es donde marca el check.
+            var url  = SalidaEnlaces.CorreccionesS10(_configuration, correccion.Id);
+            var body = CorreccionS10EmailTemplates.Solicitada(
+                SalidaEmailLayout.Desde(_configuration), datos, url);
+
+            await _emailService.SendAsync(
+                to: envio.Para,
+                subject: $"Corrección del S10 solicitada - {datos.Trabajador} - {planilla.Codigo}",
+                body: body,
+                isHtml: true,
+                cc: envio.Copia.Count > 0 ? envio.Copia : null);
+
+            return correccion;
         }
 
         // ── Correos de la primera revisión ───────────────────────────────────

@@ -77,8 +77,8 @@ namespace Abril_Backend.Shared.Models
         public AreaScope? AreaSolicitanteScope { get; set; }
 
         /// <summary>
-        /// Área a la que ENTRA el postulante cuando lo aprueban como finalista, y con ella se
-        /// resuelve después su jefatura.
+        /// Área a la que PERTENECE el trabajador que ocupe el puesto — el postulante cuando lo
+        /// aprueban como finalista y todo el que ya esté en él —, y con ella se resuelve su jefatura.
         ///
         /// Desde el 2026-09-03 es EL área del trabajador, no solo la de su alta: <c>workers</c>
         /// dejó de tener su propia <c>area_scope_id</c> y toda pantalla que muestre o filtre por

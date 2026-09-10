@@ -9,8 +9,8 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
 {
     /// <summary>
-    /// "Reembolsos": la bandeja de Tesorería. El rol se exige acá (token) y la categoría del puesto
-    /// la verifica el servicio contra la base — hacen falta las dos.
+    /// "Reembolsos": la bandeja de Tesorería. Basta con el rol TESORERO del token; la categoría
+    /// del puesto ya no se exige para entrar.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/reembolsos")]
@@ -40,11 +40,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         {
             try
             {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-
                 return Ok(await _service.GetAll(
-                    Filtros(workerId, q, estadoReembolso, areaScopeIds, periodoAnio, periodoMes), userId.Value));
+                    Filtros(workerId, q, estadoReembolso, areaScopeIds, periodoAnio, periodoMes)));
             }
             catch (AbrilException ex)
             {
@@ -62,9 +59,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         {
             try
             {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.GetFilterData(userId.Value));
+                return Ok(await _service.GetFilterData());
             }
             catch (AbrilException ex)
             {
@@ -82,9 +77,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         {
             try
             {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.GetDetalle(id, userId.Value));
+                return Ok(await _service.GetDetalle(id));
             }
             catch (AbrilException ex)
             {
@@ -111,11 +104,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         {
             try
             {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-
                 return Ok(await _service.GetSeguimiento(
-                    Filtros(workerId, q, null, areaScopeIds, periodoAnio, periodoMes), userId.Value));
+                    Filtros(workerId, q, null, areaScopeIds, periodoAnio, periodoMes)));
             }
             catch (AbrilException ex)
             {
@@ -180,9 +170,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         {
             try
             {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.GetCorreoPreviewPago(dto, userId.Value));
+                return Ok(await _service.GetCorreoPreviewPago(dto));
             }
             catch (AbrilException ex)
             {

@@ -31,24 +31,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         Task Cancelar(int solicitudId, int userId);
 
         /// <summary>
-        /// Sube N (imagen, monto) a SharePoint, asociadas a un trayecto de una solicitud propia
-        /// que se pueda editar: aprobada y sin rendir, o rendida en una planilla OBSERVADA en
-        /// primera revisión (ahí corregir capturas y montos es justamente lo que se pidió).
-        /// </summary>
-        Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
-
-        /// <summary>
-        /// Guarda los cambios de una captura propia: su monto y, si viene
-        /// <paramref name="file"/>, además reemplaza su imagen (sube el archivo nuevo y apunta la
-        /// misma fila a él). Mismo criterio de edición que la subida: solo antes de rendir o al
-        /// subsanar una rendición observada.
+        /// Guarda de un saque todo lo que el modal de capturas tocó en una solicitud propia que se
+        /// pueda editar: aprobada y sin rendir, o rendida en una planilla OBSERVADA en primera
+        /// revisión (ahí corregir capturas y montos es justamente lo que se pidió). Sube a
+        /// SharePoint las imágenes nuevas y las de reemplazo, y escribe altas y cambios en un solo
+        /// SaveChanges: o entra el lote entero o no entra nada.
         ///
-        /// Es una sola operación porque en la pantalla es un solo botón "Guardar": lo que el
-        /// trabajador corrige es la fila —monto, imagen o las dos—, no un campo suelto.
+        /// Valida el lote completo ANTES de subir un solo archivo, para no dejar imágenes
+        /// huérfanas en la biblioteca cuando un trayecto o una captura ya no se pueden tocar.
         /// </summary>
-        /// <returns>La captura ya actualizada, para repintar la miniatura sin recargar el detalle.</returns>
-        Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
-            int capturaId, decimal monto, IFormFile? file, int userId);
+        /// <returns>El detalle ya actualizado, para repintar el modal sin pedirlo de nuevo.</returns>
+        Task<SolicitudSalidaDetalleDto> GuardarCapturas(int solicitudId, GuardarCapturasInput input, int userId);
 
         /// <summary>
         /// Da de baja una captura propia (soft delete). Deja de contar para el importe rendido y

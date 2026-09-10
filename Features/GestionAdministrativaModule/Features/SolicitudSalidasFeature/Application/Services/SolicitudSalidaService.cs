@@ -889,80 +889,79 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         public Task Cancelar(int solicitudId, int userId) => _repo.Cancelar(solicitudId, userId);
 
-        public async Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId)
+        public async Task<SolicitudSalidaDetalleDto> GuardarCapturas(
+            int solicitudId, GuardarCapturasInput input, int userId)
         {
-            var trayecto = await _repo.GetTrayectoForUploadingCapturas(trayectoId, userId)
-                ?? throw new AbrilException(
-                    "No se pueden subir capturas: el trayecto no existe, no te pertenece, no está aprobado, " +
-                    "o su rendición ya pasó la primera revisión.", 404);
+            // Un archivo vacío es una fila que el navegador mandó sin imagen: no es una captura.
+            var nuevas    = input.Nuevas.Where(n => n.File != null && n.File.Length > 0).ToList();
+            var ediciones = input.Ediciones;
 
-            var lista = items?
-                .Where(it => it.File != null && it.File.Length > 0)
-                .ToList()
-                ?? new();
-            if (lista.Count == 0)
-                throw new AbrilException("No se recibieron capturas.", 400);
+            if (nuevas.Count == 0 && ediciones.Count == 0)
+                throw new AbrilException("No se recibió ningún cambio que guardar.", 400);
 
-            if (lista.Any(it => it.Monto < 0))
+            if (nuevas.Any(n => n.Monto < 0) || ediciones.Any(e => e.Monto < 0))
                 throw new AbrilException("El monto no puede ser negativo.", 400);
 
-            // La carpeta se resuelve UNA sola vez para todo el lote.
-            var carpeta = await ResolverCarpetaCapturasAsync();
+            // Un solo viaje trae los trayectos de la solicitud que todavía se pueden tocar, cada
+            // uno con los ids de sus capturas vivas. Con eso se valida el lote entero —incluido de
+            // qué trayecto es cada captura editada— sin una consulta por fila.
+            var trayectos = await _repo.GetTrayectosEditablesDeSolicitud(solicitudId, userId);
+            if (trayectos.Count == 0)
+                throw new AbrilException(
+                    "No se pueden guardar las capturas: la solicitud no existe, no te pertenece, no está " +
+                    "aprobada, o su rendición ya pasó la primera revisión.", 404);
 
-            var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
+            var trayectoIds  = trayectos.Select(t => t.Id).ToHashSet();
+            var trayectoDe   = trayectos
+                .SelectMany(t => t.CapturaIds.Select(c => (CapturaId: c, TrayectoId: t.Id)))
+                .ToDictionary(x => x.CapturaId, x => x.TrayectoId);
+
+            foreach (var n in nuevas)
+                if (!trayectoIds.Contains(n.TrayectoId))
+                    throw new AbrilException(
+                        "No se pueden guardar las capturas: uno de los trayectos ya no se puede editar.", 404);
+
+            foreach (var e in ediciones)
+                if (!trayectoDe.ContainsKey(e.CapturaId))
+                    throw new AbrilException(
+                        "No se pueden guardar las capturas: una de las que editaste ya no existe o no se puede editar.", 404);
+
+            // La carpeta se resuelve UNA sola vez para todo el lote (altas y reemplazos), y solo si
+            // hay alguna imagen que subir: un lote de puros montos no toca SharePoint.
+            var conImagen = nuevas.Count + ediciones.Count(e => e.File != null && e.File.Length > 0);
+            var carpeta   = conImagen > 0 ? await ResolverCarpetaCapturasAsync() : null;
+
+            var altas   = new List<(int TrayectoId, string Url, string? ItemId, string Filename, decimal Monto)>();
+            var cambios = new List<(int CapturaId, decimal Monto, (string Url, string? ItemId, string Filename)? Imagen)>();
             try
             {
-                foreach (var it in lista)
+                foreach (var n in nuevas)
                 {
                     var (url, itemId, filename) = await SubirImagenCapturaAsync(
-                        carpeta, it.File, trayecto.SolicitudId, trayecto.Id);
-                    subidos.Add((url, itemId, filename, it.Monto));
+                        carpeta!, n.File, solicitudId, n.TrayectoId);
+                    altas.Add((n.TrayectoId, url, itemId, filename, n.Monto));
+                }
+
+                foreach (var e in ediciones)
+                {
+                    (string Url, string? ItemId, string Filename)? imagen = null;
+                    if (e.File != null && e.File.Length > 0)
+                        imagen = await SubirImagenCapturaAsync(
+                            carpeta!, e.File, solicitudId, trayectoDe[e.CapturaId]);
+
+                    cambios.Add((e.CapturaId, e.Monto, imagen));
                 }
             }
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló subida de capturas para trayecto {TrayectoId}", trayectoId);
+                _logger.LogError(ex, "Falló la subida de capturas de la solicitud {SolicitudId}", solicitudId);
                 throw new AbrilException("Error al subir las capturas a SharePoint.", 502);
             }
 
-            return await _repo.InsertCapturas(trayectoId, subidos, userId);
-        }
+            await _repo.GuardarCapturas(altas, cambios, userId);
 
-        public async Task<SolicitudSalidaCapturaDto> ActualizarCaptura(
-            int capturaId, decimal monto, IFormFile? file, int userId)
-        {
-            if (monto < 0)
-                throw new AbrilException("El monto no puede ser negativo.", 400);
-
-            var captura = await _repo.GetCapturaEditable(capturaId, userId)
-                ?? throw new AbrilException(
-                    "No se puede editar esta captura: no existe, no es tuya, o su rendición ya pasó la " +
-                    "primera revisión.", 404);
-
-            // Reemplazar la imagen es opcional: sin archivo se guarda solo el monto.
-            (string Url, string? ItemId, string Filename)? imagen = null;
-            if (file != null && file.Length > 0)
-            {
-                var trayecto = await _repo.GetTrayectoForUploadingCapturas(captura.TrayectoId, userId)
-                    ?? throw new AbrilException(
-                        "No se puede reemplazar la imagen: el trayecto ya no se puede editar.", 404);
-
-                var carpeta = await ResolverCarpetaCapturasAsync();
-                try
-                {
-                    imagen = await SubirImagenCapturaAsync(
-                        carpeta, file, trayecto.SolicitudId, trayecto.Id);
-                }
-                catch (AbrilException) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Falló el reemplazo de la imagen de la captura {CapturaId}", capturaId);
-                    throw new AbrilException("Error al subir la captura a SharePoint.", 502);
-                }
-            }
-
-            return await _repo.ActualizarCaptura(capturaId, monto, imagen);
+            return await GetDetalle(solicitudId, userId);
         }
 
         /// <summary>

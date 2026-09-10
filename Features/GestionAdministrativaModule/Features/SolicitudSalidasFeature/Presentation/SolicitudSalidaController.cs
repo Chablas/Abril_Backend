@@ -190,13 +190,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
-        [HttpPost("trayectos/{trayectoId:int}/capturas")]
+        /// <summary>
+        /// Guarda de una vez todo lo que el modal de capturas tocó en una salida propia: las
+        /// capturas nuevas de cualquiera de sus trayectos y los montos e imágenes que se cambiaron
+        /// en las que ya estaban. Es una sola llamada porque en la pantalla es un solo botón
+        /// "Guardar" —lo que el trabajador arma es el sustento completo de la salida, no una fila
+        /// suelta— y porque así la carpeta de SharePoint se resuelve una vez para todo el lote.
+        ///
+        /// Las listas viajan en paralelo (misma posición = misma captura). La imagen de una
+        /// edición es opcional, así que los archivos de reemplazo van con su propio índice
+        /// (<c>editFileIndices</c>) apuntando a la posición dentro de <c>editIds</c>, igual que
+        /// los adjuntos por trayecto en la creación.
+        /// </summary>
+        /// <returns>El detalle ya actualizado, para repintar el modal sin pedirlo de nuevo.</returns>
+        [HttpPost("{solicitudId:int}/capturas")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB total
-        public async Task<IActionResult> UploadCapturasTrayecto(
-            int trayectoId,
-            [FromForm] List<IFormFile> files,
-            [FromForm] List<string> montos)
+        [RequestSizeLimit(80 * 1024 * 1024)] // 80 MB: el lote es de toda la salida, no de un trayecto
+        public async Task<IActionResult> GuardarCapturas(
+            int solicitudId,
+            // Los números viajan como texto y se parsean con InvariantCulture: el binder de
+            // formularios usa la cultura del servidor y ahí "10.50" no significa lo mismo siempre.
+            [FromForm] List<string>? nuevasTrayectoIds,
+            [FromForm] List<string>? nuevasMontos,
+            [FromForm] List<IFormFile>? nuevasFiles,
+            [FromForm] List<string>? editIds,
+            [FromForm] List<string>? editMontos,
+            [FromForm] List<string>? editFileIndices,
+            [FromForm] List<IFormFile>? editFiles)
         {
             try
             {
@@ -205,20 +225,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                if (files == null || montos == null || files.Count != montos.Count)
-                    return BadRequest(new { message = "La cantidad de archivos y montos debe coincidir." });
+                var trayectosNuevas = nuevasTrayectoIds ?? new List<string>();
+                var montosNuevas    = nuevasMontos      ?? new List<string>();
+                var archivosNuevas  = nuevasFiles       ?? new List<IFormFile>();
+                var idsEdicion      = editIds           ?? new List<string>();
+                var montosEdicion   = editMontos        ?? new List<string>();
+                var indicesEdicion  = editFileIndices   ?? new List<string>();
+                var archivosEdicion = editFiles         ?? new List<IFormFile>();
 
-                var items = new List<(IFormFile File, decimal Monto)>(files.Count);
-                for (int i = 0; i < files.Count; i++)
+                if (trayectosNuevas.Count != montosNuevas.Count || trayectosNuevas.Count != archivosNuevas.Count)
+                    return BadRequest(new { message = "Cada captura nueva debe traer su trayecto, su monto y su imagen." });
+                if (idsEdicion.Count != montosEdicion.Count)
+                    return BadRequest(new { message = "Cada captura editada debe traer su id y su monto." });
+                if (indicesEdicion.Count != archivosEdicion.Count)
+                    return BadRequest(new { message = "Cada imagen de reemplazo debe traer a qué captura editada corresponde." });
+
+                var input = new GuardarCapturasInput();
+
+                for (int i = 0; i < trayectosNuevas.Count; i++)
                 {
-                    if (!decimal.TryParse(montos[i], System.Globalization.NumberStyles.Number,
-                                          System.Globalization.CultureInfo.InvariantCulture, out var monto))
-                        return BadRequest(new { message = $"Monto inválido en la posición {i + 1}: '{montos[i]}'." });
-                    items.Add((files[i], monto));
+                    if (!int.TryParse(trayectosNuevas[i], out var trayectoId))
+                        return BadRequest(new { message = $"Trayecto inválido en la captura nueva {i + 1}: '{trayectosNuevas[i]}'." });
+                    if (!TryParseMonto(montosNuevas[i], out var monto))
+                        return BadRequest(new { message = $"Monto inválido en la captura nueva {i + 1}: '{montosNuevas[i]}'." });
+
+                    input.Nuevas.Add(new CapturaNuevaInput
+                    {
+                        TrayectoId = trayectoId,
+                        Monto      = monto,
+                        File       = archivosNuevas[i],
+                    });
                 }
 
-                var creadas = await _service.UploadCapturasToTrayecto(trayectoId, items, userId.Value);
-                return Ok(creadas);
+                for (int i = 0; i < idsEdicion.Count; i++)
+                {
+                    if (!int.TryParse(idsEdicion[i], out var capturaId))
+                        return BadRequest(new { message = $"Captura inválida en la posición {i + 1}: '{idsEdicion[i]}'." });
+                    if (!TryParseMonto(montosEdicion[i], out var monto))
+                        return BadRequest(new { message = $"Monto inválido en la captura editada {i + 1}: '{montosEdicion[i]}'." });
+
+                    input.Ediciones.Add(new CapturaEdicionInput { CapturaId = capturaId, Monto = monto });
+                }
+
+                for (int i = 0; i < indicesEdicion.Count; i++)
+                {
+                    if (!int.TryParse(indicesEdicion[i], out var pos) || pos < 0 || pos >= input.Ediciones.Count)
+                        return BadRequest(new { message = $"Índice de imagen de reemplazo inválido en la posición {i + 1}: '{indicesEdicion[i]}'." });
+
+                    input.Ediciones[pos].File = archivosEdicion[i];
+                }
+
+                return Ok(await _service.GuardarCapturas(solicitudId, input, userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -226,52 +283,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.UploadCapturasTrayecto");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.GuardarCapturas");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 
-        /// <summary>
-        /// Guarda los cambios de una captura propia: su monto y, si viene un archivo, además
-        /// reemplaza su imagen. Se usa al subsanar una rendición observada en primera revisión (y
-        /// antes de rendir, si el trabajador se equivocó al cargarla).
-        ///
-        /// Va como multipart y en una sola llamada porque en la pantalla es un solo botón
-        /// "Guardar": lo que se corrige es la fila, no un campo suelto. El archivo es opcional.
-        /// </summary>
-        [HttpPatch("capturas/{capturaId:int}")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(15 * 1024 * 1024)]
-        public async Task<IActionResult> ActualizarCaptura(
-            int capturaId,
-            // El monto viaja como texto y se parsea con InvariantCulture, igual que en la subida:
-            // el binder de formularios usa la cultura del servidor.
-            [FromForm] string monto,
-            [FromForm] IFormFile? file)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                if (!decimal.TryParse(monto, System.Globalization.NumberStyles.Number,
-                                      System.Globalization.CultureInfo.InvariantCulture, out var valor))
-                    return BadRequest(new { message = $"Monto inválido: '{monto}'." });
-
-                return Ok(await _service.ActualizarCaptura(capturaId, valor, file, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.ActualizarCaptura");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
+        /// <summary>Un monto que viajó como texto: siempre con punto decimal, nunca con la cultura del servidor.</summary>
+        private static bool TryParseMonto(string raw, out decimal monto) =>
+            decimal.TryParse(raw, System.Globalization.NumberStyles.Number,
+                             System.Globalization.CultureInfo.InvariantCulture, out monto);
 
         /// <summary>
         /// Da de baja una captura propia. La fila se conserva para auditoría pero deja de contar

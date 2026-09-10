@@ -57,6 +57,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
 
         /// <summary>
+        /// Correcciones S10 abierta en esa solicitud de corrección — la bandeja del Coordinador
+        /// ERP. La unidad es la CORRECCION y no la planilla: una planilla puede haber pasado por
+        /// varias correcciones y el correo tiene que abrir la que lo disparo.
+        /// </summary>
+        public static string CorreccionesS10(IConfiguration configuration, int correccionId) =>
+            $"{Base(configuration)}/gestion-administrativa/correcciones-s10?correccion={correccionId}";
+
+        /// <summary>
         /// Reembolsos abierta en esa planilla — la bandeja de Tesorería, donde se confirma la
         /// revisión documental y se paga. Es el destino del aviso que le llega a Tesorería cuando
         /// la jefatura firma.

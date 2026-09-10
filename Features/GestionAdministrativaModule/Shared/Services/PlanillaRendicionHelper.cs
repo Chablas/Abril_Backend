@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public static string ResumirEstadoReembolso(IEnumerable<int> estados)
         {
             var set = estados.ToHashSet();
-            if (set.Contains(EstadosSalida.Reembolso.Rechazado)) return EstadosSalida.Reembolso.NombreRechazado;
+            if (set.Contains(EstadosSalida.Reembolso.Observado)) return EstadosSalida.Reembolso.NombreObservado;
             if (set.Contains(EstadosSalida.Reembolso.Pendiente)) return EstadosSalida.Reembolso.NombrePendiente;
             if (set.Contains(EstadosSalida.Reembolso.Aprobado))  return EstadosSalida.Reembolso.NombreAprobado;
             if (set.Contains(EstadosSalida.Reembolso.Firmado))   return EstadosSalida.Reembolso.NombreFirmado;

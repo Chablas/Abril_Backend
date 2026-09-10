@@ -109,7 +109,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         : CorreoEventoCodigos.RendicionPrimeraObservada)
                     : (request.Aprobar
                         ? CorreoEventoCodigos.ReembolsoAprobado
-                        : CorreoEventoCodigos.ReembolsoRechazado);
+                        : CorreoEventoCodigos.ReembolsoObservado);
 
                 var avisos = new List<CorreoAvisoPreviewDto>();
                 await AgregarAvisoAsync(avisos, "Al solicitante", codigo, solicitantes);
@@ -194,7 +194,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var rendicionesFirmadas = new List<int>();
             var decididas = aprobar
                 ? await AprobarFirmandoAsync(ids, reviewerUserId, rendicionesFirmadas)
-                : await _repo.RechazarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
+                : await _repo.ObservarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
 
             // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
             // porque un correo falle (mismo criterio que la aprobación de la salida).
@@ -211,7 +211,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 Procesadas = decididas.Count,
                 Message = aprobar
                     ? $"{decididas.Count} reembolso(s) aprobado(s)."
-                    : $"{decididas.Count} reembolso(s) rechazado(s).",
+                    : $"{decididas.Count} reembolso(s) observado(s).",
             };
         }
 
@@ -458,7 +458,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         // ── Correos de la decisión ───────────────────────────────────────────
 
         /// <summary>
-        /// Avisa al solicitante que su reembolso quedó aprobado o rechazado. Respeta la
+        /// Avisa al solicitante que su reembolso quedó aprobado u observado. Respeta la
         /// configuración de correos (Gestión Administrativa → Configuración → Correos): si el
         /// correo está apagado o no queda ningún destinatario, no se envía nada.
         /// </summary>
@@ -479,7 +479,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
                 var codigo = aprobado
                     ? CorreoEventoCodigos.ReembolsoAprobado
-                    : CorreoEventoCodigos.ReembolsoRechazado;
+                    : CorreoEventoCodigos.ReembolsoObservado;
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     codigo, new List<string> { info.SolicitanteEmail });
@@ -503,7 +503,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
                 var body = aprobado
                     ? ReembolsoEmailTemplates.Aprobado(layout, datos, url)
-                    : ReembolsoEmailTemplates.Rechazado(layout, datos, url);
+                    : ReembolsoEmailTemplates.Observado(layout, datos, url);
 
                 var subject = aprobado
                     ? $"Reembolso APROBADO - salida del {info.FechaSalida:dd/MM/yyyy}"

@@ -47,8 +47,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
 
         /// <summary>
         /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una planilla propia. El archivo
-        /// cubre la planilla entera; si había salidas con el reembolso rechazado, vuelven a
-        /// Pendiente porque volver a adjuntarlo es justamente la subsanación.
+        /// cubre la planilla entera; si había salidas con el reembolso observado, vuelven a
+        /// Pendiente porque volver a adjuntarlo es justamente la subsanación, y la corrección con
+        /// el ERP que estuviera viva se cierra.
         ///
         /// Solo se habilita con la primera revisión APROBADA (RG-35): lo valida el servicio
         /// compartido que hace la subida.
@@ -68,5 +69,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
         /// </summary>
         /// <returns>Mensaje para mostrar en la pantalla.</returns>
         Task<string> NotificarRevisor(int rendicionId, int userId);
+
+        /// <summary>
+        /// Le pide al Coordinador ERP que corrija el Consolidado del S10 (§10.5 / RG-21). Es el
+        /// camino para cuando la jefatura observó el reembolso y el arreglo tiene que hacerse
+        /// DENTRO del S10, donde el trabajador no tiene permiso.
+        ///
+        /// Es ALTERNATIVO a recargar el consolidado, no un paso obligatorio: si el trabajador puede
+        /// arreglarlo él mismo, vuelve a adjuntarlo y el reembolso regresa a Pendiente sin pasar
+        /// por acá.
+        ///
+        /// Manda al ERP la rendición, la guía, la observación de la jefatura y el motivo del
+        /// trabajador, todo en un correo. A diferencia de los otros avisos de la pantalla, este NO
+        /// es best-effort: si el correo no le puede llegar a nadie, la solicitud no se registra —
+        /// una corrección que el ERP no ve es una espera infinita.
+        /// </summary>
+        /// <param name="motivo">El «MOTIVO *» del requerimiento. Obligatorio (CA-17).</param>
+        /// <returns>La corrección creada, para que la pantalla la muestre sin recargar.</returns>
+        Task<CorreccionS10Dto> SolicitarCorreccionS10(int rendicionId, string motivo, int userId);
     }
 }

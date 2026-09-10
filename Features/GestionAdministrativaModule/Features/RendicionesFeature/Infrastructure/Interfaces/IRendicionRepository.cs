@@ -1,4 +1,5 @@
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces
 {
@@ -45,5 +46,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         /// <summary>Cuántos tramos (trayectos) suman las salidas propias de la planilla.</summary>
         Task<int> ContarTramos(int rendicionId, int userId);
+
+        /// <summary>
+        /// Registra la solicitud de corrección del Consolidado del S10 al Coordinador ERP (§10.5).
+        /// Copia la observación de la jefatura y la guía del consolidado observado: el ERP las
+        /// necesita y la observación de la salida se sobrescribe si la jefatura vuelve a observar.
+        ///
+        /// No mueve el estado del reembolso: la salida se queda Observada mientras dura la gestión.
+        /// Lo que cambia es de quién es la pelota, y eso vive en la propia corrección.
+        /// </summary>
+        /// <returns>La corrección recién creada, ya lista para exponer.</returns>
+        Task<CorreccionS10Dto> CrearCorreccion(int rendicionId, string motivo, int userId);
+
+        /// <summary>
+        /// Correos de los usuarios con el rol COORDINADOR ERP: el destinatario principal de la
+        /// solicitud de corrección. Se resuelve por ROL y no por área porque el responsable ERP no
+        /// cuelga del organigrama del solicitante — mismo criterio que el aviso a Tesorería.
+        /// </summary>
+        Task<List<string>> GetCorreosCoordinadorErp();
     }
 }

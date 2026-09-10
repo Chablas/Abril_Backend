@@ -12,17 +12,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
     /// está completa —planilla, Consolidado del S10, firma de la jefatura y tramos con sus
     /// vouchers— y recién entonces la planilla queda habilitada para el pago.
     ///
-    /// El acceso son DOS condiciones: el rol TESORERO (del token) y que el puesto del trabajador
-    /// sea de categoría Tesorero (de la base). Con una sola no alcanza.
+    /// El acceso lo decide el rol TESORERO y nada más (lo exige el controller contra el token).
+    /// Antes pedía además un puesto de categoría Tesorero y se quitó: la categoría del puesto ya
+    /// no niega la entrada a la pantalla.
     /// </summary>
     public interface IReembolsoService
     {
-        /// <summary>Lanza 403 si el usuario no cumple las dos condiciones de Tesorería.</summary>
-        Task EnsureTesoreroAsync(int userId);
-
-        Task<ReembolsoListResultDto> GetAll(ReembolsoFiltersDto filters, int userId);
-        Task<ReembolsoFilterDataDto> GetFilterData(int userId);
-        Task<ReembolsoDetalleDto> GetDetalle(int rendicionId, int userId);
+        Task<ReembolsoListResultDto> GetAll(ReembolsoFiltersDto filters);
+        Task<ReembolsoFilterDataDto> GetFilterData();
+        Task<ReembolsoDetalleDto> GetDetalle(int rendicionId);
 
         /// <summary>
         /// Confirma la revisión documental de lo seleccionado: sus salidas firmadas pasan a
@@ -43,10 +41,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
         ///
         /// Solo existe para el pago: confirmar la revisión es un paso interno y no avisa a nadie.
         /// </summary>
-        Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(
-            ReembolsoSeleccionDto dto, int tesoreroUserId);
+        Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto);
 
         /// <summary>Seguimiento de pagos por colaborador (11.4 del requerimiento).</summary>
-        Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters, int userId);
+        Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters);
     }
 }

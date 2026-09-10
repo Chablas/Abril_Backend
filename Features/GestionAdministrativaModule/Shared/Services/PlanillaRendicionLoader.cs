@@ -238,7 +238,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     EstadoReembolso    = estado,
                     ReembolsoMixto     = filas.Select(f => f.EstadoReembolsoId).Distinct().Count() > 1,
                     ObservacionReembolso = filas
-                        .Where(f => f.EstadoReembolsoId == EstadosSalida.Reembolso.Rechazado
+                        .Where(f => f.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
                                  && !string.IsNullOrWhiteSpace(f.ObservacionReembolso))
                         .Select(f => f.ObservacionReembolso)
                         .FirstOrDefault(),

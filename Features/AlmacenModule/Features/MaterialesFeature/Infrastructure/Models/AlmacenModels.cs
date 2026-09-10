@@ -7,9 +7,28 @@ public static class TipoMovimientoAlmacen
     public const string Ingreso = "Ingreso";
     public const string Salida = "Salida";
 
-    public static readonly string[] Valores = [Ingreso, Salida];
+    /// <summary>Devuelve stock: por un error de registro (se contó una salida que no
+    /// correspondía) o por un sobrante físico encontrado en obra. Suma al saldo igual que un
+    /// Ingreso, pero se distingue en la lista de movimientos y lleva su propio motivo.</summary>
+    public const string Devolucion = "Devolucion";
+
+    public static readonly string[] Valores = [Ingreso, Salida, Devolucion];
+
+    /// <summary>Tipos que suman al saldo de stock (Ingreso y Devolución) — Salida es el único
+    /// que resta. Centralizado acá para que GetStock/GetDashboard no dupliquen el criterio.</summary>
+    public static readonly string[] SumanStock = [Ingreso, Devolucion];
 
     public static bool EsValido(string tipo) => Valores.Contains(tipo);
+}
+
+public static class MotivoDevolucion
+{
+    public const string Error = "Error";
+    public const string Sobrante = "Sobrante";
+
+    public static readonly string[] Valores = [Error, Sobrante];
+
+    public static bool EsValido(string motivo) => Valores.Contains(motivo);
 }
 
 /// <summary>Catálogo de materiales/insumos de almacén — independiente de cualquier
@@ -47,6 +66,10 @@ public class AlmacenMovimiento
     /// <summary>Origen del ingreso (proveedor) o destino de la salida cuando aplica —
     /// texto libre, no un catálogo formal en esta primera versión.</summary>
     public string? Origen { get; set; }
+
+    /// <summary>Solo aplica cuando Tipo = Devolucion — "Error" | "Sobrante" (ver
+    /// <see cref="MotivoDevolucion"/>). Null para Ingreso/Salida normales.</summary>
+    public string? MotivoDevolucion { get; set; }
 
     public string? Comentario { get; set; }
     public string? CreadoPor { get; set; }

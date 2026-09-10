@@ -97,7 +97,7 @@ public class RevisionService : IRevisionService
             await _repository.AgregarFoto(id, "Levantamiento", url, orden);
         }
 
-        return await _repository.LevantarObservacion(id, body.LevantaPorWorkerId);
+        return await _repository.LevantarObservacion(id, body.LevantaPorWorkerId, body.FechaLevantamiento);
     }
 
     public Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body)

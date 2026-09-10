@@ -80,6 +80,21 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         /// <summary>Tasa de cierre semanal (culminadas ÷ vencían esa semana) de las últimas 8 semanas —
         /// para ver si viene mejorando o empeorando.</summary>
         public List<EficienciaSemanalDTO> TendenciaSemanal { get; set; } = new();
+        /// <summary>Carga (ponderada) semana a semana de las últimas 8 semanas — para distinguir
+        /// una sobrecarga puntual de un patrón repetido.</summary>
+        public List<CargaSemanalDTO> TendenciaCarga { get; set; } = new();
+    }
+
+    /// <summary>Carga ponderada de una semana puntual, con el promedio del equipo esa misma
+    /// semana para poder clasificarla (igual criterio que "Distribución de Carga" en vivo).</summary>
+    public class CargaSemanalDTO
+    {
+        public string Semana { get; set; } = string.Empty;
+        public int Total { get; set; }
+        public double TotalPonderado { get; set; }
+        public double PromedioEquipo { get; set; }
+        /// <summary>SOBRECARGADO | NORMAL | DISPONIBLE.</summary>
+        public string Tag { get; set; } = string.Empty;
     }
 
     public class HitoCriticoDTO
@@ -124,8 +139,10 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public List<SupervisorProgresoDTO> Supervisores { get; set; } = new();
         public List<HitoCriticoDTO> HitosCriticos { get; set; } = new();
         public TareasPorArquitectoDTO[]       TareasPorArquitectoDetalle  { get; set; } = [];
-        public AvanceSemanalDTO[]             AvanceSemanal               { get; set; } = [];
-        public EficienciaSpiDTO[]             EficienciaSpi               { get; set; } = [];
+        public List<ProximoPorProyectoDTO>          ProximosPorProyecto  { get; set; } = new();
+        public List<EficienciaConsultaSemanalDTO>   EficienciaConsultas  { get; set; } = new();
+        public List<GanttMiniItemDTO>                GanttHitos          { get; set; } = new();
+        public List<GanttMiniItemDTO>                GanttEntregables    { get; set; } = new();
         public CategoriaItemDTO[]             Categorias                  { get; set; } = [];
         public List<CategoriaDashboardItemDTO> DistribucionPorCategoria   { get; set; } = [];
         public List<ArqComercialChartItemDTO> DistribucionTipos           { get; set; } = [];

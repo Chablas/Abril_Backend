@@ -25,6 +25,12 @@ public class RacSharePointService : IRacSharePointService
     public Task<string> SubirPenalidadPdfAsync(Stream stream, string fileName, int penalidadId)
         => _sp.SubirArchivoEnRutaAsync(stream, fileName, "penalidad-pdf", $"Penalidades/{penalidadId}");
 
+    public Task<string> SubirPenalidadDescargoAsync(Stream stream, string fileName, int penalidadId)
+        => _sp.SubirArchivoEnRutaAsync(stream, fileName, "penalidad-descargo", $"Penalidades/{penalidadId}/descargo");
+
+    public Task<string> SubirGestionPreviaAdjuntoAsync(Stream stream, string fileName, int empresaId)
+        => _sp.SubirArchivoEnRutaAsync(stream, fileName, "penalidad-gestion-previa", $"GestionPrevia/{empresaId}");
+
     public async Task<byte[]?> DescargarFotoAsync(string url)
     {
         var downloadUrl = await _sp.GetDownloadUrlAsync(url, "rac-fotos");

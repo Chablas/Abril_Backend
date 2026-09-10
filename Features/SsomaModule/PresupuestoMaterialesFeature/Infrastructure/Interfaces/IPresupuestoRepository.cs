@@ -20,4 +20,5 @@ public interface IPresupuestoRepository
     Task<string?> ObtenerEstadoAsync(int presupuestoId);
     Task EliminarAsync(int presupuestoId);
     Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual);
+    Task InsertarLineaManualAsync(int presupuestoId, int familiaId, decimal cantidadManual, decimal precioManual, string? notas);
 }

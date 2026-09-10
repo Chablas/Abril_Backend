@@ -9,6 +9,10 @@ public interface IPetsService
     Task<List<PetPasoDto>> GetPasosAsync(int petId);
     Task<int> CrearAsync(CrearPetRequest request);
     Task ActualizarAsync(int id, ActualizarPetRequest request);
+
+    // Clona un PETS existente (pasos, responsabilidades, secciones narrativas y
+    // catálogo) como borrador nuevo para partir de él — no copia firmas ni anexos.
+    Task<int> DuplicarAsync(int petId);
     Task<int> AgregarPasoAsync(int petId, CrearPetPasoRequest request);
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);

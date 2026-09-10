@@ -71,6 +71,17 @@ public class PetsController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Actualizar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    // Clona un PETS existente (pasos, responsabilidades, secciones narrativas y
+    // catálogo) como borrador nuevo, inactivo por defecto, para partir de él.
+    [HttpPost("{id:int}/duplicar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Duplicar(int id)
+    {
+        try { return StatusCode(201, new { id = await _service.DuplicarAsync(id) }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Duplicar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost("{id:int}/pasos")]
     [RequireFeature("ssoma.gestion.pets")]
     public async Task<IActionResult> AgregarPaso(int id, [FromBody] CrearPetPasoRequest request)

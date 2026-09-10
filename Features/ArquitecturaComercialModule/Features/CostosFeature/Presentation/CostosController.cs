@@ -142,4 +142,82 @@ public class CostosController : ControllerBase
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
+
+    [HttpGet("presupuesto")]
+    public async Task<IActionResult> GetPresupuesto([FromQuery] int proyectoId)
+    {
+        try
+        {
+            return Ok(await _service.GetPresupuesto(proyectoId));
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en CostosController.GetPresupuesto");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPost("presupuesto")]
+    [RequireFeature("arquitectura-comercial.costos.configurar")]
+    public async Task<IActionResult> UpsertPresupuesto([FromBody] UpsertCostoPresupuestoDTO body)
+    {
+        try
+        {
+            await _service.UpsertPresupuesto(body, UsuarioActual);
+            return Ok(new { message = "Guardado." });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en CostosController.UpsertPresupuesto");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPost("periodo/cerrar")]
+    [RequireFeature("arquitectura-comercial.costos.configurar")]
+    public async Task<IActionResult> CerrarPeriodo([FromBody] CostoCierreDTO body)
+    {
+        try
+        {
+            await _service.CerrarPeriodo(body, UsuarioActual);
+            return Ok(new { message = "Periodo cerrado." });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en CostosController.CerrarPeriodo");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPost("periodo/reabrir")]
+    [RequireFeature("arquitectura-comercial.costos.configurar")]
+    public async Task<IActionResult> ReabrirPeriodo([FromBody] CostoCierreDTO body)
+    {
+        try
+        {
+            await _service.ReabrirPeriodo(body);
+            return Ok(new { message = "Periodo reabierto." });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en CostosController.ReabrirPeriodo");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
 }

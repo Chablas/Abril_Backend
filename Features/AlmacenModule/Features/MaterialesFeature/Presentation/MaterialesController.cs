@@ -39,6 +39,20 @@ public class MaterialesController : ControllerBase
         }
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetMateriales([FromQuery] bool soloActivos = false)
+    {
+        try
+        {
+            return Ok(await _service.GetMateriales(soloActivos));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en MaterialesController.GetMateriales");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
     [HttpPost]
     public async Task<IActionResult> CreateMaterial([FromBody] CreateAlmacenMaterialDTO body)
     {
@@ -53,6 +67,24 @@ public class MaterialesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en MaterialesController.CreateMaterial");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateMaterial(int id, [FromBody] UpdateAlmacenMaterialDTO body)
+    {
+        try
+        {
+            return Ok(await _service.UpdateMaterial(id, body));
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en MaterialesController.UpdateMaterial");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
@@ -116,6 +148,25 @@ public class MaterialesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en MaterialesController.GetStock");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPost("/api/v1/almacen/movimientos/importar")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> ImportarMovimientos(IFormFile archivo)
+    {
+        try
+        {
+            return Ok(await _service.ImportarMovimientos(archivo, UsuarioActual));
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en MaterialesController.ImportarMovimientos");
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }

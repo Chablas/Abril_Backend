@@ -11,4 +11,10 @@ public interface ICostoRepository
     Task<CostoDashboardDTO> GetDashboard(int anio, int mes);
     Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses);
     Task UpsertMeta(UpsertCostoMetaDTO body, string? creadoPor);
+    Task<CostoPresupuestoResumenDTO?> GetPresupuesto(int proyectoId);
+    Task UpsertPresupuesto(UpsertCostoPresupuestoDTO body, string? creadoPor);
+
+    Task<bool> EstaPeriodoCerrado(int proyectoId, int anio, int mes);
+    Task CerrarPeriodo(CostoCierreDTO body, string? cerradoPor);
+    Task<bool> ReabrirPeriodo(CostoCierreDTO body);
 }

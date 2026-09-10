@@ -30,6 +30,111 @@ public class PetsService : IPetsService
 
     public Task ActualizarAsync(int id, ActualizarPetRequest request) => _repo.ActualizarAsync(id, request);
 
+    // Clona pasos/responsabilidades (respetando jerarquía), secciones narrativas y
+    // catálogo (Marco Legal/EPP/Recursos) de un PETS existente hacia uno nuevo.
+    // NO copia firmas (son de la revisión del original, no del borrador nuevo) ni
+    // anexos (archivos propios, no texto). El nuevo PETS queda INACTIVO a
+    // propósito: es un borrador para revisar antes de que OPT/checklists lo vean.
+    public async Task<int> DuplicarAsync(int petId)
+    {
+        var original = await GetDetalleAsync(petId);
+        var nombreCopia = $"{original.Nombre} (copia)";
+
+        var nuevoId = await _repo.CrearAsync(new CrearPetRequest
+        {
+            Nombre = nombreCopia,
+            Codigo = original.Codigo,
+            SharepointUrl = original.SharepointUrl,
+        });
+        await _repo.ActualizarAsync(nuevoId, new ActualizarPetRequest
+        {
+            Nombre = nombreCopia,
+            Codigo = original.Codigo,
+            SharepointUrl = original.SharepointUrl,
+            Activo = false,
+        });
+
+        await DuplicarArbolAsync(nuevoId, "procedimiento", original.Pasos);
+        await DuplicarArbolAsync(nuevoId, "responsabilidades", original.Responsabilidades);
+
+        foreach (var (seccion, contenido) in original.SeccionesTexto)
+        {
+            if (!string.IsNullOrWhiteSpace(contenido))
+                await _repo.UpsertSeccionTextoAsync(nuevoId, seccion, contenido);
+        }
+
+        await DuplicarSeleccionesAsync(nuevoId, original.MarcoLegal);
+        await DuplicarSeleccionesAsync(nuevoId, original.Epp);
+        await DuplicarSeleccionesAsync(nuevoId, original.Recursos);
+
+        return nuevoId;
+    }
+
+    // "Orden" es por grupo de hermanos (ParentId), no un contador global — el
+    // listado plano NO garantiza que un subtítulo aparezca antes que sus hijos.
+    // Se arma el árbol por ParentId primero y se recorre de raíz hacia hojas, para
+    // crear siempre al padre antes que su hijo (el hijo necesita el Id nuevo del padre).
+    private async Task DuplicarArbolAsync(int nuevoPetId, string seccion, List<PetPasoDto> pasos)
+    {
+        if (pasos.Count == 0) return;
+
+        var hijosPorPadre = pasos
+            .GroupBy(p => p.ParentId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Orden).ToList());
+
+        async Task DuplicarNivelAsync(int? parentIdOriginal, int? parentIdNuevo)
+        {
+            if (!hijosPorPadre.TryGetValue(parentIdOriginal, out var nivel)) return;
+
+            foreach (var paso in nivel)
+            {
+                var nuevoPasoId = await _repo.AgregarPasoAsync(nuevoPetId, new CrearPetPasoRequest
+                {
+                    Descripcion = paso.Descripcion,
+                    Seccion = seccion,
+                    ParentId = parentIdNuevo,
+                    Tipo = paso.Tipo,
+                });
+
+                // Se reusa la MISMA imagen (misma URL) en vez de descargar/resubir el
+                // archivo — cambiar la imagen en cualquiera de los dos PETS sube un
+                // blob nuevo y solo repunta su propio paso, nunca borra el original.
+                if (!string.IsNullOrEmpty(paso.ImagenUrl))
+                    await _repo.SetImagenPasoAsync(nuevoPetId, nuevoPasoId, paso.ImagenUrl);
+
+                await DuplicarNivelAsync(paso.Id, nuevoPasoId);
+            }
+        }
+
+        await DuplicarNivelAsync(null, null);
+    }
+
+    private async Task DuplicarSeleccionesAsync(int nuevoPetId, List<PetItemSeleccionadoDto> items)
+    {
+        foreach (var item in items)
+        {
+            if (item.CatalogoItemId.HasValue)
+            {
+                await _repo.SeleccionarCatalogoItemAsync(nuevoPetId, new SeleccionarItemCatalogoRequest
+                {
+                    Grupo = item.Grupo,
+                    Tipo = item.Tipo,
+                    CatalogoItemId = item.CatalogoItemId.Value,
+                });
+            }
+            else
+            {
+                await _repo.AgregarItemPersonalizadoAsync(nuevoPetId, new AgregarItemPersonalizadoRequest
+                {
+                    Grupo = item.Grupo,
+                    Tipo = item.Tipo,
+                    Descripcion = item.Descripcion,
+                    AgregarAlCatalogoGlobal = false,
+                });
+            }
+        }
+    }
+
     public Task<int> AgregarPasoAsync(int petId, CrearPetPasoRequest request) => _repo.AgregarPasoAsync(petId, request);
 
     public Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request)

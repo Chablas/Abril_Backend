@@ -28,6 +28,14 @@ public class PetsImportPreviewDto
     // jerarquía ya detectados — respaldo cuando no se detecta NINGÚN título de
     // sección conocido, o el usuario prefiere elegir el rango a mano.
     public List<ImportPasoPreviewDto> TodosLosParrafos { get; set; } = [];
+
+    // Encabezados con estilo de título (Heading/Título) que NO calzan con ningún
+    // marcador conocido — ej. el documento real nombra la sección distinto de como
+    // la busca el importador ("EQUIPOS DE PROTECCIÓN PERSONAL" en vez de "EPP").
+    // Antes esto era invisible y su contenido se colaba dentro de la sección
+    // anterior sin avisar; ahora se separa aparte (clave = el título tal cual
+    // aparece en el documento) para que el usuario decida a qué pestaña enviarlo.
+    public Dictionary<string, List<ImportPasoPreviewDto>> SeccionesNoReconocidas { get; set; } = [];
 }
 
 public class ImportPasoConfirmDto
@@ -49,4 +57,10 @@ public class ConfirmarImportacionRequest
     // corregida del mismo documento. false (default): agrega al final, como antes.
     // No aplica a SeccionesTexto: esas siempre se sobrescriben (es un solo bloque).
     public bool Reemplazar { get; set; }
+
+    // Ítems de catálogo (Marco Legal/EPP/Recursos) que el usuario trió a mano desde
+    // una sección no reconocida — se agregan como personalizados de ESTE PETS.
+    // Nunca se promueven solos al catálogo global (AgregarAlCatalogoGlobal se ignora
+    // aquí y se trata como false); el usuario puede promoverlos después a mano.
+    public List<AgregarItemPersonalizadoRequest> ItemsCatalogo { get; set; } = [];
 }

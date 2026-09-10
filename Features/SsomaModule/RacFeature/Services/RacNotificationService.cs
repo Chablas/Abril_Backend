@@ -42,29 +42,4 @@ public class RacNotificationService : IRacNotificationService
         }
     }
 
-    public async Task NotificarPenalidadAsync(RacDetalleDto detalle)
-    {
-        try
-        {
-            var body = $@"
-<h2>Penalidad resuelta — RAC {detalle.Codigo}</h2>
-<table>
-  <tr><td><b>RAC:</b></td><td>{detalle.Codigo}</td></tr>
-  <tr><td><b>Empresa:</b></td><td>{detalle.EmpresaReportadaNombre ?? "-"}</td></tr>
-  <tr><td><b>Proyecto:</b></td><td>{detalle.ProyectoNombre ?? "-"}</td></tr>
-  <tr><td><b>Estado RAC:</b></td><td>{detalle.Estado}</td></tr>
-  <tr><td><b>Penalidad:</b></td><td>{(detalle.Penalidad != null ? $"{detalle.Penalidad.Estado} — S/ {detalle.Penalidad.MontoCalculado:N2}" : "-")}</td></tr>
-</table>";
-
-            await _email.SendAsync(
-                to:     ["ssoma@abril.pe"],
-                subject: $"[RAC] Penalidad resuelta: {detalle.Codigo}",
-                body:    body,
-                isHtml:  true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error enviando notificación penalidad RAC {Codigo}", detalle.Codigo);
-        }
-    }
 }

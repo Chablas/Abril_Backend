@@ -52,6 +52,11 @@ public class PetsImportService : IPetsImportService
     // se necesita mientras se arma el árbol; no viaja al DTO público.
     private record ParrafoAnotado(int Indice, int? ParentIndice, string Tipo, int Nivel, string Texto, string? ImagenBase64);
 
+    // Un límite de sección, conocido (marcador de la plantilla) o desconocido
+    // (cualquier otro encabezado real del documento) — unificados para poder
+    // ordenarlos juntos y cortar tramos sin importar de qué tipo sea cada uno.
+    private record LimiteSeccion(int Indice, bool Desconocido, string? SeccionTexto, string? SeccionArbol, string? Titulo);
+
     public PetsImportPreviewDto PreviewDesdeDocx(Stream docxStream)
     {
         using var wordDoc = WordprocessingDocument.Open(docxStream, false);
@@ -68,53 +73,95 @@ public class PetsImportService : IPetsImportService
         // Cada marcador conocido se busca sobre el TEXTO (independiente del tipo ya
         // clasificado) — el título puede o no estar en un estilo "heading" real.
         // Solo se toma la PRIMERA aparición de cada uno.
-        var limites = new List<(int Indice, string? SeccionTexto, string? SeccionArbol)>();
+        var limitesConocidos = new List<(int Indice, string? SeccionTexto, string? SeccionArbol)>();
+        var indicesConocidos = new HashSet<int>();
         foreach (var m in Marcadores)
         {
             for (var i = 0; i < paragraphs.Count; i++)
             {
+                if (indicesConocidos.Contains(i)) continue;
                 var styleId = paragraphs[i].ParagraphProperties?.ParagraphStyleId?.Val?.Value;
                 var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
                 if (EsTituloDeSeccion(GetParagraphText(paragraphs[i]), styleName, m.Marcador))
                 {
-                    limites.Add((i, m.SeccionTexto, m.SeccionArbol));
+                    limitesConocidos.Add((i, m.SeccionTexto, m.SeccionArbol));
+                    indicesConocidos.Add(i);
                     break;
                 }
             }
         }
-        limites = limites.OrderBy(l => l.Indice).ToList();
 
-        if (limites.Count == 0)
+        // Cualquier OTRO párrafo con estilo de encabezado real (Heading/Título) que no
+        // haya calzado con ningún marcador conocido: antes era invisible y su
+        // contenido se colaba dentro de la sección anterior sin avisar (ej. un
+        // documento real que llama "EQUIPOS DE PROTECCIÓN PERSONAL" a lo que la
+        // plantilla espera como "EPP" bleedeaba dentro de Procedimiento o
+        // Restricciones). Ahora también corta el tramo, pero como sección aparte
+        // ("no reconocida") — nunca se asigna sola, el usuario decide a qué pestaña
+        // enviarla.
+        var limitesDesconocidos = new List<(int Indice, string Titulo)>();
+        for (var i = 0; i < paragraphs.Count; i++)
+        {
+            if (indicesConocidos.Contains(i)) continue;
+            var texto = GetParagraphText(paragraphs[i]).Trim();
+            if (string.IsNullOrWhiteSpace(texto)) continue;
+            var styleId = paragraphs[i].ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+            var styleName = (styleId != null && styleNames.TryGetValue(styleId, out var nombre)) ? nombre : styleId;
+            if (EsEncabezadoGenerico(texto, styleName))
+                limitesDesconocidos.Add((i, texto));
+        }
+
+        if (limitesConocidos.Count == 0 && limitesDesconocidos.Count == 0)
             return new PetsImportPreviewDto { SeccionEncontrada = false, TodosLosParrafos = todosDto };
 
         var seccionesArbol = new Dictionary<string, List<ImportPasoPreviewDto>>();
         var seccionesTexto = new Dictionary<string, string>();
+        var seccionesNoReconocidas = new Dictionary<string, List<ImportPasoPreviewDto>>();
+
+        // Límites de ambos tipos, juntos y en orden — así un encabezado desconocido
+        // corta correctamente el tramo de la sección conocida anterior (y viceversa),
+        // sin importar en qué orden aparezcan en el documento real.
+        var limites = new List<LimiteSeccion>();
+        foreach (var l in limitesConocidos)
+            limites.Add(new LimiteSeccion(l.Indice, false, l.SeccionTexto, l.SeccionArbol, null));
+        foreach (var l in limitesDesconocidos)
+            limites.Add(new LimiteSeccion(l.Indice, true, null, null, l.Titulo));
+        limites = limites.OrderBy(l => l.Indice).ToList();
 
         for (var i = 0; i < limites.Count; i++)
         {
-            var (indice, seccionTexto, seccionArbol) = limites[i];
+            var actual = limites[i];
             var finIndice = i + 1 < limites.Count ? limites[i + 1].Indice : int.MaxValue;
 
-            var enTramo = todos.Where(p => p.Indice > indice && p.Indice < finIndice).ToList();
+            var enTramo = todos.Where(p => p.Indice > actual.Indice && p.Indice < finIndice).ToList();
             if (enTramo.Count == 0) continue;
 
-            if (seccionArbol != null)
+            if (actual.Desconocido)
             {
-                seccionesArbol[seccionArbol] = enTramo.Select(ToPublicDto).ToList();
+                var clave = actual.Titulo!;
+                var sufijo = 2;
+                while (seccionesNoReconocidas.ContainsKey(clave))
+                    clave = $"{actual.Titulo} ({sufijo++})";
+                seccionesNoReconocidas[clave] = enTramo.Select(ToPublicDto).ToList();
             }
-            else if (seccionTexto != null)
+            else if (actual.SeccionArbol != null)
+            {
+                seccionesArbol[actual.SeccionArbol] = enTramo.Select(ToPublicDto).ToList();
+            }
+            else if (actual.SeccionTexto != null)
             {
                 var texto = string.Join("\n\n", enTramo.Where(p => !string.IsNullOrWhiteSpace(p.Texto)).Select(p => p.Texto));
-                if (!string.IsNullOrWhiteSpace(texto)) seccionesTexto[seccionTexto] = texto;
+                if (!string.IsNullOrWhiteSpace(texto)) seccionesTexto[actual.SeccionTexto] = texto;
             }
             // ambos null (Marco Legal, Gestión de personal, Anexos): solo delimitaba, se descarta.
         }
 
         return new PetsImportPreviewDto
         {
-            SeccionEncontrada = true,
+            SeccionEncontrada = limitesConocidos.Count > 0,
             SeccionesArbol = seccionesArbol,
             SeccionesTexto = seccionesTexto,
+            SeccionesNoReconocidas = seccionesNoReconocidas,
             TodosLosParrafos = todosDto
         };
     }
@@ -247,6 +294,16 @@ public class PetsImportService : IPetsImportService
             if (string.IsNullOrWhiteSpace(contenido)) continue;
             await _petsService.UpsertSeccionTextoAsync(petId, seccion, contenido);
         }
+
+        // Ítems de Marco Legal/EPP/Recursos triados a mano desde una sección no
+        // reconocida — siempre personalizados de este PETS, nunca al catálogo
+        // global de forma automática.
+        foreach (var item in request.ItemsCatalogo)
+        {
+            if (string.IsNullOrWhiteSpace(item.Descripcion)) continue;
+            item.AgregarAlCatalogoGlobal = false;
+            await _petsService.AgregarItemPersonalizadoAsync(petId, item);
+        }
     }
 
     private static string GetParagraphText(Paragraph p)
@@ -293,6 +350,18 @@ public class PetsImportService : IPetsImportService
 
         var siguiente = limpioNorm.Length > marcadorNorm.Length ? limpioNorm[marcadorNorm.Length] : ' ';
         return !char.IsLetterOrDigit(siguiente);
+    }
+
+    // Heurística para "esto ES un título de sección, aunque no sepamos cuál todavía":
+    // estilo de encabezado real (Heading/Título) y corto — no un párrafo de cuerpo
+    // largo que por error haya quedado con ese estilo. Mismo umbral de longitud que
+    // el heading "conocido" usa en EsTituloDeSeccion, un poco más laxo (100 en vez de
+    // 60) porque acá no hay un marcador contra el cual comparar el prefijo.
+    private static bool EsEncabezadoGenerico(string texto, string? styleName)
+    {
+        if (styleName == null || !Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase)) return false;
+        var limpio = Regex.Replace(texto.Trim(), @"^\d+[\.\)]?\s*-?\s*", "").TrimEnd('.', ':', ' ');
+        return limpio.Length > 0 && limpio.Length <= 100;
     }
 
     private static Dictionary<string, string> LoadStyleNames(MainDocumentPart mainPart)

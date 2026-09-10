@@ -74,6 +74,9 @@ using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
+using Abril_Backend.Features.Ssoma.Penalidad.Services;
+using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -162,9 +165,17 @@ namespace Abril_Backend.Features.Ssoma
 
             // RAC — Reporte de Actos y Condiciones Subestándar
             services.AddScoped<IRacService, RacService>();
-            services.AddScoped<IPenalidadService, PenalidadService>();
             services.AddScoped<IRacSharePointService, RacSharePointService>();
             services.AddScoped<IRacNotificationService, RacNotificationService>();
+
+            // Penalidades — independiente de RAC (ver PenalidadFeature)
+            services.AddScoped<IProyectoResponsablesResolver, ProyectoResponsablesResolver>();
+            services.AddScoped<IPenalidadService, PenalidadService>();
+            services.AddScoped<IPenalidadNotificationService, PenalidadNotificationService>();
+            services.AddScoped<IGestionPreviaService, GestionPreviaService>();
+            // Bitácora de estados de la penalidad: registra por quién y cuándo pasó cada cambio,
+            // en el mismo SaveChanges que lo mueve. Se engancha en Program.cs (AddInterceptors).
+            services.AddSingleton<PenalidadEstadoHistorialInterceptor>();
 
             // OPT — Observación Planeada de Tarea
             services.AddScoped<IOptRepository, OptRepository>();

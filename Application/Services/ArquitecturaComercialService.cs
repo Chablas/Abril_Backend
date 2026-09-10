@@ -107,6 +107,9 @@ namespace Abril_Backend.Application.Services
         public async Task<AvanceSemanalSnapshotResultDTO> SnapshotRankingSemanal()
             => await _repository.SnapshotRankingSemanal();
 
+        public async Task<AvanceSemanalSnapshotResultDTO> SnapshotCargaSemanal()
+            => await _repository.SnapshotCargaSemanal();
+
         public async Task<ArqComercialDashboardDTO> GetDashboardDataFiltrado(DashboardFiltroDTO filtro)
             => await _repository.GetDashboardDataFiltrado(filtro);
 

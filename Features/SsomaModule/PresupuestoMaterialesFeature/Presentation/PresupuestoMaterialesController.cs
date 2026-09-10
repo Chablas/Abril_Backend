@@ -102,6 +102,25 @@ public class PresupuestoMaterialesController : ControllerBase
         catch (Exception)         { return StatusCode(500, new { message = "Error al actualizar la cantidad." }); }
     }
 
+    /// <summary>Agrega una família nueva (o reutiliza una existente por nombre) directo como línea
+    /// manual del presupuesto — para materiales que todavía no están en el catálogo, sin tener que
+    /// ir primero a la pantalla de Catálogo.</summary>
+    [HttpPost("{presupuestoId}/familias-manuales")]
+    public async Task<IActionResult> AgregarFamiliaManual(int presupuestoId, [FromBody] AgregarFamiliaManualDto dto)
+    {
+        try
+        {
+            var resultado = await _service.AgregarFamiliaManualAsync(presupuestoId, dto);
+            return Ok(resultado);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al agregar família manual al presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al agregar la família." });
+        }
+    }
+
     /// <summary>Elimina una versión de presupuesto en BORRADOR (todas sus líneas). No se puede
     /// eliminar una versión ya APROBADA.</summary>
     [HttpDelete("{presupuestoId}")]

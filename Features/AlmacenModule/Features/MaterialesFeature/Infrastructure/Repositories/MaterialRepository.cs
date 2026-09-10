@@ -31,6 +31,53 @@ public class MaterialRepository : IMaterialRepository
         return new AlmacenFiltrosDTO { Proyectos = proyectos, Materiales = materiales };
     }
 
+    public async Task<List<AlmacenMaterialDTO>> GetMateriales(bool soloActivos)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var q = ctx.AlmacenMateriales.AsQueryable();
+        if (soloActivos) q = q.Where(m => m.Activo);
+
+        return await q
+            .OrderBy(m => m.Nombre)
+            .Select(m => new AlmacenMaterialDTO
+            {
+                Id = m.Id,
+                Codigo = m.Codigo,
+                Nombre = m.Nombre,
+                UnidadMedida = m.UnidadMedida,
+                Activo = m.Activo,
+                PuntoReorden = m.PuntoReorden,
+                StockSeguridad = m.StockSeguridad
+            })
+            .ToListAsync();
+    }
+
+    public async Task<AlmacenMaterialDTO?> UpdateMaterial(int id, UpdateAlmacenMaterialDTO body)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.AlmacenMateriales.FindAsync(id);
+        if (entity == null) return null;
+
+        if (!string.IsNullOrWhiteSpace(body.Nombre)) entity.Nombre = body.Nombre.Trim();
+        if (!string.IsNullOrWhiteSpace(body.UnidadMedida)) entity.UnidadMedida = body.UnidadMedida.Trim();
+        entity.PuntoReorden = body.PuntoReorden;
+        entity.StockSeguridad = body.StockSeguridad;
+        entity.Activo = body.Activo;
+
+        await ctx.SaveChangesAsync();
+
+        return new AlmacenMaterialDTO
+        {
+            Id = entity.Id,
+            Codigo = entity.Codigo,
+            Nombre = entity.Nombre,
+            UnidadMedida = entity.UnidadMedida,
+            Activo = entity.Activo,
+            PuntoReorden = entity.PuntoReorden,
+            StockSeguridad = entity.StockSeguridad
+        };
+    }
+
     public async Task<bool> CodigoExiste(string codigo)
     {
         using var ctx = _factory.CreateDbContext();
@@ -86,6 +133,7 @@ public class MaterialRepository : IMaterialRepository
                 Tipo = m.Tipo,
                 Cantidad = m.Cantidad,
                 Origen = m.Origen,
+                MotivoDevolucion = m.MotivoDevolucion,
                 Comentario = m.Comentario,
                 CreadoPor = m.CreadoPor
             })
@@ -105,6 +153,7 @@ public class MaterialRepository : IMaterialRepository
             Tipo = body.Tipo,
             Cantidad = body.Cantidad,
             Origen = body.Origen,
+            MotivoDevolucion = body.MotivoDevolucion,
             Comentario = body.Comentario,
             CreadoPor = creadoPor
         };
@@ -127,6 +176,7 @@ public class MaterialRepository : IMaterialRepository
             Tipo = entity.Tipo,
             Cantidad = entity.Cantidad,
             Origen = entity.Origen,
+            MotivoDevolucion = entity.MotivoDevolucion,
             Comentario = entity.Comentario,
             CreadoPor = entity.CreadoPor
         };
@@ -144,7 +194,7 @@ public class MaterialRepository : IMaterialRepository
             .Select(g => new
             {
                 MaterialId = g.Key,
-                TotalIngresos = g.Where(m => m.Tipo == TipoMovimientoAlmacen.Ingreso).Sum(m => m.Cantidad),
+                TotalIngresos = g.Where(m => TipoMovimientoAlmacen.SumanStock.Contains(m.Tipo)).Sum(m => m.Cantidad),
                 TotalSalidas = g.Where(m => m.Tipo == TipoMovimientoAlmacen.Salida).Sum(m => m.Cantidad)
             })
             .ToListAsync();
@@ -192,7 +242,7 @@ public class MaterialRepository : IMaterialRepository
             .Select(g => new AlmacenDashboardFlujoItemDTO
             {
                 MaterialNombre = g.Key,
-                TotalIngresos = g.Where(m => m.Tipo == TipoMovimientoAlmacen.Ingreso).Sum(m => m.Cantidad),
+                TotalIngresos = g.Where(m => TipoMovimientoAlmacen.SumanStock.Contains(m.Tipo)).Sum(m => m.Cantidad),
                 TotalSalidas = g.Where(m => m.Tipo == TipoMovimientoAlmacen.Salida).Sum(m => m.Cantidad)
             })
             .OrderByDescending(f => f.TotalIngresos + f.TotalSalidas)
@@ -241,7 +291,7 @@ public class MaterialRepository : IMaterialRepository
             .GroupBy(m => m.MaterialId)
             .ToDictionary(
                 g => g.Key,
-                g => g.Where(m => m.Tipo == TipoMovimientoAlmacen.Ingreso).Sum(m => m.Cantidad)
+                g => g.Where(m => TipoMovimientoAlmacen.SumanStock.Contains(m.Tipo)).Sum(m => m.Cantidad)
                     - g.Where(m => m.Tipo == TipoMovimientoAlmacen.Salida).Sum(m => m.Cantidad));
 
         var criticos = new List<AlmacenMaterialCriticoDTO>();
@@ -313,5 +363,59 @@ public class MaterialRepository : IMaterialRepository
             Cobertura = cobertura,
             LimiteSeguridadDias = LimiteSeguridadDias
         };
+    }
+
+    public async Task<int?> ResolverProyectoIdPorNombre(string nombre)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var normalizado = nombre.Trim();
+        return await ctx.Project
+            .Where(p => p.State && p.Active && p.ProjectDescription.ToLower() == normalizado.ToLower())
+            .Select(p => (int?)p.ProjectId)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<(int MaterialId, bool Creado)> ResolverOCrearMaterial(string codigo, string nombre, string unidadMedida)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var codigoNormalizado = codigo.Trim();
+
+        var existente = await ctx.AlmacenMateriales.FirstOrDefaultAsync(m => m.Codigo.ToLower() == codigoNormalizado.ToLower());
+        if (existente != null) return (existente.Id, false);
+
+        var nuevo = new AlmacenMaterial
+        {
+            Codigo = codigoNormalizado,
+            Nombre = nombre.Trim(),
+            UnidadMedida = unidadMedida.Trim(),
+            Activo = true
+        };
+        ctx.AlmacenMateriales.Add(nuevo);
+        await ctx.SaveChangesAsync();
+        return (nuevo.Id, true);
+    }
+
+    private static string ClaveMovimiento(int proyectoId, int materialId, DateTime fecha, string tipo, decimal cantidad)
+        => $"{proyectoId}|{materialId}|{fecha:yyyyMMdd}|{tipo}|{cantidad:0.####}";
+
+    public async Task<HashSet<string>> ObtenerClavesMovimientosExistentes(List<int> proyectoIds, DateTime fechaMin, DateTime fechaMax)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existentes = await ctx.AlmacenMovimientos
+            .Where(m => proyectoIds.Contains(m.ProyectoId) && m.Fecha >= fechaMin && m.Fecha <= fechaMax)
+            .Select(m => new { m.ProyectoId, m.MaterialId, m.Fecha, m.Tipo, m.Cantidad })
+            .ToListAsync();
+
+        return existentes
+            .Select(m => ClaveMovimiento(m.ProyectoId, m.MaterialId, m.Fecha, m.Tipo, m.Cantidad))
+            .ToHashSet();
+    }
+
+    public async Task InsertarMovimientos(List<AlmacenMovimiento> movimientos)
+    {
+        if (movimientos.Count == 0) return;
+        using var ctx = _factory.CreateDbContext();
+        ctx.AlmacenMovimientos.AddRange(movimientos);
+        await ctx.SaveChangesAsync();
     }
 }

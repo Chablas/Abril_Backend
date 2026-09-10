@@ -67,6 +67,19 @@ public class CostoMatrizDTO
     public int MesProyeccion { get; set; }
     public List<CostoPartidaProyeccionDTO> Proyecciones { get; set; } = [];
     public decimal SubtotalProyeccion { get; set; }
+
+    /// <summary>true si Anio/Mes ya fue cerrado — la matriz se muestra igual pero el front
+    /// debe bloquear la edición de sus celdas.</summary>
+    public bool PeriodoCerrado { get; set; }
+    public string? CerradoPor { get; set; }
+    public DateTime? CerradoEn { get; set; }
+}
+
+public class CostoCierreDTO
+{
+    public int ProyectoId { get; set; }
+    public int Anio { get; set; }
+    public int Mes { get; set; }
 }
 
 public class CostoDashboardItemDTO
@@ -95,4 +108,33 @@ public class CostoEvolucionPuntoDTO
 public class CostoEvolucionDTO
 {
     public List<CostoEvolucionPuntoDTO> Puntos { get; set; } = [];
+}
+
+public class UpsertCostoPresupuestoDTO
+{
+    public int ProyectoId { get; set; }
+    public string Partida { get; set; } = string.Empty;
+    public decimal Monto { get; set; }
+}
+
+/// <summary>Presupuesto aprobado vs gasto real acumulado (todos los meses) de una partida,
+/// con la desviación resultante. Positiva = sobre presupuesto.</summary>
+public class CostoPresupuestoPartidaDTO
+{
+    public string Partida { get; set; } = string.Empty;
+    public decimal MontoPresupuestado { get; set; }
+    public decimal MontoEjecutado { get; set; }
+    public decimal Desviacion { get; set; }
+    public decimal? DesviacionPct { get; set; }
+}
+
+public class CostoPresupuestoResumenDTO
+{
+    public int ProyectoId { get; set; }
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public List<CostoPresupuestoPartidaDTO> Partidas { get; set; } = [];
+    public decimal TotalPresupuestado { get; set; }
+    public decimal TotalEjecutado { get; set; }
+    public decimal TotalDesviacion { get; set; }
+    public decimal? TotalDesviacionPct { get; set; }
 }

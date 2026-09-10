@@ -10,7 +10,6 @@ public class RacListQuery
     public int? EmpresaReportanteId { get; set; }
     public DateTime? FechaDesde { get; set; }
     public DateTime? FechaHasta { get; set; }
-    public bool? SoloConPenalidad { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 
@@ -54,9 +53,6 @@ public class RacCreateRequest
     public string? PlanAccion { get; set; }
     public DateTime FechaReporte { get; set; }
     public DateTime? PlazoLevantamiento { get; set; }
-    public bool AplicaPenalidad { get; set; }
-    public int? InfraccionId { get; set; }
-    public string? DescripcionOcurrido { get; set; }
 }
 
 public class RacCerrarRequest
@@ -72,15 +68,6 @@ public class RacFotoDto
     public string Tipo { get; set; } = "";
     public string? NombreArchivo { get; set; }
     public int Orden { get; set; }
-}
-
-public class RacPenalidadResumenDto
-{
-    public int Id { get; set; }
-    public string Codigo { get; set; } = "";
-    public string Estado { get; set; } = "";
-    public decimal MontoCalculado { get; set; }
-    public string? InfraccionNombre { get; set; }
 }
 
 public class RacListItemDto
@@ -142,14 +129,12 @@ public class RacDetalleDto
     public string? PdfUrl { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<RacFotoDto> Fotos { get; set; } = new();
-    public RacPenalidadResumenDto? Penalidad { get; set; }
 }
 
 public class RacDashboardDto
 {
     public int TotalAbiertos { get; set; }
     public int TotalCerrados { get; set; }
-    public int TotalConPenalidad { get; set; }
     public int CriticosAbiertos { get; set; }
     public int AltosAbiertos { get; set; }
     public int VencidosAbiertos { get; set; }
@@ -195,20 +180,10 @@ public class RacCategoriaDto
     public int Orden { get; set; }
 }
 
-public class RacInfraccionDto
-{
-    public int Id { get; set; }
-    public string Nombre { get; set; } = "";
-    public decimal? MontoFijo { get; set; }
-    public decimal? FactorUit { get; set; }
-}
-
 public class RacCreadoDto
 {
     public int Id { get; set; }
     public string Codigo { get; set; } = "";
-    public int? PenalidadId { get; set; }
-    public string? PenalidadCodigo { get; set; }
 }
 
 public class RacFotoUploadResult

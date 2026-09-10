@@ -293,6 +293,51 @@ public class PresupuestoRepository : IPresupuestoRepository
             "SELECT presupuesto_id FROM ss_presupuesto_detalle WHERE id = @lineaId", new { lineaId })));
     }
 
+    /// <summary>Agrega (o actualiza, si la família ya tenía línea) una línea 100% manual al
+    /// presupuesto vigente — usado por "Agregar família" en el detalle, para materiales que aún no
+    /// tienen historia de ratio (o directamente no existían en el catálogo hasta este momento).</summary>
+    public async Task InsertarLineaManualAsync(
+        int presupuestoId, int familiaId, decimal cantidadManual, decimal precioManual, string? notas)
+    {
+        using var conn = Conn();
+
+        var existenteId = await conn.ExecuteScalarAsync<int?>(
+            "SELECT id FROM ss_presupuesto_detalle WHERE presupuesto_id = @presupuestoId AND familia_id = @familiaId",
+            new { presupuestoId, familiaId });
+
+        if (existenteId.HasValue)
+        {
+            await conn.ExecuteAsync(
+                """
+                UPDATE ss_presupuesto_detalle
+                SET cantidad_manual = @cantidadManual, precio_manual = @precioManual, notas_linea = @notas
+                WHERE id = @id
+                """,
+                new { id = existenteId.Value, cantidadManual, precioManual, notas });
+        }
+        else
+        {
+            var familia = await conn.QuerySingleAsync<(string VariableBase, int TipoId)>(
+                "SELECT variable_base AS VariableBase, tipo_id AS TipoId FROM ss_material_familia WHERE id = @familiaId",
+                new { familiaId });
+
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO ss_presupuesto_detalle
+                  (presupuesto_id, familia_id, tipo_id, variable_base, ratio_recomendado,
+                   n_proyectos_base, valor_driver, cantidad_estimada, precio_unitario,
+                   total_estimado, tiene_historia, cantidad_manual, precio_manual, notas_linea)
+                VALUES
+                  (@presupuestoId, @familiaId, @tipoId, @variableBase, 0,
+                   0, 0, 0, 0,
+                   0, false, @cantidadManual, @precioManual, @notas)
+                """,
+                new { presupuestoId, familiaId, tipoId = familia.TipoId, variableBase = familia.VariableBase, cantidadManual, precioManual, notas });
+        }
+
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId);
+    }
+
     public async Task<string> AprobarAsync(int presupuestoId)
     {
         using var conn = Conn();

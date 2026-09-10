@@ -22,6 +22,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
+using Abril_Backend.Features.Ssoma.Penalidad.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
@@ -147,6 +148,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcActividad> AcActividad { get; set; }
         public DbSet<AcAvanceSemanal> AcAvanceSemanal { get; set; }
         public DbSet<AcRankingSemanal> AcRankingSemanal { get; set; }
+        public DbSet<AcCargaSemanal> AcCargaSemanal { get; set; }
         public DbSet<AcTareoEnrolamiento> AcTareoEnrolamiento { get; set; }
         public DbSet<AcTareoRegistro> AcTareoRegistro { get; set; }
         public DbSet<AcTareoAutorizacion> AcTareoAutorizacion { get; set; }
@@ -335,7 +337,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaUitAnio> SsomaUitAnios { get; set; }
         public DbSet<SsomaRac> SsomaRacs { get; set; }
         public DbSet<SsomaRacFoto> SsomaRacFotos { get; set; }
-        public DbSet<SsomaRacPenalidad> SsomaRacPenalidades { get; set; }
+        public DbSet<SsomaPenalidad> SsomaPenalidades { get; set; }
+        public DbSet<SsomaPenalidadEstadoHistorial> SsomaPenalidadEstadoHistorial { get; set; }
+        public DbSet<GestionPreviaEmpresa> GestionPreviaEmpresas { get; set; }
         public DbSet<SsomaOpt> SsomaOpt { get; set; }
         public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
         public DbSet<SsomaPet> SsomaPet { get; set; }
@@ -500,7 +504,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
 
         // Activos Rotativos SSOMA
-        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoCategoria> SsActivoRotativoCategoria => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoCategoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMaterial> SsActivoRotativoMaterial => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMaterial>();
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo> SsActivoRotativo => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo>();
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento> SsActivoRotativoMovimiento => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento>();
 
@@ -543,6 +547,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCostoRegistro> AcCostoRegistros => Set<AcCostoRegistro>();
         public DbSet<AcCostoProyeccion> AcCostoProyecciones => Set<AcCostoProyeccion>();
         public DbSet<AcCostoMetaMensual> AcCostoMetaMensuales => Set<AcCostoMetaMensual>();
+        public DbSet<AcCostoPresupuesto> AcCostoPresupuestos => Set<AcCostoPresupuesto>();
+        public DbSet<AcCostoCierre> AcCostoCierres => Set<AcCostoCierre>();
         // ── Almacén (Logística): módulo nuevo e independiente ─────────────
         public DbSet<AlmacenMaterial> AlmacenMateriales => Set<AlmacenMaterial>();
         public DbSet<AlmacenMovimiento> AlmacenMovimientos => Set<AlmacenMovimiento>();
@@ -1098,25 +1104,30 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaUitAnio>().ToTable("ssoma_uit_anio");
             modelBuilder.Entity<SsomaRac>().ToTable("ssoma_rac");
             modelBuilder.Entity<SsomaRacFoto>().ToTable("ssoma_rac_foto");
-            modelBuilder.Entity<SsomaRacPenalidad>().ToTable("ssoma_rac_penalidad");
 
             modelBuilder.Entity<SsomaRac>()
                 .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId).IsRequired();
             modelBuilder.Entity<SsomaRacFoto>()
                 .HasOne(x => x.Rac).WithMany(x => x.Fotos).HasForeignKey(x => x.RacId);
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .HasOne(x => x.Rac).WithOne(x => x.Penalidad).HasForeignKey<SsomaRacPenalidad>(x => x.RacId);
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId).IsRequired(false);
 
             modelBuilder.Entity<SsomaRac>()
                 .Property(x => x.Estado).HasDefaultValue("Abierto");
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .Property(x => x.Estado).HasDefaultValue("EnEvaluacion");
             modelBuilder.Entity<SsomaRacFoto>()
                 .Property(x => x.Tipo).HasDefaultValue("Hallazgo");
             modelBuilder.Entity<SsomaRacFoto>()
                 .Property(x => x.Orden).HasDefaultValue(1);
+
+            // ── Penalidad — independiente de RAC (ver PenalidadFeature) ──────
+            modelBuilder.Entity<SsomaPenalidad>().ToTable("ssoma_penalidad");
+            modelBuilder.Entity<SsomaPenalidadEstadoHistorial>().ToTable("ssoma_penalidad_estado_historial");
+            modelBuilder.Entity<GestionPreviaEmpresa>().ToTable("ssoma_gestion_previa_empresa");
+
+            modelBuilder.Entity<SsomaPenalidad>()
+                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId);
+            modelBuilder.Entity<SsomaPenalidad>()
+                .HasMany(x => x.Historial).WithOne(x => x.Penalidad).HasForeignKey(x => x.PenalidadId);
+            modelBuilder.Entity<SsomaPenalidad>()
+                .Property(x => x.Estado).HasDefaultValue("Registrada");
 
             // ── OPT — tablas y nombres explícitos ────────────────────────────
             modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
@@ -1204,6 +1215,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(p => new { p.ProyectoId, p.Anio, p.Mes, p.Partida }).IsUnique();
             modelBuilder.Entity<AcCostoMetaMensual>()
                 .HasIndex(m => new { m.Anio, m.Mes }).IsUnique();
+            modelBuilder.Entity<AcCostoPresupuesto>()
+                .HasIndex(p => new { p.ProyectoId, p.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoCierre>()
+                .HasIndex(c => new { c.ProyectoId, c.Anio, c.Mes }).IsUnique();
 
             // ── Almacén (Logística) ──────────────────────────────────────────
             modelBuilder.Entity<AlmacenMaterial>().HasIndex(m => m.Codigo).IsUnique();
@@ -1294,6 +1309,15 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
                 entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoPresupuesto>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoCierre>(entity =>
+            {
+                entity.Property(e => e.CerradoEn).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
 
             modelBuilder.Entity<AlmacenMaterial>(entity =>
@@ -1504,9 +1528,10 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.FactorUit).HasColumnName("factor_uit");
             });
-            modelBuilder.Entity<SsomaRacPenalidad>(entity =>
+            modelBuilder.Entity<SsomaPenalidad>(entity =>
             {
                 entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");
+                entity.Property(e => e.PdfNotificacionUrl).HasColumnName("pdf_notificacion_url");
                 entity.Property(e => e.PdfResolucionUrl).HasColumnName("pdf_resolucion_url");
             });
 

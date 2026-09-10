@@ -31,6 +31,7 @@ using Abril_Backend.Features.Ssoma;
 using Abril_Backend.Features.GestionAdministrativa;
 using Abril_Backend.Features.GestionGthModule;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
+using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
 using Abril_Backend.Features.NotificacionesModule;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
@@ -138,6 +139,9 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     // Bitácora de fases del requerimiento de reclutamiento: registra por quién y cuándo pasó cada
     // cambio de estado, en el mismo SaveChanges que lo mueve. Se registra en AddGestionGthModule().
     options.AddInterceptors(sp.GetRequiredService<RequerimientoEstadoHistorialInterceptor>());
+
+    // Mismo patrón para la bitácora de estados de Penalidades. Se registra en AddSsomaModule().
+    options.AddInterceptors(sp.GetRequiredService<PenalidadEstadoHistorialInterceptor>());
 });
 
 // Configuración del servicio de correo. Los remitentes viven en Email:Senders indexados por

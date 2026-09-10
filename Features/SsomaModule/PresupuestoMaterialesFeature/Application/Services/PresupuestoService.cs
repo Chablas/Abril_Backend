@@ -16,15 +16,18 @@ public class PresupuestoService : IPresupuestoService
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly IEmailService _emailService;
     private readonly ILogger<PresupuestoService> _logger;
+    private readonly ICatalogoMaterialesService _catalogoService;
 
     public PresupuestoService(
         IPresupuestoRepository repo, IDbContextFactory<AppDbContext> factory,
-        IEmailService emailService, ILogger<PresupuestoService> logger)
+        IEmailService emailService, ILogger<PresupuestoService> logger,
+        ICatalogoMaterialesService catalogoService)
     {
-        _repo         = repo;
-        _factory      = factory;
-        _emailService = emailService;
-        _logger       = logger;
+        _repo            = repo;
+        _factory         = factory;
+        _emailService    = emailService;
+        _logger          = logger;
+        _catalogoService = catalogoService;
     }
 
     public async Task<PresupuestoDetalleDto> GenerarAsync(int projectId, GenerarPresupuestoDto dto, int? userId)
@@ -245,6 +248,23 @@ public class PresupuestoService : IPresupuestoService
 
     public Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual) =>
         _repo.ActualizarCantidadManualPorFamiliaAsync(projectId, familiaId, cantidadManual);
+
+    /// <summary>Crea (o reutiliza, si ya existe por nombre) la família en el catálogo maestro y la
+    /// agrega de una vez como línea manual del presupuesto — para no obligar al responsable SSOMA a
+    /// pasar primero por Catálogo cuando el material simplemente no existía todavía.</summary>
+    public async Task<PresupuestoDetalleDto> AgregarFamiliaManualAsync(int presupuestoId, AgregarFamiliaManualDto dto)
+    {
+        var familia = await _catalogoService.CrearFamiliaAsync(new CrearFamiliaCatalogoDto
+        {
+            Nombre       = dto.Nombre,
+            TipoId       = dto.TipoId,
+            VariableBase = dto.VariableBase,
+            UnidadMedida = dto.UnidadMedida,
+        });
+
+        await _repo.InsertarLineaManualAsync(presupuestoId, familia.Id, dto.CantidadManual, dto.PrecioManual, dto.NotasLinea);
+        return (await _repo.ObtenerDetalleAsync(presupuestoId))!;
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 

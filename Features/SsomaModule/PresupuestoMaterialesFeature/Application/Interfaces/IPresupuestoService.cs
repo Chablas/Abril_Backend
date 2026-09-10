@@ -12,4 +12,5 @@ public interface IPresupuestoService
     Task<List<PresupuestoDestinatarioDto>> ObtenerDestinatariosAprobacionAsync(int presupuestoId);
     Task EliminarAsync(int presupuestoId);
     Task ActualizarCantidadManualPorFamiliaAsync(int projectId, int familiaId, decimal? cantidadManual);
+    Task<PresupuestoDetalleDto> AgregarFamiliaManualAsync(int presupuestoId, AgregarFamiliaManualDto dto);
 }

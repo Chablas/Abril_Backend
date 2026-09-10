@@ -14,8 +14,9 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastruct
         [Column("nombre")]
         public string Nombre { get; set; } = null!;
 
-        [Column("categoria_id")]
-        public int CategoriaId { get; set; }
+        // Material/equipo del catálogo único (Tambor Retráctil, Freno de Cuerda, etc.).
+        [Column("material_id")]
+        public int MaterialId { get; set; }
 
         [Column("codigo")]
         public string? Codigo { get; set; }
@@ -47,8 +48,8 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastruct
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
 
-        [ForeignKey(nameof(CategoriaId))]
-        public SsActivoRotativoCategoria? Categoria { get; set; }
+        [ForeignKey(nameof(MaterialId))]
+        public SsActivoRotativoMaterial? Material { get; set; }
 
         [ForeignKey(nameof(ProyectoActualId))]
         public Project? ProyectoActual { get; set; }

@@ -11,4 +11,9 @@ public interface ICostoService
     Task<CostoDashboardDTO> GetDashboard(int anio, int mes);
     Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses);
     Task UpsertMeta(UpsertCostoMetaDTO body, string? creadoPor);
+    Task<CostoPresupuestoResumenDTO> GetPresupuesto(int proyectoId);
+    Task UpsertPresupuesto(UpsertCostoPresupuestoDTO body, string? creadoPor);
+
+    Task CerrarPeriodo(CostoCierreDTO body, string? cerradoPor);
+    Task ReabrirPeriodo(CostoCierreDTO body);
 }

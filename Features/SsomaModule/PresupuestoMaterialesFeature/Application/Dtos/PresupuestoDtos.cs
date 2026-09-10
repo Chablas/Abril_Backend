@@ -23,6 +23,21 @@ public class ActualizarCantidadManualDto
     public decimal? CantidadManual { get; set; }
 }
 
+/// <summary>Alta manual de una família directo desde el detalle del presupuesto (materiales que
+/// todavía no existen en el catálogo, ej. un EPP nuevo) — crea la família si no existe (o reutiliza
+/// la existente por nombre) y la agrega como línea 100% manual del presupuesto vigente, sin tener
+/// que ir a la pantalla de Catálogo primero.</summary>
+public class AgregarFamiliaManualDto
+{
+    public string  Nombre         { get; set; } = "";
+    public int     TipoId         { get; set; }
+    public string  VariableBase   { get; set; } = "FIJO";
+    public string? UnidadMedida   { get; set; }
+    public decimal CantidadManual { get; set; }
+    public decimal PrecioManual   { get; set; }
+    public string? NotasLinea     { get; set; }
+}
+
 // ── Response ──────────────────────────────────────────────────────────────────
 
 public class PresupuestoResumenDto

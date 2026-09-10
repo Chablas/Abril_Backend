@@ -62,6 +62,8 @@ public class CostoRepository : ICostoRepository
             Monto = proyecciones.FirstOrDefault(p => p.Partida == partida)?.Monto ?? 0m
         }).ToList();
 
+        var cierre = await ctx.AcCostoCierres.FirstOrDefaultAsync(c => c.ProyectoId == proyectoId && c.Anio == anio && c.Mes == mes);
+
         return new CostoMatrizDTO
         {
             ProyectoId = proyectoId,
@@ -74,7 +76,10 @@ public class CostoRepository : ICostoRepository
             AnioProyeccion = anioProy,
             MesProyeccion = mesProy,
             Proyecciones = proyeccionesDto,
-            SubtotalProyeccion = proyeccionesDto.Sum(p => p.Monto)
+            SubtotalProyeccion = proyeccionesDto.Sum(p => p.Monto),
+            PeriodoCerrado = cierre != null,
+            CerradoPor = cierre?.CerradoPor,
+            CerradoEn = cierre?.CerradoEn
         };
     }
 
@@ -223,5 +228,112 @@ public class CostoRepository : ICostoRepository
         }
 
         await ctx.SaveChangesAsync();
+    }
+
+    private static decimal? Pct(decimal desviacion, decimal presupuestado)
+        => presupuestado > 0m ? Math.Round(desviacion / presupuestado * 100m, 1) : (decimal?)null;
+
+    public async Task<CostoPresupuestoResumenDTO?> GetPresupuesto(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var proyectoNombre = await ctx.Project.Where(p => p.ProjectId == proyectoId).Select(p => p.ProjectDescription).FirstOrDefaultAsync();
+        if (proyectoNombre == null) return null;
+
+        var presupuestos = await ctx.AcCostoPresupuestos.Where(p => p.ProyectoId == proyectoId).ToListAsync();
+        var ejecutadoPorPartida = await ctx.AcCostoRegistros
+            .Where(r => r.ProyectoId == proyectoId)
+            .GroupBy(r => r.Partida)
+            .Select(g => new { Partida = g.Key, Total = g.Sum(r => r.Monto) })
+            .ToListAsync();
+
+        var filas = PartidaCosto.Valores.Select(partida =>
+        {
+            var presupuestado = presupuestos.FirstOrDefault(p => p.Partida == partida)?.Monto ?? 0m;
+            var ejecutado = ejecutadoPorPartida.FirstOrDefault(e => e.Partida == partida)?.Total ?? 0m;
+            var desviacion = ejecutado - presupuestado;
+            return new CostoPresupuestoPartidaDTO
+            {
+                Partida = partida,
+                MontoPresupuestado = presupuestado,
+                MontoEjecutado = ejecutado,
+                Desviacion = desviacion,
+                DesviacionPct = Pct(desviacion, presupuestado)
+            };
+        }).ToList();
+
+        var totalPresupuestado = filas.Sum(f => f.MontoPresupuestado);
+        var totalEjecutado = filas.Sum(f => f.MontoEjecutado);
+        var totalDesviacion = totalEjecutado - totalPresupuestado;
+
+        return new CostoPresupuestoResumenDTO
+        {
+            ProyectoId = proyectoId,
+            ProyectoNombre = proyectoNombre,
+            Partidas = filas,
+            TotalPresupuestado = totalPresupuestado,
+            TotalEjecutado = totalEjecutado,
+            TotalDesviacion = totalDesviacion,
+            TotalDesviacionPct = Pct(totalDesviacion, totalPresupuestado)
+        };
+    }
+
+    public async Task UpsertPresupuesto(UpsertCostoPresupuestoDTO body, string? creadoPor)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var entity = await ctx.AcCostoPresupuestos.FirstOrDefaultAsync(p =>
+            p.ProyectoId == body.ProyectoId && p.Partida == body.Partida);
+
+        if (entity == null)
+        {
+            ctx.AcCostoPresupuestos.Add(new AcCostoPresupuesto
+            {
+                ProyectoId = body.ProyectoId,
+                Partida = body.Partida,
+                Monto = body.Monto,
+                CreadoPor = creadoPor
+            });
+        }
+        else
+        {
+            entity.Monto = body.Monto;
+            entity.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<bool> EstaPeriodoCerrado(int proyectoId, int anio, int mes)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.AcCostoCierres.AnyAsync(c => c.ProyectoId == proyectoId && c.Anio == anio && c.Mes == mes);
+    }
+
+    public async Task CerrarPeriodo(CostoCierreDTO body, string? cerradoPor)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existe = await ctx.AcCostoCierres.AnyAsync(c => c.ProyectoId == body.ProyectoId && c.Anio == body.Anio && c.Mes == body.Mes);
+        if (existe) return;
+
+        ctx.AcCostoCierres.Add(new AcCostoCierre
+        {
+            ProyectoId = body.ProyectoId,
+            Anio = body.Anio,
+            Mes = body.Mes,
+            CerradoPor = cerradoPor
+        });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<bool> ReabrirPeriodo(CostoCierreDTO body)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var cierre = await ctx.AcCostoCierres.FirstOrDefaultAsync(c => c.ProyectoId == body.ProyectoId && c.Anio == body.Anio && c.Mes == body.Mes);
+        if (cierre == null) return false;
+
+        ctx.AcCostoCierres.Remove(cierre);
+        await ctx.SaveChangesAsync();
+        return true;
     }
 }

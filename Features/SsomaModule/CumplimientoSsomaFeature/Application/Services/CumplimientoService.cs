@@ -39,5 +39,11 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
 
         public Task<CumplimientoItemDto> MarcarAsync(int proyectoId, int actividadId, CumplimientoMarcarDto dto, int? userId)
             => _repo.MarcarAsync(proyectoId, actividadId, dto, userId);
+
+        public Task<CumplimientoMiResumenDto> GetMiResumenAsync(int userId)
+            => _repo.GetMiResumenAsync(userId);
+
+        public Task<CumplimientoHistoricoDto> GetHistoricoAsync(int proyectoId, string frecuencia, DateOnly desde, DateOnly hasta)
+            => _repo.GetHistoricoAsync(proyectoId, frecuencia, desde, hasta);
     }
 }

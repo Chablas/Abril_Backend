@@ -43,6 +43,7 @@ public class RevisionObservacionListItemDTO
     public string Origen { get; set; } = string.Empty;
     public int? LevantaPorWorkerId { get; set; }
     public string? LevantaPorNombre { get; set; }
+    public DateTime? FechaLevantamiento { get; set; }
     public List<RevisionObservacionFotoDTO> Fotos { get; set; } = new();
 }
 
@@ -87,6 +88,10 @@ public class LevantarRevisionObservacionDTO
     /// <summary>Worker.Id de quien levanta — obligatorio, mismo criterio que en Observaciones
     /// (login de campo compartido, no se puede inferir de la sesión).</summary>
     public int? LevantaPorWorkerId { get; set; }
+
+    /// <summary>Fecha real en que se hizo el levantamiento (no la de subida a la app).
+    /// Null = hoy. Mismo criterio que LevantarObservacionDTO.</summary>
+    public DateTime? FechaLevantamiento { get; set; }
 }
 
 /// <summary>Edición de una observación de revisión ya reportada (requiere el featureKey
@@ -97,6 +102,7 @@ public class UpdateRevisionObservacionDTO
     public string? Descripcion { get; set; }
     public string? PartidaReportada { get; set; }
     public string? PersonaReporta { get; set; }
+    public DateTime? FechaLevantamiento { get; set; }
 }
 
 public class RevisionDashboardGrupoDTO

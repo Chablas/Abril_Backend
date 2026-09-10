@@ -13,26 +13,36 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application
             _repo = repo;
         }
 
-        // ── CATEGORÍAS ──────────────────────────────────────────────────────
+        // ── MATERIALES ───────────────────────────────────────────────────────
 
-        public Task<List<ActivoRotativoCategoriaDto>> GetCategoriasAsync()
-            => _repo.GetCategoriasAsync();
+        public Task<List<ActivoRotativoMaterialDto>> GetMaterialesAsync()
+            => _repo.GetMaterialesAsync();
 
-        public async Task<ActivoRotativoCategoriaDto> CreateCategoriaAsync(ActivoRotativoCategoriaUpsertDto dto)
+        public async Task<ActivoRotativoMaterialDto> CreateMaterialAsync(ActivoRotativoMaterialUpsertDto dto)
         {
-            var entity = await _repo.CreateCategoriaAsync(dto);
-            return new ActivoRotativoCategoriaDto
+            var entity = await _repo.CreateMaterialAsync(dto);
+            return new ActivoRotativoMaterialDto
             {
                 Id = entity.Id,
                 Nombre = entity.Nombre,
                 Orden = entity.Orden,
                 Activo = entity.Activo,
-                TotalActivos = 0
+                TotalActivos = 0,
+                PresupuestoItemId = entity.PresupuestoItemId
             };
         }
 
-        public Task UpdateCategoriaAsync(int categoriaId, ActivoRotativoCategoriaUpsertDto dto)
-            => _repo.UpdateCategoriaAsync(categoriaId, dto);
+        public Task UpdateMaterialAsync(int materialId, ActivoRotativoMaterialUpsertDto dto)
+            => _repo.UpdateMaterialAsync(materialId, dto);
+
+        public Task DeleteMaterialAsync(int materialId)
+            => _repo.DeleteMaterialAsync(materialId);
+
+        public Task<List<PresupuestoItemBuscarDto>> BuscarItemsPresupuestoAsync(string q)
+            => _repo.BuscarItemsPresupuestoAsync(q);
+
+        public Task<List<ResponsableSsomaDto>> GetResponsablesSsomaAsync()
+            => _repo.GetResponsablesSsomaAsync();
 
         // ── ACTIVOS ──────────────────────────────────────────────────────────
 
@@ -56,5 +66,8 @@ namespace Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application
             var entity = await _repo.MoverActivoAsync(activoId, dto, userId);
             return (await _repo.GetActivoDetalleAsync(entity.Id))!;
         }
+
+        public Task DeleteActivoAsync(int activoId)
+            => _repo.DeleteActivoAsync(activoId);
     }
 }

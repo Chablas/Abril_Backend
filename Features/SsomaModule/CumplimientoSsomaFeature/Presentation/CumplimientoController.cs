@@ -68,7 +68,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Presentati
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
 
-        /// <summary>Marca (o desmarca) el cumplimiento de una actividad en el periodo vigente.</summary>
+        /// <summary>Marca (cumplido/no aplica) o desmarca (pendiente) una actividad en el periodo vigente.</summary>
         [HttpPatch("proyecto/{proyectoId:int}/actividades/{actividadId:int}")]
         public async Task<IActionResult> Marcar(int proyectoId, int actividadId, [FromBody] CumplimientoMarcarDto dto)
         {
@@ -78,6 +78,27 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Presentati
                 return Ok(result);
             }
             catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Checklist del usuario logueado: resuelve su rol y su proyecto actual solo, sin que tenga que elegir nada (pensado para celular).</summary>
+        [HttpGet("mi-resumen")]
+        public async Task<IActionResult> GetMiResumen()
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized();
+                return Ok(await _service.GetMiResumenAsync(userId.Value));
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Histórico de cumplimiento (% por día/semana/mes) de un proyecto, para indicadores.</summary>
+        [HttpGet("proyecto/{proyectoId:int}/historico")]
+        public async Task<IActionResult> GetHistorico(int proyectoId, [FromQuery] string frecuencia, [FromQuery] DateOnly desde, [FromQuery] DateOnly hasta)
+        {
+            try { return Ok(await _service.GetHistoricoAsync(proyectoId, frecuencia, desde, hasta)); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
     }

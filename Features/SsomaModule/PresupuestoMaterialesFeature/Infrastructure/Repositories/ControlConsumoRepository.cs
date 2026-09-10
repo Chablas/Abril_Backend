@@ -206,9 +206,9 @@ public class ControlConsumoRepository : IControlConsumoRepository
             )
             SELECT * FROM combinado
             ORDER BY
-              "FueraDePresupuesto" DESC,
-              CASE WHEN "Semaforo" = 'ALERTA' THEN 1 WHEN "Semaforo" = 'ADVERTENCIA' THEN 2 ELSE 3 END,
-              "NombreFamilia"
+              fueradepresupuesto DESC,
+              CASE WHEN semaforo = 'ALERTA' THEN 1 WHEN semaforo = 'ADVERTENCIA' THEN 2 ELSE 3 END,
+              nombrefamilia
             """, new { presupuestoId, projectId = header.ProjectId })).ToList();
 
         header.TotalConsumido        = lineas.Sum(l => l.TotalConsumido);

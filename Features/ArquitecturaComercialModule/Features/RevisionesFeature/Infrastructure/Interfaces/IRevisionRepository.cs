@@ -20,6 +20,6 @@ public interface IRevisionRepository
     Task<AcRevisionObservacionFoto> AgregarFoto(int revisionObservacionId, string tipo, string url, int orden);
     Task<AcRevisionObservacionFoto?> GetFotoById(int fotoId);
     Task ActualizarFoto(int fotoId, string url);
-    Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId);
+    Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId, DateTime? fechaLevantamiento);
     Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body);
 }

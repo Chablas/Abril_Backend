@@ -108,6 +108,7 @@ public class RevisionRepository : IRevisionRepository
                 Origen = o.Origen,
                 LevantaPorWorkerId = o.LevantaPorWorkerId,
                 LevantaPorNombre = o.LevantaPor != null && o.LevantaPor.Person != null ? o.LevantaPor.Person.FullName : null,
+                FechaLevantamiento = o.FechaLevantamiento,
                 Fotos = o.Fotos.Select(f => new RevisionObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
@@ -142,6 +143,7 @@ public class RevisionRepository : IRevisionRepository
             Origen = o.Origen,
             LevantaPorWorkerId = o.LevantaPorWorkerId,
             LevantaPorNombre = o.LevantaPor?.Person?.FullName,
+            FechaLevantamiento = o.FechaLevantamiento,
             Fotos = o.Fotos.Select(f => new RevisionObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }
@@ -292,14 +294,14 @@ public class RevisionRepository : IRevisionRepository
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId)
+    public async Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId, DateTime? fechaLevantamiento)
     {
         using var ctx = _factory.CreateDbContext();
         var entity = await ctx.AcRevisionObservaciones.FindAsync(id);
         if (entity == null) return null;
 
         entity.Estado = "Completado";
-        entity.FechaLevantamiento = DateTime.UtcNow;
+        entity.FechaLevantamiento = fechaLevantamiento ?? DateTime.UtcNow;
         entity.LevantaPorWorkerId = levantaPorWorkerId;
         await ctx.SaveChangesAsync();
 
@@ -316,6 +318,7 @@ public class RevisionRepository : IRevisionRepository
         if (body.Descripcion != null) entity.Descripcion = body.Descripcion;
         if (body.PartidaReportada != null) entity.PartidaReportada = body.PartidaReportada;
         if (body.PersonaReporta != null) entity.PersonaReporta = body.PersonaReporta;
+        if (body.FechaLevantamiento.HasValue) entity.FechaLevantamiento = body.FechaLevantamiento.Value;
         await ctx.SaveChangesAsync();
 
         return await GetObservacionById(id);

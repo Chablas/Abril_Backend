@@ -8,12 +8,14 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Presentation
 {
     /// <summary>
-    /// Sección "Días reembolsables" de Mis Rendiciones → Configuración: cuántos días hábiles del mes
-    /// siguiente dura el plazo para rendir un mes. Cuelga de <c>rendiciones/configuracion</c> igual
-    /// que los correos de esa misma pantalla.
+    /// Sección "Días reembolsables" de Solicitud de Salidas → Configuración: cuántos días hábiles
+    /// del mes siguiente dura el plazo para rendir un mes. Cuelga de
+    /// <c>solicitud-salidas/configuracion</c> igual que los correos y los recordatorios de esa
+    /// misma pantalla — el plazo se mudó ahí junto con la sección, porque quien rinde entra por
+    /// Solicitud de Salidas y ahí es donde el plazo se le aplica.
     /// </summary>
     [ApiController]
-    [Route("api/v1/gestion-administrativa/rendiciones/configuracion/plazo")]
+    [Route("api/v1/gestion-administrativa/solicitud-salidas/configuracion/plazo")]
     [Authorize]
     public class PlazoRendicionController : ControllerBase
     {

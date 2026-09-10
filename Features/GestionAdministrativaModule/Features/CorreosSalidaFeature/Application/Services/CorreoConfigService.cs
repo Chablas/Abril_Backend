@@ -8,8 +8,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
 {
     /// <summary>
     /// Wrapper delgado sobre el repositorio de configuración de correos. Lo único propio es
-    /// traducir el segmento de URL de la pantalla al código del catálogo: un segmento que no
-    /// corresponde a ninguna pantalla sale como 404 en vez de listar o escribir de más.
+    /// traducir los segmentos de URL (la pantalla y, al leer, la sección) a los códigos de sus
+    /// catálogos: un segmento que no corresponde a ninguno sale como 404 en vez de listar o
+    /// escribir de más.
     /// </summary>
     public class CorreoConfigService : ICorreoConfigService
     {
@@ -21,8 +22,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
             CorreoPantallaCodigos.DesdeSegmento(segmento)
             ?? throw new AbrilException($"La pantalla indicada no existe: '{segmento}'.", 404);
 
-        public Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaSegmento) =>
-            _repo.GetInicialAsync(Pantalla(pantallaSegmento));
+        private static string Grupo(string? segmento) =>
+            CorreoGrupoCodigos.DesdeSegmento(segmento)
+            ?? throw new AbrilException($"La sección indicada no existe: '{segmento}'.", 404);
+
+        public Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaSegmento, string? grupoSegmento) =>
+            _repo.GetInicialAsync(Pantalla(pantallaSegmento), Grupo(grupoSegmento));
 
         public Task SetEventoActiveAsync(string pantallaSegmento, string eventoCodigo, bool active) =>
             _repo.SetEventoActiveAsync(Pantalla(pantallaSegmento), eventoCodigo, active);

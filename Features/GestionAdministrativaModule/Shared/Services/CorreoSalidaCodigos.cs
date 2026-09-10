@@ -85,6 +85,52 @@
         /// que se origina en Reembolsos y cierra el ciclo.
         /// </summary>
         public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
+
+        // ── Recordatorios del plazo de rendición ─────────────────────────────
+        // Los dos únicos correos que no los dispara nadie: salen porque llegó el día. Los manda el
+        // cron diario (RecordatorioRendicionController) a cada trabajador con salidas del mes
+        // anterior aptas para rendir y todavía sin rendir. Ver RG-33 y RG-34.
+
+        /// <summary>
+        /// El PRIMER DÍA HÁBIL del mes: se abrió el plazo para rendir el mes que acaba de cerrar
+        /// (RG-33).
+        /// </summary>
+        public const string RecordatorioRendicionApertura = "RECORDATORIO_RENDICION_APERTURA";
+
+        /// <summary>
+        /// El ÚLTIMO DÍA APTO PARA RENDIR: hoy vence el plazo del mes anterior (RG-34). Ese día
+        /// sale de <c>ga_rendicion_config.dias_habiles_plazo</c> (Solicitud de Salidas →
+        /// Configuración → Días reembolsables), no de una fecha fija.
+        /// </summary>
+        public const string RecordatorioRendicionCierre = "RECORDATORIO_RENDICION_CIERRE";
+    }
+
+    /// <summary>
+    /// Códigos estables del catálogo ga_correo_grupo: la SECCIÓN de la pantalla de Configuración
+    /// en la que aparece cada correo. Es ortogonal a <see cref="CorreoPantallaCodigos"/> — la
+    /// pantalla dice dónde se administra y el grupo en qué sección.
+    /// </summary>
+    public static class CorreoGrupoCodigos
+    {
+        /// <summary>Los correos del flujo: los dispara la acción de alguien.</summary>
+        public const string Correos = "CORREOS";
+
+        /// <summary>Los que dispara el cron del plazo de rendición: salen porque llegó el día.</summary>
+        public const string Recordatorios = "RECORDATORIOS";
+
+        /// <summary>
+        /// Traduce el segmento que manda el frontend al código del catálogo. Sin segmento se
+        /// responde <see cref="Correos"/>: es lo que piden las cinco configuraciones que ya
+        /// existían y que no conocen este parámetro. Devuelve null si el segmento no es un grupo
+        /// conocido, para que el controller responda 404 en vez de listar todo.
+        /// </summary>
+        public static string? DesdeSegmento(string? segmento) =>
+            (segmento ?? string.Empty).Trim().ToLowerInvariant() switch
+            {
+                "" or "correos"  => Correos,
+                "recordatorios"  => Recordatorios,
+                _                => null,
+            };
     }
 
     /// <summary>

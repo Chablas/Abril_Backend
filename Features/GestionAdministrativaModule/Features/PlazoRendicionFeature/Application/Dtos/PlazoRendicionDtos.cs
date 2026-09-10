@@ -2,7 +2,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Applicatio
 {
     /// <summary>
     /// Plazo para rendir un mes, tal como lo muestra la sección "Días reembolsables" de
-    /// Mis Rendiciones → Configuración.
+    /// Solicitud de Salidas → Configuración.
     /// </summary>
     public class PlazoRendicionDto
     {

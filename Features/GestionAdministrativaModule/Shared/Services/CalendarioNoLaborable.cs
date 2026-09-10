@@ -40,7 +40,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
         /// <summary>
         /// Días hábiles que dura el plazo para rendir un mes, contados sobre el mes siguiente. Sale
-        /// de <c>ga_rendicion_config</c> (Mis Rendiciones → Configuración → Días reembolsables), así
+        /// de <c>ga_rendicion_config</c> (Solicitud de Salidas → Configuración → Días reembolsables), así
         /// que es un dato del calendario cargado y no una constante.
         /// </summary>
         public int DiasHabilesDePlazo { get; }

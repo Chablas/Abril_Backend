@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     ///
     /// Hoy solo guarda los días hábiles de plazo, que antes era la constante
     /// <c>CalendarioNoLaborable.DiasHabilesDePlazo = 7</c>. Se administra desde
-    /// Mis Rendiciones → Configuración → Días reembolsables.
+    /// Solicitud de Salidas → Configuración → Días reembolsables.
     /// </summary>
     [Table("ga_rendicion_config")]
     public class GaRendicionConfig

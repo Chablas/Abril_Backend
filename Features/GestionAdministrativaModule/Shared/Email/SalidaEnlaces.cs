@@ -30,6 +30,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/solicitud-salidas?solicitud={solicitudId}";
 
         /// <summary>
+        /// Solicitud de Salidas sin abrir ninguna solicitud — es también la pantalla donde el
+        /// trabajador RINDE (elige el mes en «Mes a rendir» y presiona Rendir). La usan los
+        /// recordatorios del plazo: hablan de varias salidas a la vez, así que no hay una sola que
+        /// abrir.
+        /// </summary>
+        public static string Autoservicio(IConfiguration configuration) =>
+            $"{Base(configuration)}/gestion-administrativa/solicitud-salidas";
+
+        /// <summary>
         /// Gestión de Rendiciones abierta en esa planilla — es la pantalla donde el revisor mira el
         /// Consolidado del S10, aprueba o rechaza el reembolso y firma. La unidad es la PLANILLA y
         /// no la salida: el documento que revisa cubre a todas las salidas que agrupa.

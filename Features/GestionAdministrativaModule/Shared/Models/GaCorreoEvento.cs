@@ -28,6 +28,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("pantalla_id")]
         public int PantallaId { get; set; }
 
+        /// <summary>
+        /// Sección de esa pantalla en la que aparece (<see cref="GaCorreoGrupo"/>): CORREOS los del
+        /// flujo, RECORDATORIOS los que dispara el cron del plazo de rendición. Es ortogonal a
+        /// <see cref="PantallaId"/> —una dice dónde se administra y la otra en qué sección— y, por
+        /// el mismo motivo que aquella, no lleva navegación declarada: sin ella EF trata la columna
+        /// como un escalar y no inventa una FK sombra.
+        /// </summary>
+        [Column("grupo_id")]
+        public int GrupoId { get; set; }
+
         /// <summary>Nombre para mostrar en la pantalla de configuración.</summary>
         [Column("nombre")]
         public string Nombre { get; set; } = string.Empty;

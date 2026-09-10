@@ -263,6 +263,9 @@ namespace Abril_Backend.Infrastructure.Data
         // ga_correo_pantalla agrupa los correos por la pantalla donde se originan: cada una
         // administra los suyos desde su propio botón «Configuración».
         public DbSet<GaCorreoPantalla> GaCorreoPantalla { get; set; }
+        // ga_correo_grupo reparte los correos de una misma pantalla en secciones: los del flujo
+        // (CORREOS) y los que dispara el cron del plazo de rendición (RECORDATORIOS).
+        public DbSet<GaCorreoGrupo> GaCorreoGrupo { get; set; }
         public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
         public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }
         public DbSet<GaCorreoRegla> GaCorreoRegla { get; set; }

@@ -7,7 +7,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 namespace Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Services
 {
     /// <summary>
-    /// Sección "Días reembolsables" de Mis Rendiciones → Configuración. Lo único propio es validar
+    /// Sección "Días reembolsables" de Solicitud de Salidas → Configuración. Lo único propio es validar
     /// el rango antes de escribir: el CHECK de la base también lo corta, pero acá el error sale con
     /// un mensaje que la pantalla puede mostrar en vez de un 500.
     /// </summary>

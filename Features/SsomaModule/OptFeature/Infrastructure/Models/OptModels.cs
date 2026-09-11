@@ -95,7 +95,17 @@ public class SsomaPetPaso
     public string Tipo { get; set; } = "paso";
 
     public string Descripcion { get; set; } = string.Empty;
+
+    // Se mantiene por compatibilidad con datos ya guardados (una sola imagen por
+    // paso) — las imágenes NUEVAS van a SsomaPetPasoImagen (varias por paso). No se
+    // vuelve a escribir acá desde el código nuevo.
     public string? ImagenUrl { get; set; }
+
+    // Etiqueta libre para resaltar el paso por tema transversal (hoy solo
+    // "medio_ambiente"; queda como texto y no como bool para poder sumar categorías
+    // nuevas — ej. "calidad" — sin otra migración). null = sin categoría.
+    public string? Categoria { get; set; }
+
     public int Orden { get; set; }
     public bool Activo { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -104,6 +114,22 @@ public class SsomaPetPaso
     public SsomaPet? Pet { get; set; }
     public SsomaPetPaso? Parent { get; set; }
     public ICollection<SsomaPetPaso> Hijos { get; set; } = [];
+    public ICollection<SsomaPetPasoImagen> Imagenes { get; set; } = [];
+}
+
+// Varias imágenes por paso (un paso de Procedimiento puede traer 2-3 fotos juntas en
+// el Word original) — reemplaza la limitación de "una sola imagen" de SsomaPetPaso.
+// ImagenUrl.
+public class SsomaPetPasoImagen
+{
+    public int Id { get; set; }
+    public int PasoId { get; set; }
+    public string Url { get; set; } = string.Empty;
+    public int Orden { get; set; }
+    public bool Activo { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public SsomaPetPaso? Paso { get; set; }
 }
 
 public class SsomaOptCriterioVerificacion

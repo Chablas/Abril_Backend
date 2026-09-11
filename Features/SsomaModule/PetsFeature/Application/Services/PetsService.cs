@@ -96,11 +96,12 @@ public class PetsService : IPetsService
                     Tipo = paso.Tipo,
                 });
 
-                // Se reusa la MISMA imagen (misma URL) en vez de descargar/resubir el
-                // archivo — cambiar la imagen en cualquiera de los dos PETS sube un
-                // blob nuevo y solo repunta su propio paso, nunca borra el original.
-                if (!string.IsNullOrEmpty(paso.ImagenUrl))
-                    await _repo.SetImagenPasoAsync(nuevoPetId, nuevoPasoId, paso.ImagenUrl);
+                // Se reusan las MISMAS URLs (todas las imágenes del paso, no solo la
+                // primera) en vez de descargar/resubir el archivo — cambiar una imagen en
+                // cualquiera de los dos PETS sube un blob nuevo y solo repunta su propio
+                // paso, nunca borra el original.
+                foreach (var url in paso.Imagenes.Select(i => i.Url))
+                    await _repo.AgregarImagenPasoAsync(nuevoPetId, nuevoPasoId, url);
 
                 await DuplicarNivelAsync(paso.Id, nuevoPasoId);
             }
@@ -152,15 +153,21 @@ public class PetsService : IPetsService
     public Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido)
         => _repo.UpsertSeccionTextoAsync(petId, seccion, contenido);
 
-    public async Task<string> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName)
+    // Agrega una imagen MÁS al paso (no reemplaza las que ya tenía) — un paso puede
+    // traer varias fotos del Word original o el usuario puede ir sumando evidencia.
+    public async Task<(int Id, string Url)> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName)
     {
         var urls = await _storage.UploadFilesAsync([(fileStream, fileName)], ContainerName);
         var url = urls.FirstOrDefault()
             ?? throw new AbrilException("No se pudo subir la imagen.", 500);
 
-        await _repo.SetImagenPasoAsync(petId, pasoId, url);
-        return url;
+        var id = await _repo.AgregarImagenPasoAsync(petId, pasoId, url);
+        return (id, url);
     }
+
+    public Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId) => _repo.EliminarImagenPasoAsync(petId, pasoId, imagenId);
+
+    public Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria) => _repo.ActualizarCategoriaPasoAsync(petId, pasoId, categoria);
 
     public Task<List<CatalogoItemDto>> GetCatalogoAsync(string grupo, string? tipo) => _repo.GetCatalogoAsync(grupo, tipo);
 
@@ -175,6 +182,8 @@ public class PetsService : IPetsService
         => _repo.AgregarItemPersonalizadoAsync(petId, request);
 
     public Task EliminarSeleccionAsync(int petId, int seleccionId) => _repo.EliminarSeleccionAsync(petId, seleccionId);
+
+    public Task DesactivarSeleccionesGrupoAsync(int petId, string grupo) => _repo.DesactivarSeleccionesGrupoAsync(petId, grupo);
 
     private const string ContainerNameAnexos = "ssoma-pets-anexos";
 

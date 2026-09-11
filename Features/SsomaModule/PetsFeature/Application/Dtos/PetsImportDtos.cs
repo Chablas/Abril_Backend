@@ -10,7 +10,17 @@ public class ImportPasoPreviewDto
     public int? ParentIndice { get; set; }
     public string Tipo { get; set; } = "paso"; // subtitulo | paso | letra | guion
     public string Texto { get; set; } = string.Empty;
+
+    // Se mantiene = ImagenesBase64.FirstOrDefault() para no romper el preview del
+    // frontend que ya muestra esta sola imagen — la lista completa (un párrafo del
+    // Word puede traer 2-3 fotos juntas) viaja en ImagenesBase64.
     public string? ImagenBase64 { get; set; }
+    public List<string> ImagenesBase64 { get; set; } = [];
+
+    // "medio_ambiente" | null — el usuario la marca en el preview antes de confirmar,
+    // así no tiene que ir paso por paso después de guardado (ver Categoria en
+    // SsomaPetPaso). Solo aplica a filas de árbol (Procedimiento/Responsabilidades).
+    public string? Categoria { get; set; }
 }
 
 public class PetsImportPreviewDto
@@ -45,6 +55,8 @@ public class ImportPasoConfirmDto
     public string Tipo { get; set; } = "paso";
     public string Texto { get; set; } = string.Empty;
     public string? ImagenBase64 { get; set; }
+    public List<string> ImagenesBase64 { get; set; } = [];
+    public string? Categoria { get; set; }
 }
 
 public class ConfirmarImportacionRequest

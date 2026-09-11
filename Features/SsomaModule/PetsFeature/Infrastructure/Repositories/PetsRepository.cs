@@ -49,15 +49,37 @@ public class PetsRepository : IPetsRepository
         FirmaUrl = f?.FirmaUrl
     };
 
-    private static PetPasoDto MapPaso(SsomaPetPaso x) => new()
+    private static PetPasoDto MapPaso(SsomaPetPaso x, Dictionary<int, List<PetImagenDto>> imagenesPorPaso)
     {
-        Id = x.Id,
-        ParentId = x.ParentId,
-        Tipo = x.Tipo,
-        Descripcion = x.Descripcion,
-        ImagenUrl = x.ImagenUrl,
-        Orden = x.Orden
-    };
+        var imagenes = imagenesPorPaso.GetValueOrDefault(x.Id) ?? [];
+        return new PetPasoDto
+        {
+            Id = x.Id,
+            ParentId = x.ParentId,
+            Tipo = x.Tipo,
+            Descripcion = x.Descripcion,
+            // Compatibilidad: si todavía no tiene fila en la tabla nueva pero sí en la
+            // columna vieja (pasos importados antes de este cambio), se sigue mostrando.
+            ImagenUrl = imagenes.Count > 0 ? imagenes[0].Url : x.ImagenUrl,
+            Imagenes = imagenes,
+            Categoria = x.Categoria,
+            Orden = x.Orden
+        };
+    }
+
+    private async Task<Dictionary<int, List<PetImagenDto>>> CargarImagenesPorPasoAsync(AppDbContext ctx, IEnumerable<int> pasoIds)
+    {
+        var ids = pasoIds.ToList();
+        if (ids.Count == 0) return [];
+
+        var imagenes = await ctx.SsomaPetPasoImagen
+            .Where(x => ids.Contains(x.PasoId) && x.Activo)
+            .OrderBy(x => x.Orden)
+            .ToListAsync();
+
+        return imagenes.GroupBy(x => x.PasoId)
+            .ToDictionary(g => g.Key, g => g.Select(i => new PetImagenDto { Id = i.Id, Url = i.Url }).ToList());
+    }
 
     private static PetItemSeleccionadoDto MapSeleccion(SsomaPetItemSeleccionado x) => new()
     {
@@ -81,8 +103,9 @@ public class PetsRepository : IPetsRepository
             .OrderBy(x => x.Orden)
             .ToListAsync();
 
+        var imagenesPorPaso = await CargarImagenesPorPasoAsync(ctx, todosPasos.Select(x => x.Id));
         var pasosPorSeccion = todosPasos.GroupBy(x => x.Seccion)
-            .ToDictionary(g => g.Key, g => g.Select(MapPaso).ToList());
+            .ToDictionary(g => g.Key, g => g.Select(x => MapPaso(x, imagenesPorPaso)).ToList());
 
         var textosPorSeccion = await ctx.SsomaPetSeccionTexto
             .Where(x => x.PetId == id)
@@ -126,19 +149,13 @@ public class PetsRepository : IPetsRepository
     public async Task<List<PetPasoDto>> GetPasosAsync(int petId)
     {
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsomaPetPaso
+        var pasos = await ctx.SsomaPetPaso
             .Where(x => x.PetId == petId && x.Activo && x.Seccion == "procedimiento")
             .OrderBy(x => x.Orden)
-            .Select(x => new PetPasoDto
-            {
-                Id = x.Id,
-                ParentId = x.ParentId,
-                Tipo = x.Tipo,
-                Descripcion = x.Descripcion,
-                ImagenUrl = x.ImagenUrl,
-                Orden = x.Orden
-            })
             .ToListAsync();
+
+        var imagenesPorPaso = await CargarImagenesPorPasoAsync(ctx, pasos.Select(x => x.Id));
+        return pasos.Select(x => MapPaso(x, imagenesPorPaso)).ToList();
     }
 
     public async Task<int> CrearAsync(CrearPetRequest request)
@@ -293,6 +310,7 @@ public class PetsRepository : IPetsRepository
                     ParentId = parentIdReal,
                     Tipo = ValidarTipo(item.Tipo),
                     Descripcion = item.Texto,
+                    Categoria = item.Categoria != null && CategoriasValidas.Contains(item.Categoria) ? item.Categoria : null,
                     Orden = orden,
                     Activo = true,
                     CreatedAt = DateTime.UtcNow
@@ -365,6 +383,60 @@ public class PetsRepository : IPetsRepository
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
         paso.ImagenUrl = imagenUrl;
+        paso.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> AgregarImagenPasoAsync(int petId, int pasoId, string url)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
+        if (!existe) throw new AbrilException("Paso no encontrado.", 404);
+
+        var maxOrden = await ctx.SsomaPetPasoImagen
+            .Where(x => x.PasoId == pasoId && x.Activo)
+            .Select(x => (int?)x.Orden).MaxAsync() ?? 0;
+
+        var nueva = new SsomaPetPasoImagen
+        {
+            PasoId = pasoId,
+            Url = url,
+            Orden = maxOrden + 1,
+            Activo = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaPetPasoImagen.Add(nueva);
+        await ctx.SaveChangesAsync();
+        return nueva.Id;
+    }
+
+    public async Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
+        if (!existe) throw new AbrilException("Paso no encontrado.", 404);
+
+        var imagen = await ctx.SsomaPetPasoImagen.FirstOrDefaultAsync(x => x.Id == imagenId && x.PasoId == pasoId)
+            ?? throw new AbrilException("Imagen no encontrada.", 404);
+
+        imagen.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    // Catálogo fijo de categorías válidas — texto libre no, porque el color/ícono en
+    // pantalla y PDF dependen de reconocer el valor exacto.
+    private static readonly HashSet<string> CategoriasValidas = ["medio_ambiente"];
+
+    public async Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria)
+    {
+        if (categoria != null && !CategoriasValidas.Contains(categoria))
+            throw new AbrilException($"Categoría inválida: '{categoria}'.", 400);
+
+        using var ctx = _factory.CreateDbContext();
+        var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
+            ?? throw new AbrilException("Paso no encontrado.", 404);
+
+        paso.Categoria = categoria;
         paso.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }
@@ -526,6 +598,19 @@ public class PetsRepository : IPetsRepository
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
 
+        // Import de Word reimportado varias veces sin este chequeo triplicaba Marco
+        // Legal/EPP/Recursos — a diferencia de Procedimiento/Responsabilidades, estos
+        // ítems personalizados no tienen un "Reemplazar" explícito, así que si ya existe
+        // uno activo con la misma descripción en este PETS (mismo grupo/tipo), se
+        // reutiliza en vez de duplicar.
+        var yaExiste = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Grupo == request.Grupo && x.Tipo == request.Tipo && x.Activo
+                && x.CatalogoItemId == null && x.DescripcionPersonalizada != null)
+            .Select(x => new { x.Id, x.DescripcionPersonalizada })
+            .ToListAsync();
+        var existente = yaExiste.FirstOrDefault(x => string.Equals(x.DescripcionPersonalizada, request.Descripcion, StringComparison.OrdinalIgnoreCase));
+        if (existente != null) return existente.Id;
+
         int? catalogoItemId = null;
         if (request.AgregarAlCatalogoGlobal)
         {
@@ -569,6 +654,18 @@ public class PetsRepository : IPetsRepository
             ?? throw new AbrilException("Selección no encontrada.", 404);
 
         seleccion.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task DesactivarSeleccionesGrupoAsync(int petId, string grupo)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var selecciones = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Grupo == grupo && x.Activo)
+            .ToListAsync();
+
+        foreach (var s in selecciones)
+            s.Activo = false;
         await ctx.SaveChangesAsync();
     }
 

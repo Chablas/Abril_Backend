@@ -163,11 +163,29 @@ public class PetsController : ControllerBase
         try
         {
             using var stream = file.OpenReadStream();
-            var url = await _service.SubirImagenPasoAsync(id, pasoId, stream, file.FileName);
-            return Ok(new { imagenUrl = url });
+            var (imagenId, url) = await _service.SubirImagenPasoAsync(id, pasoId, stream, file.FileName);
+            return Ok(new { id = imagenId, imagenUrl = url });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.SubirImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpDelete("{id:int}/pasos/{pasoId:int}/imagen/{imagenId:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> EliminarImagenPaso(int id, int pasoId, int imagenId)
+    {
+        try { await _service.EliminarImagenPasoAsync(id, pasoId, imagenId); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.EliminarImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/pasos/{pasoId:int}/categoria")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ActualizarCategoriaPaso(int id, int pasoId, [FromBody] ActualizarCategoriaPasoRequest request)
+    {
+        try { await _service.ActualizarCategoriaPasoAsync(id, pasoId, request.Categoria); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ActualizarCategoriaPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     // ── Secciones de texto único (Introducción / Alcance / Objetivo / Definiciones / Restricciones) ──

@@ -18,7 +18,9 @@ public interface IPetsService
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
-    Task<string> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName);
+    Task<(int Id, string Url)> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName);
+    Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId);
+    Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria);
     Task DesactivarSeccionAsync(int petId, string seccion);
     Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido);
 
@@ -29,6 +31,7 @@ public interface IPetsService
     Task<int> SeleccionarCatalogoItemAsync(int petId, SeleccionarItemCatalogoRequest request);
     Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request);
     Task EliminarSeleccionAsync(int petId, int seleccionId);
+    Task DesactivarSeleccionesGrupoAsync(int petId, string grupo);
 
     // Anexos
     Task<string> SubirAnexoAsync(int petId, string nombre, Stream fileStream, string fileName);

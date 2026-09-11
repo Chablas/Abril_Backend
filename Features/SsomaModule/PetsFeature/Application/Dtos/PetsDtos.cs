@@ -10,13 +10,27 @@ public class PetListItemDto
     public DateTime CreatedAt { get; set; }
 }
 
+public class PetImagenDto
+{
+    public int Id { get; set; }
+    public string Url { get; set; } = string.Empty;
+}
+
 public class PetPasoDto
 {
     public int Id { get; set; }
     public int? ParentId { get; set; }
     public string Tipo { get; set; } = "paso";
     public string Descripcion { get; set; } = string.Empty;
+
+    // Se mantiene = Imagenes.FirstOrDefault()?.Url para no romper nada que ya lea
+    // ImagenUrl (ej. el PDF, pantallas viejas) — el dato real vive en Imagenes.
     public string? ImagenUrl { get; set; }
+    public List<PetImagenDto> Imagenes { get; set; } = [];
+
+    // Etiqueta libre por tema transversal (hoy solo "medio_ambiente"). null = ninguna.
+    public string? Categoria { get; set; }
+
     public int Orden { get; set; }
 }
 
@@ -90,6 +104,14 @@ public class ActualizarPetPasoRequest
 {
     public string Descripcion { get; set; } = string.Empty;
     public string Tipo { get; set; } = "paso";
+}
+
+public class ActualizarCategoriaPasoRequest
+{
+    // "medio_ambiente" | null (quitar la categoría). Validado contra un catálogo fijo
+    // en el repo — no cualquier texto libre, para que el color/ícono en pantalla y PDF
+    // sepan siempre qué mostrar.
+    public string? Categoria { get; set; }
 }
 
 public class ReordenarPasosRequest

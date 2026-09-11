@@ -19,7 +19,15 @@ public interface IPetsRepository
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
+    // Reemplazado por AgregarImagenPasoAsync (una imagen NUEVA, no la única) — se
+    // mantiene solo para no romper filas ya guardadas con el campo viejo.
     Task SetImagenPasoAsync(int petId, int pasoId, string? imagenUrl);
+
+    // Agrega una imagen MÁS al paso (varias por paso — ver SsomaPetPasoImagen).
+    // Devuelve el Id de la imagen nueva.
+    Task<int> AgregarImagenPasoAsync(int petId, int pasoId, string url);
+    Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId);
+    Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria);
     Task DesactivarSeccionAsync(int petId, string seccion);
     Task UpsertSeccionTextoAsync(int petId, string seccion, string contenido);
 
@@ -30,6 +38,13 @@ public interface IPetsRepository
     Task<int> SeleccionarCatalogoItemAsync(int petId, SeleccionarItemCatalogoRequest request);
     Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request);
     Task EliminarSeleccionAsync(int petId, int seleccionId);
+
+    // Usado al reimportar un Word con "Reemplazar" marcado: desactiva TODAS las
+    // selecciones activas de un grupo (marco_legal/epp/recurso) de este PETS antes de
+    // insertar las nuevas — para que un ítem cuyo texto cambió en el documento no quede
+    // conviviendo con su versión vieja (agregar sin reemplazar solo evita el duplicado
+    // EXACTO, no la versión desactualizada).
+    Task DesactivarSeleccionesGrupoAsync(int petId, string grupo);
 
     // Anexos
     Task<int> AgregarAnexoAsync(int petId, string nombre, string archivoUrl);

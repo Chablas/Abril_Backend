@@ -40,11 +40,18 @@ public class PetsService : IPetsService
         var original = await GetDetalleAsync(petId);
         var nombreCopia = $"{original.Nombre} (copia)";
 
+        // Un PETS de Abril se duplica igual que siempre (global, sin proyecto). Uno de
+        // contratista mantiene la empresa dueña pero se crea SIN proyecto — el
+        // "Duplicar" existe justo para reusar el contenido en OTRA obra, así que
+        // forzar la reasignación evita que la copia quede pegada al proyecto viejo
+        // por accidente.
+        var esContratista = original.Origen == "Contratista";
         var nuevoId = await _repo.CrearAsync(new CrearPetRequest
         {
             Nombre = nombreCopia,
             Codigo = original.Codigo,
             SharepointUrl = original.SharepointUrl,
+            Origen = "Abril",
         });
         await _repo.ActualizarAsync(nuevoId, new ActualizarPetRequest
         {
@@ -52,6 +59,9 @@ public class PetsService : IPetsService
             Codigo = original.Codigo,
             SharepointUrl = original.SharepointUrl,
             Activo = false,
+            Origen = esContratista ? "Contratista" : "Abril",
+            ContributorId = esContratista ? original.ContributorId : null,
+            ProyectoId = null,
         });
 
         await DuplicarArbolAsync(nuevoId, "procedimiento", original.Pasos);

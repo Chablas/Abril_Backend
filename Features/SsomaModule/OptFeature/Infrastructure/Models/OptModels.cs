@@ -74,6 +74,15 @@ public class SsomaPet
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // "Abril" (default, catálogo propio — global, válido en cualquier proyecto) |
+    // "Contratista" (el contratista trae su propio documento). Un PETS de
+    // contratista SIEMPRE está atado a un proyecto puntual (ProyectoId obligatorio)
+    // — si trabaja en otra obra, se usa "Duplicar" para clonarlo y reasignarlo a
+    // ese otro proyecto, no se reutiliza el mismo registro entre obras.
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public int? ProyectoId { get; set; }
+
     // "borrador" | "aprobado" — cualquier edición (paso, imagen, catálogo, texto,
     // firma, anexo) lo vuelve a poner en "borrador" automáticamente, aunque ya
     // hubiera una versión aprobada antes. Así el estado nunca miente sobre si lo que

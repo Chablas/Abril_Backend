@@ -1,6 +1,7 @@
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,11 @@ public class OptRepository : IOptRepository
         _factory = factory;
     }
 
+    // Devuelve TODO el catálogo activo (Abril + contratistas de cualquier proyecto)
+    // — el filtrado "solo Abril + el contratista de ESTE proyecto" lo hace el
+    // frontend según el proyecto elegido en el formulario, igual que ya hace con
+    // partidas/jefes inmediatos. Evita tener que rehacer la llamada al cambiar de
+    // proyecto en el formulario.
     public async Task<List<OptPetDto>> GetPetsAsync()
     {
         using var ctx = _factory.CreateDbContext();
@@ -26,7 +32,14 @@ public class OptRepository : IOptRepository
                 Id = p.Id,
                 Nombre = p.Nombre,
                 Codigo = p.Codigo,
-                SharepointUrl = p.SharepointUrl
+                SharepointUrl = p.SharepointUrl,
+                Origen = p.Origen,
+                ContributorId = p.ContributorId,
+                ContributorNombre = ctx.Set<Contributor>()
+                    .Where(c => c.ContributorId == p.ContributorId)
+                    .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                    .FirstOrDefault(),
+                ProyectoId = p.ProyectoId
             })
             .ToListAsync();
     }

@@ -8,6 +8,14 @@ public class OptPetDto
     public string Nombre { get; set; } = string.Empty;
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
+
+    // "Abril" (global, válido en cualquier proyecto) | "Contratista" (atado a un
+    // proyecto puntual) — el frontend filtra el selector por ProyectoId cuando
+    // Origen es "Contratista"; los "Abril" se ofrecen siempre.
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class OptCriterioVerificacionDto

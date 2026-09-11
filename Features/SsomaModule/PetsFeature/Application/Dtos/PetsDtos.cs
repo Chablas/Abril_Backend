@@ -16,6 +16,13 @@ public class PetListItemDto
     // Eje independiente — ver SsomaPet.RevisionPendiente.
     public bool RevisionPendiente { get; set; }
     public string? RevisionPendienteMotivo { get; set; }
+
+    // "Abril" | "Contratista" — ver SsomaPet.Origen.
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
+    public string? ProyectoNombre { get; set; }
 }
 
 public class PetImagenDto
@@ -55,6 +62,12 @@ public class PetDetalleDto
     public bool RevisionPendiente { get; set; }
     public string? RevisionPendienteMotivo { get; set; }
 
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
+    public string? ProyectoNombre { get; set; }
+
     // "Procedimiento (paso a paso)" — se mantiene aparte por compatibilidad, ya que
     // OPT jala este mismo dato vía GET /pets/{id}/pasos.
     public List<PetPasoDto> Pasos { get; set; } = [];
@@ -82,6 +95,12 @@ public class CrearPetRequest
     public string Nombre { get; set; } = string.Empty;
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
+
+    // "Abril" (default) | "Contratista". Si es Contratista, ContributorId y
+    // ProyectoId son obligatorios (se valida en el repositorio).
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class ActualizarPetRequest
@@ -90,6 +109,9 @@ public class ActualizarPetRequest
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
     public bool Activo { get; set; } = true;
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class CrearPetPasoRequest

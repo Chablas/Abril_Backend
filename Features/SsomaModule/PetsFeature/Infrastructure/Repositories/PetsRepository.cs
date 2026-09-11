@@ -6,6 +6,8 @@ using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Repositories;
@@ -35,7 +37,18 @@ public class PetsRepository : IPetsRepository
                 EstadoRevision = p.EstadoRevision,
                 VersionVigente = p.VersionVigente,
                 RevisionPendiente = p.RevisionPendiente,
-                RevisionPendienteMotivo = p.RevisionPendienteMotivo
+                RevisionPendienteMotivo = p.RevisionPendienteMotivo,
+                Origen = p.Origen,
+                ContributorId = p.ContributorId,
+                ContributorNombre = ctx.Set<Contributor>()
+                    .Where(c => c.ContributorId == p.ContributorId)
+                    .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                    .FirstOrDefault(),
+                ProyectoId = p.ProyectoId,
+                ProyectoNombre = ctx.Set<Project>()
+                    .Where(pr => pr.ProjectId == p.ProyectoId)
+                    .Select(pr => pr.ProjectDescription)
+                    .FirstOrDefault()
             })
             .ToListAsync();
     }
@@ -149,6 +162,19 @@ public class PetsRepository : IPetsRepository
             .Where(x => x.PetId == id)
             .ToDictionaryAsync(x => x.Rol);
 
+        var contributorNombre = pet.ContributorId.HasValue
+            ? await ctx.Set<Contributor>()
+                .Where(c => c.ContributorId == pet.ContributorId.Value)
+                .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                .FirstOrDefaultAsync()
+            : null;
+        var proyectoNombre = pet.ProyectoId.HasValue
+            ? await ctx.Set<Project>()
+                .Where(pr => pr.ProjectId == pet.ProyectoId.Value)
+                .Select(pr => pr.ProjectDescription)
+                .FirstOrDefaultAsync()
+            : null;
+
         return new PetDetalleDto
         {
             Id = pet.Id,
@@ -160,6 +186,11 @@ public class PetsRepository : IPetsRepository
             VersionVigente = pet.VersionVigente,
             RevisionPendiente = pet.RevisionPendiente,
             RevisionPendienteMotivo = pet.RevisionPendienteMotivo,
+            Origen = pet.Origen,
+            ContributorId = pet.ContributorId,
+            ContributorNombre = contributorNombre,
+            ProyectoId = pet.ProyectoId,
+            ProyectoNombre = proyectoNombre,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
             Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
             SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
@@ -183,14 +214,39 @@ public class PetsRepository : IPetsRepository
         return pasos.Select(x => MapPaso(x, imagenesPorPaso)).ToList();
     }
 
+    // Un PETS de contratista siempre tiene empresa dueña (obligatoria); el proyecto
+    // en cambio puede quedar sin asignar TEMPORALMENTE (ej. justo después de
+    // "Duplicar", que crea la copia sin proyecto a propósito para forzar que se
+    // reasigne a la obra nueva) — mientras no tenga proyecto, simplemente no
+    // aparece en ningún selector de OPT/Accidentes (esos filtran por proyecto
+    // exacto), así que no hay riesgo de que se use sin estar bien ubicado.
+    // El de Abril, en cambio, se fuerza a quedar sin proyecto/empresa (es el
+    // catálogo global de siempre), aunque el request traiga algo por error.
+    private static (string Origen, int? ContributorId, int? ProyectoId) NormalizarOrigen(
+        string? origen, int? contributorId, int? proyectoId)
+    {
+        var esContratista = string.Equals(origen, "Contratista", StringComparison.OrdinalIgnoreCase);
+        if (!esContratista) return ("Abril", null, null);
+
+        if (!contributorId.HasValue)
+            throw new AbrilException("Selecciona la empresa contratista dueña del PETS.", 400);
+
+        return ("Contratista", contributorId, proyectoId);
+    }
+
     public async Task<int> CrearAsync(CrearPetRequest request)
     {
+        var (origen, contributorId, proyectoId) = NormalizarOrigen(request.Origen, request.ContributorId, request.ProyectoId);
+
         using var ctx = _factory.CreateDbContext();
         var pet = new SsomaPet
         {
             Nombre = request.Nombre,
             Codigo = request.Codigo,
             SharepointUrl = request.SharepointUrl,
+            Origen = origen,
+            ContributorId = contributorId,
+            ProyectoId = proyectoId,
             Activo = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -201,6 +257,8 @@ public class PetsRepository : IPetsRepository
 
     public async Task ActualizarAsync(int id, ActualizarPetRequest request)
     {
+        var (origen, contributorId, proyectoId) = NormalizarOrigen(request.Origen, request.ContributorId, request.ProyectoId);
+
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(id)
             ?? throw new AbrilException("PETS no encontrado.", 404);
@@ -210,6 +268,9 @@ public class PetsRepository : IPetsRepository
         pet.Codigo = request.Codigo;
         pet.SharepointUrl = request.SharepointUrl;
         pet.Activo = request.Activo;
+        pet.Origen = origen;
+        pet.ContributorId = contributorId;
+        pet.ProyectoId = proyectoId;
         pet.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }

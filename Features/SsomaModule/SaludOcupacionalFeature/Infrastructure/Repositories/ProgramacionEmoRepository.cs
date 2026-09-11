@@ -696,14 +696,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         var hoyNoAsistio = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
                         var emoActivo = await ctx.WorkerEmo
                             .Where(e => e.WorkerId == ent.WorkerId && e.Activo)
-                            .OrderByDescending(e => e.FechaVencimiento)
+                            .OrderByDescending(e => e.FechaVencimientoCalculada ?? e.FechaVencimiento)
                             .FirstOrDefaultAsync();
 
                         if (emoActivo == null)
                         {
                             habCert.Estado = "Falta";
                         }
-                        else if (emoActivo.FechaVencimiento < hoyNoAsistio)
+                        else if ((emoActivo.FechaVencimientoCalculada ?? emoActivo.FechaVencimiento) < hoyNoAsistio)
                         {
                             habCert.Estado = "Vencido";
                         }

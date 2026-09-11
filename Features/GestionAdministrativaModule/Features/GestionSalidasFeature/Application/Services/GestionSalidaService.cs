@@ -376,10 +376,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
             //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados
             //          de Configuración → Feriados. Vencido, la salida solo se puede ver.
+            // El calendario se carga una sola vez: lo usan el plazo del mes y, más abajo, el
+            // reparto de fechas de la planilla (que además necesita el tope que viene con él).
+            var calendario = await _repo.GetCalendarioNoLaborable();
+
             if (meses.Count == 1)
             {
-                var calendario = await _repo.GetCalendarioNoLaborable();
-                var limite     = calendario.LimiteDeRendicion(meses[0].Anio, meses[0].Mes);
+                var limite = calendario.LimiteDeRendicion(meses[0].Anio, meses[0].Mes);
                 if (MesAnteriorPeru.HoyPeru() > limite)
                     throw new AbrilException(
                         $"El plazo para rendir las salidas de {meses[0].Mes:D2}/{meses[0].Anio} venció el " +
@@ -398,10 +401,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
+            //    Las fechas que imprime el PDF no son la fecha_salida cruda: lo que un día no
+            //    aguanta se imputa al siguiente (RG-42). La solicitud no se toca.
             var datos          = await _repo.GetRendicionData(elegiblesIds);
+            var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId: null);
             var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
             var numeroLabel    = $"TI: {numeroPlanilla:D6}";
-            var pdf            = GenerarPlanillaPdf(datos, numeroLabel);
+            var pdf            = GenerarPlanillaPdf(datos, numeroLabel, fechas);
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
@@ -437,10 +443,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             var datos = await _repo.GetRendicionData(planilla.SolicitudIds);
 
+            // Las fechas se vuelven a repartir con los montos corregidos: si la subsanación bajó
+            // un importe, lo que se había ido al día siguiente puede volver a caber en el suyo.
+            var calendario = await _repo.GetCalendarioNoLaborable();
+            var fechas     = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId);
+
             // El número de planilla se reusa: el correlativo del papel no se consume otra vez
             // porque es el mismo documento corregido, no uno nuevo.
             var numeroLabel = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla) ?? string.Empty;
-            var pdf         = GenerarPlanillaPdf(datos, numeroLabel);
+            var pdf         = GenerarPlanillaPdf(datos, numeroLabel, fechas);
 
             var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
 
@@ -540,6 +551,76 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
+        /// <summary>
+        /// Con qué FECHA sale impreso cada trayecto. La regla vive en
+        /// <see cref="ImputacionMovilidadPlanilla"/>; acá se resuelve solo de dónde salen sus datos
+        /// y qué pasa cuando el mes no alcanza.
+        ///
+        /// Se resuelve en dos pasadas a propósito. La primera no permite retroceder, que es el caso
+        /// de siempre, y así no se paga la consulta de periodos ya rendidos en cada rendición. Solo
+        /// si algo no entró hacia adelante se pregunta qué semanas o quincenas ya se rindieron y se
+        /// vuelve a repartir, ahora sí pudiendo ir hacia atrás.
+        /// </summary>
+        /// <param name="rendicionId">
+        /// La planilla que se está regenerando, para no tomar sus propias salidas como un periodo
+        /// ajeno. Null cuando se está rindiendo (todavía no existe).
+        /// </param>
+        private async Task<Dictionary<int, DateOnly>> ImputarFechasPlanillaAsync(
+            List<RendicionItemDto> items, CalendarioNoLaborable calendario, int? rendicionId)
+        {
+            if (items.Count == 0) return new();
+
+            var trayectos = items
+                .Select(i => new ImputacionMovilidadPlanilla.Trayecto(
+                    i.Id, i.WorkerId, i.FechaSalida, i.SolicitudId, i.Orden, i.Importe))
+                .ToList();
+
+            var imputacion = ImputacionMovilidadPlanilla.Resolver(trayectos, calendario);
+
+            if (imputacion.SinUbicar.Count > 0)
+            {
+                var desde = trayectos.Min(t => t.FechaSalida);
+                var hasta = trayectos.Max(t => t.FechaSalida);
+
+                var periodos = await _repo.GetPeriodosRendidos(
+                    trayectos.Select(t => t.WorkerId).Distinct().ToList(),
+                    new DateOnly(desde.Year, desde.Month, 1),
+                    new DateOnly(hasta.Year, hasta.Month, 1).AddMonths(1).AddDays(-1),
+                    rendicionId);
+
+                imputacion = ImputacionMovilidadPlanilla.Resolver(trayectos, calendario, periodos);
+            }
+
+            if (imputacion.SinUbicar.Count > 0)
+            {
+                // El techo del mes es tope × días imputables. Llegar acá significa que ni
+                // desplazando hacia adelante ni retrocediendo a lo que todavía no se rindió queda
+                // un día libre: no es algo que la pantalla pueda arreglar sola, así que el mensaje
+                // dice el número exacto contra el que se chocó.
+                var sinUbicar  = imputacion.SinUbicar[0];
+                var trabajador = items.First(i => i.WorkerId == sinUbicar.WorkerId).TrabajadorNombre;
+                var dias       = calendario.DiasImputablesDelMes(
+                    sinUbicar.FechaSalida.Year, sinUbicar.FechaSalida.Month);
+
+                throw new AbrilException(
+                    $"No se puede generar la planilla: la movilidad de {trabajador} en " +
+                    $"{sinUbicar.FechaSalida:MM/yyyy} no entra en el mes. Con un tope de " +
+                    $"S/ {calendario.LimiteMovilidad:N2} por día y {dias} días válidos (sin domingos ni " +
+                    $"feriados), el máximo del mes es S/ {calendario.LimiteMovilidad * dias:N2}.", 400);
+            }
+
+            return imputacion.FechaPorTrayecto;
+        }
+
+        /// <summary>
+        /// Fecha con la que el trayecto sale impreso. El fallback a <c>FechaSalida</c> no debería
+        /// darse —la imputación cubre todos los trayectos o corta antes—, pero deja al PDF sin un
+        /// hueco si alguna vez faltara uno.
+        /// </summary>
+        private static DateOnly FechaImpresa(
+            RendicionItemDto it, IReadOnlyDictionary<int, DateOnly> fechas) =>
+            fechas.TryGetValue(it.Id, out var fecha) ? fecha : it.FechaSalida;
+
         private const int FilasPorPagina = 15;
 
         /// <summary>Tamaño de letra de las celdas de la tabla — reducido para que entren 15 filas/página.</summary>
@@ -592,9 +673,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return _logoBytes;
         }
 
-        private static byte[] GenerarPlanillaPdf(List<RendicionItemDto> items, string numeroLabel)
+        private static byte[] GenerarPlanillaPdf(
+            List<RendicionItemDto> items, string numeroLabel, IReadOnlyDictionary<int, DateOnly> fechas)
         {
-            var grupos = items.GroupBy(x => x.WorkerId).Select(g => g.ToList()).ToList();
+            // Las filas salen ordenadas por la fecha IMPRESA, no por la real: un trayecto que se
+            // corrió al día siguiente tiene que leerse en su día, no junto al que lo desplazó.
+            var grupos = items
+                .GroupBy(x => x.WorkerId)
+                .Select(g => g
+                    .OrderBy(x => FechaImpresa(x, fechas))
+                    .ThenBy(x => x.FechaSalida)
+                    .ThenBy(x => x.SolicitudId)
+                    .ThenBy(x => x.Orden)
+                    .ToList())
+                .ToList();
             if (grupos.Count == 0) grupos.Add(new List<RendicionItemDto>());
 
             var paginas = new List<(List<RendicionItemDto> trabajadorItems, List<RendicionItemDto> pageItems, bool isLast, int pageNum, int totalPages)>();
@@ -622,7 +714,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         page.MarginBottom(MargenInferiorPt);
                         page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
 
-                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel));
+                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel, fechas));
 
                         // Pie de página común a todas las páginas — número de registro (izq),
                         // "Página X de Y" cuando aplique y, al cerrar cada trabajador, su línea
@@ -667,7 +759,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             int pageNum,
             int totalPages,
             byte[]? logo,
-            string numeroLabel)
+            string numeroLabel,
+            IReadOnlyDictionary<int, DateOnly> fechas)
         {
             var first       = trabajadorItems.FirstOrDefault();
             var trabajador  = first?.TrabajadorNombre ?? "";
@@ -681,8 +774,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 2 => "CE:",
                 _ => "DNI:",
             };
+            // El periodo se lee de las fechas IMPRESAS para que coincida con la primera y la última
+            // fila del documento: si un trayecto se corrió al día siguiente, el periodo lo abarca.
             string periodo  = trabajadorItems.Count > 0
-                ? $"{trabajadorItems.Min(i => i.FechaSalida):dd/MM/yyyy}   AL   {trabajadorItems.Max(i => i.FechaSalida):dd/MM/yyyy}"
+                ? $"{trabajadorItems.Min(i => FechaImpresa(i, fechas)):dd/MM/yyyy}   AL   {trabajadorItems.Max(i => FechaImpresa(i, fechas)):dd/MM/yyyy}"
                 : "";
 
             container.Column(col =>
@@ -764,7 +859,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
                     foreach (var it in pageItems)
                     {
-                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.FechaSalida.ToString("dd/MM/yyyy"), center: true));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, FechaImpresa(it, fechas).ToString("dd/MM/yyyy"), center: true));
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, MotivoConDetalle(it.Motivo, it.MotivoAdicional)));
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarOrigen ?? ""));
                         table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarDestino ?? ""));

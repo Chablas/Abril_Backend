@@ -251,7 +251,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
         public DbSet<AreaRevisores> AreaRevisores { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
-        public DbSet<GaSalidasWorkersProject> GaSalidasWorkersProject { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }

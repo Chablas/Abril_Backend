@@ -115,15 +115,20 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         /// <summary>
         /// Árbol de áreas (area_scope) para los desplegables en cascada del formulario de
         /// trabajadores, con la equivalencia legacy area/subárea/jefatura y el revisor que le
-        /// tocaría al trabajador ya resueltos por nodo. Una sola llamada: al cambiar de área el
-        /// formulario no vuelve al servidor.
+        /// tocaría al trabajador ya <b>elegido</b> por nodo (y por proyecto en las áreas que
+        /// filtran por proyecto). Una sola llamada: al cambiar de puesto el formulario no vuelve
+        /// al servidor y no decide nada, solo indexa.
+        ///
+        /// <paramref name="workerId"/> es el trabajador que se está editando: con él el revisor
+        /// viene descartándolo a él ("nadie es su propio jefe"). Se omite al crear uno nuevo y en
+        /// las pantallas que solo usan el árbol para los desplegables.
         /// </summary>
         [HttpGet("areas-arbol")]
-        public async Task<IActionResult> GetAreaArbol()
+        public async Task<IActionResult> GetAreaArbol([FromQuery] int? workerId)
         {
             try
             {
-                return Ok(await _repo.GetAreaArbolAsync());
+                return Ok(await _repo.GetAreaArbolAsync(workerId));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetAreaArbol"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

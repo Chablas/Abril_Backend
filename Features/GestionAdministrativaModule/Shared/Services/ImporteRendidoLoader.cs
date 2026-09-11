@@ -76,13 +76,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return result;
         }
 
-        private static bool EsTi(string? subarea) =>
+        /// <summary>True si el trabajador rinde contra el tarifario en vez de contra capturas.</summary>
+        public static bool EsTi(string? subarea) =>
             string.Equals(subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Catálogo de trayectos activos en memoria. Llave: (lugar_origen_id, lugar_destino_id).
+        /// Público porque el tope diario de movilidad resuelve el importe de un trayecto con la
+        /// misma precedencia y no puede tener su propia copia del catálogo.
         /// </summary>
-        private static async Task<Dictionary<(int, int), decimal>> CargarCatalogoAsync(AppDbContext ctx)
+        public static async Task<Dictionary<(int, int), decimal>> CargarCatalogoAsync(AppDbContext ctx)
         {
             var rows = await ctx.GaTrayecto
                 .Where(g => g.Activo)

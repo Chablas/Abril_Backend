@@ -4922,45 +4922,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ga_salidas_area_config", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.Shared.Models.GaSalidasWorkersProject", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<int>("WorkerId")
-                        .HasColumnType("integer")
-                        .HasColumnName("worker_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ga_salidas_workers_project");
-
-                    b.ToTable("ga_salidas_workers_project", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models.GaHoraOpcion", b =>
                 {
                     b.Property<int>("Id")

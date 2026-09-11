@@ -428,6 +428,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public int Id { get; set; }
         /// <summary>Solicitud a la que pertenece este trayecto — para agrupar el TOTAL al final.</summary>
         public int SolicitudId { get; set; }
+        /// <summary>
+        /// Posición del trayecto dentro de su solicitud. No se imprime: ordena el reparto de
+        /// fechas para que el trayecto 1 se quede en su día y el que desborda sea el siguiente
+        /// (ver <c>ImputacionMovilidadPlanilla</c>).
+        /// </summary>
+        public int Orden { get; set; }
         public int WorkerId { get; set; }
         public string TrabajadorNombre { get; set; } = string.Empty;
         public string? TrabajadorDni { get; set; }

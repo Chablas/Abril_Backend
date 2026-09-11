@@ -37,16 +37,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId);
 
         /// <summary>
-        /// Trayectos de UNA solicitud que todavía se pueden tocar —antes de rendir, o al subsanar
-        /// una rendición observada en primera revisión—, cada uno con los ids de sus capturas
-        /// vivas. Es la validación entera del lote del modal de capturas en una sola consulta.
-        /// Lista vacía si la solicitud no existe, no es del usuario o ya está congelada.
+        /// Todo lo que el modal de capturas necesita validar de una solicitud que todavía se puede
+        /// tocar —antes de rendir, o al subsanar una rendición observada en primera revisión—: sus
+        /// trayectos con los montos de sus capturas vivas y el tope con el que se compara cada
+        /// uno. Con eso el servicio valida el lote entero (a qué trayecto entra cada captura
+        /// nueva, de quién es cada captura editada y si algún trayecto se pasa del tope) sin
+        /// gastar una consulta por fila.
+        ///
+        /// Null si la solicitud no existe, no es del usuario o ya está congelada.
         /// </summary>
-        Task<List<TrayectoEditableDto>> GetTrayectosEditablesDeSolicitud(int solicitudId, int userId);
+        Task<TopeMovilidad.ContextoCapturas?> GetContextoCapturas(int solicitudId, int userId);
 
         /// <summary>
         /// Una captura del usuario que todavía se puede tocar (mismo criterio que
-        /// <see cref="GetTrayectosEditablesDeSolicitud"/>: antes de rendir, o al subsanar una
+        /// <see cref="GetContextoCapturas"/>: antes de rendir, o al subsanar una
         /// rendición observada). Null si no existe, no es suya o su salida está congelada.
         /// </summary>
         Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId);

@@ -3,6 +3,7 @@ using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dto
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using AreaRevisoresModel = Abril_Backend.Features.GestionAdministrativa.Shared.Models.AreaRevisores;
 
@@ -40,10 +41,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         private static readonly string[] TiposConfigurables = { AreaTypeGerencia, AreaTypeEstandar };
 
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IJefeRevisorResolver _revisorResolver;
 
-        public AreaRevisorRepository(IDbContextFactory<AppDbContext> factory)
+        public AreaRevisorRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IJefeRevisorResolver revisorResolver)
         {
             _factory = factory;
+            _revisorResolver = revisorResolver;
         }
 
         public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas)
@@ -143,22 +148,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 select new ProyectoOptionDto { ProjectId = pr.ProjectId, ProjectName = pr.ProjectDescription }
             ).ToListAsync();
 
+            // 4b) El revisor que realmente le toca hoy a cada área/proyecto. Sale del MISMO
+            //     resolver que decide a quién se le manda a aprobar una salida, así que la columna
+            //     no puede mostrar a alguien distinto de quien va a recibir el correo. Va sin
+            //     workerId: acá no hay trabajador del que descartarse, la pregunta es por el área.
+            var efectivos = await _revisorResolver.ResolveByAreaScopeManyAsync(areaIds);
+
             foreach (var a in areas)
             {
                 if (porArea.TryGetValue(a.AreaScopeId, out var revs)) a.Revisores = revs;
                 a.FiltraPorProyecto = flagByArea.TryGetValue(a.AreaScopeId, out var f) && f;
 
+                efectivos.TryGetValue(a.AreaScopeId, out var efectivo);
+                (a.RevisorEfectivoNombre, a.RevisorEfectivoOrigen, a.RevisorEfectivoWorkerId) =
+                    Describir(efectivo?.Area);
+
                 if (a.FiltraPorProyecto)
                 {
-                    // Solo los proyectos que ya tienen algún revisor asignado en esta área;
-                    // el frontend arma la subfila de cada proyecto desde la lista global.
+                    // TODOS los proyectos activos, no solo los que tienen un revisor asignado: el
+                    // algoritmo le da revisor también a los que no tienen nada cargado.
                     a.Proyectos = proyectos
-                        .Where(pr => porAreaProyecto.ContainsKey((a.AreaScopeId, pr.ProjectId)))
-                        .Select(pr => new AreaProyectoRevisoresDto
+                        .Select(pr =>
                         {
-                            ProjectId = pr.ProjectId,
-                            ProjectName = pr.ProjectName,
-                            Revisores = porAreaProyecto[(a.AreaScopeId, pr.ProjectId)],
+                            var delProyecto = efectivo != null
+                                && efectivo.PorProyecto.TryGetValue(pr.ProjectId, out var e) ? e : null;
+                            var (nombre, origen, revisorWorkerId) = Describir(delProyecto);
+
+                            return new AreaProyectoRevisoresDto
+                            {
+                                ProjectId = pr.ProjectId,
+                                ProjectName = pr.ProjectName,
+                                Revisores = porAreaProyecto.TryGetValue((a.AreaScopeId, pr.ProjectId), out var rp)
+                                    ? rp
+                                    : new List<AreaRevisorAsignadoDto>(),
+                                RevisorEfectivoNombre = nombre,
+                                RevisorEfectivoOrigen = origen,
+                                RevisorEfectivoWorkerId = revisorWorkerId,
+                            };
                         })
                         .ToList();
                 }
@@ -186,11 +212,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             {
                 Areas = areas,
                 Options = options,
-                // El frontend arma con este catálogo las subfilas de proyecto de las áreas
-                // filtradas, así que lo necesita todo el que ve la lista completa.
-                Proyectos = verTodas ? proyectos : new List<ProyectoOptionDto>(),
             };
         }
+
+        /// <summary>
+        /// Nombre y origen del revisor efectivo, tal como los muestra la columna. El nombre del
+        /// fallback de GTH es el del área, no el de una persona, y se etiqueta como tal.
+        /// </summary>
+        private static (string? Nombre, string? Origen, int? WorkerId) Describir(RevisorElegido? elegido)
+            => elegido?.Revisor == null
+                ? (null, null, null)
+                : (elegido.Revisor.Nombre, elegido.Revisor.Origen.ToString(), elegido.Revisor.WorkerId);
 
         public async Task UpdateAreaRevisoresAsync(int areaScopeId, int? projectId, List<AreaRevisorAsignacionDto> revisores)
         {

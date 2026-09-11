@@ -100,9 +100,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>
         /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
-        /// plazo de rendición fuera del repositorio.
+        /// plazo de rendición y las fechas de la planilla fuera del repositorio. Trae también el
+        /// tope de movilidad, que sale de la misma fila de config.
         /// </summary>
         Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
+
+        /// <summary>
+        /// Tramos que cada trabajador ya rindió en OTRAS planillas dentro del rango dado, tomados
+        /// del alcance real de cada una (su primera y su última <c>fecha_salida</c>).
+        ///
+        /// Solo lo necesita el último recurso de <see cref="ImputacionMovilidadPlanilla"/>: cuando
+        /// un gasto ya no entra hacia adelante en el mes y hay que retroceder, no puede caer sobre
+        /// una semana o una quincena que el trabajador ya rindió. Por eso se pide recién cuando
+        /// hace falta y no en cada rendición.
+        /// </summary>
+        /// <param name="excluirRendicionId">
+        /// La planilla que se está regenerando: sus propias salidas no son un periodo ajeno.
+        /// </param>
+        Task<Dictionary<int, List<ImputacionMovilidadPlanilla.PeriodoRendido>>> GetPeriodosRendidos(
+            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta, int? excluirRendicionId);
 
         /// <summary>
         /// Detalle completo (cabecera + trayectos con capturas + rendición si existe).

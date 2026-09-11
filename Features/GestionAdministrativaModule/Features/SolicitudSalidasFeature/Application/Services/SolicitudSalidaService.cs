@@ -903,17 +903,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 throw new AbrilException("El monto no puede ser negativo.", 400);
 
             // Un solo viaje trae los trayectos de la solicitud que todavía se pueden tocar, cada
-            // uno con los ids de sus capturas vivas. Con eso se valida el lote entero —incluido de
-            // qué trayecto es cada captura editada— sin una consulta por fila.
-            var trayectos = await _repo.GetTrayectosEditablesDeSolicitud(solicitudId, userId);
-            if (trayectos.Count == 0)
-                throw new AbrilException(
+            // uno con los montos de sus capturas vivas y el tope con el que se lo compara. Con eso
+            // se valida el lote entero —a qué trayecto entra cada captura, de quién es cada
+            // edición y si algún trayecto se pasa del tope— sin una consulta por fila.
+            var contexto = await _repo.GetContextoCapturas(solicitudId, userId)
+                ?? throw new AbrilException(
                     "No se pueden guardar las capturas: la solicitud no existe, no te pertenece, no está " +
                     "aprobada, o su rendición ya pasó la primera revisión.", 404);
 
-            var trayectoIds  = trayectos.Select(t => t.Id).ToHashSet();
-            var trayectoDe   = trayectos
-                .SelectMany(t => t.CapturaIds.Select(c => (CapturaId: c, TrayectoId: t.Id)))
+            var trayectoIds  = contexto.Trayectos.Select(t => t.TrayectoId).ToHashSet();
+            var trayectoDe   = contexto.Trayectos
+                .SelectMany(t => t.Capturas.Keys.Select(c => (CapturaId: c, TrayectoId: t.TrayectoId)))
                 .ToDictionary(x => x.CapturaId, x => x.TrayectoId);
 
             foreach (var n in nuevas)
@@ -925,6 +925,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 if (!trayectoDe.ContainsKey(e.CapturaId))
                     throw new AbrilException(
                         "No se pueden guardar las capturas: una de las que editaste ya no existe o no se puede editar.", 404);
+
+            ValidarTopeMovilidad(contexto, nuevas, ediciones);
 
             // La carpeta se resuelve UNA sola vez para todo el lote (altas y reemplazos), y solo si
             // hay alguna imagen que subir: un lote de puros montos no toca SharePoint.
@@ -962,6 +964,51 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             await _repo.GuardarCapturas(altas, cambios, userId);
 
             return await GetDetalle(solicitudId, userId);
+        }
+
+        /// <summary>
+        /// Corta el lote si algún TRAYECTO se pasaría del tope de movilidad. El tope es de cada
+        /// trayecto, no de la solicitud ni del día: varios trayectos que individualmente no lo
+        /// pasan sí pueden sumar más entre todos, y lo que un día no aguanta se reparte recién al
+        /// imprimir la planilla (ver <see cref="TopeMovilidad"/> e
+        /// <see cref="ImputacionMovilidadPlanilla"/>).
+        ///
+        /// Se revisa ANTES de tocar SharePoint: pasado ese punto las imágenes ya están subidas y
+        /// rechazar el lote dejaría archivos huérfanos en la biblioteca.
+        ///
+        /// La pantalla ya apaga el botón con el mismo cálculo; esto es lo que impide guardar de
+        /// más cuando el tope cambió mientras el modal estaba abierto.
+        /// </summary>
+        private static void ValidarTopeMovilidad(
+            TopeMovilidad.ContextoCapturas contexto,
+            IReadOnlyList<CapturaNuevaInput> nuevas,
+            IReadOnlyList<CapturaEdicionInput> ediciones)
+        {
+            var montosEditados = new Dictionary<int, decimal>();
+            foreach (var e in ediciones) montosEditados[e.CapturaId] = e.Monto;
+
+            var nuevosPorTrayecto = new Dictionary<int, decimal>();
+            foreach (var n in nuevas)
+                nuevosPorTrayecto[n.TrayectoId] =
+                    nuevosPorTrayecto.GetValueOrDefault(n.TrayectoId) + n.Monto;
+
+            foreach (var t in contexto.Trayectos)
+            {
+                nuevosPorTrayecto.TryGetValue(t.TrayectoId, out var nuevosDelTrayecto);
+                var importe = t.Importe(montosEditados, nuevosDelTrayecto);
+
+                if (importe <= contexto.Limite) continue;
+
+                // Un trayecto que YA venía por encima del tope —capturas cargadas antes de la
+                // regla, o un tope que se bajó después— no queda trabado: mientras el lote lo BAJE
+                // se deja pasar, que es justo lo que hay que hacer para ponerlo en regla. De un
+                // trayecto en regla a uno excedido no se pasa nunca: eso es lo que corta el guard.
+                if (importe <= t.ImporteGuardado) continue;
+
+                throw new AbrilException(
+                    $"El tope de movilidad es S/ {contexto.Limite:N2} por trayecto y el trayecto " +
+                    $"{t.Orden + 1} llegaría a S/ {importe:N2}. Ajusta sus montos.", 400);
+            }
         }
 
         /// <summary>

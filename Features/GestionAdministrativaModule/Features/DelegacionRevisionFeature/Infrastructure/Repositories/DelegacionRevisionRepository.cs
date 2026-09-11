@@ -250,9 +250,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
 
         /// <summary>
         /// Trabajadores designables de una asignación: para una asignación por proyecto son los
-        /// trabajadores que pertenecen a ese proyecto (ga_salidas_workers_project); para una
-        /// asignación de área son los trabajadores cuya área (la de destino de su puesto) cae en
-        /// el subárbol del nodo.
+        /// trabajadores cuya vinculación vigente (worker_vinculaciones con fecha_fin NULL) apunta a
+        /// ese proyecto — la misma obra que mantiene GTH y con la que JefeRevisorResolver elige al
+        /// revisor por proyecto; para una asignación de área son los trabajadores cuya área (la de
+        /// destino de su puesto) cae en el subárbol del nodo.
         /// En ambos casos con correo @abril.pe y ordenados por nombre.
         /// </summary>
         private static async Task<List<DelegacionOptionDto>> GetOptionsAsync(
@@ -260,11 +261,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
         {
             if (projectId != null)
             {
+                // EXISTS y no un join contra las vinculaciones: si una ficha llegara a tener más de
+                // una vinculación abierta a la misma obra, el join la repetiría en el desplegable.
                 return await (
-                    from wp in ctx.GaSalidasWorkersProject
-                    where wp.State && wp.ProjectId == projectId.Value
-                    join w in ctx.Worker on wp.WorkerId equals w.Id
+                    from w in ctx.Worker
                     where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains(EmailDomainCorp)
+                          && ctx.WorkerVinculacion.Any(v =>
+                                 v.WorkerId == w.Id && v.FechaFin == null && v.ProyectoId == projectId.Value)
                     join p in ctx.Person on w.PersonId equals p.PersonId
                     where p.State == true
                     orderby p.FullName

@@ -23,29 +23,32 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
         public string? Jefatura { get; set; }
 
         /// <summary>
-        /// Revisores que le tocarían a un trabajador de este nodo sin considerar su proyecto, EN
-        /// ORDEN de resolución: primero los de este nodo por prioridad, después los de sus áreas
-        /// superiores y al final el área de GTH como último recurso.
-        ///
-        /// Va la lista y no solo el primero porque el formulario tiene que descartar al propio
-        /// trabajador que está editando: los jefes de área son el revisor de su propia área, así
-        /// que sin eso se verían como su propio jefe. El formulario muestra el primer candidato que
-        /// no sea él (normalmente el revisor de la gerencia de la que cuelga su área).
+        /// El revisor que le tocaría a un trabajador de este nodo sin considerar su proyecto, YA
+        /// ELEGIDO por el backend (<c>IJefeRevisorResolver</c>): el formulario lo muestra tal cual,
+        /// no elige entre candidatos. Null si la rama no tiene ninguno ni llega al fallback de GTH.
         /// </summary>
-        public List<AreaArbolRevisorDto> Revisores { get; set; } = new();
+        public AreaArbolRevisorDto? Revisor { get; set; }
 
         /// <summary>
-        /// Revisores por proyecto, solo para las áreas configuradas como "filtrar por proyecto".
-        /// Si el proyecto elegido en el formulario está acá, esta lista manda sobre la de arriba.
+        /// True cuando el primer candidato de la rama era el propio trabajador y por eso
+        /// <see cref="Revisor"/> es el siguiente. Es lo normal en los jefes de área, que son el
+        /// revisor de su propia área; el formulario lo avisa para que no se lea como un error de
+        /// configuración. Solo viene con valor cuando el árbol se pidió para un trabajador
+        /// concreto (<c>?workerId=</c>).
         /// </summary>
-        public List<AreaArbolRevisorProyectoDto> RevisoresPorProyecto { get; set; } = new();
+        public bool EsRevisorDeSuPropiaArea { get; set; }
+
+        /// <summary>
+        /// El revisor por proyecto, solo para las áreas configuradas como "filtrar por proyecto".
+        /// Si el proyecto del trabajador está acá, esta entrada manda sobre <see cref="Revisor"/>;
+        /// el formulario solo indexa por su proyecto, sin aplicar ninguna regla.
+        /// </summary>
+        public List<AreaArbolRevisorProyectoDto> RevisorPorProyecto { get; set; } = new();
     }
 
     /// <summary>
-    /// Un candidato a revisor. <see cref="WorkerId"/> y <see cref="PersonId"/> son lo que el
-    /// formulario compara para saber si el candidato es el trabajador que se está editando —
-    /// por persona, porque un reingreso deja varias fichas en <c>workers</c> para la misma
-    /// persona. Ambos van en null cuando el candidato es el área de GTH (el fallback).
+    /// Un revisor. <see cref="WorkerId"/> y <see cref="PersonId"/> van en null cuando el revisor es
+    /// el área de GTH (el fallback), que es un correo de área y no una persona.
     /// </summary>
     public class AreaArbolRevisorDto
     {
@@ -58,6 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos
     public class AreaArbolRevisorProyectoDto
     {
         public int ProyectoId { get; set; }
-        public List<AreaArbolRevisorDto> Revisores { get; set; } = new();
+        public AreaArbolRevisorDto? Revisor { get; set; }
+        public bool EsRevisorDeSuPropiaArea { get; set; }
     }
 }

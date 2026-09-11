@@ -78,6 +78,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public SolicitudSalidaRendicionDto? Rendicion { get; set; }
         /// <summary>PDF Consolidado del S10 vigente (propio de la salida o heredado de su planilla). Null si no hay.</summary>
         public Abril_Backend.Features.GestionAdministrativa.Shared.Dtos.ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
+
+        /// <summary>
+        /// Tope en soles de CADA trayecto (<c>ga_rendicion_config</c>). Varios trayectos pueden
+        /// sumar más que esto entre todos: lo que un día no aguanta se reparte al imprimir la
+        /// planilla, no se bloquea al cargarlo (ver <c>TopeMovilidad</c>). El modal de capturas lo
+        /// usa para pintar el tope de cada trayecto mientras el trabajador escribe.
+        /// </summary>
+        public decimal LimiteMovilidadTrayecto { get; set; }
+
         public List<TrayectoDetalleDto> Trayectos { get; set; } = new();
     }
 

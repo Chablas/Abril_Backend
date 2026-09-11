@@ -918,6 +918,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return await CalendarioNoLaborable.CargarAsync(ctx);
         }
 
+        public async Task<Dictionary<int, List<ImputacionMovilidadPlanilla.PeriodoRendido>>> GetPeriodosRendidos(
+            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta, int? excluirRendicionId)
+        {
+            if (workerIds.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // El periodo de una planilla no está declarado en ninguna columna: es el alcance de las
+            // salidas que agrupa. Se resuelve con un GROUP BY en la base para no traer las filas.
+            var filas = await ctx.GaSolicitudSalida
+                .Where(s => workerIds.Contains(s.WorkerId)
+                         && s.RendicionId != null
+                         && (excluirRendicionId == null || s.RendicionId != excluirRendicionId)
+                         && s.FechaSalida >= desde && s.FechaSalida <= hasta)
+                .GroupBy(s => new { s.WorkerId, s.RendicionId })
+                .Select(g => new
+                {
+                    g.Key.WorkerId,
+                    Desde = g.Min(x => x.FechaSalida),
+                    Hasta = g.Max(x => x.FechaSalida),
+                })
+                .ToListAsync();
+
+            return filas
+                .GroupBy(f => f.WorkerId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(f => new ImputacionMovilidadPlanilla.PeriodoRendido(f.Desde, f.Hasta)).ToList());
+        }
+
         public async Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -1167,6 +1197,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     {
                         Id               = t.Id,
                         SolicitudId      = s.Id,
+                        Orden            = t.Orden,
                         WorkerId         = w.Id,
                         TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
                         TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,

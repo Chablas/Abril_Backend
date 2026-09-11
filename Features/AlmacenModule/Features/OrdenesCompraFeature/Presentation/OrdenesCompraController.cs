@@ -47,15 +47,19 @@ public class OrdenesCompraController : ControllerBase
 
     [HttpPost]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> CreateOrdenCompra([FromForm] CreateAlmacenOrdenCompraDTO body, IFormFile archivo)
+    public async Task<IActionResult> CreateOrdenCompra([FromForm] CreateAlmacenOrdenCompraDTO body, IFormFile? archivo)
     {
         try
         {
-            if (archivo == null || archivo.Length == 0) return BadRequest(new { message = "Debe adjuntar el archivo de la orden de compra o contrato." });
+            if (archivo != null && archivo.Length > 0)
+            {
+                using var stream = archivo.OpenReadStream();
+                var result = await _service.CreateOrdenCompra(body, stream, archivo.FileName, UsuarioActual);
+                return Ok(result);
+            }
 
-            using var stream = archivo.OpenReadStream();
-            var result = await _service.CreateOrdenCompra(body, stream, archivo.FileName, UsuarioActual);
-            return Ok(result);
+            var resultSinArchivo = await _service.CreateOrdenCompra(body, null, null, UsuarioActual);
+            return Ok(resultSinArchivo);
         }
         catch (AbrilException ex)
         {

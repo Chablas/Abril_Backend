@@ -103,6 +103,8 @@ public class RevisionService : IRevisionService
     public Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body)
         => _repository.UpdateObservacion(id, body);
 
+    public Task<bool> DeleteObservacion(int id) => _repository.DeleteObservacion(id);
+
     /// <summary>Sube la foto de "Observacion" cuando se reportó sin ella — distinto de
     /// ReemplazarFoto, que requiere una foto ya existente.</summary>
     public async Task<string> AgregarFotoObservacion(int revisionObservacionId, Stream fotoStream, string fotoFileName)

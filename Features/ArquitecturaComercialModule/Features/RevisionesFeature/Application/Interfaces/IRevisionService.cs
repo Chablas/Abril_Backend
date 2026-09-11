@@ -16,6 +16,7 @@ public interface IRevisionService
     Task<RevisionObservacionListItemDTO> CreateObservacion(CreateRevisionObservacionDTO body, Stream? fotoStream, string? fotoFileName);
     Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, Stream? fotoStream, string? fotoFileName, LevantarRevisionObservacionDTO body);
     Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body);
+    Task<bool> DeleteObservacion(int id);
     Task<string> AgregarFotoObservacion(int revisionObservacionId, Stream fotoStream, string fotoFileName);
     Task<string> ReemplazarFoto(int fotoId, Stream fotoStream, string fotoFileName);
     Task<(byte[] Bytes, string ContentType)?> GetFotoContenido(int fotoId);

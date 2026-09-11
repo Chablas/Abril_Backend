@@ -22,17 +22,24 @@ public class OrdenCompraService : IOrdenCompraService
 
     public Task<AlmacenOrdenCompraListResponseDTO> GetOrdenesCompra(AlmacenOrdenCompraQueryParams query) => _repository.GetOrdenesCompra(query);
 
-    public async Task<AlmacenOrdenCompraListItemDTO> CreateOrdenCompra(CreateAlmacenOrdenCompraDTO body, Stream archivo, string archivoNombre, string? subidoPor)
+    public async Task<AlmacenOrdenCompraListItemDTO> CreateOrdenCompra(CreateAlmacenOrdenCompraDTO body, Stream? archivo, string? archivoNombre, string? subidoPor)
     {
         if (!TipoDocumentoOrdenCompra.EsValido(body.Tipo))
             throw new AbrilException($"Tipo de documento inválido: {body.Tipo}", 400);
         if (string.IsNullOrWhiteSpace(body.Numero) || string.IsNullOrWhiteSpace(body.Proveedor))
             throw new AbrilException("Número y proveedor son obligatorios.", 400);
 
-        var urls = await _fileStorageService.UploadFilesAsync([(archivo, archivoNombre)], Contenedor);
-        var url = urls.FirstOrDefault() ?? throw new AbrilException("No se pudo subir el archivo.", 500);
-
-        var entity = await _repository.CreateOrdenCompra(body, url, archivoNombre, subidoPor);
+        AlmacenOrdenCompra entity;
+        if (archivo != null && !string.IsNullOrWhiteSpace(archivoNombre))
+        {
+            var urls = await _fileStorageService.UploadFilesAsync([(archivo, archivoNombre)], Contenedor);
+            var url = urls.FirstOrDefault() ?? throw new AbrilException("No se pudo subir el archivo.", 500);
+            entity = await _repository.CreateOrdenCompra(body, url, archivoNombre, subidoPor);
+        }
+        else
+        {
+            entity = await _repository.CreateOrdenCompraSinArchivo(body, subidoPor);
+        }
 
         return new AlmacenOrdenCompraListItemDTO
         {

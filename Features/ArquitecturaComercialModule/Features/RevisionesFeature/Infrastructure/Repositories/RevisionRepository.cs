@@ -323,4 +323,14 @@ public class RevisionRepository : IRevisionRepository
 
         return await GetObservacionById(id);
     }
+
+    public async Task<bool> DeleteObservacion(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.AcRevisionObservaciones.Include(o => o.Fotos).FirstOrDefaultAsync(o => o.Id == id);
+        if (entity == null) return false;
+        ctx.AcRevisionObservaciones.Remove(entity);
+        await ctx.SaveChangesAsync();
+        return true;
+    }
 }

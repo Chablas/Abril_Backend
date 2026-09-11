@@ -22,4 +22,5 @@ public interface IRevisionRepository
     Task ActualizarFoto(int fotoId, string url);
     Task<RevisionObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId, DateTime? fechaLevantamiento);
     Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body);
+    Task<bool> DeleteObservacion(int id);
 }

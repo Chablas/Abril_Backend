@@ -504,6 +504,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                         PdfFilename = r.PdfFilename,
                         RendidoAt   = r.RendidoAt,
                     },
+                    // Tope de movilidad por trayecto. Viaja en esta misma consulta —es un escalar
+                    // de la fila única de config— para no gastar un viaje aparte por un número.
+                    LimiteMovilidad = ctx.GaRendicionConfig
+                        .Where(c => c.State)
+                        .OrderBy(c => c.Id)
+                        .Select(c => (decimal?)c.LimiteDiarioMovilidad)
+                        .FirstOrDefault(),
                 })
                 .FirstOrDefaultAsync();
             if (solicitud == null) return null;
@@ -648,6 +655,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 CreatedAt        = solicitud.CreatedAt,
                 MotivoRechazo    = solicitud.MotivoRechazo,
                 Rendicion        = solicitud.Rendicion,
+                // Tope de CADA trayecto. Ya no hace falta mirar las otras salidas del día: lo que
+                // un día no aguanta se reparte al imprimir la planilla, no se corta acá.
+                LimiteMovilidadTrayecto = TopeMovilidad.Acotar(solicitud.LimiteMovilidad),
                 ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
                                         ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
                                     .GetValueOrDefault(solicitud.Id),
@@ -689,22 +699,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return rows.ToDictionary(r => (r.LugarOrigenId, r.LugarDestinoId), r => r.Monto);
         }
 
-        public async Task<List<TrayectoEditableDto>> GetTrayectosEditablesDeSolicitud(int solicitudId, int userId)
+        public async Task<TopeMovilidad.ContextoCapturas?> GetContextoCapturas(int solicitudId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await CapturasEditablesQuery(ctx, userId)
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => new TrayectoEditableDto
+
+            // Una sola consulta resuelve las tres preguntas de la cabecera: si la solicitud es del
+            // usuario, si todavía se puede tocar (mismo criterio que CapturasEditablesQuery) y con
+            // qué tope se compara cada trayecto.
+            var cab = await (
+                from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                where s.Id == solicitudId
+                   && per.UserId == userId
+                   && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                   && (s.EstadoRendicionId == EstadosSalida.Rendicion.NoRendido
+                       || ctx.GaRendicion.Any(r => r.Id == s.RendicionId
+                                                && r.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada))
+                select new
                 {
-                    Id = t.Id,
-                    // Las eliminadas quedan fuera por el filtro global de GaSolicitudCaptura: una
-                    // captura dada de baja no se puede volver a editar.
-                    CapturaIds = ctx.GaSolicitudCaptura
-                        .Where(c => c.TrayectoId == t.Id)
-                        .Select(c => c.Id)
-                        .ToList(),
-                })
-                .ToListAsync();
+                    w.Subarea,
+                    Limite = ctx.GaRendicionConfig
+                        .Where(c => c.State)
+                        .OrderBy(c => c.Id)
+                        .Select(c => (decimal?)c.LimiteDiarioMovilidad)
+                        .FirstOrDefault(),
+                }
+            ).FirstOrDefaultAsync();
+
+            if (cab == null) return null;
+
+            // Los trayectos de la solicitud salen de acá con los montos de sus capturas vivas (las
+            // eliminadas quedan fuera por el filtro global de GaSolicitudCaptura), así que el
+            // servicio valida el lote contra la misma foto con la que mide el tope.
+            return await TopeMovilidad.CargarAsync(
+                ctx, solicitudId, cab.Subarea, cab.Limite);
         }
 
         public async Task<GaSolicitudCaptura?> GetCapturaEditable(int capturaId, int userId)

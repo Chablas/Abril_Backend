@@ -31,16 +31,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// <summary>(mes, día) de los feriados que se repiten todos los años.</summary>
         private readonly HashSet<(int Mes, int Dia)> _recurrentes;
 
-        private CalendarioNoLaborable(HashSet<DateOnly> fijos, HashSet<(int, int)> recurrentes, int diasDePlazo)
+        private CalendarioNoLaborable(
+            HashSet<DateOnly> fijos, HashSet<(int, int)> recurrentes,
+            int diasDePlazo, decimal limiteMovilidad)
         {
             _fijos              = fijos;
             _recurrentes        = recurrentes;
             DiasHabilesDePlazo  = diasDePlazo;
+            LimiteMovilidad     = limiteMovilidad;
         }
 
         /// <summary>
         /// Días hábiles que dura el plazo para rendir un mes, contados sobre el mes siguiente. Sale
-        /// de <c>ga_rendicion_config</c> (Mis Rendiciones → Configuración → Días reembolsables), así
+        /// de <c>ga_rendicion_config</c> (Solicitud de Salidas → Configuración → Días reembolsables), así
         /// que es un dato del calendario cargado y no una constante.
         /// </summary>
         public int DiasHabilesDePlazo { get; }
@@ -51,6 +54,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// </summary>
         public string DiasHabilesDePlazoTexto => $"{DiasHabilesDePlazo}.º día hábil del mes siguiente";
 
+        /// <summary>
+        /// Tope de movilidad en soles (<c>ga_rendicion_config.limite_diario_movilidad</c>). Viaja
+        /// con el calendario porque sale de la MISMA fila que el plazo, y quien imputa las fechas
+        /// de la planilla necesita las dos cosas a la vez: el tope dice cuánto entra en un día y
+        /// el calendario, cuáles son esos días. Ver <see cref="TopeMovilidad"/>.
+        /// </summary>
+        public decimal LimiteMovilidad { get; }
+
         public static async Task<CalendarioNoLaborable> CargarAsync(AppDbContext ctx)
         {
             var dias = await ctx.Holiday
@@ -58,7 +69,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .Select(h => new { h.HolidayDate, h.RecurringYearly })
                 .ToListAsync();
 
-            var diasDePlazo = await LeerDiasDePlazoAsync(ctx);
+            // Plazo y tope salen de la misma fila y en el mismo viaje: son dos columnas de
+            // ga_rendicion_config y pedirlas por separado serían dos consultas por lo mismo.
+            var config = await ctx.GaRendicionConfig
+                .Where(c => c.State)
+                .OrderBy(c => c.Id)
+                .Select(c => new { c.DiasHabilesPlazo, c.LimiteDiarioMovilidad })
+                .FirstOrDefaultAsync();
 
             var fijos       = new HashSet<DateOnly>();
             var recurrentes = new HashSet<(int, int)>();
@@ -68,7 +85,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 else                   fijos.Add(d.HolidayDate);
             }
 
-            return new CalendarioNoLaborable(fijos, recurrentes, diasDePlazo);
+            return new CalendarioNoLaborable(
+                fijos, recurrentes,
+                Acotar(config?.DiasHabilesPlazo ?? DiasHabilesDePlazoPorDefecto),
+                TopeMovilidad.Acotar(config?.LimiteDiarioMovilidad));
         }
 
         /// <summary>
@@ -99,6 +119,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (fecha.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return true;
             if (_fijos.Contains(fecha)) return true;
             return _recurrentes.Contains((fecha.Month, fecha.Day));
+        }
+
+        /// <summary>
+        /// Días feriados o registrados como no laborables, SIN contar el fin de semana.
+        /// </summary>
+        private bool EsFeriado(DateOnly fecha) =>
+            _fijos.Contains(fecha) || _recurrentes.Contains((fecha.Month, fecha.Day));
+
+        /// <summary>
+        /// Días en los que la planilla de movilidad puede imputar un gasto: todos menos domingos y
+        /// feriados. **El sábado sí cuenta**, y por eso esto no es el complemento de
+        /// <see cref="EsNoLaborable"/>: el plazo de rendición se cuenta en días hábiles de verdad
+        /// (lunes a viernes) y la imputación del gasto no.
+        /// </summary>
+        public bool EsImputable(DateOnly fecha) =>
+            fecha.DayOfWeek != DayOfWeek.Sunday && !EsFeriado(fecha);
+
+        /// <summary>
+        /// Cuántos días del mes admiten gasto de movilidad. Multiplicado por el tope diario da lo
+        /// máximo que un trabajador puede llegar a rendir en ese mes: más que eso no entra en la
+        /// planilla ni desplazando, porque no quedan días donde ponerlo.
+        /// </summary>
+        public int DiasImputablesDelMes(int anio, int mes)
+        {
+            var primero = new DateOnly(anio, mes, 1);
+            var ultimo  = primero.AddMonths(1).AddDays(-1);
+
+            var total = 0;
+            for (var d = primero; d <= ultimo; d = d.AddDays(1))
+                if (EsImputable(d)) total++;
+
+            return total;
         }
 
         /// <summary>

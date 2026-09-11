@@ -13,8 +13,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
     /// </summary>
     public interface ICorreoConfigService
     {
-        /// <summary>Carga inicial de la pantalla (correos + destinatarios + opciones) en una sola llamada.</summary>
-        Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaSegmento);
+        /// <summary>
+        /// Carga inicial de una sección de la pantalla (correos + destinatarios + opciones) en una
+        /// sola llamada. <paramref name="grupoSegmento"/> es la sección: vacío o "correos" para los
+        /// del flujo, "recordatorios" para los del plazo de rendición.
+        /// </summary>
+        Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaSegmento, string? grupoSegmento);
 
         /// <summary>Interruptor maestro del correo: apagado, no se envía a nadie.</summary>
         Task SetEventoActiveAsync(string pantallaSegmento, string eventoCodigo, bool active);

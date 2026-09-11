@@ -16,7 +16,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         /// GetAreasAsync/GetSubareasAsync en el formulario de trabajadores, que ahora elige el nodo
         /// del árbol en vez de los textos area/subarea.
         /// </summary>
-        Task<List<AreaArbolNodoDto>> GetAreaArbolAsync();
+        /// <param name="workerId">
+        /// Trabajador que se está editando. Con él, el revisor de cada nodo viene ya elegido
+        /// descartándolo a él (nadie es su propio jefe) — es lo que necesita el formulario. Sin él
+        /// (alta nueva, o pantallas que solo usan el árbol para los desplegables) no se descarta a
+        /// nadie y el revisor es el primero de la rama.
+        /// </param>
+        Task<List<AreaArbolNodoDto>> GetAreaArbolAsync(int? workerId = null);
 
         /// <summary>
         /// Catálogo Obra / Staff / Oficina Central (workers_obra_oficina_staff). Es el

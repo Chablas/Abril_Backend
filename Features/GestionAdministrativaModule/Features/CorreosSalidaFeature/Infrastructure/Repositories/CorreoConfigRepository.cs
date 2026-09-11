@@ -26,14 +26,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         // ── Lectura ──────────────────────────────────────────────────────────
 
-        public async Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaCodigo)
+        public async Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaCodigo, string grupoCodigo)
         {
             using var ctx = _factory.CreateDbContext();
 
             var pantallaId = await ResolverPantallaIdAsync(ctx, pantallaCodigo);
+            var grupoId    = await ResolverGrupoIdAsync(ctx, grupoCodigo);
 
             var eventos = await ctx.GaCorreoEvento
-                .Where(e => e.State && e.PantallaId == pantallaId)
+                .Where(e => e.State && e.PantallaId == pantallaId && e.GrupoId == grupoId)
                 .OrderBy(e => e.Orden)
                 .Select(e => new CorreoEventoDto
                 {
@@ -50,8 +51,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 })
                 .ToListAsync();
 
-            // Reembolsos hoy no origina ningún correo (Tesorería solo marca pagado). Sin correos no
-            // hay reglas que traer ni desplegables que llenar: se corta acá y se ahorran 4 consultas.
+            // Una sección puede quedar sin correos (Reembolsos no origina ninguno: Tesorería solo
+            // marca pagado). Sin correos no hay reglas que traer ni desplegables que llenar: se
+            // corta acá y se ahorran 4 consultas.
             if (eventos.Count == 0) return new CorreoConfigInicialDto();
 
             var eventoIds = eventos.Select(e => e.Id).ToList();
@@ -331,6 +333,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 .FirstOrDefaultAsync();
 
             return id ?? throw new AbrilException($"La pantalla indicada no existe: '{pantallaCodigo}'.", 404);
+        }
+
+        /// <summary>
+        /// Sección de la pantalla (ga_correo_grupo). Solo la lectura la usa: las escrituras se
+        /// acotan por pantalla, porque las dos secciones de una misma pantalla las administra la
+        /// misma persona con la misma feature.
+        /// </summary>
+        private static async Task<int> ResolverGrupoIdAsync(AppDbContext ctx, string grupoCodigo)
+        {
+            var buscado = (grupoCodigo ?? string.Empty).Trim().ToUpperInvariant();
+            var id = await ctx.GaCorreoGrupo
+                .Where(g => g.State && g.Codigo.ToUpper() == buscado)
+                .Select(g => (int?)g.Id)
+                .FirstOrDefaultAsync();
+
+            return id ?? throw new AbrilException($"La sección indicada no existe: '{grupoCodigo}'.", 404);
         }
 
         /// <summary>

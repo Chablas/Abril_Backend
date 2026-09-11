@@ -31,10 +31,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Presentatio
             _logger = logger;
         }
 
-        /// <summary>Carga inicial: los correos de la pantalla con sus destinatarios + opciones de los desplegables.</summary>
+        /// <summary>
+        /// Carga inicial: los correos de una sección de la pantalla con sus destinatarios +
+        /// opciones de los desplegables. <paramref name="grupo"/> es la sección
+        /// (ga_correo_grupo): omitido = "correos" (los del flujo), "recordatorios" = los del plazo
+        /// de rendición. Va como query y no como segmento de la ruta para no romper las llamadas
+        /// de las cinco configuraciones que existían antes de que hubiera secciones.
+        /// </summary>
         [HttpGet]
-        public Task<IActionResult> GetInicial(string pantalla) =>
-            Ejecutar(nameof(GetInicial), async () => Ok(await _service.GetInicialAsync(pantalla)));
+        public Task<IActionResult> GetInicial(string pantalla, [FromQuery] string? grupo = null) =>
+            Ejecutar(nameof(GetInicial), async () => Ok(await _service.GetInicialAsync(pantalla, grupo)));
 
         /// <summary>Interruptor maestro del correo.</summary>
         [HttpPut("{eventoCodigo}/active")]

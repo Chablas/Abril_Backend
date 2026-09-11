@@ -62,6 +62,10 @@ using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.In
 using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa
@@ -149,10 +153,16 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<ICorreoConfigRepository, CorreoConfigRepository>();
             services.AddScoped<ICorreoConfigService, CorreoConfigService>();
 
-            // Plazo de rendición (sección "Días reembolsables" de Mis Rendiciones → Configuración:
-            // los días hábiles que dura el plazo para rendir un mes, antes hardcodeados en 7)
+            // Plazo de rendición (sección "Días reembolsables" de Solicitud de Salidas →
+            // Configuración: los días hábiles que dura el plazo para rendir un mes, antes
+            // hardcodeados en 7)
             services.AddScoped<IPlazoRendicionRepository, PlazoRendicionRepository>();
             services.AddScoped<IPlazoRendicionService, PlazoRendicionService>();
+
+            // Recordatorios del plazo de rendición (RG-33 / RG-34): el endpoint que el cron llama
+            // todos los días y que decide si hoy es el primer día hábil o el último para rendir.
+            services.AddScoped<IRecordatorioRendicionRepository, RecordatorioRendicionRepository>();
+            services.AddScoped<IRecordatorioRendicionService, RecordatorioRendicionService>();
             // Resolver consumido por SolicitudSalidaService para armar el CC de cada correo.
             services.AddScoped<ICorreoSalidaRecipientResolver, CorreoSalidaRecipientResolver>();
 

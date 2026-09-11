@@ -9,7 +9,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
     /// </summary>
     public interface ICorreoConfigRepository
     {
-        Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaCodigo);
+        /// <summary>
+        /// Los correos de una SECCIÓN de esa pantalla (ga_correo_grupo): CORREOS los del flujo,
+        /// RECORDATORIOS los del plazo de rendición. Solo la lectura se acota por sección — las
+        /// escrituras siguen yendo por pantalla, porque las dos secciones de una misma pantalla
+        /// las administra la misma persona con la misma feature.
+        /// </summary>
+        Task<CorreoConfigInicialDto> GetInicialAsync(string pantallaCodigo, string grupoCodigo);
 
         Task SetEventoActiveAsync(string pantallaCodigo, string eventoCodigo, bool active);
         Task SetPrincipalActiveAsync(string pantallaCodigo, string eventoCodigo, bool active);

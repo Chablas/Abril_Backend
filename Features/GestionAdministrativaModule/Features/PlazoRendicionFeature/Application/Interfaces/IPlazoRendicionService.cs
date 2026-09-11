@@ -3,7 +3,7 @@ using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Dt
 namespace Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Interfaces
 {
     /// <summary>
-    /// Sección "Días reembolsables" de Mis Rendiciones → Configuración: los días hábiles de plazo
+    /// Sección "Días reembolsables" de Solicitud de Salidas → Configuración: los días hábiles de plazo
     /// para rendir un mes, contados sobre el mes siguiente. Antes era la constante
     /// <c>CalendarioNoLaborable.DiasHabilesDePlazo = 7</c>.
     /// </summary>

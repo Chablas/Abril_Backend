@@ -30,15 +30,4 @@
         public List<CapturaNuevaInput> Nuevas { get; set; } = new();
         public List<CapturaEdicionInput> Ediciones { get; set; } = new();
     }
-
-    /// <summary>
-    /// Un trayecto de la solicitud que todavía se puede tocar, con los ids de sus capturas vivas.
-    /// Con esto el servicio valida el lote entero —a qué trayecto entra cada captura nueva y de
-    /// quién es cada captura editada— sin gastar una consulta por fila.
-    /// </summary>
-    public class TrayectoEditableDto
-    {
-        public int Id { get; set; }
-        public List<int> CapturaIds { get; set; } = new();
-    }
 }

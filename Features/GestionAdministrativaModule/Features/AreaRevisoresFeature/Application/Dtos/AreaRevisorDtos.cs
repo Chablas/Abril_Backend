@@ -20,16 +20,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
         public List<AreaRevisorAsignadoDto> Revisores { get; set; } = new();
 
         /// <summary>
+        /// El revisor que realmente le toca hoy a un trabajador de esta área, resuelto por
+        /// <c>IJefeRevisorResolver</c>: lo asignado acá si hay algo, y si no lo que deduce el
+        /// algoritmo (el Jefe del área, o el Gerente si es una gerencia), subiendo por el árbol.
+        /// Siempre tiene valor salvo que ni siquiera GTH tenga correo cargado.
+        /// </summary>
+        public string? RevisorEfectivoNombre { get; set; }
+
+        /// <summary>
+        /// De dónde salió <see cref="RevisorEfectivoNombre"/>: <c>Personalizado</c> (lo cargó
+        /// alguien en esta pantalla), <c>Algoritmo</c> (lo dedujo el sistema) o <c>Gth</c>.
+        /// </summary>
+        public string? RevisorEfectivoOrigen { get; set; }
+
+        /// <summary>
+        /// Ficha del revisor efectivo, para que el filtro por revisor de la pantalla encuentre
+        /// también a los que salen del algoritmo. Null en el fallback de GTH, que es un área.
+        /// </summary>
+        public int? RevisorEfectivoWorkerId { get; set; }
+
+        /// <summary>
         /// Si true, el área se "subdivide por proyecto" (ga_salidas_area_config.filtra_por_proyecto):
         /// los revisores se asignan por proyecto y se muestran subfilas por proyecto.
         /// </summary>
         public bool FiltraPorProyecto { get; set; }
 
         /// <summary>
-        /// Solo cuando <see cref="FiltraPorProyecto"/> es true: los proyectos del área que YA tienen
-        /// al menos un revisor asignado, con sus revisores. El frontend renderiza una subfila por
-        /// cada proyecto de la lista global <see cref="AreaRevisorInicialDto.Proyectos"/>, tomando de
-        /// aquí los revisores del proyecto (vacío si aún no se asignó ninguno).
+        /// Solo cuando <see cref="FiltraPorProyecto"/> es true: TODOS los proyectos activos, cada uno
+        /// con sus revisores asignados (vacío si no se asignó ninguno) y con el revisor efectivo que
+        /// le toca. Van todos y no solo los asignados porque desde que existe el algoritmo un
+        /// proyecto sin nada cargado igual tiene revisor: su residente.
         /// </summary>
         public List<AreaProyectoRevisoresDto> Proyectos { get; set; } = new();
     }
@@ -41,6 +61,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
         public string ProjectName { get; set; } = string.Empty;
         /// <summary>Revisores vivos del proyecto (area_revisores con ese project_id), por prioridad.</summary>
         public List<AreaRevisorAsignadoDto> Revisores { get; set; } = new();
+
+        /// <summary>
+        /// El revisor que realmente le toca hoy a un trabajador de esta área en este proyecto:
+        /// lo asignado al proyecto, si no lo asignado al área (que por eso vale para todos los
+        /// proyectos sin asignación propia), y si no el residente de la obra.
+        /// </summary>
+        public string? RevisorEfectivoNombre { get; set; }
+
+        /// <summary>Igual que <see cref="AreaRevisorItemDto.RevisorEfectivoOrigen"/>.</summary>
+        public string? RevisorEfectivoOrigen { get; set; }
+
+        /// <summary>Igual que <see cref="AreaRevisorItemDto.RevisorEfectivoWorkerId"/>.</summary>
+        public int? RevisorEfectivoWorkerId { get; set; }
     }
 
     /// <summary>Un revisor asignado a un área (fila viva de area_revisores).</summary>
@@ -78,8 +111,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
     {
         public List<AreaRevisorItemDto> Areas { get; set; } = new();
         public List<AreaRevisorOptionDto> Options { get; set; } = new();
-        /// <summary>Todos los proyectos activos, para armar las subfilas y el selector de proyecto.</summary>
-        public List<ProyectoOptionDto> Proyectos { get; set; } = new();
     }
 
     /// <summary>

@@ -8,6 +8,10 @@ public class PetListItemDto
     public bool Activo { get; set; }
     public int TotalPasos { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    // "borrador" | "aprobado" — ver comentario en SsomaPet.EstadoRevision.
+    public string EstadoRevision { get; set; } = "borrador";
+    public int VersionVigente { get; set; }
 }
 
 public class PetImagenDto
@@ -41,6 +45,9 @@ public class PetDetalleDto
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
     public bool Activo { get; set; }
+
+    public string EstadoRevision { get; set; } = "borrador";
+    public int VersionVigente { get; set; }
 
     // "Procedimiento (paso a paso)" — se mantiene aparte por compatibilidad, ya que
     // OPT jala este mismo dato vía GET /pets/{id}/pasos.
@@ -212,4 +219,26 @@ public class ActualizarFirmaRequest
     public string? Nombre { get; set; }
     public string? Cargo { get; set; }
     public DateOnly? Fecha { get; set; }
+}
+
+// ── Versionado y aprobación ──────────────────────────────────────────────────
+
+public class PetVersionDto
+{
+    public int NumeroVersion { get; set; }
+    public string Motivo { get; set; } = string.Empty;
+    public string AprobadoPorNombre { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class AprobarVersionRequest
+{
+    // Obligatorio — queda en el historial visible como la respuesta a "por qué
+    // cambió esta versión" (ej. "Revisión periódica", "Accidente #123").
+    public string Motivo { get; set; } = string.Empty;
+
+    // El JWT interno no trae el nombre completo del usuario (solo id y email), así
+    // que lo manda el frontend con el nombre ya mostrado en la sesión — el id sí sale
+    // del token, nunca del body, para que no se pueda falsear quién aprobó.
+    public string AprobadoPorNombre { get; set; } = string.Empty;
 }

@@ -214,9 +214,29 @@ public class PetsService : IPetsService
         return url;
     }
 
+    // "Vista previa" — refleja el estado ACTUAL en edición, sea borrador o no. Nunca
+    // se entrega por QR (para eso está ExportarPdfVersionAsync, la versión aprobada).
     public async Task<byte[]> ExportarPdfAsync(int petId)
     {
         var pet = await GetDetalleAsync(petId);
-        return await PetsPdfService.GenerarPdfAsync(pet);
+        return await PetsPdfService.GenerarPdfAsync(pet, version: null);
+    }
+
+    public Task<PetVersionDto> AprobarVersionAsync(int petId, string motivo, int? aprobadoPorId, string aprobadoPorNombre)
+        => _repo.AprobarVersionAsync(petId, motivo, aprobadoPorId, aprobadoPorNombre);
+
+    public Task<List<PetVersionDto>> GetVersionesAsync(int petId) => _repo.GetVersionesAsync(petId);
+
+    // PDF "oficial" — el que se entrega por QR/impreso. Sale del SNAPSHOT de esa
+    // versión, no del estado en vivo, para que no cambie bajo los pies de alguien en
+    // campo mientras otra persona sigue editando el borrador siguiente.
+    public async Task<byte[]> ExportarPdfVersionAsync(int petId, int numeroVersion)
+    {
+        var pet = await _repo.GetVersionSnapshotAsync(petId, numeroVersion)
+            ?? throw new AbrilException("Versión no encontrada.", 404);
+        var versiones = await _repo.GetVersionesAsync(petId);
+        var version = versiones.FirstOrDefault(v => v.NumeroVersion == numeroVersion)
+            ?? throw new AbrilException("Versión no encontrada.", 404);
+        return await PetsPdfService.GenerarPdfAsync(pet, version);
     }
 }

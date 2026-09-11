@@ -53,4 +53,9 @@ public interface IPetsRepository
     // Firmas
     Task UpsertFirmaAsync(int petId, string rol, string? nombre, string? cargo, DateOnly? fecha);
     Task SetFirmaUrlAsync(int petId, string rol, string firmaUrl);
+
+    // Versionado y aprobación
+    Task<PetVersionDto> AprobarVersionAsync(int petId, string motivo, int? aprobadoPorId, string aprobadoPorNombre);
+    Task<List<PetVersionDto>> GetVersionesAsync(int petId);
+    Task<PetDetalleDto?> GetVersionSnapshotAsync(int petId, int numeroVersion);
 }

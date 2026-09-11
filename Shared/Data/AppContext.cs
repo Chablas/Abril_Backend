@@ -345,6 +345,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOpt> SsomaOpt { get; set; }
         public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
         public DbSet<SsomaPet> SsomaPet { get; set; }
+        public DbSet<SsomaPetVersion> SsomaPetVersion { get; set; }
         public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
         public DbSet<SsomaPetPasoImagen> SsomaPetPasoImagen { get; set; }
         public DbSet<SsomaCatalogoItem> SsomaCatalogoItem { get; set; }
@@ -1136,6 +1137,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
             modelBuilder.Entity<SsomaOptTrabajador>().ToTable("ssoma_opt_trabajador");
             modelBuilder.Entity<SsomaPet>().ToTable("ssoma_pet");
+            modelBuilder.Entity<SsomaPetVersion>().ToTable("ssoma_pet_version");
+            modelBuilder.Entity<SsomaPetVersion>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetVersion>()
+                .HasIndex(x => new { x.PetId, x.NumeroVersion }).IsUnique();
             modelBuilder.Entity<SsomaPetPaso>().ToTable("ssoma_pet_paso");
             modelBuilder.Entity<SsomaPetPaso>()
                 .HasOne(x => x.Pet).WithMany(p => p.Pasos).HasForeignKey(x => x.PetId);

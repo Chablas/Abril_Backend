@@ -66,7 +66,43 @@ public class SsomaPet
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // "borrador" | "aprobado" — cualquier edición (paso, imagen, catálogo, texto,
+    // firma, anexo) lo vuelve a poner en "borrador" automáticamente, aunque ya
+    // hubiera una versión aprobada antes. Así el estado nunca miente sobre si lo que
+    // se está viendo/editando coincide con la última versión oficial.
+    public string EstadoRevision { get; set; } = "borrador";
+
+    // 0 = nunca se aprobó ninguna versión. Referencia al número más alto en
+    // SsomaPetVersion para este PetId — no una FK directa porque el histórico de
+    // versiones se consulta por (PetId, NumeroVersion), no por Id de fila.
+    public int VersionVigente { get; set; }
+
     public ICollection<SsomaPetPaso> Pasos { get; set; } = [];
+}
+
+// Una "foto" completa del PETS en el momento de aprobarlo — para que el PDF oficial
+// entregado por QR/impreso sea siempre una versión aprobada estable, y nunca cambie
+// bajo los pies de alguien en campo mientras alguien más lo sigue editando en borrador.
+// El contenido va serializado en SnapshotJson (mismo shape que PetDetalleDto) en vez
+// de duplicar todas las tablas de pasos/catálogo con un VersionId — más simple y
+// suficiente porque una versión aprobada nunca se edita, solo se lee.
+public class SsomaPetVersion
+{
+    public int Id { get; set; }
+    public int PetId { get; set; }
+    public int NumeroVersion { get; set; }
+    public string SnapshotJson { get; set; } = string.Empty;
+
+    // Motivo obligatorio al aprobar (ej. "Revisión periódica", "Accidente #123",
+    // "Corrección de redacción") — queda en el historial visible, es la respuesta a
+    // "por qué cambió" que un trabajador en campo debería poder ver.
+    public string Motivo { get; set; } = string.Empty;
+
+    public int? AprobadoPorId { get; set; }
+    public string AprobadoPorNombre { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public SsomaPet? Pet { get; set; }
 }
 
 // Catálogo de pasos del PETS: piloto para que OPT (y a futuro otras herramientas)

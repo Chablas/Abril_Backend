@@ -32,7 +32,10 @@ public static class PetsPdfService
         catch { return null; }
     }
 
-    public static async Task<byte[]> GenerarPdfAsync(PetDetalleDto pet)
+    // "version" null -> vista previa de trabajo (marca BORRADOR, puede no coincidir
+    // con lo último aprobado). "version" presente -> PDF oficial de esa versión
+    // aprobada (el que se entrega por QR/impreso), con número/fecha/motivo visibles.
+    public static async Task<byte[]> GenerarPdfAsync(PetDetalleDto pet, PetVersionDto? version)
     {
         var imagenesPorUrl = new Dictionary<string, byte[]>();
         foreach (var url in pet.Pasos.Concat(pet.Responsabilidades)
@@ -57,6 +60,19 @@ public static class PetsPdfService
                     col.Item().Text(pet.Nombre).Bold().FontSize(14);
                     if (!string.IsNullOrWhiteSpace(pet.Codigo))
                         col.Item().Text($"Código: {pet.Codigo}").FontSize(9).FontColor(Colors.Grey.Darken2);
+
+                    if (version != null)
+                    {
+                        col.Item().PaddingTop(4).Text(
+                            $"Versión {version.NumeroVersion} — Aprobado el {version.CreatedAt:dd/MM/yyyy} por {version.AprobadoPorNombre} — Motivo: {version.Motivo}"
+                        ).FontSize(8).Bold().FontColor(Colors.Green.Darken2);
+                    }
+                    else
+                    {
+                        col.Item().PaddingTop(4).Text(
+                            "BORRADOR DE TRABAJO — no es la versión oficial aprobada"
+                        ).FontSize(8).Bold().FontColor(Colors.Orange.Darken2);
+                    }
                 });
 
                 page.Content().PaddingTop(12).Column(col =>

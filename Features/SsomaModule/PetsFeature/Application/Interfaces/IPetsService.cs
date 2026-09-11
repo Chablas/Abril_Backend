@@ -43,4 +43,9 @@ public interface IPetsService
 
     // Exportar
     Task<byte[]> ExportarPdfAsync(int petId);
+
+    // Versionado y aprobación
+    Task<PetVersionDto> AprobarVersionAsync(int petId, string motivo, int? aprobadoPorId, string aprobadoPorNombre);
+    Task<List<PetVersionDto>> GetVersionesAsync(int petId);
+    Task<byte[]> ExportarPdfVersionAsync(int petId, int numeroVersion);
 }

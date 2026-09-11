@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
@@ -29,9 +30,25 @@ public class PetsRepository : IPetsRepository
                 Codigo = p.Codigo,
                 Activo = p.Activo,
                 TotalPasos = p.Pasos.Count(x => x.Activo),
-                CreatedAt = p.CreatedAt
+                CreatedAt = p.CreatedAt,
+                EstadoRevision = p.EstadoRevision,
+                VersionVigente = p.VersionVigente
             })
             .ToListAsync();
+    }
+
+    // Cualquier edición de contenido (paso, imagen, catálogo, texto, firma, anexo,
+    // datos generales) vuelve a poner el PETS en "borrador", aunque ya hubiera una
+    // versión aprobada — así el estado nunca miente sobre si lo que se ve/edita
+    // coincide con la última versión oficial. No hace nada si ya estaba en borrador
+    // (evita un UPDATE de más en el caso común). Se llama siempre ANTES de cualquier
+    // validación que pueda tirar excepción — si la operación falla, el ctx se
+    // descarta sin SaveChanges y este cambio nunca se persiste, que es lo correcto.
+    private static async Task MarcarBorradorAsync(AppDbContext ctx, int petId)
+    {
+        var pet = await ctx.SsomaPet.FindAsync(petId);
+        if (pet != null && pet.EstadoRevision == "aprobado")
+            pet.EstadoRevision = "borrador";
     }
 
     // Secciones narrativas: un solo bloque de texto cada una (no árbol).
@@ -135,6 +152,8 @@ public class PetsRepository : IPetsRepository
             Codigo = pet.Codigo,
             SharepointUrl = pet.SharepointUrl,
             Activo = pet.Activo,
+            EstadoRevision = pet.EstadoRevision,
+            VersionVigente = pet.VersionVigente,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
             Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
             SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
@@ -180,6 +199,7 @@ public class PetsRepository : IPetsRepository
         var pet = await ctx.SsomaPet.FindAsync(id)
             ?? throw new AbrilException("PETS no encontrado.", 404);
 
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
         pet.Nombre = request.Nombre;
         pet.Codigo = request.Codigo;
         pet.SharepointUrl = request.SharepointUrl;
@@ -215,6 +235,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var seccion = ValidarSeccion(request.Seccion);
 
@@ -262,7 +283,8 @@ public class PetsRepository : IPetsRepository
     public async Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccionRaw, List<ImportPasoConfirmDto> pasos)
     {
         using var ctx = _factory.CreateDbContext();
-        _ = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        var pet = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
         var seccion = ValidarSeccion(seccionRaw);
 
         var idPorIndice = new Dictionary<int, int>();
@@ -332,6 +354,7 @@ public class PetsRepository : IPetsRepository
     public async Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -344,6 +367,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarPasoAsync(int petId, int pasoId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -359,6 +383,7 @@ public class PetsRepository : IPetsRepository
     public async Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var seccion = ValidarSeccion(request.Seccion);
         var pasos = await ctx.SsomaPetPaso
             .Where(p => p.PetId == petId && p.Activo && p.Seccion == seccion && p.ParentId == request.ParentId)
@@ -379,6 +404,7 @@ public class PetsRepository : IPetsRepository
     public async Task SetImagenPasoAsync(int petId, int pasoId, string? imagenUrl)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -390,6 +416,7 @@ public class PetsRepository : IPetsRepository
     public async Task<int> AgregarImagenPasoAsync(int petId, int pasoId, string url)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
         if (!existe) throw new AbrilException("Paso no encontrado.", 404);
 
@@ -413,6 +440,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
         if (!existe) throw new AbrilException("Paso no encontrado.", 404);
 
@@ -433,6 +461,7 @@ public class PetsRepository : IPetsRepository
             throw new AbrilException($"Categoría inválida: '{categoria}'.", 400);
 
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -447,6 +476,7 @@ public class PetsRepository : IPetsRepository
     {
         seccion = ValidarSeccion(seccion);
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var pasos = await ctx.SsomaPetPaso
             .Where(p => p.PetId == petId && p.Seccion == seccion && p.Activo)
             .ToListAsync();
@@ -474,6 +504,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetSeccionTexto.FirstOrDefaultAsync(x => x.PetId == petId && x.Seccion == seccion);
         if (fila == null)
@@ -564,6 +595,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var catalogoItem = await ctx.SsomaCatalogoItem.FirstOrDefaultAsync(x => x.Id == request.CatalogoItemId && x.Activo)
             ?? throw new AbrilException("Ítem de catálogo no encontrado.", 404);
@@ -597,6 +629,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         // Import de Word reimportado varias veces sin este chequeo triplicaba Marco
         // Legal/EPP/Recursos — a diferencia de Procedimiento/Responsabilidades, estos
@@ -650,6 +683,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarSeleccionAsync(int petId, int seleccionId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var seleccion = await ctx.SsomaPetItemSeleccionado.FirstOrDefaultAsync(x => x.Id == seleccionId && x.PetId == petId)
             ?? throw new AbrilException("Selección no encontrada.", 404);
 
@@ -660,6 +694,7 @@ public class PetsRepository : IPetsRepository
     public async Task DesactivarSeleccionesGrupoAsync(int petId, string grupo)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var selecciones = await ctx.SsomaPetItemSeleccionado
             .Where(x => x.PetId == petId && x.Grupo == grupo && x.Activo)
             .ToListAsync();
@@ -676,6 +711,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var maxOrden = await ctx.SsomaPetAnexo
             .Where(x => x.PetId == petId && x.Activo)
@@ -698,6 +734,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarAnexoAsync(int petId, int anexoId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var anexo = await ctx.SsomaPetAnexo.FirstOrDefaultAsync(x => x.Id == anexoId && x.PetId == petId)
             ?? throw new AbrilException("Anexo no encontrado.", 404);
 
@@ -720,6 +757,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
         if (fila == null)
@@ -744,12 +782,84 @@ public class PetsRepository : IPetsRepository
         await ctx.SaveChangesAsync();
     }
 
+    // ── Versionado y aprobación ──────────────────────────────────────────────────
+
+    // El snapshot se toma leyendo GetDetalleAsync (mismo shape que ve la pantalla en
+    // vivo) y se serializa entero como JSON — una versión aprobada nunca se edita,
+    // así que no hace falta duplicar cada tabla de pasos/catálogo con un VersionId,
+    // alcanza con guardar la "foto" completa tal cual quedó en ese momento.
+    public async Task<PetVersionDto> AprobarVersionAsync(int petId, string motivo, int? aprobadoPorId, string aprobadoPorNombre)
+    {
+        if (string.IsNullOrWhiteSpace(motivo))
+            throw new AbrilException("El motivo es obligatorio para aprobar una versión.", 400);
+
+        var detalle = await GetDetalleAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        var snapshot = JsonSerializer.Serialize(detalle);
+
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var numeroVersion = pet.VersionVigente + 1;
+        var version = new SsomaPetVersion
+        {
+            PetId = petId,
+            NumeroVersion = numeroVersion,
+            SnapshotJson = snapshot,
+            Motivo = motivo.Trim(),
+            AprobadoPorId = aprobadoPorId,
+            AprobadoPorNombre = aprobadoPorNombre,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaPetVersion.Add(version);
+
+        pet.VersionVigente = numeroVersion;
+        pet.EstadoRevision = "aprobado";
+        pet.UpdatedAt = DateTime.UtcNow;
+
+        await ctx.SaveChangesAsync();
+
+        return new PetVersionDto
+        {
+            NumeroVersion = numeroVersion,
+            Motivo = version.Motivo,
+            AprobadoPorNombre = aprobadoPorNombre,
+            CreatedAt = version.CreatedAt
+        };
+    }
+
+    public async Task<List<PetVersionDto>> GetVersionesAsync(int petId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsomaPetVersion
+            .Where(v => v.PetId == petId)
+            .OrderByDescending(v => v.NumeroVersion)
+            .Select(v => new PetVersionDto
+            {
+                NumeroVersion = v.NumeroVersion,
+                Motivo = v.Motivo,
+                AprobadoPorNombre = v.AprobadoPorNombre,
+                CreatedAt = v.CreatedAt
+            })
+            .ToListAsync();
+    }
+
+    // Usado para regenerar el PDF "oficial" de una versión pasada — nunca se lee para
+    // editar, la deserialización es de solo lectura.
+    public async Task<PetDetalleDto?> GetVersionSnapshotAsync(int petId, int numeroVersion)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var version = await ctx.SsomaPetVersion.FirstOrDefaultAsync(v => v.PetId == petId && v.NumeroVersion == numeroVersion);
+        if (version == null) return null;
+        return JsonSerializer.Deserialize<PetDetalleDto>(version.SnapshotJson);
+    }
+
     public async Task SetFirmaUrlAsync(int petId, string rol, string firmaUrl)
     {
         rol = ValidarRolFirma(rol);
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
         if (fila == null)

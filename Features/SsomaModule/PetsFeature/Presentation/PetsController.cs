@@ -328,4 +328,79 @@ public class PetsController : ControllerBase
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
+
+    // ── Versionado y aprobación ──────────────────────────────────────────────
+
+    [HttpPost("{id:int}/versiones/aprobar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> AprobarVersion(int id, [FromBody] AprobarVersionRequest request)
+    {
+        try
+        {
+            var aprobadoPorId = int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+            var version = await _service.AprobarVersionAsync(id, request.Motivo, aprobadoPorId, request.AprobadoPorNombre);
+            return Ok(version);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.AprobarVersion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/versiones")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> GetVersiones(int id)
+    {
+        try { return Ok(await _service.GetVersionesAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetVersiones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/versiones/{numero:int}/pdf")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ExportarPdfVersion(int id, int numero)
+    {
+        try
+        {
+            var bytes = await _service.ExportarPdfVersionAsync(id, numero);
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdfVersion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // ── Biblioteca pública (para el QR único) ───────────────────────────────
+    // Sin [RequireFeature] ni token: la escanea cualquier trabajador en campo.
+    // Solo expone PETS activos y ya aprobados (con versión vigente > 0) — un
+    // borrador nunca es visible por acá.
+
+    [HttpGet("publico")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetListaPublica()
+    {
+        try
+        {
+            var lista = await _service.GetListAsync();
+            var publicos = lista
+                .Where(p => p.Activo && p.EstadoRevision == "aprobado" && p.VersionVigente > 0)
+                .Select(p => new { p.Id, p.Nombre, p.Codigo, p.VersionVigente });
+            return Ok(publicos);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetListaPublica"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("publico/{id:int}/pdf")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ExportarPdfPublico(int id)
+    {
+        try
+        {
+            var pet = await _service.GetDetalleAsync(id);
+            if (!pet.Activo || pet.EstadoRevision != "aprobado" || pet.VersionVigente <= 0)
+                return NotFound(new { message = "Este PETS no tiene una versión aprobada disponible." });
+
+            var bytes = await _service.ExportarPdfVersionAsync(id, pet.VersionVigente);
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdfPublico"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
 }

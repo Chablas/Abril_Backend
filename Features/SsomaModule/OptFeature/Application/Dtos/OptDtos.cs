@@ -63,6 +63,11 @@ public class CrearOptRequest
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }
+
+    // El observador no modifica el PETS: solo indica que hace falta revisarlo y por qué.
+    public bool RequierePetModificacion { get; set; }
+    public string? RequierePetModificacionNota { get; set; }
+
     public List<OptTrabajadorRequest> Trabajadores { get; set; } = [];
     public List<OptVerificacionRequest> Verificaciones { get; set; } = [];
     public List<OptPasoRequest> Pasos { get; set; } = [];
@@ -128,6 +133,8 @@ public class OptDetalleDto
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }
+    public bool RequierePetModificacion { get; set; }
+    public string? RequierePetModificacionNota { get; set; }
     public int TotalPasos { get; set; }
     public int TotalSeguros { get; set; }
     public int TotalInseguros { get; set; }

@@ -2,6 +2,7 @@
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Dapper;
@@ -156,6 +157,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                 a.jefe_inmediato_nombre,
                 a.etapa_proyecto_id, ep.nombre AS etapa_proyecto_nombre,
                 a.partida_id, pa.partida_description AS partida_nombre,
+                a.pet_id, pet.nombre AS pet_nombre,
                 a.worker_id, a.trabajador_nombre, a.puesto_trabajo, a.edad, a.anios_experiencia, a.celular_trabajador,
                 a.parte_afectada_id, paf.nombre AS parte_afectada_nombre,
                 a.turno, a.tipo_contacto, a.danio_proceso_flag, a.atencion_medica, a.centro_atencion,
@@ -174,6 +176,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             LEFT JOIN contributor c ON c.contributor_id = a.contributor_id
             LEFT JOIN ssoma_flash_etapa_proyecto ep ON ep.id = a.etapa_proyecto_id
             LEFT JOIN partida pa ON pa.partida_id = a.partida_id
+            LEFT JOIN ssoma_pet pet ON pet.id = a.pet_id
             LEFT JOIN ssoma_flash_parte_afectada paf ON paf.id = a.parte_afectada_id
             WHERE a.id = @id;
 
@@ -248,6 +251,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             JefeInmediatoNombre = req.JefeInmediatoNombre,
             EtapaProyectoId = req.EtapaProyectoId,
             PartidaId = req.PartidaId,
+            PetId = req.PetId,
             WorkerId = req.WorkerId,
             TrabajadorNombre = req.TrabajadorNombre,
             PuestoTrabajo = req.PuestoTrabajo,
@@ -379,6 +383,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.JefeInmediatoNombre = req.JefeInmediatoNombre;
         entity.EtapaProyectoId = req.EtapaProyectoId;
         entity.PartidaId = req.PartidaId;
+        entity.PetId = req.PetId;
         entity.WorkerId = req.WorkerId;
         entity.TrabajadorNombre = req.TrabajadorNombre;
         entity.PuestoTrabajo = req.PuestoTrabajo;
@@ -457,6 +462,22 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.UrlPdfSharepoint = urlPdf;
         entity.Estado = "Enviado";
         entity.UpdatedAt = DateTime.UtcNow;
+
+        // Si el evento (accidente O incidente — aplica a ambos por igual, mismo flujo/
+        // tabla) tenía un PETS asociado, ese PETS queda marcado "pendiente de revisión"
+        // apenas se envía formalmente el reporte — no antes, mientras seguía en
+        // borrador. Se limpia solo al aprobar una versión nueva del PETS.
+        if (entity.PetId.HasValue)
+        {
+            var pet = await ctx.Set<SsomaPet>().FindAsync(entity.PetId.Value);
+            if (pet != null)
+            {
+                pet.RevisionPendiente = true;
+                pet.RevisionPendienteMotivo = $"Reportado en {entity.Codigo} ({DateTime.UtcNow:dd/MM/yyyy}).";
+                pet.RevisionPendienteFecha = DateTime.UtcNow;
+            }
+        }
+
         await ctx.SaveChangesAsync();
     }
 

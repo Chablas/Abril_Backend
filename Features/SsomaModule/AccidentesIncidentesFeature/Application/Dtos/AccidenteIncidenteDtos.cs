@@ -147,6 +147,9 @@ public class FlashReportDetalleDto
     public int? PartidaId { get; set; }
     public string? PartidaNombre { get; set; }
 
+    public int? PetId { get; set; }
+    public string? PetNombre { get; set; }
+
     public int? WorkerId { get; set; }
     public string? TrabajadorNombre { get; set; }
     public string? PuestoTrabajo { get; set; }
@@ -210,6 +213,10 @@ public class CrearFlashReportRequest
 
     public int? EtapaProyectoId { get; set; }
     public int? PartidaId { get; set; }
+
+    // PETS asociado al evento (opcional) — al confirmar el registro, si viene con
+    // PetId, se marca ese PETS pendiente de revisión (ver Fase 3).
+    public int? PetId { get; set; }
 
     public int? WorkerId { get; set; }
     public string? TrabajadorNombre { get; set; }

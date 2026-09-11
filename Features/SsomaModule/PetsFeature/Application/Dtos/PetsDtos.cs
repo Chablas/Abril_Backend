@@ -12,6 +12,10 @@ public class PetListItemDto
     // "borrador" | "aprobado" — ver comentario en SsomaPet.EstadoRevision.
     public string EstadoRevision { get; set; } = "borrador";
     public int VersionVigente { get; set; }
+
+    // Eje independiente — ver SsomaPet.RevisionPendiente.
+    public bool RevisionPendiente { get; set; }
+    public string? RevisionPendienteMotivo { get; set; }
 }
 
 public class PetImagenDto
@@ -48,6 +52,8 @@ public class PetDetalleDto
 
     public string EstadoRevision { get; set; } = "borrador";
     public int VersionVigente { get; set; }
+    public bool RevisionPendiente { get; set; }
+    public string? RevisionPendienteMotivo { get; set; }
 
     // "Procedimiento (paso a paso)" — se mantiene aparte por compatibilidad, ya que
     // OPT jala este mismo dato vía GET /pets/{id}/pasos.

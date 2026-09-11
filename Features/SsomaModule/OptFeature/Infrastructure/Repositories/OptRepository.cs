@@ -80,6 +80,8 @@ public class OptRepository : IOptRepository
             SeObtuvoCCompromiso   = request.SeObtuvoCCompromiso,
             AccionRequerida       = request.AccionRequerida,
             AccionObservacion     = request.AccionObservacion,
+            RequierePetModificacion     = request.RequierePetModificacion,
+            RequierePetModificacionNota = request.RequierePetModificacionNota,
             TotalPasos            = request.Pasos.Count,
             TotalSeguros          = totalSeguros,
             TotalInseguros        = totalInseguros,
@@ -91,6 +93,23 @@ public class OptRepository : IOptRepository
 
         ctx.SsomaOpt.Add(opt);
         await ctx.SaveChangesAsync();
+
+        // El observador no modifica el PETS directamente — solo lo deja marcado para
+        // que SSOMA (coordinador/prevencionista) lo revise y, si corresponde, apruebe
+        // una versión nueva. Mismo campo que dispara un accidente/incidente enviado.
+        if (request.PetId.HasValue && request.RequierePetModificacion)
+        {
+            var pet = await ctx.SsomaPet.FindAsync(request.PetId.Value);
+            if (pet != null)
+            {
+                pet.RevisionPendiente = true;
+                pet.RevisionPendienteMotivo = string.IsNullOrWhiteSpace(request.RequierePetModificacionNota)
+                    ? $"Indicado en OPT #{opt.Id} ({DateTime.UtcNow:dd/MM/yyyy})."
+                    : $"OPT #{opt.Id}: {request.RequierePetModificacionNota!.Trim()}";
+                pet.RevisionPendienteFecha = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+            }
+        }
 
         foreach (var t in request.Trabajadores)
         {
@@ -207,6 +226,8 @@ public class OptRepository : IOptRepository
             SeObtuvoCCompromiso     = opt.SeObtuvoCCompromiso,
             AccionRequerida         = opt.AccionRequerida,
             AccionObservacion       = opt.AccionObservacion,
+            RequierePetModificacion     = opt.RequierePetModificacion,
+            RequierePetModificacionNota = opt.RequierePetModificacionNota,
             TotalPasos              = opt.TotalPasos,
             TotalSeguros            = opt.TotalSeguros,
             TotalInseguros          = opt.TotalInseguros,

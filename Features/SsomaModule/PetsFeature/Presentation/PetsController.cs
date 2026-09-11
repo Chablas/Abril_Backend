@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -331,8 +332,12 @@ public class PetsController : ControllerBase
 
     // ── Versionado y aprobación ──────────────────────────────────────────────
 
+    // Cualquier prevencionista/coordinador SSOMA puede editar el PETS, pero solo
+    // el Jefe SSOMA (rol 9) puede aprobar la publicación de una versión oficial —
+    // ver Roles.AdministradorSsoma.
     [HttpPost("{id:int}/versiones/aprobar")]
     [RequireFeature("ssoma.gestion.pets")]
+    [Authorize(Roles = Roles.AdministradorSsoma)]
     public async Task<IActionResult> AprobarVersion(int id, [FromBody] AprobarVersionRequest request)
     {
         try

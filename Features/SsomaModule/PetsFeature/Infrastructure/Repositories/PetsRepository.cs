@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
@@ -32,10 +33,13 @@ public class PetsRepository : IPetsRepository
                 TotalPasos = p.Pasos.Count(x => x.Activo),
                 CreatedAt = p.CreatedAt,
                 EstadoRevision = p.EstadoRevision,
-                VersionVigente = p.VersionVigente
+                VersionVigente = p.VersionVigente,
+                RevisionPendiente = p.RevisionPendiente,
+                RevisionPendienteMotivo = p.RevisionPendienteMotivo
             })
             .ToListAsync();
     }
+
 
     // Cualquier edición de contenido (paso, imagen, catálogo, texto, firma, anexo,
     // datos generales) vuelve a poner el PETS en "borrador", aunque ya hubiera una
@@ -154,6 +158,8 @@ public class PetsRepository : IPetsRepository
             Activo = pet.Activo,
             EstadoRevision = pet.EstadoRevision,
             VersionVigente = pet.VersionVigente,
+            RevisionPendiente = pet.RevisionPendiente,
+            RevisionPendienteMotivo = pet.RevisionPendienteMotivo,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
             Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
             SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
@@ -815,6 +821,33 @@ public class PetsRepository : IPetsRepository
         pet.VersionVigente = numeroVersion;
         pet.EstadoRevision = "aprobado";
         pet.UpdatedAt = DateTime.UtcNow;
+        // Aprobar una versión ES la revisión que el accidente/incidente pedía.
+        pet.RevisionPendiente = false;
+        pet.RevisionPendienteMotivo = null;
+
+        // Cierra en automático el entregable "Evidencia de modificación de PETS"
+        // (ss_entregable_tipo.id = 16) de cualquier accidente/incidente que tenía
+        // este PETS asociado: la aprobación de la versión ES la evidencia, nadie
+        // tiene que subir un archivo aparte para levantar ese entregable puntual.
+        const int TipoEvidenciaModificacionPets = 16;
+        var accidenteIds = await ctx.Set<SsomaAccidenteIncidente>()
+            .Where(a => a.PetId == petId)
+            .Select(a => a.Id)
+            .ToListAsync();
+        if (accidenteIds.Count > 0)
+        {
+            var entregablesPendientes = await ctx.Set<SsomaEntregable>()
+                .Where(e => accidenteIds.Contains(e.AccidenteIncidenteId)
+                    && e.TipoId == TipoEvidenciaModificacionPets
+                    && e.Estado != "Aprobado")
+                .ToListAsync();
+            foreach (var ent in entregablesPendientes)
+            {
+                ent.Estado = "Aprobado";
+                ent.Observacion = $"Auto-aprobado: PETS versión {numeroVersion} publicada el {DateTime.UtcNow:dd/MM/yyyy}.";
+                ent.UpdatedAt = DateTime.UtcNow;
+            }
+        }
 
         await ctx.SaveChangesAsync();
 

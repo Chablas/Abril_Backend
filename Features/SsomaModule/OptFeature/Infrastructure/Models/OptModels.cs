@@ -25,6 +25,14 @@ public class SsomaOpt
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }
+
+    // El observador NUNCA modifica el PETS directamente (es peligroso: el contenido
+    // pasa por revisión de SSOMA antes de publicarse) — solo deja indicado que hace
+    // falta y qué. Al guardar, si viene marcado, el PETS queda "pendiente de
+    // revisión" (mismo campo que dispara un accidente/incidente, ver SsomaPet).
+    public bool RequierePetModificacion { get; set; }
+    public string? RequierePetModificacionNota { get; set; }
+
     public int TotalPasos { get; set; }
     public int TotalSeguros { get; set; }
     public int TotalInseguros { get; set; }
@@ -76,6 +84,15 @@ public class SsomaPet
     // SsomaPetVersion para este PetId — no una FK directa porque el histórico de
     // versiones se consulta por (PetId, NumeroVersion), no por Id de fila.
     public int VersionVigente { get; set; }
+
+    // Eje independiente de EstadoRevision: un PETS puede estar "aprobado" y aun así
+    // quedar marcado para revisión porque ocurrió un accidente/incidente que lo tenía
+    // asociado (ver AccidenteIncidenteRepository.MarcarEnviadoAsync). Se limpia solo
+    // al aprobar una versión nueva (AprobarVersionAsync) — esa aprobación ES la
+    // revisión que se pedía.
+    public bool RevisionPendiente { get; set; }
+    public string? RevisionPendienteMotivo { get; set; }
+    public DateTime? RevisionPendienteFecha { get; set; }
 
     public ICollection<SsomaPetPaso> Pasos { get; set; } = [];
 }

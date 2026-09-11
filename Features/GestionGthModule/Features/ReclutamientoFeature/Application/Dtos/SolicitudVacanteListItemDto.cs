@@ -28,5 +28,23 @@
         /// la registró no tiene ficha de trabajador.
         /// </summary>
         public string? Solicitante { get; set; }
+
+        /// <summary>
+        /// Tipo de requerimiento tal como se muestra (Nuevo / Reemplazo): la columna «Tipo». Es el
+        /// nombre del catálogo, que se puede renombrar desde Configuración.
+        /// </summary>
+        public string TipoRequerimiento { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Código estable del tipo (<c>NUEVO</c> / <c>REEMPLAZO</c>): es el que decide cómo se pinta
+        /// el tipo en la tabla. El nombre de al lado es presentación.
+        /// </summary>
+        public string TipoRequerimientoCodigo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true = ingreso directo <b>FFT</b>. Va junto al tipo porque es lo otro que cambia el camino
+        /// de la vacante: no la firma nadie y pasa derecho al EMO de ingreso.
+        /// </summary>
+        public bool EsFft { get; set; }
     }
 }

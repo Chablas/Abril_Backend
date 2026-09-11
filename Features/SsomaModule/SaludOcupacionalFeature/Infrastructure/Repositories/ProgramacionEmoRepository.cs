@@ -381,11 +381,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             empresaId ??= worker.ContributorId;
 
             // Sin razon social no hay cita: la programacion quedaria fuera de la pantalla de
-            // Programaciones (filtra por empresa Abril) y del correo a la clinica. Le pasa al
-            // ingreso directo FFT, que va de la solicitud al EMO sin pasar por la asignacion de
-            // Reclutamiento, y por eso el modal le ofrece un desplegable en lugar del campo de
-            // solo lectura. Se corta en vez de crearla muda: es lo unico que falta y quien programa
-            // lo puede resolver ahi mismo.
+            // Programaciones (filtra por empresa Abril) y del correo a la clinica. Le pasa a toda
+            // ficha de pre-ingreso: la razon social se asigna aca y en ningun otro punto del
+            // proceso, y por eso el modal le ofrece un desplegable en lugar del campo de solo
+            // lectura. Se corta en vez de crearla muda: es lo unico que falta y quien programa lo
+            // puede resolver ahi mismo.
             if (empresaId == null)
                 throw new AbrilException(
                     "Este trabajador no tiene razón social asignada: elígele una antes de "
@@ -406,7 +406,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // social llena metería un trabajador mas por encima del tope. El modal ya lo avisa
                 // y no deja guardar, pero el tope se cuenta de nuevo acá: entre que se abrio el
                 // modal y este momento otro pudo ocupar el ultimo cupo.
-                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.EmpresaId.Value) == 0)
+                //
+                // Salvo que la vacante sea un REEMPLAZO: ahi el tope se pasa a proposito, porque el
+                // que entra y el que sale conviven un mes. Ver IReclutamientoEmoIngresoService
+                // .EsReemplazoAsync. Se pregunta solo cuando la razon social esta llena, que es el
+                // unico momento en que la respuesta cambia algo.
+                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.EmpresaId.Value) == 0
+                    && !await _reclutamiento.EsReemplazoAsync(ctx, worker))
                 {
                     var nombre = await ctx.Contributor
                         .Where(c => c.ContributorId == dto.EmpresaId.Value)
@@ -776,15 +782,31 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         }
 
         /// <summary>
-        /// Razones sociales del grupo con sus cupos, para el desplegable que el modal muestra
-        /// cuando el trabajador llegó sin ninguna. La cuenta es la misma que ofrece Reclutamiento:
-        /// vive en Shared para que las dos pantallas no puedan discrepar (ver
-        /// <see cref="RazonSocialCuposHelper"/>).
+        /// Razones sociales del grupo con sus cupos para el desplegable que el modal muestra cuando
+        /// el trabajador llegó sin ninguna, y si a esa ficha le aplica el tope de 20. La cuenta vive
+        /// en Shared para que esta pantalla y Configuración → Razones Sociales no puedan discrepar
+        /// (ver <see cref="RazonSocialCuposHelper"/>).
+        ///
+        /// <para>Dos roundtrips como mucho: el de la lista y —solo si viene ficha— el que resuelve
+        /// de qué vacante sale. Sin <paramref name="workerId"/> se responde con el tope puesto, que
+        /// es lo que vale para cualquier trabajador que no venga de un reemplazo.</para>
         /// </summary>
-        public async Task<List<RazonSocialCupoDto>> GetRazonesSociales()
+        public async Task<RazonesSocialesEmoDto> GetRazonesSociales(int? workerId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await RazonSocialCuposHelper.ListarAsync(ctx);
+
+            var dto = new RazonesSocialesEmoDto
+            {
+                Razones = await RazonSocialCuposHelper.ListarAsync(ctx),
+            };
+
+            if (workerId == null) return dto;
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId.Value);
+            if (worker != null)
+                dto.SinTopePorReemplazo = await _reclutamiento.EsReemplazoAsync(ctx, worker);
+
+            return dto;
         }
 
         private async Task EnviarNotificacionCreacionAsync(

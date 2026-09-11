@@ -510,8 +510,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// true = hay que avisarle al postulante del rechazo. Solo cuando había completado el
-        /// formulario: si nunca lo llenó, el rechazo es una decisión interna para destrabar el
-        /// proceso y no tiene sentido pedirle que corrija algo que nunca escribió.
+        /// formulario: si nunca lo llenó, el rechazo es un descarte interno y no tiene sentido
+        /// pedirle que corrija algo que nunca escribió.
         /// </summary>
         public bool AvisarAlPostulante { get; set; }
 

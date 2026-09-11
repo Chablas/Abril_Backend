@@ -247,14 +247,20 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
-        public DbSet<GaSalidaVisibilidadArea> GaSalidaVisibilidadArea { get; set; }
+        // Override manual de "qué áreas ve este trabajador", por ámbito (salidas / rendiciones).
+        public DbSet<GaVisibilidadAmbito> GaVisibilidadAmbito { get; set; }
+        public DbSet<GaVisibilidadArea> GaVisibilidadArea { get; set; }
         public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
         public DbSet<AreaRevisores> AreaRevisores { get; set; }
+        // Quién puede adjuntar el Consolidado del S10 por los trabajadores de un área.
+        public DbSet<AreaConsolidadores> AreaConsolidadores { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
+        // Qué planillas cubre cada Consolidado del S10: un consolidado puede agrupar varias.
+        public DbSet<GaConsolidadoS10Rendicion> GaConsolidadoS10Rendicion { get; set; }
         // Solicitudes de corrección del Consolidado del S10 al Coordinador ERP (bandeja
         // "Correcciones S10"). Van por planilla, igual que el consolidado.
         public DbSet<GaCorreccionS10> GaCorreccionS10 { get; set; }
@@ -1084,6 +1090,11 @@ namespace Abril_Backend.Infrastructure.Data
             // snake_case (los digitos no cuentan como corte), pero el mapeo se fija a mano igual
             // para que quede explicito y no dependa de ese detalle de la convencion.
             modelBuilder.Entity<GaConsolidadoS10>().ToTable("ga_consolidado_s10");
+            // La tabla puente del consolidado (qué planillas cubre): mismo cuidado con el "S10",
+            // tabla y FK se fijan a mano.
+            modelBuilder.Entity<GaConsolidadoS10Rendicion>().ToTable("ga_consolidado_s10_rendicion");
+            modelBuilder.Entity<GaConsolidadoS10Rendicion>()
+                .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
             // Mismo caso que el consolidado: se fija a mano para no depender de cómo la
             // convención snake_case parte el "S10".
             modelBuilder.Entity<GaCorreccionS10>().ToTable("ga_correccion_s10");

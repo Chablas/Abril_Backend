@@ -79,6 +79,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 Estado             = EstadosSalida.CorreccionS10.Nombre(c.EstadoId),
                 Motivo             = c.Motivo,
                 MotivoJefatura     = c.MotivoJefatura,
+                MotivoOrigen       = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
                 NumeroGuia         = c.NumeroGuia,
                 SolicitadaPor      = Nombre(c.SolicitadaPorId) ?? string.Empty,
                 SolicitadaAt       = c.SolicitadaAt,

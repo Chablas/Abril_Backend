@@ -1337,7 +1337,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.GthResponsableProcesoId,
                     r.GthTipoProcesoId,
                     r.GthPrioridadId,
-                    r.ContributorId,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
@@ -1373,11 +1372,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .OrderBy(p => p.Orden)
                 .Select(p => new OpcionDto { Id = p.GthPrioridadId, Nombre = p.Nombre })
                 .ToListAsync();
-
-            // Razones sociales activas del grupo con sus cupos. La cuenta vive en Shared porque
-            // la comparte con «Programar EMO con clínica», que se la pide a un finalista de ingreso
-            // directo que llegó sin razón social (ver RazonSocialCuposHelper).
-            var razonesSociales = await RazonSocialCuposHelper.ListarAsync(ctx);
 
             // Canales de publicación + publicaciones ya registradas de este requerimiento.
             var canales = await ctx.GthCanalPublicacion
@@ -1580,12 +1574,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ResponsableId = head.GthResponsableProcesoId,
                     TipoProcesoId = head.GthTipoProcesoId,
                     PrioridadId   = head.GthPrioridadId,
-                    ContributorId = head.ContributorId,
                 },
                 Responsables    = responsables,
                 TiposProceso    = tiposProceso,
                 Prioridades     = prioridades,
-                RazonesSociales     = razonesSociales,
                 Canales             = canales,
                 LugaresEntrevista   = lugaresEntrevista,
                 CandidatosAprobados = candidatosAprobados,
@@ -1640,44 +1632,54 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (actual == null || actual.Orden < longListAprobada.Orden)
                 throw new AbrilException("El solicitante aún no aprobó la long list de este requerimiento.", 400);
 
-            // Requisitos para pasar a entrevistas (mismos que habilitan el botón en la vista de GTH):
-            // todos los formularios ya revisados (aprobados o rechazados), al menos uno aprobado y
-            // el Multitest marcado en los candidatos que siguen en carrera.
+            // Basta con UN candidato listo para abrir las entrevistas: formulario del postulante
+            // aprobado y Multitest marcado. Antes se esperaba a toda la long list (cada formulario
+            // aprobado o rechazado y el Multitest de todos), y un postulante que no respondía
+            // trababa a los que ya estaban listos: GTH tenía que rechazarlo para poder seguir. Ahora
+            // cada candidato avanza a su ritmo y los que se quedan atrás se suman a las entrevistas
+            // cuando cumplen lo mismo (lo revalida GuardarEntrevista), aunque el proceso ya haya
+            // pasado de fase. Es la misma regla que enciende el botón en la vista de GTH.
+            //
+            // Un resultado cerrado (NO_PASO, SELECCIONADO, RECHAZADO, NO_APTO_EMO) no cuenta aunque
+            // tenga formulario y Multitest: es lo que queda de la vuelta anterior cuando se retoma a
+            // otro candidato tras un EMO No Apto, y con él no hay a quién entrevistar.
+            //
+            // Un solo roundtrip: el formulario aprobado y el resultado cerrado van como EXISTS, que
+            // devuelven bool y no tienen el problema de los left join encadenados (ver GetDetalleGth).
+            var cerrados = ResultadoCandidato.Cerrados.ToArray();
             var candidatos = await (
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
-                select new { c.GthCandidatoId, c.MultitestRealizado }).ToListAsync();
+                select new
+                {
+                    c.MultitestRealizado,
+                    FormularioAprobado = (
+                        from f in ctx.GthPostulanteFormulario
+                        where f.GthCandidatoId == c.GthCandidatoId && f.State
+                        join fe in ctx.GthPostulanteFormularioEstado
+                            on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                        where fe.Codigo == EstadoFormularioPostulante.Aprobado
+                        select f.GthPostulanteFormularioId).Any(),
+                    ResultadoCerrado = (
+                        from ev in ctx.GthCandidatoEvaluacion
+                        where ev.GthCandidatoId == c.GthCandidatoId && ev.State
+                        join res in ctx.GthCandidatoResultado
+                            on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                        where cerrados.Contains(res.Codigo)
+                        select ev.GthCandidatoEvaluacionId).Any(),
+                }).ToListAsync();
 
             if (candidatos.Count == 0)
                 throw new AbrilException("No hay candidatos aprobados por el solicitante en este requerimiento.", 400);
 
-            // Estado del formulario de cada candidato (segundo roundtrip acotado: el left join
-            // encadenado formulario→estado no lo materializa bien EF Core, ver GetDetalleGth).
-            var idsCandidatos = candidatos.Select(c => c.GthCandidatoId).ToList();
-            var estadoFormPorCandidato = (await (
-                    from f in ctx.GthPostulanteFormulario
-                    where f.State && idsCandidatos.Contains(f.GthCandidatoId)
-                    join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
-                    select new { f.GthCandidatoId, fe.Codigo }).ToListAsync())
-                .ToDictionary(x => x.GthCandidatoId, x => x.Codigo);
-
-            var estadosForm = idsCandidatos.Select(id => estadoFormPorCandidato.GetValueOrDefault(id)).ToList();
-            if (estadosForm.Any(e => e != EstadoFormularioPostulante.Aprobado
-                                     && e != EstadoFormularioPostulante.Rechazado))
-                throw new AbrilException("Todos los formularios del postulante deben estar aprobados o rechazados antes de continuar.", 400);
-            if (!estadosForm.Any(e => e == EstadoFormularioPostulante.Aprobado))
-                throw new AbrilException("Se necesita al menos un formulario del postulante aprobado para programar entrevistas.", 400);
-
-            // El Multitest solo se exige a quien sigue en carrera: al que se le rechazó el
-            // formulario ya no se le va a entrevistar, así que pedir su check dejaba trabado el
-            // paso a entrevistas por una prueba que ese postulante nunca va a rendir.
-            if (candidatos.Any(c => !c.MultitestRealizado
-                                    && estadoFormPorCandidato.GetValueOrDefault(c.GthCandidatoId)
-                                       != EstadoFormularioPostulante.Rechazado))
+            var conFormularioAprobado = candidatos.Where(c => c.FormularioAprobado && !c.ResultadoCerrado).ToList();
+            if (conFormularioAprobado.Count == 0)
+                throw new AbrilException("Se necesita al menos un candidato con el formulario del postulante aprobado para programar entrevistas.", 400);
+            if (!conFormularioAprobado.Any(c => c.MultitestRealizado))
                 throw new AbrilException(
-                    "Marca el Multitest de todos los candidatos que siguen en el proceso antes de continuar.", 400);
+                    "Marca el Multitest de al menos un candidato con el formulario aprobado antes de continuar.", 400);
 
             req.GthEstadoRequerimientoId = entrevistas.GthEstadoRequerimientoId;
             req.UpdatedDateTime          = DateTimeOffset.UtcNow;
@@ -1703,7 +1705,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, c.MultitestRealizado }).FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
 
@@ -1731,6 +1733,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Una sola entrevista vigente por candidato: reprogramar actualiza esta misma fila.
             var entrevista = await ctx.GthEntrevista
                 .FirstOrDefaultAsync(e => e.GthCandidatoId == candidatoId && e.State);
+
+            // El Multitest es, junto con el formulario aprobado, lo que habilita a un candidato
+            // para la entrevista. Se revalida acá y no solo al pasar de fase porque las entrevistas
+            // se abren con el primer candidato listo y los demás llegan después, cada uno por su
+            // cuenta. Solo al citarlo por primera vez: reprogramar una cita que ya existe no
+            // vuelve a pedirlo.
+            if (entrevista == null && !cand.MultitestRealizado)
+                throw new AbrilException("Marca el Multitest del candidato antes de programarle la entrevista.", 400);
+
             if (entrevista == null)
             {
                 entrevista = new GthEntrevista
@@ -3005,57 +3016,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     .AnyAsync(p => p.GthPrioridadId == dto.PrioridadId.Value && p.State && p.Active);
                 if (!ok) throw new AbrilException("La prioridad seleccionada no es válida.", 400);
             }
-            var razonSocialCambio = req.ContributorId != dto.ContributorId;
-
-            if (dto.ContributorId.HasValue)
-            {
-                var ok = await ctx.Contributor
-                    .AnyAsync(c => c.ContributorId == dto.ContributorId.Value && c.State && c.Active && c.Operativo);
-                if (!ok) throw new AbrilException("La razón social seleccionada no es válida.", 400);
-
-                // En una razón social llena no entra nadie más. Se corta acá y no recién al
-                // publicar porque esta pantalla guarda sola con cada cambio: si no, la empresa sin
-                // cupo quedaría escrita en el requerimiento igual.
-                //
-                // Solo cuando cambia: una razón social asignada hace meses puede haberse llenado
-                // después, y eso no puede dejar el requerimiento congelado sin poder tocarle el
-                // responsable ni la prioridad. Ahí el corte llega al publicar
-                // (<see cref="ReplacePublicaciones"/>), que es cuando importa.
-                if (razonSocialCambio
-                    && await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.ContributorId.Value) == 0)
-                {
-                    var nombre = await ctx.Contributor
-                        .Where(c => c.ContributorId == dto.ContributorId.Value)
-                        .Select(c => c.ContributorName)
-                        .FirstOrDefaultAsync();
-                    throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
-                }
-            }
-
+            // La razón social NO se asigna acá. Se elige en un solo punto del proceso —al
+            // programarle el EMO de ingreso al finalista— y de ahí baja al requerimiento
+            // (IReclutamientoEmoIngresoService.SincronizarRazonSocialAsync). Tenerla también en
+            // esta pantalla era el mismo dato escrito en dos momentos distintos del proceso.
             req.GthResponsableProcesoId = dto.ResponsableId;
             req.GthTipoProcesoId        = dto.TipoProcesoId;
             req.GthPrioridadId          = dto.PrioridadId;
-            req.ContributorId           = dto.ContributorId;
             req.UpdatedDateTime         = DateTimeOffset.UtcNow;
             req.UpdatedUserId           = userId;
-
-            // En un ingreso directo la ficha de pre-ingreso ya existe desde que se aprobó la
-            // vacante (no espera ningún formulario), así que la razón social que se asigna acá
-            // llega tarde para el momento en que se creó: hay que bajársela. En el flujo normal no
-            // aplica — ahí la ficha nace después, con la razón social ya puesta.
-            if (req.EsFft && razonSocialCambio && req.FftPersonId.HasValue)
-            {
-                var ficha = await ctx.Worker
-                    .Where(w => w.PersonId == req.FftPersonId.Value
-                             && w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado)
-                    .OrderByDescending(w => w.Id)
-                    .FirstOrDefaultAsync();
-                if (ficha != null)
-                {
-                    ficha.ContributorId = dto.ContributorId;
-                    ficha.UpdatedAt     = DateTimeOffset.UtcNow;
-                }
-            }
 
             await ctx.SaveChangesAsync();
         }
@@ -3070,29 +3039,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
             // Publicar cierra la asignación interna: de acá en adelante el requerimiento se
-            // trabaja con responsable, SLA, prioridad y razón social ya definidos, así que los
-            // cuatro son obligatorios antes de avanzar la fase.
+            // trabaja con responsable, SLA y prioridad ya definidos, así que los tres son
+            // obligatorios antes de avanzar la fase. La razón social no está en la lista: se elige
+            // mucho después, al programarle el EMO de ingreso al finalista, y con ella el tope de
+            // cupos, que hasta ese momento no tiene contra qué contarse.
             var faltantes = new List<string>();
             if (req.GthResponsableProcesoId == null) faltantes.Add("el responsable del proceso");
             if (req.GthTipoProcesoId == null)        faltantes.Add("el tipo de proceso");
             if (req.GthPrioridadId == null)          faltantes.Add("la prioridad interna");
-            if (req.ContributorId == null)           faltantes.Add("la razón social activa");
             if (faltantes.Count > 0)
                 throw new AbrilException($"Antes de publicar debes seleccionar {string.Join(", ", faltantes)}.", 400);
-
-            // Y con cupo: la razón social pudo llenarse entre que se le asignó al requerimiento y
-            // este momento, así que se vuelve a contar acá. Publicar es lo que arranca el proceso
-            // que termina metiendo a alguien en esa empresa; dejarlo avanzar sería descubrir el
-            // tope al final, con el candidato ya elegido.
-            var cupos = await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, req.ContributorId!.Value);
-            if (cupos == 0)
-            {
-                var nombre = await ctx.Contributor
-                    .Where(c => c.ContributorId == req.ContributorId!.Value)
-                    .Select(c => c.ContributorName)
-                    .FirstOrDefaultAsync();
-                throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
-            }
 
             var deseados = canalIds.Distinct().ToList();
             if (deseados.Count > 0)
@@ -3435,6 +3391,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // los ingresos directos de hoy, que no los firma nadie.
                 join d in detalles on r.GthRequerimientoId equals d.GthRequerimientoId into detalleJoin
                 from d in detalleJoin.DefaultIfEmpty()
+                // Trabajador reemplazado: left join porque solo lo tienen las vacantes de tipo
+                // Reemplazo registradas desde que se pide ese dato.
+                join wr in ctx.Worker on r.ReemplazaWorkerId equals (int?)wr.Id into reemplazaJoin
+                from wr in reemplazaJoin.DefaultIfEmpty()
+                // Tipo del documento del candidato FFT: left join por lo mismo que el de arriba.
+                join td in ctx.GthTipoDocumento on r.GthTipoDocumentoId equals (int?)td.GthTipoDocumentoId into tipoDocJoin
+                from td in tipoDocJoin.DefaultIfEmpty()
+                // El reclutador es opcional: GTH lo asigna recién cuando toma la vacante.
+                join rp in ctx.GthResponsableProceso
+                    on r.GthResponsableProcesoId equals (int?)rp.GthResponsableProcesoId into rpJoin
+                from rp in rpJoin.DefaultIfEmpty()
+                // Quién lo pidió, con el mismo join que la tabla. LEFT porque el usuario puede no
+                // tener ficha.
+                join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into solicitanteJoin
+                from ps in solicitanteJoin.DefaultIfEmpty()
                 select new
                 {
                     r.GthRequerimientoId,
@@ -3443,12 +3414,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Tipo              = t.Nombre,
                     TipoCodigo        = t.Codigo,
                     Area              = r.Solicitud!.AreaNombre,
+                    // Área a la que entra el contratado: la de destino del puesto. Sale del mismo
+                    // join que ya trae el puesto.
+                    AreaDestino       = p.AreaDestinoScope != null && p.AreaDestinoScope.State
+                                        && p.AreaDestinoScope.AreaItem != null
+                                            ? p.AreaDestinoScope.AreaItem.AreaItemName
+                                            : null,
                     ProyectoObra      = pr.ProjectDescription,
                     r.GthSolicitudId,
                     r.Solicitud.Justificacion,
                     r.SalarioBrutoMensual,
                     r.EsFft,
                     r.FftCandidatoNombre,
+                    r.FftCandidatoDocumento,
+                    FftTipoDocumento  = td != null ? td.Nombre : null,
+                    r.FftCandidatoCorreo,
+                    TrabajadorReemplazado = wr == null ? null
+                        : (wr.Person != null ? wr.Person.FullName : null),
+                    ResponsableGth    = rp == null ? null
+                        : (rp.Worker!.Person != null ? rp.Worker.Person.FullName : null),
+                    Solicitante       = ps != null ? ps.FullName : null,
                     r.CreatedDateTime,
                     EstadoCodigo      = e.Codigo,
                     EstadoNombre      = e.Nombre,
@@ -3514,19 +3499,45 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Quién obtuvo el puesto (null mientras el proceso no cierre con un seleccionado).
             var seleccionado = await QuerySeleccionado(ctx, requerimientoId);
 
+            // Las otras vacantes de la misma solicitud: comparten la justificación y el sustento, y
+            // sin esto el seguimiento de una no dice que se pidió junto con otras.
+            var otrasVacantes = await (
+                from o in ctx.GthRequerimiento
+                where o.GthSolicitudId == head.GthSolicitudId && o.State
+                      && o.GthRequerimientoId != head.GthRequerimientoId
+                join op in ctx.Puesto on o.PuestoId equals op.PuestoId
+                orderby o.GthRequerimientoId
+                select new VacanteDeLaSolicitudDto
+                {
+                    RequerimientoId = o.GthRequerimientoId,
+                    Codigo          = o.Codigo,
+                    Puesto          = op.Nombre,
+                }).ToListAsync();
+
             return new SeguimientoDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
                 Codigo                = head.Codigo,
                 Puesto                = head.Puesto,
                 TipoRequerimiento     = head.Tipo,
+                TipoRequerimientoCodigo = head.TipoCodigo,
+                TrabajadorReemplazado = head.TrabajadorReemplazado,
                 Area                  = head.Area,
+                AreaDestino           = head.AreaDestino,
                 ProyectoObra          = head.ProyectoObra,
                 Justificacion         = head.Justificacion,
                 SalarioBrutoMensual   = head.SalarioBrutoMensual,
                 EsFft                 = head.EsFft,
                 FftCandidatoNombre    = head.FftCandidatoNombre,
+                // «DNI 12345678». Los FFT anteriores al desplegable del tipo eran todos DNI.
+                FftDocumentoTexto     = head.EsFft
+                    ? FftDocumento.Texto(head.FftTipoDocumento ?? FftDocumento.Dni, head.FftCandidatoDocumento)
+                    : null,
+                FftCandidatoCorreo    = head.EsFft ? head.FftCandidatoCorreo : null,
                 Enviado               = head.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                Solicitante           = head.Solicitante,
+                ResponsableGth        = head.ResponsableGth,
+                OtrasVacantes         = otrasVacantes,
                 EstadoCodigo          = head.EstadoCodigo,
                 // El badge de "Estado actual" nombra a quien tiene que firmar ESTA vacante; la
                 // línea de tiempo de abajo sigue describiendo la fase entera, con sus dos caminos.
@@ -3625,6 +3636,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Solicitante = ps != null ? ps.FullName : null,
                     r.EsFft,
                     TipoCodigo = t.Codigo,
+                    // El nombre, además del código: es lo que se lee en la columna «Tipo».
+                    Tipo = t.Nombre,
                     TieneDetalle = d != null,
                     AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGth = d != null ? d.AprobadoGth : null,
@@ -3645,6 +3658,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                       x.EstadoCodigo, x.EstadoNombre, x.EsFft, x.TipoCodigo,
                                       x.TieneDetalle, x.AprobadoGerenteArea, x.AprobadoGth),
                 Solicitante     = x.Solicitante,
+                TipoRequerimiento       = x.Tipo,
+                TipoRequerimientoCodigo = x.TipoCodigo,
+                EsFft           = x.EsFft,
             }).ToList();
         }
 

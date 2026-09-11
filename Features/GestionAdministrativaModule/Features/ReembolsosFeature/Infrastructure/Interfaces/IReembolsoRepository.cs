@@ -26,10 +26,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int estadoId);
 
         /// <summary>
+        /// Igual, para las acciones que aceptan la salida en más de un estado. Lo usa Observar, que
+        /// devuelve tanto lo firmado como lo ya confirmado para pagar (RG-49).
+        /// </summary>
+        Task<List<int>> ResolverSolicitudIds(
+            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int[] estadoIds);
+
+        /// <summary>
         /// Marca como "Proceder con el reembolso" las salidas indicadas que estén Firmadas (RG-26).
         /// Las demás se ignoran. Devuelve los ids que efectivamente cambiaron.
         /// </summary>
         Task<List<int>> ConfirmarRevision(IEnumerable<int> ids, int tesoreroUserId);
+
+        /// <summary>
+        /// Devuelve las salidas indicadas con el motivo de Tesorería (RG-49): las deja Observadas
+        /// —el mismo estado que usa la jefatura, con el origen marcado— y borra la confirmación de
+        /// la revisión. Solo aplica sobre lo firmado o listo para pagar; lo pagado no vuelve.
+        /// </summary>
+        Task<List<int>> Observar(IEnumerable<int> ids, string observacion, int tesoreroUserId);
 
         /// <summary>
         /// Marca como Pagadas las salidas indicadas que estén en "Proceder con el reembolso".
@@ -38,11 +52,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         Task<List<int>> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId);
 
         /// <summary>
-        /// Lo que necesita el aviso de pago, UNA fila por (planilla, trabajador): el correo dice
-        /// "te pagamos tu rendición", así que una planilla que agrupe a varias personas manda un
-        /// correo a cada una con SUS números, no con el total del documento.
+        /// Lo que necesitan los correos de esta pantalla, UNA fila por (planilla, trabajador): los
+        /// dos dicen algo de "tu rendición", así que una planilla que agrupe a varias personas
+        /// manda un correo a cada una con SUS números, no con el total del documento.
         /// </summary>
-        Task<List<ReembolsoPlanillaCorreoDatos>> GetPagoCorreoInfo(IEnumerable<int> solicitudIds);
+        Task<List<ReembolsoPlanillaCorreoDatos>> GetPlanillaCorreoInfo(IEnumerable<int> solicitudIds);
 
         /// <summary>
         /// Seguimiento de Tesorería (11.4): lo ya abonado, agrupado por colaborador. Mira solo lo

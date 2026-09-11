@@ -28,6 +28,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             public int EstadoReembolsoId { get; init; }
             public string EstadoReembolso => EstadosSalida.Reembolso.Nombre(EstadoReembolsoId);
             public string? ObservacionReembolso { get; init; }
+            /// <summary>Quién observó: jefatura o Tesorería. Ver <see cref="EstadosSalida.OrigenObservacionReembolso"/>.</summary>
+            public int? ObservacionReembolsoOrigenId { get; init; }
+            public DateTimeOffset? ReembolsoDecididoAt { get; init; }
+            public int? ReembolsoDecididoPorId { get; init; }
             public DateTimeOffset? RevisorNotificadoAt { get; init; }
 
             // Los dos pasos de Tesorería. Van acá y no en una consulta aparte de Reembolsos para
@@ -76,6 +80,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             public string EstadoReembolso { get; init; } = string.Empty;
             public bool ReembolsoMixto { get; init; }
             public string? ObservacionReembolso { get; init; }
+            /// <summary>
+            /// Quién escribió la observación de arriba. Va en la planilla y no solo en la salida
+            /// porque la observación se decide por planilla entera: todas sus salidas observadas
+            /// traen la misma.
+            /// </summary>
+            public int? ObservacionReembolsoOrigenId { get; init; }
+            /// <summary>Cuándo y quién tomó la última decisión del reembolso de la planilla.</summary>
+            public DateTimeOffset? ReembolsoDecididoAt { get; init; }
+            public int? ReembolsoDecididoPorId { get; init; }
             public DateTimeOffset? RevisorNotificadoAt { get; init; }
 
             /// <summary>Nombres de los trabajadores que aparecen en la planilla, sin repetir.</summary>
@@ -116,6 +129,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     s.FechaSalida,
                     s.EstadoReembolsoId,
                     s.ObservacionReembolso,
+                    s.ObservacionReembolsoOrigenId,
+                    s.ReembolsoDecididoAt,
+                    s.ReembolsoDecididoPorId,
                     s.RevisorNotificadoAt,
                     s.RevisionTesoreriaAt,
                     s.RevisionTesoreriaPorId,
@@ -192,6 +208,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                             FechaSalida          = x.FechaSalida,
                             EstadoReembolsoId    = x.EstadoReembolsoId,
                             ObservacionReembolso = x.ObservacionReembolso,
+                            ObservacionReembolsoOrigenId = x.ObservacionReembolsoOrigenId,
+                            ReembolsoDecididoAt    = x.ReembolsoDecididoAt,
+                            ReembolsoDecididoPorId = x.ReembolsoDecididoPorId,
                             RevisorNotificadoAt  = x.RevisorNotificadoAt,
                             RevisionTesoreriaAt  = x.RevisionTesoreriaAt,
                             RevisionTesoreriaPorId = x.RevisionTesoreriaPorId,
@@ -209,6 +228,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 var desde  = filas.Min(f => f.FechaSalida);
                 var hasta  = filas.Max(f => f.FechaSalida);
                 var estado = PlanillaRendicionHelper.ResumirEstadoReembolso(filas.Select(f => f.EstadoReembolsoId));
+
+                // La observación vigente de la planilla: el texto y su origen salen de la MISMA
+                // salida, o una planilla observada por Tesorería podría mostrar el motivo de una y
+                // el rótulo de otra.
+                var observada = filas.FirstOrDefault(
+                    f => f.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                      && !string.IsNullOrWhiteSpace(f.ObservacionReembolso));
 
                 consolidados.TryGetValue(planilla.Id, out var consolidado);
 
@@ -237,11 +263,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     PeriodoMes         = desde.Month,
                     EstadoReembolso    = estado,
                     ReembolsoMixto     = filas.Select(f => f.EstadoReembolsoId).Distinct().Count() > 1,
-                    ObservacionReembolso = filas
-                        .Where(f => f.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
-                                 && !string.IsNullOrWhiteSpace(f.ObservacionReembolso))
-                        .Select(f => f.ObservacionReembolso)
-                        .FirstOrDefault(),
+                    ObservacionReembolso = observada?.ObservacionReembolso,
+                    ObservacionReembolsoOrigenId = observada?.ObservacionReembolsoOrigenId,
+                    // El rastro de la decisión es por salida, pero la decisión se toma por planilla:
+                    // se toma la más reciente, que responde "¿cuándo se movió esto por última vez?".
+                    ReembolsoDecididoAt    = filas.Max(f => f.ReembolsoDecididoAt),
+                    ReembolsoDecididoPorId = filas.OrderByDescending(f => f.ReembolsoDecididoAt)
+                                                  .Select(f => f.ReembolsoDecididoPorId)
+                                                  .FirstOrDefault(x => x.HasValue),
                     RevisorNotificadoAt = filas.Max(f => f.RevisorNotificadoAt),
                     Trabajadores        = filas.Select(f => f.Trabajador).Distinct().ToList(),
                     MontoTotal          = filas.Sum(f => f.Monto),

@@ -771,10 +771,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// de "reservado".</para>
         ///
         /// <para><b>Qué NO hace.</b> No corta si la razón social llegó al tope. El candidato ya
-        /// firmó y el proceso pasó por dos controles de cupo antes (al asignarle la razón social al
-        /// requerimiento y al publicarlo); rebotar acá dejaría el requerimiento sin salida y a una
-        /// persona contratada fuera del sistema. Si el tope se pasó, la pantalla lo muestra en 0
-        /// cupos, que es la verdad.</para>
+        /// firmó, y el cupo se controló donde se eligió la razón social: al programarle el EMO de
+        /// ingreso. Rebotar acá dejaría el requerimiento sin salida y a una persona contratada
+        /// fuera del sistema. Si el tope se pasó —lo que en un REEMPLAZO está previsto que pase—,
+        /// la pantalla lo muestra en 0 cupos, que es la verdad.</para>
         ///
         /// <para>Si el seleccionado ya era trabajador de Abril (postulación interna) no hay ficha de
         /// pre-ingreso que activar y esto no hace nada: su puesto, su vinculación y su periodo son

@@ -69,6 +69,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
         public bool ReembolsoMixto { get; set; }
         public string? ObservacionReembolso { get; set; }
+        /// <summary>
+        /// Quién escribió esa observación: "Jefatura" o "Tesorería" (RG-49). Vacío si no hay
+        /// observación. Una planilla que devolvió Tesorería vuelve a esta bandeja para que la
+        /// jefatura la firme de nuevo, así que el revisor tiene que ver que no es su propia
+        /// observación vieja.
+        /// </summary>
+        public string ObservacionReembolsoOrigen { get; set; } = string.Empty;
         public DateTimeOffset? RevisorNotificadoAt { get; set; }
 
         // ── Qué se puede hacer con esta planilla ─────────────────────────
@@ -82,6 +89,55 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// usa para apagar las acciones antes de que el backend las rechace.
         /// </summary>
         public bool PuedeDecidir { get; set; } = true;
+
+        /// <summary>
+        /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla en nombre de
+        /// sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado en Gestión de
+        /// Rendiciones → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce el
+        /// algoritmo), y hace falta poder por TODOS los trabajadores de
+        /// <see cref="ConsolidadoConjunto"/>: el consolidado es uno solo y cubre esos documentos
+        /// enteros, también a los trabajadores que el usuario no ve.
+        ///
+        /// Ver la planilla no alcanza: alguien con visibilidad amplia la ve pero no necesariamente
+        /// puede hacerle el trámite. La pantalla lo usa para apagar el botón antes de que el
+        /// backend rechace la subida.
+        /// </summary>
+        public bool PuedeConsolidar { get; set; }
+
+        /// <summary>
+        /// True si a esta planilla se le puede adjuntar (o cambiar) el Consolidado del S10: la
+        /// primera revisión está APROBADA (RG-35) y el reembolso de TODAS sus salidas sigue por
+        /// decidir. Es la misma condición que valida la subida, sin mirar permisos (para eso está
+        /// <see cref="PuedeConsolidar"/>).
+        /// </summary>
+        public bool PuedeAdjuntarConsolidado { get; set; }
+
+        /// <summary>
+        /// Las planillas que cubriría el consolidado adjuntado desde esta fila: ella misma primero
+        /// y, si ya tiene uno compartido, las demás planillas de ese consolidado que siguen con el
+        /// reembolso por decidir —el documento se reemplaza entero—, aunque la tabla no las
+        /// muestre. Cada una con su monto completo, que es contra el que se contrasta el del
+        /// consolidado.
+        /// </summary>
+        public List<ConsolidadoConjuntoItemDto> ConsolidadoConjunto { get; set; } = new();
+
+        /// <summary>
+        /// Razón social de los trabajadores de <see cref="ConsolidadoConjunto"/> si es una sola y
+        /// está cargada; null si se mezclan o si falta. La pantalla la usa para no ofrecer juntar en
+        /// un mismo consolidado planillas de razones sociales distintas (lo valida el backend).
+        /// </summary>
+        public int? RazonSocialId { get; set; }
+        public string? RazonSocial { get; set; }
+    }
+
+    /// <summary>Una planilla que cubriría un Consolidado del S10, con su monto completo.</summary>
+    public class ConsolidadoConjuntoItemDto
+    {
+        public int Id { get; set; }
+        /// <summary>Código REN-AAAA-NNNN.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>Monto de la planilla COMPLETA (todas sus salidas, de todos sus trabajadores).</summary>
+        public decimal MontoTotalPlanilla { get; set; }
     }
 
     /// <summary>Un PDF de la planilla que hay que firmar al aprobar su reembolso.</summary>
@@ -89,8 +145,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     {
         /// <summary>Id de la fila de <c>ga_consolidado_s10</c>. Sin uso en la planilla misma.</summary>
         public int Id { get; set; }
+
+        /// <summary>
+        /// PDF sobre el que se estampa: el original, o —si el consolidado es compartido y otro jefe
+        /// ya lo firmó al aprobar otra de sus planillas— su copia firmada, para que la firma nueva
+        /// se sume a la anterior en vez de borrarla.
+        /// </summary>
         public string Url { get; set; } = string.Empty;
+
+        /// <summary>Nombre del ORIGINAL: la copia firmada se nombra a partir de él.</summary>
         public string Filename { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Lugar de la firma en la hoja: cuántas firmas trae ya el documento (0 = la esquina de
+        /// siempre). Ver <c>SignaturePdfStamper.Stamp</c>.
+        /// </summary>
+        public int Slot { get; set; }
     }
 
     /// <summary>

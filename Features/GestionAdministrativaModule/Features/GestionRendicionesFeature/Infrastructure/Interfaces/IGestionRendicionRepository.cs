@@ -124,5 +124,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// existe. Los destinatarios pueden venir vacíos: no hay nadie con puesto de Tesorería.
         /// </summary>
         Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId);
+
+        /// <summary>
+        /// Trabajadores de las salidas de las planillas indicadas, SIN recortar por visibilidad. Lo
+        /// pide la validación de quién puede adjuntarles un Consolidado del S10: el documento cubre
+        /// las planillas enteras, así que hay que poder consolidar por todos — también por los que
+        /// el usuario no ve.
+        /// </summary>
+        Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds);
     }
 }

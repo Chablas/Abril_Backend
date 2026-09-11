@@ -613,4 +613,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Destinatarios principales a los que se envió (para mostrarlos en el mensaje).</summary>
         public List<string> Destinatarios { get; set; } = new();
     }
+
+    /// <summary>
+    /// A quién le llegaría el reenvío del correo de aprobación de una vacante. Lo pide la
+    /// confirmación del botón para nombrar las direcciones reales, y las resuelve la misma llamada
+    /// que usa el reenvío: el aviso no puede prometer un correo distinto del que sale.
+    /// </summary>
+    public class AprobacionGgReenvioPreviewDto
+    {
+        /// <summary>
+        /// Quién tiene que firmar la vacante ahora: «Gerencia General», «la Gerencia del Área» o
+        /// «Gestión del Talento Humano».
+        /// </summary>
+        public string Firmante { get; set; } = string.Empty;
+
+        public SolicitudDestinatariosDto Destinatarios { get; set; } = new();
+    }
 }

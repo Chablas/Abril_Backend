@@ -81,6 +81,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             };
         }
 
+        /// <summary>
+        /// Tesorería devuelve el consolidado con un motivo obligatorio (RG-49). No hay un "flujo de
+        /// subsanación de Tesorería" aparte: la planilla vuelve al MISMO camino que ya existe para
+        /// la observación de la jefatura (§10.4-10.6) —queda Observada y el consolidador elige
+        /// entre recargar el Consolidado del S10 o pedirle la corrección al Coordinador ERP—, con
+        /// la única diferencia de que el origen queda marcado.
+        ///
+        /// Por eso Tesorería NO le escribe al ERP: el pedido al ERP lleva el «MOTIVO *» del
+        /// consolidador (RG-21), que es quien sabe qué hay que tocar en el S10.
+        /// </summary>
+        public async Task<ReembolsoBulkResultDto> Observar(
+            ReembolsoObservacionDto dto, int tesoreroUserId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Observacion))
+                throw new AbrilException("Para observar un reembolso hay que escribir el motivo.", 400);
+
+            var ids = await _repo.ResolverSolicitudIds(
+                dto.RendicionIds, dto.SolicitudIds, EstadosSalida.Reembolso.ObservablesPorTesoreria);
+
+            if (ids.Count == 0)
+                throw new AbrilException(
+                    "No hay reembolsos que observar en la selección: solo se devuelve lo que está "
+                    + "firmado o listo para pagar. Lo ya pagado no vuelve.", 400);
+
+            var observadas = await _repo.Observar(ids, dto.Observacion!, tesoreroUserId);
+
+            await NotificarObservacionAsync(observadas, dto.Observacion!);
+
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas = observadas.Count,
+                Message    = $"{observadas.Count} reembolso(s) observado(s) y devuelto(s) para subsanar.",
+            };
+        }
+
         public async Task<ReembolsoBulkResultDto> MarcarPagadas(
             ReembolsoSeleccionDto dto, int tesoreroUserId)
         {
@@ -115,16 +150,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         ///
         /// Best-effort: ante un error devuelve una lista vacía y la confirmación sale sin correos.
         /// </summary>
-        public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(
-            ReembolsoSeleccionDto dto)
+        public Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto) =>
+            PreviewAsync(
+                dto,
+                new[] { EstadosSalida.Reembolso.PorPagar },
+                CorreoEventoCodigos.ReembolsoPagado,
+                "preview del correo de pago");
+
+        /// <summary>
+        /// A quién le llegaría el aviso de que Tesorería devolvió lo seleccionado. Mismo criterio
+        /// que el de pago: se resuelve sobre las salidas que de verdad se van a observar.
+        /// </summary>
+        public Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewObservacion(ReembolsoSeleccionDto dto) =>
+            PreviewAsync(
+                dto,
+                EstadosSalida.Reembolso.ObservablesPorTesoreria,
+                CorreoEventoCodigos.ReembolsoObservadoTesoreria,
+                "preview del correo de observación");
+
+        private async Task<List<CorreoAvisoPreviewDto>> PreviewAsync(
+            ReembolsoSeleccionDto dto, int[] estados, string eventoCodigo, string queSeEstabaHaciendo)
         {
             try
             {
-                var ids = await _repo.ResolverSolicitudIds(
-                    dto.RendicionIds, dto.SolicitudIds, EstadosSalida.Reembolso.PorPagar);
+                var ids = await _repo.ResolverSolicitudIds(dto.RendicionIds, dto.SolicitudIds, estados);
                 if (ids.Count == 0) return new();
 
-                var datos = await _repo.GetPagoCorreoInfo(ids);
+                var datos = await _repo.GetPlanillaCorreoInfo(ids);
                 var principal = datos
                     .Select(d => d.TrabajadorEmail)
                     .Where(e => !string.IsNullOrWhiteSpace(e))
@@ -132,8 +184,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                     .Distinct()
                     .ToList();
 
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    CorreoEventoCodigos.ReembolsoPagado, principal);
+                var envio = await _correoResolver.ResolveEnvioAsync(eventoCodigo, principal);
 
                 if (!envio.Enviar || envio.Para.Count == 0) return new();
 
@@ -149,7 +200,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error resolviendo el preview del correo de pago");
+                _logger.LogError(ex, "Error resolviendo el {Que}", queSeEstabaHaciendo);
                 return new();
             }
         }
@@ -168,9 +219,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         {
             if (solicitudIds.Count == 0) return;
 
+            await NotificarAsync(
+                solicitudIds,
+                CorreoEventoCodigos.ReembolsoPagado,
+                d => $"Reembolso realizado - rendición {d.Codigo}",
+                (layout, d, url) => ReembolsoEmailTemplates.Pagado(layout, d, url),
+                "el pago de los reembolsos");
+        }
+
+        /// <summary>
+        /// Avisa a cada colaborador que Tesorería le devolvió el reembolso, con el motivo y los dos
+        /// caminos para subsanar. Va por su propio evento y no por el de la jefatura
+        /// (REEMBOLSO_RECHAZADO) porque se origina en otra pantalla y se administra desde ahí.
+        ///
+        /// Es best-effort, igual que el resto de los avisos del ciclo: la observación ya está
+        /// escrita y no se revierte porque un correo falle. La planilla queda visible como
+        /// Observada en las tres pantallas aunque el correo no salga.
+        /// </summary>
+        private async Task NotificarObservacionAsync(List<int> solicitudIds, string observacion)
+        {
+            await NotificarAsync(
+                solicitudIds,
+                CorreoEventoCodigos.ReembolsoObservadoTesoreria,
+                d => $"Reembolso observado por Tesorería - rendición {d.Codigo}",
+                (layout, d, url) => ReembolsoEmailTemplates.ObservadoPorTesoreria(
+                    layout, d, observacion, url),
+                "la observación de los reembolsos");
+        }
+
+        /// <summary>
+        /// El envío que comparten los dos correos de la pantalla: UNO por (planilla, trabajador),
+        /// nunca uno por salida —una planilla puede traer diez salidas de la misma persona y lo que
+        /// se avisa es del documento—, con el botón apuntando a Mis Rendiciones, que es donde vive
+        /// el expediente completo del trabajador.
+        /// </summary>
+        private async Task NotificarAsync(
+            List<int> solicitudIds,
+            string eventoCodigo,
+            Func<ReembolsoPlanillaCorreoDatos, string> asunto,
+            Func<SalidaEmailLayout, ReembolsoPlanillaCorreoDatos, string, string> cuerpo,
+            string queSeEstabaAvisando)
+        {
+            if (solicitudIds.Count == 0) return;
+
             try
             {
-                var datos  = await _repo.GetPagoCorreoInfo(solicitudIds);
+                var datos  = await _repo.GetPlanillaCorreoInfo(solicitudIds);
                 var layout = SalidaEmailLayout.Desde(_configuration);
 
                 foreach (var d in datos)
@@ -178,37 +272,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                     if (string.IsNullOrWhiteSpace(d.TrabajadorEmail))
                     {
                         _logger.LogWarning(
-                            "Rendición {RendicionId}: el colaborador no tiene correo registrado, no se avisó el pago.",
-                            d.RendicionId);
+                            "Rendición {RendicionId}: el colaborador no tiene correo registrado, no se envió {Codigo}.",
+                            d.RendicionId, eventoCodigo);
                         continue;
                     }
 
                     var envio = await _correoResolver.ResolveEnvioAsync(
-                        CorreoEventoCodigos.ReembolsoPagado, new List<string> { d.TrabajadorEmail! });
+                        eventoCodigo, new List<string> { d.TrabajadorEmail! });
 
                     if (!envio.Enviar)
                     {
                         _logger.LogInformation(
                             "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado o sin destinatarios.",
-                            CorreoEventoCodigos.ReembolsoPagado, d.RendicionId);
+                            eventoCodigo, d.RendicionId);
                         continue;
                     }
 
-                    // El botón lleva a Mis Rendiciones: ahí vive el expediente completo del
-                    // trabajador (planilla firmada, Consolidado del S10 y el estado final).
                     var url = SalidaEnlaces.Rendiciones(_configuration, d.RendicionId);
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Reembolso realizado - rendición {d.Codigo}",
-                        body: ReembolsoEmailTemplates.Pagado(layout, d, url),
+                        subject: asunto(d),
+                        body: cuerpo(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error avisando el pago de los reembolsos {Ids}", string.Join(",", solicitudIds));
+                _logger.LogError(ex, "Error avisando {Que} {Ids}",
+                    queSeEstabaAvisando, string.Join(",", solicitudIds));
             }
         }
     }

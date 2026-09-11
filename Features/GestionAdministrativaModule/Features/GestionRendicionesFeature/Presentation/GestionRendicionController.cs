@@ -134,11 +134,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             }
         }
 
-        [HttpPost("{id:int}/consolidado-s10")]
+        /// <summary>
+        /// Adjunta un Consolidado del S10 que cubre las planillas indicadas: una sola (el botón de
+        /// cada fila) o varias a la vez (la selección), incluso de trabajadores distintos, porque un
+        /// registro del S10 puede agrupar varias rendiciones de una misma razón social.
+        /// </summary>
+        [HttpPost("consolidado-s10")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(25 * 1024 * 1024)]
         public async Task<IActionResult> UploadConsolidadoS10(
-            int id,
+            [FromForm] List<int> rendicionIds,
             [FromForm] IFormFile file,
             // El monto viaja como texto y se parsea acá con InvariantCulture, igual que los montos
             // de las capturas: el binder de formularios usa la cultura del servidor y un "50.00"
@@ -155,7 +160,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
                                       System.Globalization.CultureInfo.InvariantCulture, out var monto))
                     return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
 
-                return Ok(await _service.UploadConsolidadoS10(id, file, monto, numeroGuia, userId.Value));
+                return Ok(await _service.UploadConsolidadoS10(rendicionIds, file, monto, numeroGuia, userId.Value));
             }
             catch (AbrilException ex)
             {

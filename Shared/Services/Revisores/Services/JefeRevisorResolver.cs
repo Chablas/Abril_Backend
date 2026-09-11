@@ -1,5 +1,6 @@
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Jerarquia;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,7 +41,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
     /// </summary>
     public class JefeRevisorResolver : IJefeRevisorResolver
     {
-        private const string EmailDomainCorp = "@abril.pe";
+        private const string EmailDomainCorp = EstructuraAreaLoader.EmailDomainCorp;
         /// <summary>Nombre exacto del área en area_item cuyo area_scope.email es el fallback.</summary>
         private const string AreaGthNombre = "Gestión del Talento Humano";
 
@@ -152,13 +153,9 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                     .FirstOrDefaultAsync()
                 : null;
 
-            var scopes = await ctx.AreaScope.AsNoTracking()
-                .Where(s => s.State)
-                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
-                .ToListAsync();
-            var parentById = scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId);
+            var parentById = await EstructuraAreaLoader.CargarArbolAsync(ctx);
 
-            var cadenaPorNodo = ConstruirCadenas(ids, parentById);
+            var cadenaPorNodo = EstructuraAreaLoader.ConstruirCadenas(ids, parentById);
             var nodos = cadenaPorNodo.Values.SelectMany(c => c).Distinct().ToList();
 
             var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig.AsNoTracking()
@@ -351,27 +348,6 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                 c.RevisorWorkerId, null, c.EmailCorporativo.Trim(), c.Nombre, c.RevisorPersonId, origen);
         }
 
-        /// <summary>Cadena nodo → raíz de cada nodo pedido, cortando ciclos por si el árbol quedó mal.</summary>
-        private static Dictionary<int, List<int>> ConstruirCadenas(
-            IEnumerable<int> desdeIds,
-            Dictionary<int, int?> parentById)
-        {
-            var cadenas = new Dictionary<int, List<int>>();
-            foreach (var desde in desdeIds)
-            {
-                var cadena = new List<int>();
-                var visitados = new HashSet<int>();
-                int? actual = desde;
-                while (actual != null && visitados.Add(actual.Value))
-                {
-                    cadena.Add(actual.Value);
-                    parentById.TryGetValue(actual.Value, out actual);
-                }
-                if (cadena.Count > 0) cadenas[desde] = cadena;
-            }
-            return cadenas;
-        }
-
         /// <summary>
         /// Un candidato a revisor de un nodo. Cubre las dos fuentes: una fila viva y activa de
         /// <c>area_revisores</c> (<see cref="RevisorOrigen.Personalizado"/>) y la que deduce el
@@ -422,82 +398,30 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             ILookup<int, RevisorCandidato> JefePorNodo,
             IReadOnlyDictionary<int, RevisorCandidato> ResidentePorProyecto);
 
-        /// <summary>
-        /// Identifica a OFICINA CENTRAL, que es una fila más de <c>project</c> sin bandera que la
-        /// distinga de una obra: la única salida es el nombre normalizado (en prod va en mayúsculas
-        /// y en dev como "Oficina Central"). Mismo criterio que usa el aviso de obra del Onboarding.
-        /// </summary>
-        private const string ProyectoOficinaCentral = "OFICINA CENTRAL";
-
         private static async Task<AlgoritmoContexto> CargarAlgoritmoAsync(AppDbContext ctx, List<int> nodos)
         {
-            // Jefes/Gerentes de cada nodo. La categoría sale del puesto (workers ya no la guarda) y
-            // el nodo también (puesto.area_destino_scope_id). Se traen las dos categorías juntas y
-            // se filtra por tipo de nodo al armar el lookup: una sola consulta en vez de dos.
-            var jefes = await (
-                from w in ctx.Worker.AsNoTracking()
-                join pu in ctx.Puesto.AsNoTracking() on w.PuestoId equals pu.PuestoId
-                where w.State
-                      && pu.AreaDestinoScopeId != null
-                      && nodos.Contains(pu.AreaDestinoScopeId.Value)
-                      && (pu.CategoriaId == CategoriaIds.Jefe || pu.CategoriaId == CategoriaIds.Gerente)
-                      && w.EmailCorporativo != null
-                      && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                join s in ctx.AreaScope.AsNoTracking() on pu.AreaDestinoScopeId.Value equals s.AreaScopeId
-                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
-                where s.State
-                select new
-                {
-                    AreaScopeId = pu.AreaDestinoScopeId.Value,
-                    pu.CategoriaId,
-                    ai.AreaTypeId,
-                    w.Id,
-                    w.PersonId,
-                    w.EmailCorporativo,
-                    Nombre = w.Person != null ? w.Person.FullName : null,
-                }
-            ).ToListAsync();
+            // La estructura (quién es el Jefe/Gerente de cada nodo y el residente de cada obra) la
+            // carga EstructuraAreaLoader, compartido con ConsolidadorResolver: los dos algoritmos
+            // tienen que deducir a la MISMA persona de la misma área. Acá solo se la viste de
+            // candidato para que Ranking trate igual lo asignado a mano y lo deducido.
+            var estructura = await EstructuraAreaLoader.CargarAsync(ctx, nodos);
 
-            // La categoría que manda depende del tipo de nodo, así que un Jefe que cuelga de un
-            // "Área de Gerencia" no cuenta ahí, ni un Gerente en un "Área Estándar".
-            var jefePorNodo = jefes
-                .Where(j => j.CategoriaId == (j.AreaTypeId == AreaTypeIds.AreaDeGerencia
-                    ? CategoriaIds.Gerente
-                    : CategoriaIds.Jefe))
-                // Desempate estable cuando un área tiene más de un jefe: la ficha más antigua.
-                // Es arbitrario a propósito — lo que importa es que no cambie entre llamadas; el
-                // área que quiera otro orden lo fija a mano en Revisores de Áreas.
-                .OrderBy(j => j.Id)
-                .ToLookup(j => j.AreaScopeId, j => new RevisorCandidato(
-                    j.AreaScopeId, null, 0, 0, j.Id, j.PersonId, j.EmailCorporativo!, j.Nombre,
-                    RevisorOrigen.Algoritmo));
+            var jefePorNodo = estructura.JefePorNodo
+                .SelectMany(g => g.Select(j => (Nodo: g.Key, Persona: j)))
+                .ToLookup(x => x.Nodo, x => Candidato(x.Nodo, null, x.Persona));
 
-            // Residente de cada obra. OFICINA CENTRAL queda fuera: no es una obra, así que su
-            // revisor sale del jefe del área como cualquier nodo sin filtro por proyecto.
-            var residentes = await (
-                from p in ctx.Project.AsNoTracking()
-                where p.State && p.ResidenteWorkersId != null
-                      && p.ProjectDescription != null
-                      && p.ProjectDescription.ToUpper().Trim() != ProyectoOficinaCentral
-                join w in ctx.Worker.AsNoTracking() on p.ResidenteWorkersId.Value equals w.Id
-                where w.State
-                      && w.EmailCorporativo != null
-                      && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                select new
-                {
-                    p.ProjectId, w.Id, w.PersonId, w.EmailCorporativo,
-                    Nombre = w.Person != null ? w.Person.FullName : null,
-                }
-            ).ToListAsync();
-
-            var residentePorProyecto = residentes.ToDictionary(
-                r => r.ProjectId,
-                r => new RevisorCandidato(
-                    0, r.ProjectId, 0, 0, r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre,
-                    RevisorOrigen.Algoritmo));
+            var residentePorProyecto = estructura.ResidentePorProyecto.ToDictionary(
+                kv => kv.Key,
+                kv => Candidato(0, kv.Key, kv.Value));
 
             return new AlgoritmoContexto(jefePorNodo, residentePorProyecto);
         }
+
+        /// <summary>Una persona que dedujo el árbol, como candidato del ranking.</summary>
+        private static RevisorCandidato Candidato(
+            int areaScopeId, int? projectId, EstructuraAreaLoader.PersonaDeArea persona)
+            => new(areaScopeId, projectId, 0, 0, persona.WorkerId, persona.PersonId,
+                   persona.Email, persona.Nombre, RevisorOrigen.Algoritmo);
 
         private static async Task<JefeRevisorResolution?> GetFallbackGthAsync(AppDbContext ctx)
         {
@@ -539,14 +463,11 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             if (areaScopePorWorker.Count == 0) return;
 
             // Árbol vivo (tabla pequeña) para armar las cadenas trabajador → raíz en memoria.
-            var scopes = await ctx.AreaScope.AsNoTracking()
-                .Where(s => s.State)
-                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
-                .ToListAsync();
-            var parentById = scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId);
+            var parentById = await EstructuraAreaLoader.CargarArbolAsync(ctx);
 
             // Cadena por nodo (misma rutina que usa la previsualización por área) y de ahí por worker.
-            var cadenaPorScope = ConstruirCadenas(areaScopePorWorker.Values.Distinct(), parentById);
+            var cadenaPorScope = EstructuraAreaLoader.ConstruirCadenas(
+                areaScopePorWorker.Values.Distinct(), parentById);
             var cadenaPorWorker = areaScopePorWorker
                 .Where(kv => cadenaPorScope.ContainsKey(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => cadenaPorScope[kv.Value]);

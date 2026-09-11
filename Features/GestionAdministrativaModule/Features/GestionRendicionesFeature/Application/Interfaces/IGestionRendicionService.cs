@@ -39,18 +39,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una planilla. El revisor lo sube en
-        /// nombre del trabajador cuando este no puede; el archivo cubre la planilla entera.
+        /// Adjunta (o reemplaza) UN Consolidado del S10 para las planillas indicadas: una o varias,
+        /// de uno o de varios trabajadores de una misma razón social. El consolidador lo sube en
+        /// nombre de los trabajadores y tiene que estar habilitado por TODOS los de esas planillas.
         ///
-        /// Solo con la primera revisión APROBADA (RG-35): lo valida el servicio compartido.
+        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, una
+        /// sola razón social, el documento compartido se reemplaza entero) las valida el servicio
+        /// compartido.
         /// </summary>
         /// <param name="montoTotal">
-        /// Importe total del consolidado. Tiene que coincidir con el monto de la planilla completa
+        /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas
         /// o se rechaza con 400.
         /// </param>
         /// <param name="numeroGuia">Número de guía del S10 (texto, obligatorio).</param>
         Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
 
         /// <summary>
         /// Aprueba o rechaza el reembolso de lo seleccionado. La selección puede venir por planilla

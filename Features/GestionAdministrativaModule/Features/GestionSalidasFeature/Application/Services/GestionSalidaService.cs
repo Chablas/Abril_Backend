@@ -6,6 +6,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using ClosedXML.Excel;
@@ -67,7 +68,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             if (!seesAll)
             {
-                var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value);
+                var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value, VisibilidadAmbitoIds.Salidas);
                 seesAll = vis.SeesAll;
                 visibleIds = vis.AreaScopeIds.ToList();
             }
@@ -169,7 +170,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 return;
             }
 
-            var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
+            var vis = await _visibilityResolver.ResolveAsync(
+                filters.CurrentUserId.Value, VisibilidadAmbitoIds.Salidas);
             filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
         }

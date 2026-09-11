@@ -43,8 +43,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         /// <summary>El «MOTIVO *» del colaborador: la corrección que necesita (RG-21).</summary>
         public string Motivo { get; set; } = string.Empty;
 
-        /// <summary>Con qué observó la jefatura el reembolso, copiada al solicitar.</summary>
+        /// <summary>Con qué se observó el reembolso, copiada al solicitar.</summary>
         public string? MotivoJefatura { get; set; }
+
+        /// <summary>
+        /// Quién escribió esa observación: "Jefatura" o "Tesorería" (RG-49). La bandeja lo usa para
+        /// rotular la caja: el ERP tiene que saber si quien devolvió el consolidado fue el jefe del
+        /// colaborador o Tesorería, porque no es la misma conversación. Vacío en las correcciones
+        /// anteriores a la columna, que son todas de jefatura.
+        /// </summary>
+        public string MotivoOrigen { get; set; } = string.Empty;
 
         /// <summary>
         /// Guía del Consolidado del S10 observado. Es EL dato con el que el ERP encuentra el

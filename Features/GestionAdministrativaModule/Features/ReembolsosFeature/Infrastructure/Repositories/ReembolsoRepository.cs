@@ -173,8 +173,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             };
         }
 
+        public Task<List<int>> ResolverSolicitudIds(
+            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int estadoId) =>
+            ResolverSolicitudIds(rendicionIds, solicitudIds, new[] { estadoId });
+
         public async Task<List<int>> ResolverSolicitudIds(
-            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int estadoId)
+            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int[] estadoIds)
         {
             var rIds = rendicionIds?.Distinct().ToList() ?? new List<int>();
             var sIds = solicitudIds?.Distinct().ToList() ?? new List<int>();
@@ -183,7 +187,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             using var ctx = _factory.CreateDbContext();
 
             return await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
-                .Where(s => s.EstadoReembolsoId == estadoId)
+                .Where(s => estadoIds.Contains(s.EstadoReembolsoId))
                 .Where(s => rIds.Contains(s.RendicionId!.Value) || sIds.Contains(s.Id))
                 .Select(s => s.Id)
                 .ToListAsync();
@@ -207,7 +211,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 "Ninguna de las salidas seleccionadas tiene la revisión de Tesorería confirmada: hay "
                 + "que confirmar la revisión antes de pagar.");
 
-        public async Task<List<ReembolsoPlanillaCorreoDatos>> GetPagoCorreoInfo(IEnumerable<int> solicitudIds)
+        /// <summary>
+        /// Tesorería devuelve el consolidado con un motivo (RG-49). No es un estado nuevo: deja la
+        /// salida en el MISMO <see cref="EstadosSalida.Reembolso.Observado"/> que usa la jefatura,
+        /// porque la subsanación también es la misma —recargar el Consolidado del S10, o pedirle la
+        /// corrección al Coordinador ERP— y así todo lo que ya existe aguas abajo funciona sin
+        /// tocarse. Lo único que distingue las dos es el ORIGEN.
+        ///
+        /// La confirmación de la revisión se borra: lo que Tesorería revisó dejó de ser válido, y
+        /// cuando la planilla vuelva firmada de nuevo tiene que volver a confirmarse. El rastro del
+        /// pago no se toca porque una salida pagada nunca llega acá.
+        /// </summary>
+        public async Task<List<int>> Observar(IEnumerable<int> ids, string observacion, int tesoreroUserId)
+        {
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            if (string.IsNullOrWhiteSpace(observacion))
+                throw new AbrilException("Para observar un reembolso hay que escribir el motivo.", 400);
+
+            using var ctx = _factory.CreateDbContext();
+
+            var observables = EstadosSalida.Reembolso.ObservablesPorTesoreria;
+            var solicitudes = await ctx.GaSolicitudSalida
+                .Where(s => idsList.Contains(s.Id) && observables.Contains(s.EstadoReembolsoId))
+                .ToListAsync();
+
+            if (solicitudes.Count == 0)
+                throw new AbrilException(
+                    "Ninguna de las salidas seleccionadas se puede observar: solo se devuelve lo que "
+                    + "está firmado o listo para pagar. Lo ya pagado no vuelve.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            var obs = observacion.Trim();
+
+            foreach (var s in solicitudes)
+            {
+                s.EstadoReembolsoId            = EstadosSalida.Reembolso.Observado;
+                s.ObservacionReembolso         = obs;
+                s.ObservacionReembolsoOrigenId = EstadosSalida.OrigenObservacionReembolso.Tesoreria;
+                s.ReembolsoDecididoPorId       = tesoreroUserId;
+                s.ReembolsoDecididoAt          = now;
+                s.RevisionTesoreriaPorId       = null;
+                s.RevisionTesoreriaAt          = null;
+                s.UpdatedAt                    = now;
+            }
+
+            await ctx.SaveChangesAsync();
+            return solicitudes.Select(s => s.Id).ToList();
+        }
+
+        public async Task<List<ReembolsoPlanillaCorreoDatos>> GetPlanillaCorreoInfo(IEnumerable<int> solicitudIds)
         {
             var idsList = solicitudIds?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
@@ -429,15 +483,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         /// para pago o Pagado. El filtro de estado del desplegable solo puede recortar ESE
         /// conjunto, nunca ampliarlo.
         /// </summary>
+        /// <summary>
+        /// El universo de Tesorería: lo que la jefatura ya firmó, lo que ella misma confirmó, lo
+        /// que ya pagó y —desde RG-49— lo que ella misma devolvió con una observación.
+        ///
+        /// Lo observado entra por el PAR (estado + origen) y no por el estado solo: una planilla
+        /// que devolvió la jefatura en la segunda revisión también está Observada, pero nunca
+        /// llegó a Tesorería y no tiene por qué aparecer en su bandeja. Y lo que Tesorería devolvió
+        /// sí tiene que seguir viéndose, o observar haría desaparecer la fila y nadie podría
+        /// seguirle el rastro.
+        /// </summary>
         private static IQueryable<GaSolicitudSalida> SalidasDeTesoreria(
             AppDbContext ctx, ReembolsoFiltersDto filters)
         {
-            var visibles = EstadosSalida.Reembolso.VisiblesParaTesoreria;
+            var visibles  = EstadosSalida.Reembolso.VisiblesParaTesoreria;
+            const int observado = EstadosSalida.Reembolso.Observado;
+            const int porTesoreria = EstadosSalida.OrigenObservacionReembolso.Tesoreria;
+
             var query = ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId != null && visibles.Contains(s.EstadoReembolsoId));
+                .Where(s => s.RendicionId != null
+                         && (visibles.Contains(s.EstadoReembolsoId)
+                          || (s.EstadoReembolsoId == observado
+                           && s.ObservacionReembolsoOrigenId == porTesoreria)));
 
             var estadoId = EstadosSalida.Reembolso.IdFromNombre(filters.EstadoReembolso);
-            if (estadoId.HasValue && visibles.Contains(estadoId.Value))
+            if (estadoId == observado)
+                query = query.Where(s => s.EstadoReembolsoId == observado
+                                      && s.ObservacionReembolsoOrigenId == porTesoreria);
+            else if (estadoId.HasValue && visibles.Contains(estadoId.Value))
                 query = query.Where(s => s.EstadoReembolsoId == estadoId.Value);
 
             if (filters.WorkerId.HasValue)
@@ -690,7 +763,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             var ids = new List<int>();
             foreach (var p in planillas)
             {
-                if (p.FirmadoPorId.HasValue) ids.Add(p.FirmadoPorId.Value);
+                if (p.FirmadoPorId.HasValue)           ids.Add(p.FirmadoPorId.Value);
+                if (p.ReembolsoDecididoPorId.HasValue) ids.Add(p.ReembolsoDecididoPorId.Value);
                 foreach (var s in p.Salidas)
                 {
                     if (s.RevisionTesoreriaPorId.HasValue) ids.Add(s.RevisionTesoreriaPorId.Value);
@@ -736,6 +810,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 ReembolsoMixto     = p.ReembolsoMixto,
                 PorConfirmarCount  = p.Salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Firmado),
                 PorPagarCount      = p.Salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.PorPagar),
+                // Solo las que devolvió TESORERÍA: es lo único que la consulta trae observado, pero
+                // se repite acá porque este conteo decide si la fila se puede seleccionar.
+                ObservadasCount    = p.Salidas.Count(
+                    s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                      && s.ObservacionReembolsoOrigenId == EstadosSalida.OrigenObservacionReembolso.Tesoreria),
+                ObservacionReembolso = p.ObservacionReembolso,
+                ObservadoAt          = p.ReembolsoDecididoAt,
+                ObservadoPor         = p.ReembolsoDecididoPorId.HasValue
+                                    && nombres.TryGetValue(p.ReembolsoDecididoPorId.Value, out var obs)
+                                        ? obs : null,
                 RevisionTesoreriaAt  = revisionAt,
                 RevisionTesoreriaPor = revisionPor.HasValue && nombres.TryGetValue(revisionPor.Value, out var r)
                                         ? r : null,
@@ -755,6 +839,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             d.FirmadoAt = o.FirmadoAt; d.FirmadoPor = o.FirmadoPor; d.ConsolidadoS10 = o.ConsolidadoS10;
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
             d.PorConfirmarCount = o.PorConfirmarCount; d.PorPagarCount = o.PorPagarCount;
+            d.ObservadasCount = o.ObservadasCount; d.ObservacionReembolso = o.ObservacionReembolso;
+            d.ObservadoAt = o.ObservadoAt; d.ObservadoPor = o.ObservadoPor;
             d.RevisionTesoreriaAt = o.RevisionTesoreriaAt; d.RevisionTesoreriaPor = o.RevisionTesoreriaPor;
             d.PagadoAt = o.PagadoAt; d.PagadoPor = o.PagadoPor;
         }

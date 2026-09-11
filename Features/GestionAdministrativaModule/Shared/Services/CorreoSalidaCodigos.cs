@@ -81,10 +81,21 @@
         public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
 
         /// <summary>
-        /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Es el único correo
-        /// que se origina en Reembolsos y cierra el ciclo.
+        /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Se origina en
+        /// Reembolsos y cierra el ciclo.
         /// </summary>
         public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
+
+        /// <summary>
+        /// Al solicitante: Tesorería devolvió el reembolso antes de pagarlo (RG-49), con el motivo
+        /// y los dos caminos para subsanar.
+        ///
+        /// Va aparte de <see cref="ReembolsoObservado"/> —el de la jefatura— porque el catálogo se
+        /// reparte por la pantalla donde el correo se ORIGINA, y este sale de Reembolsos: mezclarlos
+        /// habría puesto un correo de Tesorería bajo la configuración de Gestión de Rendiciones. La
+        /// observación en sí es la misma para el trabajador; lo que cambia es quién la escribió.
+        /// </summary>
+        public const string ReembolsoObservadoTesoreria = "REEMBOLSO_OBSERVADO_TESORERIA";
 
         // ── Recordatorios del plazo de rendición ─────────────────────────────
         // Los dos únicos correos que no los dispara nadie: salen porque llegó el día. Los manda el

@@ -44,12 +44,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string Motivo { get; set; } = string.Empty;
 
         /// <summary>
-        /// Copia de la observación con la que la jefatura devolvió el reembolso, tomada en el
-        /// momento de solicitar. Se guarda acá y no se lee de la salida a propósito: el ERP
-        /// necesita saber qué se observó, y la observación de la salida se sobrescribe si la
-        /// jefatura vuelve a observar más adelante.
+        /// Copia de la observación con la que se devolvió el reembolso, tomada en el momento de
+        /// solicitar. Se guarda acá y no se lee de la salida a propósito: el ERP necesita saber qué
+        /// se observó, y la observación de la salida se sobrescribe si vuelven a observar más
+        /// adelante.
+        ///
+        /// El nombre quedó de cuando solo la jefatura podía observar; desde RG-49 también puede
+        /// traer la de Tesorería, y cuál de las dos es lo dice <see cref="MotivoOrigenId"/>.
         /// </summary>
         public string? MotivoJefatura { get; set; }
+
+        /// <summary>
+        /// FK a <c>ga_origen_observacion_reembolso</c>: de quién es la observación copiada arriba.
+        /// Ver <see cref="EstadosSalida.OrigenObservacionReembolso"/>. Null en las correcciones
+        /// anteriores a la columna (todas nacieron de una observación de jefatura).
+        /// </summary>
+        public int? MotivoOrigenId { get; set; }
 
         /// <summary>
         /// Número de guía del consolidado observado, copiado al solicitar. Es el dato con el que el

@@ -47,6 +47,8 @@ using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
+using Abril_Backend.Shared.Services.Consolidadores.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Services;
@@ -275,6 +277,12 @@ builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 // porque lo usan Gestión Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional
 // (correos de EMO e interconsultas).
 builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+
+// Consolidadores del S10 de un trabajador: el propio trabajador + los que resuelve el mismo
+// recorrido del árbol de áreas (asignados en Gestión de Rendiciones → Configuración →
+// Consolidadores, o deducidos: Jefe del área, Gerente de la gerencia, residente de la obra).
+// A diferencia del revisor, acá no gana uno solo: todos los activos quedan habilitados.
+builder.Services.AddScoped<IConsolidadorResolver, ConsolidadorResolver>();
 
 // Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
 // más el catálogo de jefes candidatos que alimenta su desplegable.

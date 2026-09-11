@@ -1,4 +1,4 @@
-﻿using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
@@ -8,16 +8,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     /// <summary>
     /// Implementa la resolución de visibilidad. Ver <see cref="ISalidaVisibilityResolver"/>.
     ///
-    /// Piso obligatorio (area_revisores): si el usuario está designado como revisor de un
-    /// nodo en "Revisores de Áreas", ve ese nodo y todo su subárbol SIEMPRE, sin importar su
-    /// categoría de trabajador. No es un caso más del algoritmo: se suma tanto al override
-    /// manual como al algoritmo, porque a ese revisor le llegan para aprobar las solicitudes
-    /// de toda esa rama y tiene que poder gestionarlas.
+    /// Piso obligatorio: si el usuario está designado como revisor de un nodo
+    /// (<c>area_revisores</c>) ve ese nodo y todo su subárbol SIEMPRE, sin importar su categoría de
+    /// trabajador; en el ámbito de RENDICIONES lo mismo vale para los nodos donde está designado
+    /// como consolidador (<c>area_consolidadores</c>). No es un caso más del algoritmo: se suma
+    /// tanto al override manual como al algoritmo, porque a esa persona le toca hacer un trabajo
+    /// sobre toda esa rama y tiene que poder verla.
     ///
-    /// Override (ga_salida_visibilidad_area): si el usuario (a través de su/sus workers)
-    /// tiene filas vivas, esas definen su visibilidad — cada fila aporta su nodo y, si
-    /// <c>incluye_descendientes</c>, todo el subárbol. El algoritmo NO se aplica en ese caso
-    /// (el piso de revisor sí se suma igual).
+    /// Override (ga_visibilidad_area, filtrado POR ÁMBITO): si el usuario (a través de su/sus
+    /// workers) tiene filas vivas en ese ámbito, esas definen su visibilidad — cada fila aporta su
+    /// nodo y, si <c>incluye_descendientes</c>, todo el subárbol. El algoritmo NO se aplica en ese
+    /// caso (el piso obligatorio sí se suma igual).
     ///
     /// Algoritmo (fallback, cuando no hay override):
     ///   • GTH (área "Gestión del Talento Humano" en su cadena)      → ve todo.
@@ -41,7 +42,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             _factory = factory;
         }
 
-        public async Task<SalidaVisibility> ResolveAsync(int userId)
+        public async Task<SalidaVisibility> ResolveAsync(int userId, int ambitoId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -87,14 +88,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //    que tampoco gana visibilidad. Las filas por proyecto (project_id con valor)
             //    cuentan igual que las de área: la visibilidad se expresa por area_scope, no
             //    tiene dimensión de proyecto, y el revisor del proyecto es revisor de esa área.
-            var nodosComoRevisor = await ctx.AreaRevisores
+            var nodosAsignados = await ctx.AreaRevisores
                 .Where(r => r.State && r.Active && workerIds.Contains(r.RevisorId))
                 .Select(r => r.AreaScopeId)
                 .Distinct()
                 .ToListAsync();
 
+            // Consolidar el S10 de una planilla exige verla, así que el consolidador de un nodo
+            // tiene el mismo piso que su revisor — pero solo en la bandeja donde consolida.
+            if (ambitoId == VisibilidadAmbitoIds.Rendiciones)
+                nodosAsignados = nodosAsignados
+                    .Concat(await ctx.AreaConsolidadores
+                        .Where(c => c.State && c.Active && workerIds.Contains(c.ConsolidadorId))
+                        .Select(c => c.AreaScopeId)
+                        .Distinct()
+                        .ToListAsync())
+                    .Distinct()
+                    .ToList();
+
             var comoRevisor = new HashSet<int>();
-            foreach (var nodo in nodosComoRevisor)
+            foreach (var nodo in nodosAsignados)
             {
                 // parentById solo tiene los nodos vivos; se ignoran los de áreas dadas de baja.
                 if (!parentById.ContainsKey(nodo)) continue;
@@ -102,10 +115,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 AddDescendants(nodo, childrenByParent, comoRevisor);
             }
 
-            // 4. Override manual: si existe, define la visibilidad y el algoritmo NO corre
-            //    (el piso de revisor de área se suma de todas formas).
-            var overrides = await ctx.GaSalidaVisibilidadArea
-                .Where(v => v.State && workerIds.Contains(v.WorkerId))
+            // 4. Override manual DE ESTE ÁMBITO: si existe, define la visibilidad y el algoritmo
+            //    NO corre (el piso de revisor/consolidador se suma de todas formas).
+            var overrides = await ctx.GaVisibilidadArea
+                .Where(v => v.State && v.AmbitoId == ambitoId && workerIds.Contains(v.WorkerId))
                 .Select(v => new { v.AreaScopeId, v.IncluyeDescendientes })
                 .ToListAsync();
 

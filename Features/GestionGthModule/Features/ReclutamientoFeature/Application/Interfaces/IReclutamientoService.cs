@@ -80,8 +80,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task SetMultitest(int candidatoId, MultitestUpdateDto dto, int? userId);
 
         /// <summary>
-        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS validando los requisitos del
-        /// paso (Multitest completo, formularios revisados y al menos uno aprobado).
+        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS con al menos un candidato
+        /// listo (formulario aprobado y Multitest marcado); el resto se suma después.
         /// </summary>
         Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
 

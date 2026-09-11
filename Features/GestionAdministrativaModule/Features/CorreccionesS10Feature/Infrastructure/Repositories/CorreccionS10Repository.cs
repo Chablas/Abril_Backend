@@ -168,6 +168,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
 
                     Motivo         = c.Motivo,
                     MotivoJefatura = c.MotivoJefatura,
+                    MotivoOrigen   = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
                     NumeroGuia     = c.NumeroGuia,
 
                     Periodo     = info != null
@@ -364,6 +365,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 MontoTotal     = await TotalPlanillaLoader.LoadOneAsync(ctx, c.RendicionId),
                 Motivo         = c.Motivo,
                 MotivoJefatura = c.MotivoJefatura,
+                MotivoOrigen   = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
                 AtendidaPor    = c.AtendidaPorId != null && nombres.TryGetValue(c.AtendidaPorId.Value, out var erp)
                                     ? erp : null,
                 ComentarioAtencion = c.ComentarioAtencion,

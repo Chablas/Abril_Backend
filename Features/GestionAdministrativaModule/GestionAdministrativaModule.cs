@@ -30,6 +30,10 @@ using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
@@ -42,10 +46,10 @@ using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.I
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
@@ -135,13 +139,21 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
 
+            // Consolidadores de áreas (configuración: quién, además del propio trabajador, puede
+            // adjuntar el Consolidado del S10 de sus planillas). Misma pantalla que Revisores de
+            // Áreas; acá quedan vigentes todos los activos y no solo el primero.
+            services.AddScoped<IAreaConsolidadorRepository, AreaConsolidadorRepository>();
+            services.AddScoped<IAreaConsolidadorService, AreaConsolidadorService>();
+
             // Capturas por área (configuración: qué áreas exigen capturas de movilidad para rendir)
             services.AddScoped<ICapturaAreaRepository, CapturaAreaRepository>();
             services.AddScoped<ICapturaAreaService, CapturaAreaService>();
 
-            // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
-            services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();
-            services.AddScoped<IVisibilidadSalidaService, VisibilidadSalidaService>();
+            // Visibilidad por área (configuración: override manual de áreas visibles por trabajador).
+            // Sirve a los dos ámbitos —Gestión de Salidas y Gestión de Rendiciones— sobre la misma
+            // tabla, cada uno con sus propias filas.
+            services.AddScoped<IVisibilidadAreaRepository, VisibilidadAreaRepository>();
+            services.AddScoped<IVisibilidadAreaService, VisibilidadAreaService>();
 
             // Delegación de Revisión (funcionalidad principal: el propio revisor autogestiona los
             // revisores de su área/proyecto — delegar suplentes y tomar/soltar el puesto)

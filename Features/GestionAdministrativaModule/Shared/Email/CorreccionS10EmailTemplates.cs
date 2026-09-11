@@ -36,8 +36,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>El «MOTIVO *» del trabajador: qué le pide al ERP.</summary>
         public string Motivo { get; set; } = string.Empty;
 
-        /// <summary>Con qué observó la jefatura el reembolso.</summary>
+        /// <summary>Con qué se observó el reembolso.</summary>
         public string? MotivoJefatura { get; set; }
+
+        /// <summary>
+        /// Quién escribió esa observación: "Jefatura" o "Tesorería" (RG-49). Vacío en las
+        /// correcciones anteriores a la columna, que son todas de jefatura.
+        /// </summary>
+        public string MotivoOrigen { get; set; } = string.Empty;
 
         /// <summary>Nombre del Coordinador ERP que atendió. Solo en el correo de atención.</summary>
         public string? AtendidaPor { get; set; }
@@ -54,8 +60,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// (<see cref="SalidaEmailLayout"/>) que el resto de los correos de salidas:
     ///
     /// <list type="bullet">
-    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con la guía, el motivo
-    ///     de la jefatura y el MOTIVO del trabajador (§10.5 / RF-OBS-06).</item>
+    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con la guía, la
+    ///     observación que devolvió el reembolso —de la jefatura o de Tesorería— y el MOTIVO del
+    ///     trabajador (§10.5 / RF-OBS-06).</item>
     ///   <item>Al trabajador: el ERP ya atendió — puede recargar el Consolidado (RF-OBS-08).</item>
     /// </list>
     ///
@@ -102,9 +109,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             };
 
             if (!string.IsNullOrWhiteSpace(d.MotivoJefatura))
+            {
+                // Quién devolvió el consolidado cambia con quién hay que coordinar después, así que
+                // el rótulo lo nombra. Sin origen (correcciones viejas) se dice "de la jefatura",
+                // que es de donde venían todas.
+                var deQuien = string.IsNullOrWhiteSpace(d.MotivoOrigen)
+                    ? "de la jefatura"
+                    : $"de {d.MotivoOrigen.ToLowerInvariant()}";
+
                 bloques.Add(l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Ambar,
-                    "<b>Observación de la jefatura:</b> "
+                    $"<b>Observación {AbrilEmailLayout.Esc(deQuien)}:</b> "
                     + AbrilEmailLayout.EscMultilinea(d.MotivoJefatura.Trim())));
+            }
 
             bloques.Add(l.Tarjeta(Filas(d, conTrabajador: true)));
             bloques.Add(l.Boton("Atender la corrección", urlBandeja));

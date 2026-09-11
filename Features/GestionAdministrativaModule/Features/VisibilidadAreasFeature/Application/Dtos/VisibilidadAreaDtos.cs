@@ -1,6 +1,6 @@
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 
-namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Dtos
+namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Dtos
 {
     /// <summary>Una fila por trabajador con correo @abril.pe en la lista de configuración.</summary>
     public class VisibilidadWorkerItemDto
@@ -23,7 +23,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Applic
         public List<GaAreaNodeDto> AreaTree { get; set; } = new();
     }
 
-    /// <summary>Una asignación de visibilidad: un nodo + si incluye sus descendientes.</summary>
+    /// <summary>
+    /// Una asignación de visibilidad: un nodo y si incluye sus descendientes.
+    ///
+    /// La pantalla de hoy manda siempre <see cref="IncluyeDescendientes"/> en false y el subárbol
+    /// explícito (marcar un área marca sus subáreas), así que lo que se guarda es la lista de nodos
+    /// tal cual se ve. El campo se conserva porque las filas cargadas antes lo tienen en true y el
+    /// resolver las sigue expandiendo.
+    /// </summary>
     public class VisibilidadAsignacionDto
     {
         public int AreaScopeId { get; set; }

@@ -86,9 +86,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public List<OpcionDto> Prioridades { get; set; } = new();
 
-        /// <summary>Razones sociales activas (contributor.operativo = true) con sus cupos.</summary>
-        public List<RazonSocialCupoDto> RazonesSociales { get; set; } = new();
-
         /// <summary>Canales de publicación con su estado de publicación para este requerimiento.</summary>
         public List<CanalPublicacionDto> Canales { get; set; } = new();
 
@@ -177,7 +174,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public EvaluacionResumenDto? Evaluacion { get; set; }
     }
 
-    /// <summary>Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).</summary>
+    /// <summary>
+    /// Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).
+    ///
+    /// <para>La razón social no está acá: se elige en un solo punto del proceso, al programarle el
+    /// EMO de ingreso al finalista, y de ahí baja al requerimiento.</para>
+    /// </summary>
     public class AsignacionGthDto
     {
         /// <summary>Id de gth_responsable_proceso (responsable del proceso).</summary>
@@ -188,9 +190,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Id de gth_prioridad (prioridad interna).</summary>
         public int? PrioridadId { get; set; }
-
-        /// <summary>Id de contributor (razón social activa).</summary>
-        public int? ContributorId { get; set; }
     }
 
     /// <summary>Opción del desplegable "Tipo de proceso y SLA".</summary>
@@ -215,13 +214,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public bool Publicado { get; set; }
     }
 
-    /// <summary>Body del PATCH que guarda la asignación interna de GTH (reemplaza los 4 campos).</summary>
+    /// <summary>Body del PATCH que guarda la asignación interna de GTH (reemplaza los 3 campos).</summary>
     public class AsignacionGthUpdateDto
     {
         public int? ResponsableId { get; set; }
         public int? TipoProcesoId { get; set; }
         public int? PrioridadId { get; set; }
-        public int? ContributorId { get; set; }
     }
 
     /// <summary>Body del PUT que registra los canales donde se publicó la vacante.</summary>

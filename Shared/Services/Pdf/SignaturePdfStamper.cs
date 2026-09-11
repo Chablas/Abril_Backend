@@ -29,18 +29,27 @@ namespace Abril_Backend.Shared.Services.Pdf
         /// <summary>Margen de la firma respecto al borde inferior/derecho de la hoja, en puntos.</summary>
         public const double SignatureMarginPt = 24;
 
-        public static byte[] Stamp(byte[] source, byte[] signaturePng)
+        /// <summary>Separación entre dos firmas estampadas en la misma hoja, en puntos.</summary>
+        public const double SignatureGapPt = 12;
+
+        /// <param name="slot">
+        /// Lugar de esta firma cuando el documento ya trae otras estampadas con este mismo método:
+        /// 0 es la esquina inferior derecha de siempre y cada lugar siguiente se corre a la
+        /// izquierda (y sube una fila cuando ya no entra). Lo usa el Consolidado del S10 compartido
+        /// por planillas que aprueban jefes distintos: la firma del segundo no tapa la del primero.
+        /// </param>
+        public static byte[] Stamp(byte[] source, byte[] signaturePng, int slot = 0)
         {
             return IsPdf(source)
-                ? StampPdf(source, signaturePng)
+                ? StampPdf(source, signaturePng, slot)
                 // Una imagen se convierte en un PDF de una sola página y se estampa igual.
-                : StampImageAsPdf(source, signaturePng);
+                : StampImageAsPdf(source, signaturePng, slot);
         }
 
         private static bool IsPdf(byte[] b)
             => b.Length >= 4 && b[0] == 0x25 && b[1] == 0x50 && b[2] == 0x44 && b[3] == 0x46; // "%PDF"
 
-        private static byte[] StampPdf(byte[] pdfBytes, byte[] signaturePng)
+        private static byte[] StampPdf(byte[] pdfBytes, byte[] signaturePng, int slot)
         {
             using var input = new MemoryStream(pdfBytes);
             var doc = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
@@ -49,7 +58,7 @@ namespace Abril_Backend.Shared.Services.Pdf
             {
                 var page = doc.Pages[i];
                 using var gfx = XGraphics.FromPdfPage(page);
-                DrawSignatureBottomRight(gfx, signaturePng, page.Width.Point, page.Height.Point);
+                DrawSignatureBottomRight(gfx, signaturePng, page.Width.Point, page.Height.Point, slot);
             }
 
             using var output = new MemoryStream();
@@ -57,7 +66,7 @@ namespace Abril_Backend.Shared.Services.Pdf
             return output.ToArray();
         }
 
-        private static byte[] StampImageAsPdf(byte[] imageBytes, byte[] signaturePng)
+        private static byte[] StampImageAsPdf(byte[] imageBytes, byte[] signaturePng, int slot)
         {
             // Normalizar a PNG (ImageSharp soporta png/jpg/webp) y obtener dimensiones en píxeles.
             byte[] pngBytes;
@@ -86,7 +95,7 @@ namespace Abril_Backend.Shared.Services.Pdf
                 using (var pageImg = XImage.FromStream(pageStream))
                     gfx.DrawImage(pageImg, 0, 0, pageW, pageH);
 
-                DrawSignatureBottomRight(gfx, signaturePng, pageW, pageH);
+                DrawSignatureBottomRight(gfx, signaturePng, pageW, pageH, slot);
             }
 
             using var output = new MemoryStream();
@@ -94,7 +103,8 @@ namespace Abril_Backend.Shared.Services.Pdf
             return output.ToArray();
         }
 
-        private static void DrawSignatureBottomRight(XGraphics gfx, byte[] signaturePng, double pageW, double pageH)
+        private static void DrawSignatureBottomRight(
+            XGraphics gfx, byte[] signaturePng, double pageW, double pageH, int slot)
         {
             // PDFsharp 6 recibe el Stream directamente (en PdfSharpCore era un Func<Stream>).
             // El XImage ya tiene la imagen decodificada en memoria, así que el stream puede
@@ -114,6 +124,17 @@ namespace Abril_Backend.Shared.Services.Pdf
 
             double x = pageW - SignatureMarginPt - w;
             double y = pageH - SignatureMarginPt - h;
+
+            if (slot > 0)
+            {
+                // Cuántas firmas entran en una fila sin pasar el margen izquierdo; las que sobran
+                // suben a la fila de arriba.
+                var porFila = Math.Max(1,
+                    (int)((pageW - 2 * SignatureMarginPt + SignatureGapPt) / (w + SignatureGapPt)));
+                x -= (slot % porFila) * (w + SignatureGapPt);
+                y -= (slot / porFila) * (h + SignatureGapPt);
+            }
+
             gfx.DrawImage(sig, x, y, w, h);
         }
     }

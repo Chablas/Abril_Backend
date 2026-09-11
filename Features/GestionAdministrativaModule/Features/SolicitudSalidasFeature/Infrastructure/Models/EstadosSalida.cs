@@ -121,8 +121,20 @@
             /// <summary>
             /// Los tres estados que ve Tesorería, en el orden de su flujo: lo que la jefatura ya
             /// firmó (por revisar), lo que ella misma confirmó (por pagar) y lo que ya pagó.
+            ///
+            /// A esta lista su bandeja le suma un cuarto caso que NO es un estado sino un par:
+            /// lo que está <see cref="Observado"/> con origen
+            /// <see cref="OrigenObservacionReembolso.Tesoreria"/>, o sea lo que ella misma devolvió
+            /// (RG-49). Lo que observó la jefatura no entra: nunca llegó a Tesorería.
             /// </summary>
             public static readonly int[] VisiblesParaTesoreria = { Firmado, PorPagar, Pagado };
+
+            /// <summary>
+            /// Los dos estados desde los que Tesorería puede observar: lo que tiene por revisar y
+            /// lo que ya revisó pero todavía no pagó (RG-49 — "antes de autorizar el pago"). Lo
+            /// pagado es terminal y no se devuelve.
+            /// </summary>
+            public static readonly int[] ObservablesPorTesoreria = { Firmado, PorPagar };
 
             /// <summary>
             /// Los dos estados en los que el reembolso sigue ABIERTO: se puede adjuntar o
@@ -132,6 +144,37 @@
             /// en qué cuenta como abierto.
             /// </summary>
             public static readonly int[] Abiertos = { Pendiente, Observado };
+        }
+
+        /// <summary>
+        /// Quién devolvió el reembolso con una observación. NO es un estado: el estado es siempre
+        /// <see cref="Reembolso.Observado"/> y la subsanación es la misma (recargar el Consolidado
+        /// del S10, o pedirle la corrección al Coordinador ERP). Lo que cambia es quién está
+        /// esperando y qué correo salió.
+        ///
+        /// Existe porque la observación de Tesorería (RG-49) llega DESPUÉS de la firma, así que la
+        /// planilla tiene que seguir apareciendo en la bandeja de Tesorería para poder seguirle el
+        /// rastro — pero sin arrastrar ahí lo que observó la jefatura, que nunca llegó a Tesorería.
+        ///
+        /// Los ids reflejan las filas de <c>ga_origen_observacion_reembolso</c>.
+        /// </summary>
+        public static class OrigenObservacionReembolso
+        {
+            /// <summary>La jefatura, en la segunda revisión (RG-19 / RG-20).</summary>
+            public const int Jefatura  = 1;
+            /// <summary>Tesorería, en la revisión documental previa al pago (RG-49).</summary>
+            public const int Tesoreria = 2;
+
+            public const string NombreJefatura  = "Jefatura";
+            public const string NombreTesoreria = "Tesorería";
+
+            /// <summary>id → nombre para exponer en DTOs. Vacío si la salida no está observada.</summary>
+            public static string Nombre(int? id) => id switch
+            {
+                Jefatura  => NombreJefatura,
+                Tesoreria => NombreTesoreria,
+                _         => string.Empty,
+            };
         }
 
         /// <summary>

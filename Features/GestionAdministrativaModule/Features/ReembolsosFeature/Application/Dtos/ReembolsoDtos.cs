@@ -40,7 +40,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? FirmadoPor { get; set; }
         public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
 
-        /// <summary>"Firmado", "Proceder con el reembolso" o "Pagado" (el más atrasado si la planilla trae de varios).</summary>
+        /// <summary>
+        /// "Firmado", "Proceder con el reembolso", "Pagado" u "Observado" (el más atrasado si la
+        /// planilla trae de varios).
+        /// </summary>
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombreFirmado;
         public bool ReembolsoMixto { get; set; }
 
@@ -51,6 +54,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public int PorConfirmarCount { get; set; }
         /// <summary>Salidas ya confirmadas y sin pagar: es lo que se paga al marcar la planilla.</summary>
         public int PorPagarCount { get; set; }
+        /// <summary>
+        /// Salidas que la propia Tesorería devolvió y siguen esperando la subsanación (RG-49).
+        /// Mientras sea &gt; 0 la planilla no se toca desde acá: la pelota la tiene el consolidador.
+        /// </summary>
+        public int ObservadasCount { get; set; }
+
+        // ── Lo que Tesorería observó ─────────────────────────────────────
+        /// <summary>Motivo con el que se devolvió la planilla. Null si no está observada.</summary>
+        public string? ObservacionReembolso { get; set; }
+        public DateTimeOffset? ObservadoAt { get; set; }
+        public string? ObservadoPor { get; set; }
 
         // ── Trazabilidad de Tesorería ────────────────────────────────────
         public DateTimeOffset? RevisionTesoreriaAt { get; set; }
@@ -133,8 +147,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         /// </summary>
         public string? Texto { get; set; }
         /// <summary>
-        /// "Firmado" | "Proceder con el reembolso" | "Pagado" | null para las tres. Otro valor no
-        /// aplica a esta bandeja.
+        /// "Firmado" | "Proceder con el reembolso" | "Pagado" | "Observado" | null para las cuatro.
+        /// Otro valor no aplica a esta bandeja. "Observado" acá significa lo que observó Tesorería:
+        /// lo que devolvió la jefatura nunca entra a esta pantalla.
         /// </summary>
         public string? EstadoReembolso { get; set; }
         public int? PeriodoAnio { get; set; }
@@ -154,19 +169,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public int PorPagar { get; set; }
         /// <summary>Suma a desembolsar de las planillas listas para pagar.</summary>
         public decimal MontoPorPagar { get; set; }
+        /// <summary>Planillas que Tesorería devolvió y esperan la subsanación (RG-49).</summary>
+        public int Observadas { get; set; }
         /// <summary>Planillas ya completamente pagadas.</summary>
         public int Pagadas { get; set; }
 
         public static ResumenReembolsosDto De(IEnumerable<ReembolsoListItemDto> planillas)
         {
             var lista = planillas as ICollection<ReembolsoListItemDto> ?? planillas.ToList();
+
+            // Las cuatro situaciones son excluyentes y se evalúan en el orden del flujo: lo
+            // observado se saca primero porque una planilla devuelta no está "por revisar" ni
+            // "pagada" aunque sus contadores de Tesorería estén en cero.
+            bool Observada(ReembolsoListItemDto x) => x.ObservadasCount > 0;
+
             return new ResumenReembolsosDto
             {
-                PorRevisar    = lista.Count(x => x.PorConfirmarCount > 0),
-                PorPagar      = lista.Count(x => x.PorConfirmarCount == 0 && x.PorPagarCount > 0),
-                MontoPorPagar = lista.Where(x => x.PorConfirmarCount == 0 && x.PorPagarCount > 0)
+                PorRevisar    = lista.Count(x => !Observada(x) && x.PorConfirmarCount > 0),
+                PorPagar      = lista.Count(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0),
+                MontoPorPagar = lista.Where(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0)
                                      .Sum(x => x.MontoTotal),
-                Pagadas       = lista.Count(x => x.PorConfirmarCount == 0 && x.PorPagarCount == 0),
+                Observadas    = lista.Count(Observada),
+                Pagadas       = lista.Count(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount == 0),
             };
         }
     }
@@ -192,13 +216,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     }
 
     /// <summary>
-    /// Planillas (o salidas sueltas) sobre las que actúa Tesorería. Lo usan sus dos acciones
-    /// —confirmar la revisión y pagar— porque las dos operan sobre la misma selección.
+    /// Planillas (o salidas sueltas) sobre las que actúa Tesorería. Lo usan sus tres acciones
+    /// —confirmar la revisión, observar y pagar— porque las tres operan sobre la misma selección.
     /// </summary>
     public class ReembolsoSeleccionDto
     {
         public List<int> RendicionIds { get; set; } = new();
         public List<int> SolicitudIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Lo mismo, más el motivo obligatorio con el que Tesorería devuelve el consolidado (RG-49).
+    /// El motivo es lo único que el consolidador va a leer para saber qué corregir, así que sin él
+    /// la acción se rechaza con 400.
+    /// </summary>
+    public class ReembolsoObservacionDto : ReembolsoSeleccionDto
+    {
+        public string? Observacion { get; set; }
     }
 
     // ── Seguimiento (11.4 del requerimiento) ─────────────────────────────────

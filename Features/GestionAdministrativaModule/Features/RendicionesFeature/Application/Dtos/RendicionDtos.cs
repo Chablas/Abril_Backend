@@ -98,10 +98,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public bool ReembolsoMixto { get; set; }
 
         /// <summary>
-        /// Comentario con el que la jefatura observó el reembolso: es lo que hay que subsanar.
-        /// Null si no está observado.
+        /// Comentario con el que se observó el reembolso: es lo que hay que subsanar. Null si no
+        /// está observado.
         /// </summary>
         public string? ObservacionReembolso { get; set; }
+
+        /// <summary>
+        /// Quién escribió esa observación: "Jefatura" o "Tesorería" (RG-49). Vacío si no hay
+        /// observación. La pantalla lo usa para rotular la caja roja — el trabajador que ya vio su
+        /// planilla firmada tiene que saber que quien la devolvió fue Tesorería y no su jefe.
+        /// </summary>
+        public string ObservacionReembolsoOrigen { get; set; } = string.Empty;
 
         /// <summary>Última vez que se le avisó al revisor por esta planilla. Null si nunca.</summary>
         public DateTimeOffset? RevisorNotificadoAt { get; set; }
@@ -112,6 +119,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// — después de aprobado no tendría a quién avisarle ni qué reabrir.
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
+
+        /// <summary>
+        /// True cuando el Consolidado del S10 de la planilla es compartido con otras planillas que
+        /// siguen con el reembolso por decidir (lo adjuntó un consolidador para varias a la vez).
+        /// Un documento compartido se reemplaza entero, así que desde esta pantalla —que es de una
+        /// planilla— no se puede: el botón queda apagado y el reemplazo se hace en Gestión de
+        /// Rendiciones.
+        /// </summary>
+        public bool ConsolidadoCompartido { get; set; }
 
         /// <summary>True cuando ya hay consolidado adjunto y el reembolso sigue abierto.</summary>
         public bool PuedeNotificarRevisor { get; set; }

@@ -139,6 +139,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
             }
         }
 
+        /// <summary>
+        /// El camino de vuelta (RG-49): devolver el consolidado con un motivo obligatorio, desde
+        /// cualquiera de los dos pasos anteriores al pago.
+        /// </summary>
+        [HttpPatch("observar")]
+        public async Task<IActionResult> Observar([FromBody] ReembolsoObservacionDto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.Observar(dto, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.Observar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Paso 2 de Tesorería: registrar el pago y cerrar el ciclo.</summary>
         [HttpPatch("pagar")]
         public async Task<IActionResult> MarcarPagadas([FromBody] ReembolsoSeleccionDto dto)
@@ -179,6 +203,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en ReembolsoController.GetCorreoPreviewPago");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Lo mismo para el aviso de que Tesorería devolvió el reembolso.</summary>
+        [HttpPost("observar/correo-preview")]
+        public async Task<IActionResult> GetCorreoPreviewObservacion([FromBody] ReembolsoSeleccionDto dto)
+        {
+            try
+            {
+                return Ok(await _service.GetCorreoPreviewObservacion(dto));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.GetCorreoPreviewObservacion");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

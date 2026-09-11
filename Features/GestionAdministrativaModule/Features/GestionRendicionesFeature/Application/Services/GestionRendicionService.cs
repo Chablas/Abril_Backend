@@ -7,6 +7,8 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Pdf;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
@@ -18,6 +20,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     {
         private readonly IGestionRendicionRepository    _repo;
         private readonly ISalidaVisibilityResolver      _visibilityResolver;
+        private readonly IConsolidadorResolver          _consolidadorResolver;
         private readonly IConsolidadoS10Service         _consolidadoService;
         private readonly IFirmaPersonalRepository       _firmaRepository;
         private readonly IGraphSharePointService        _sharePointService;
@@ -29,6 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public GestionRendicionService(
             IGestionRendicionRepository repo,
             ISalidaVisibilityResolver visibilityResolver,
+            IConsolidadorResolver consolidadorResolver,
             IConsolidadoS10Service consolidadoService,
             IFirmaPersonalRepository firmaRepository,
             IGraphSharePointService sharePointService,
@@ -39,6 +43,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         {
             _repo               = repo;
             _visibilityResolver = visibilityResolver;
+            _consolidadorResolver = consolidadorResolver;
             _consolidadoService = consolidadoService;
             _firmaRepository    = firmaRepository;
             _sharePointService  = sharePointService;
@@ -176,11 +181,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         }
 
         public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId)
-            // Sin guard de propiedad: el revisor lo sube en nombre del trabajador. El alcance ya lo
-            // recorta la pantalla — solo ve las planillas que le competen.
-            => await _consolidadoService.UploadParaRendicion(
-                rendicionId, file, montoTotal, numeroGuia, userId);
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroGuia, int userId)
+        {
+            var ids = rendicionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0)
+                throw new AbrilException("Selecciona al menos una rendición.", 400);
+
+            // Ver las planillas no alcanza para consolidarlas: hay que estar habilitado por TODOS
+            // sus trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
+            // que apaga el botón en la pantalla, así que acá no puede pasar nada que la UI no muestre.
+            var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
+            if (workerIds.Count == 0)
+                throw new AbrilException(
+                    ids.Count == 1
+                        ? "La planilla de rendición no existe."
+                        : "Las planillas de rendición seleccionadas no existen.", 404);
+
+            var habilitado = await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId, workerIds);
+            if (workerIds.Any(id => !habilitado.Contains(id)))
+                throw new AbrilException(
+                    (ids.Count == 1
+                        ? "No estás habilitado para adjuntar el Consolidado del S10 de esta planilla. "
+                        : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
+                    + "Pueden hacerlo el propio trabajador y los consolidadores de su área.", 403);
+
+            return await _consolidadoService.UploadParaRendiciones(
+                ids, file, montoTotal, numeroGuia, userId);
+        }
 
         public async Task<ReembolsoBulkResultDto> DecidirReembolso(
             ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId)
@@ -248,6 +275,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var carpeta = await ResolverCarpetaRendicionesAsync();
 
             var firmadas = new List<PlanillaFirmadaDto>(planillas.Count);
+            // Un consolidado compartido por varias planillas de la selección se firma una sola vez.
+            var consolidadosFirmados = new Dictionary<int, ArchivoFirmadoDto>();
             foreach (var p in planillas)
             {
                 var firmada = new PlanillaFirmadaDto
@@ -258,8 +287,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 };
 
                 foreach (var doc in p.Consolidados)
-                    firmada.Consolidados[doc.Id] =
-                        await FirmarYSubirAsync(carpeta, doc.Url, doc.Filename, firma.Bytes);
+                {
+                    if (!consolidadosFirmados.TryGetValue(doc.Id, out var archivo))
+                    {
+                        archivo = await FirmarYSubirAsync(carpeta, doc.Url, doc.Filename, firma.Bytes, doc.Slot);
+                        consolidadosFirmados[doc.Id] = archivo;
+                    }
+                    firmada.Consolidados[doc.Id] = archivo;
+                }
 
                 firmadas.Add(firmada);
             }
@@ -276,8 +311,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// firmada al lado del original. El original nunca se pisa: la copia lleva el sufijo
         /// -FIRMADO y es la que queda referenciada como respaldo.
         /// </summary>
+        /// <param name="pdfUrl">
+        /// PDF sobre el que se estampa. Para un consolidado compartido que otro jefe ya firmó es su
+        /// copia firmada: la firma nueva se suma (en <paramref name="slot"/>) y la copia se reemplaza.
+        /// </param>
+        /// <param name="pdfFilename">Nombre del ORIGINAL: la copia se llama igual, con -FIRMADO.</param>
+        /// <param name="slot">Lugar de la firma en la hoja (0 = la esquina de siempre).</param>
         private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
-            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng)
+            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng, int slot = 0)
         {
             byte[] original;
             try
@@ -297,7 +338,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 // Una planilla agrupa a varios trabajadores y cada grupo termina con su propia
                 // línea de firma, así que la firma va en TODAS las hojas: solo al pie de la última
                 // dejaría sin firma a todos los grupos menos el último.
-                firmado = SignaturePdfStamper.Stamp(original, firmaPng);
+                firmado = SignaturePdfStamper.Stamp(original, firmaPng, slot);
             }
             catch (Exception ex)
             {
@@ -364,7 +405,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 return;
             }
 
-            var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
+            var vis = await _visibilityResolver.ResolveAsync(
+                filters.CurrentUserId.Value, VisibilidadAmbitoIds.Rendiciones);
             filters.SeesAll             = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
         }

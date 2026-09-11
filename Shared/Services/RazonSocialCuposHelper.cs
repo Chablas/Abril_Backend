@@ -9,12 +9,18 @@ namespace Abril_Backend.Shared.Services
     /// Las razones sociales activas del grupo con sus cupos disponibles: el desplegable que aparece
     /// cada vez que hay que decidir bajo cuál de las empresas de Abril entra una persona.
     ///
-    /// Vive acá y no en un repositorio porque lo preguntan tres módulos —Reclutamiento
-    /// (GestionGthModule), al asignarle la razón social al requerimiento; Salud Ocupacional
-    /// (SsomaModule), al programarle el EMO de ingreso a un finalista que llegó sin ninguna; y
-    /// Configuración (ConfigurationModule), que en Razones Sociales muestra ese mismo conjunto de
-    /// trabajadores—, y las tres pantallas tienen que contar exactamente lo mismo. Con la cuenta
-    /// duplicada bastaría con tocar una para que otra ofreciera cupos que ya no existen.
+    /// Vive acá y no en un repositorio porque lo preguntan dos módulos —Salud Ocupacional
+    /// (SsomaModule), al programarle el EMO de ingreso al finalista, que es el único punto del
+    /// sistema donde se asigna la razón social de un ingreso; y Configuración
+    /// (ConfigurationModule), que en Razones Sociales muestra ese mismo conjunto de trabajadores—,
+    /// y las dos pantallas tienen que contar exactamente lo mismo. Con la cuenta duplicada bastaría
+    /// con tocar una para que la otra ofreciera cupos que ya no existen.
+    ///
+    /// <para><b>El tope no siempre corta.</b> Una vacante de tipo REEMPLAZO puede pasarse de 20: el
+    /// que entra y el que sale conviven un mes y la baja del reemplazado devuelve la cuenta a su
+    /// sitio. La excepción se decide en el EMO, que es quien sabe de qué vacante sale la ficha (ver
+    /// <c>IReclutamientoEmoIngresoService.EsReemplazoAsync</c>); acá la cuenta es siempre la misma y
+    /// los cupos que informa son siempre la verdad.</para>
     /// </summary>
     public static class RazonSocialCuposHelper
     {
@@ -88,22 +94,36 @@ namespace Abril_Backend.Shared.Services
         /// categoría maestra sí consumen (no son practicantes).</para>
         /// </summary>
         public static IQueryable<FichaQueOcupaCupo> OcupanCupo(AppDbContext ctx) =>
-            ctx.Worker
-                .Where(w => WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
-                         && ObraOficinaStaffIds.ConsumenCupoRazonSocial.Contains(w.ObraOficinaStaffId ?? 0)
-                         && w.CategoriaMaestraId != CategoriaMaestraIds.PracticantePrePro)
-                .Select(w => new FichaQueOcupaCupo
-                {
-                    WorkerId      = w.Id,
-                    ContributorId = ctx.WorkerVinculacion
-                                       .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
-                                       .OrderByDescending(v => v.CreatedAt)
-                                       .ThenByDescending(v => v.Id)
-                                       .Select(v => v.EmpresaId)
-                                       .FirstOrDefault()
-                                    ?? w.ContributorId,
-                })
-                .Where(f => f.ContributorId != null);
+            RazonSocialVigente(ctx, ctx.Worker
+                    .Where(w => WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
+                             && ObraOficinaStaffIds.ConsumenCupoRazonSocial.Contains(w.ObraOficinaStaffId ?? 0)
+                             && w.CategoriaMaestraId != CategoriaMaestraIds.PracticantePrePro))
+                .Where(f => f.ContributorId != null)
+                .Select(f => new FichaQueOcupaCupo { WorkerId = f.WorkerId, ContributorId = f.ContributorId });
+
+        /// <summary>
+        /// La razón social VIGENTE de cada ficha de <paramref name="fichas"/>, sin mirar si consume
+        /// cupo: la de la vinculación abierta y, si no tiene ninguna, la de la ficha. Es la regla de
+        /// <see cref="OcupanCupo"/> (ver ahí por qué es esa y no <c>workers.contributor_id</c>) en un
+        /// solo sitio, para quien necesita la razón social de trabajadores que no entran en el
+        /// universo de cupos: el Consolidado del S10 exige que las planillas que agrupa sean de una
+        /// misma razón social, y ahí cuenta también el personal de Obra.
+        ///
+        /// <para>A diferencia de <see cref="OcupanCupo"/>, no descarta las fichas sin razón social:
+        /// vuelven con <see cref="FichaRazonSocial.ContributorId"/> en null.</para>
+        /// </summary>
+        public static IQueryable<FichaRazonSocial> RazonSocialVigente(AppDbContext ctx, IQueryable<Worker> fichas) =>
+            fichas.Select(w => new FichaRazonSocial
+            {
+                WorkerId      = w.Id,
+                ContributorId = ctx.WorkerVinculacion
+                                   .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                                   .OrderByDescending(v => v.CreatedAt)
+                                   .ThenByDescending(v => v.Id)
+                                   .Select(v => v.EmpresaId)
+                                   .FirstOrDefault()
+                                ?? w.ContributorId,
+            });
 
         /// <summary>
         /// Cuántas fichas ocupa hoy cada razón social. Lo comparten el desplegable de cupos
@@ -168,12 +188,26 @@ namespace Abril_Backend.Shared.Services
                                        && c.State && c.Active && c.Operativo);
 
         /// <summary>
-        /// El mismo texto de "esta razón social está llena" en las dos pantallas que la asignan
-        /// (Reclutamiento y la programación de EMO), para que el usuario lea siempre lo mismo.
+        /// El texto de "esta razón social está llena", en el helper y no en la pantalla porque
+        /// también lo usa la revalidación del servidor: el aviso del modal y el error del guardado
+        /// tienen que decir lo mismo.
         /// </summary>
         public static string MensajeSinCupos(string? nombre = null) =>
             (string.IsNullOrWhiteSpace(nombre) ? "La razón social seleccionada" : nombre)
             + $" ya llegó al tope de {TopeCupos} trabajadores: elige otra.";
+    }
+
+    /// <summary>
+    /// Una ficha con su razón social vigente ya resuelta (ver
+    /// <see cref="RazonSocialCuposHelper.RazonSocialVigente"/>). A diferencia de
+    /// <see cref="FichaQueOcupaCupo"/>, puede venir sin razón social.
+    /// </summary>
+    public class FichaRazonSocial
+    {
+        public int WorkerId { get; set; }
+
+        /// <summary>La razón social vigente, o null si la ficha no tiene ninguna.</summary>
+        public int? ContributorId { get; set; }
     }
 
     /// <summary>

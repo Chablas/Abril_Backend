@@ -3,28 +3,35 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
-    /// Sube y consulta el PDF "Consolidado del S10" de una planilla de rendición ya generada.
-    /// Vive en el Shared del módulo porque lo usan Mis Rendiciones (el autoservicio, que es donde
-    /// se adjunta), Gestión de Rendiciones (el revisor, que lo consulta y puede adjuntarlo en
-    /// nombre del trabajador) y Gestión de Salidas, que solo lo lee para saber si ya hay algo que
-    /// revisar.
+    /// Sube y consulta el PDF "Consolidado del S10" de las planillas de rendición ya generadas.
+    /// Vive en el Shared del módulo porque lo usan Mis Rendiciones (el autoservicio, que adjunta el
+    /// de una planilla propia), Gestión de Rendiciones (los consolidadores, que además pueden
+    /// adjuntar uno solo para varias planillas) y Gestión de Salidas, que solo lo lee para saber si
+    /// ya hay algo que revisar.
     /// </summary>
     public interface IConsolidadoS10Service
     {
         /// <summary>
-        /// Sube el PDF y lo asocia a la PLANILLA de rendición: el consolidado es la contraparte de
-        /// la planilla en el S10, así que cubre todas sus salidas. Con
-        /// <paramref name="ownerUserId"/> la planilla además tiene que incluir alguna salida del
-        /// trabajador de ese usuario (autoservicio). Si ya había un consolidado vigente para esa
-        /// planilla, queda con state = false (auditoría) y el nuevo pasa a ser el vigente.
+        /// Sube el PDF y lo asocia a las planillas indicadas —una o varias—: el consolidado es UN
+        /// registro en el S10 y puede cubrir planillas de varios trabajadores, siempre que sean de
+        /// una misma razón social (ver <see cref="ConsolidadoS10Agrupacion"/>). Las planillas que ya
+        /// tenían consolidado pasan al nuevo, y el anterior queda con state = false en cuanto no le
+        /// queda ninguna (auditoría).
+        ///
+        /// Todas tienen que tener la primera revisión aprobada y el reembolso por decidir, y si una
+        /// ya tenía un consolidado compartido tienen que venir también las demás planillas abiertas
+        /// de ese consolidado: el documento se reemplaza entero.
+        ///
+        /// Con <paramref name="ownerUserId"/> (autoservicio) cada planilla además tiene que incluir
+        /// alguna salida del trabajador de ese usuario.
         /// </summary>
         /// <param name="montoTotal">
-        /// Importe total del consolidado. Tiene que COINCIDIR con el monto de la planilla completa
+        /// Importe total del consolidado. Tiene que COINCIDIR con la suma de las planillas completas
         /// (<see cref="TotalPlanillaLoader"/>); si no, se rechaza con 400 y no se sube nada.
         /// </param>
         /// <param name="numeroGuia">Número de guía del S10. Texto obligatorio (no es un número nuestro).</param>
-        Task<ConsolidadoS10Dto> UploadParaRendicion(
-            int rendicionId,
+        Task<ConsolidadoS10Dto> UploadParaRendiciones(
+            IReadOnlyCollection<int> rendicionIds,
             IFormFile file,
             decimal montoTotal,
             string numeroGuia,

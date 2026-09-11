@@ -581,8 +581,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Aprobar exige que el postulante lo haya completado: no se puede dar por buena
             // información que nadie declaró. Rechazar también vale sobre un formulario ENVIADO que
-            // nunca llenó — es lo que destraba el paso a entrevistas cuando el postulante no
-            // responde. El token no se toca: si lo completa después, vuelve a caer como COMPLETADO.
+            // nunca llenó — es como GTH descarta a un postulante que no responde. El token no se
+            // toca: si lo completa después, vuelve a caer como COMPLETADO.
             if (aprobado && !estabaCompletado)
                 throw new AbrilException("Solo puedes aprobar un formulario que el postulante ya completó.", 409);
 

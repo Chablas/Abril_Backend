@@ -519,9 +519,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 };
             }
 
-            // Rechazo de un formulario que el postulante nunca llegó a llenar: es una decisión
-            // interna para que el proceso siga sin él, así que no se le escribe nada. Su enlace
-            // queda vigente por si lo completa más adelante.
+            // Rechazo de un formulario que el postulante nunca llegó a llenar: es un descarte
+            // interno, así que no se le escribe nada. Su enlace queda vigente por si lo completa
+            // más adelante.
             if (!ctx.AvisarAlPostulante)
                 return new FormularioAccionResultDto
                 {

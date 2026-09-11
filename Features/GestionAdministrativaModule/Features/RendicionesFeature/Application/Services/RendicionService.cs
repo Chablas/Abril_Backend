@@ -188,9 +188,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId) =>
             // ownerUserId = userId: en el autoservicio la planilla tiene que incluir alguna salida
             // propia. El servicio compartido resuelve el resto (validación del monto contra la
-            // planilla, SharePoint, reemplazo, subsanación).
-            _consolidadoService.UploadParaRendicion(
-                rendicionId, file, montoTotal, numeroGuia, userId, ownerUserId: userId);
+            // planilla, SharePoint, reemplazo, subsanación). Acá va siempre UNA planilla: si su
+            // consolidado es compartido con otras todavía abiertas, el servicio lo rechaza —se
+            // reemplaza entero, desde Gestión de Rendiciones— y la pantalla ya apaga el botón.
+            _consolidadoService.UploadParaRendiciones(
+                new[] { rendicionId }, file, montoTotal, numeroGuia, userId, ownerUserId: userId);
 
         public async Task<string> NotificarRevisor(int rendicionId, int userId)
         {
@@ -307,6 +309,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 MontoTotal     = planilla.MontoTotalPlanilla,
                 Motivo         = correccion.Motivo,
                 MotivoJefatura = correccion.MotivoJefatura,
+                MotivoOrigen   = correccion.MotivoOrigen,
             };
 
             // El botón abre la bandeja del ERP en esta corrección: es donde marca el check.

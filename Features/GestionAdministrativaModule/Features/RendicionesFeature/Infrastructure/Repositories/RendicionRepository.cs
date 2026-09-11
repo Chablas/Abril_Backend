@@ -50,6 +50,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             // el camino excepcional que se abre cuando la jefatura observa el reembolso.
             var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, rendicionIds);
 
+            var compartidos = await ConsolidadosCompartidosAsync(ctx, consolidados);
+
             var porRendicion = salidas.GroupBy(s => s.RendicionId).ToDictionary(g => g.Key, g => g.ToList());
 
             var result = new List<RendicionListItemDto>(planillas.Count);
@@ -62,7 +64,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 result.Add(Armar(
                     planilla, propias, consolidado, montos,
                     totalesPlanilla.TryGetValue(planilla.Id, out var totalP) ? totalP : 0m,
-                    correccion));
+                    correccion, compartidos.Contains(planilla.Id)));
             }
 
             // Más reciente primero: lo que se acaba de rendir es lo que tiene pasos pendientes.
@@ -85,6 +87,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
             var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, new[] { rendicionId });
             consolidados.TryGetValue(rendicionId, out var consolidado);
+            var compartidos = await ConsolidadosCompartidosAsync(ctx, consolidados);
 
             var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, new[] { rendicionId });
             correcciones.TryGetValue(rendicionId, out var correccion);
@@ -94,7 +97,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var trayectos    = await CargarTrayectosAsync(ctx, solicitudIds);
             var totalPlanilla = await TotalPlanillaLoader.LoadOneAsync(ctx, rendicionId);
 
-            var cabecera = Armar(planilla, propias, consolidado, montos, totalPlanilla, correccion);
+            var cabecera = Armar(
+                planilla, propias, consolidado, montos, totalPlanilla, correccion,
+                compartidos.Contains(rendicionId));
             var detalle  = new RendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
@@ -266,6 +271,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             public DateOnly FechaSalida { get; init; }
             public int EstadoReembolsoId { get; init; }
             public string? ObservacionReembolso { get; init; }
+            /// <summary>Jefatura o Tesoreria. Ver EstadosSalida.OrigenObservacionReembolso.</summary>
+            public int? ObservacionReembolsoOrigenId { get; init; }
             public DateTimeOffset? RevisorNotificadoAt { get; init; }
         }
 
@@ -288,6 +295,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                     FechaSalida          = s.FechaSalida,
                     EstadoReembolsoId    = s.EstadoReembolsoId,
                     ObservacionReembolso = s.ObservacionReembolso,
+                    ObservacionReembolsoOrigenId = s.ObservacionReembolsoOrigenId,
                     RevisorNotificadoAt  = s.RevisorNotificadoAt,
                 })
                 .ToListAsync();
@@ -387,22 +395,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             // resto de las acciones de esta pantalla.
             var propias = await ctx.GaSolicitudSalida
                 .Where(s => s.RendicionId == rendicionId && s.WorkerId == workerId)
-                .Select(s => new { s.EstadoReembolsoId, s.ObservacionReembolso })
+                .Select(s => new { s.EstadoReembolsoId, s.ObservacionReembolso, s.ObservacionReembolsoOrigenId })
                 .ToListAsync();
 
             if (propias.Count == 0)
                 throw new AbrilException("La planilla de rendición no existe o no es tuya.", 404);
 
-            // Solo desde una observación: lo que el ERP corrige es el documento que la jefatura
-            // devolvió, así que sin observación no hay nada que pedirle.
+            // Solo desde una observación: lo que el ERP corrige es el documento que devolvieron, así
+            // que sin observación no hay nada que pedirle. Da igual si la devolvió la jefatura en la
+            // segunda revisión o Tesorería antes de pagar (RG-49): el camino de subsanación es el
+            // mismo y este es su paso del medio.
+            var observada = propias.FirstOrDefault(
+                s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                  && !string.IsNullOrWhiteSpace(s.ObservacionReembolso));
+
             if (propias.All(s => s.EstadoReembolsoId != EstadosSalida.Reembolso.Observado))
                 throw new AbrilException(
-                    "Solo se puede pedir una corrección al ERP cuando la jefatura observó el reembolso.", 400);
+                    "Solo se puede pedir una corrección al ERP cuando el reembolso está observado.", 400);
 
-            var consolidado = await ctx.GaConsolidadoS10
-                .Where(c => c.State && c.RendicionId == rendicionId)
-                .Select(c => new { c.Id, c.NumeroGuia })
-                .FirstOrDefaultAsync();
+            var consolidado = await (
+                from v in ctx.GaConsolidadoS10Rendicion
+                join c in ctx.GaConsolidadoS10 on v.ConsolidadoS10Id equals c.Id
+                where v.State && c.State && v.RendicionId == rendicionId
+                select new { c.Id, c.NumeroGuia }
+            ).FirstOrDefaultAsync();
 
             if (consolidado == null)
                 throw new AbrilException(
@@ -423,13 +439,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 RendicionId      = rendicionId,
                 ConsolidadoS10Id = consolidado.Id,
                 Motivo           = texto,
-                // La observación de la jefatura se copia acá: el ERP la necesita para contrastar, y
-                // la de la salida se pisa si la jefatura vuelve a observar más adelante.
-                MotivoJefatura   = propias
-                    .Where(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
-                             && !string.IsNullOrWhiteSpace(s.ObservacionReembolso))
-                    .Select(s => s.ObservacionReembolso)
-                    .FirstOrDefault(),
+                // La observación que devolvió el reembolso se copia acá: el ERP la necesita para
+                // contrastar, y la de la salida se pisa si vuelven a observar más adelante. Puede
+                // venir de la jefatura o de Tesorería (RG-49), así que se copia también de quién
+                // es: el texto y su origen salen de la MISMA salida o el ERP leería un motivo con
+                // el rótulo del otro.
+                MotivoJefatura   = observada?.ObservacionReembolso,
+                MotivoOrigenId   = observada?.ObservacionReembolsoOrigenId,
                 NumeroGuia       = consolidado.NumeroGuia,
                 EstadoId         = EstadosSalida.CorreccionS10.Solicitada,
                 SolicitadaPorId  = userId,
@@ -462,13 +478,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             ).Distinct().ToListAsync();
         }
 
+        /// <summary>
+        /// Planillas cuyo Consolidado del S10 es compartido con OTRAS planillas que siguen con el
+        /// reembolso por decidir: esas no se pueden reemplazar desde acá, porque el documento se
+        /// reemplaza entero (ver <see cref="ConsolidadoS10Agrupacion"/>). Las otras pueden ser de
+        /// otros trabajadores, así que se miran sin recorte.
+        /// </summary>
+        private static async Task<HashSet<int>> ConsolidadosCompartidosAsync(
+            AppDbContext ctx, IReadOnlyDictionary<int, ConsolidadoS10Dto> consolidados)
+        {
+            var otras = consolidados
+                .SelectMany(kv => kv.Value.Rendiciones.Where(r => r.Id != kv.Key).Select(r => r.Id))
+                .Distinct()
+                .ToList();
+            if (otras.Count == 0) return new();
+
+            var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, otras);
+
+            return consolidados
+                .Where(kv => ConsolidadoS10Agrupacion.Conjunto(kv.Key, kv.Value, agrupables).Count > 1)
+                .Select(kv => kv.Key)
+                .ToHashSet();
+        }
+
         private static RendicionListItemDto Armar(
             Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models.GaRendicion planilla,
             List<SalidaPropia> propias,
             ConsolidadoS10Dto? consolidado,
             Dictionary<int, decimal> montos,
             decimal montoTotalPlanilla,
-            CorreccionS10Dto? correccion)
+            CorreccionS10Dto? correccion,
+            bool consolidadoCompartido)
         {
             var desde = propias.Min(s => s.FechaSalida);
             var hasta = propias.Max(s => s.FechaSalida);
@@ -476,6 +516,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var estado = PlanillaRendicionHelper.ResumirEstadoReembolso(propias.Select(s => s.EstadoReembolsoId));
             var abierto = estado == EstadosSalida.Reembolso.NombrePendiente
                        || estado == EstadosSalida.Reembolso.NombreObservado;
+
+            // La observación vigente de la planilla, con su origen (jefatura o Tesorería).
+            var observada = propias.FirstOrDefault(
+                s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                  && !string.IsNullOrWhiteSpace(s.ObservacionReembolso));
 
             // El Consolidado del S10 se habilita recién con la primera revisión aprobada (RG-35):
             // antes de eso el trabajador todavía no registró nada en el S10.
@@ -504,11 +549,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
                 EstadoReembolso = estado,
                 ReembolsoMixto  = propias.Select(s => s.EstadoReembolsoId).Distinct().Count() > 1,
-                ObservacionReembolso = propias
-                    .Where(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
-                             && !string.IsNullOrWhiteSpace(s.ObservacionReembolso))
-                    .Select(s => s.ObservacionReembolso)
-                    .FirstOrDefault(),
+                // El texto y su origen salen de la MISMA salida: si no, una planilla observada por
+                // Tesorería podría mostrar el motivo de una y el rótulo de la otra.
+                ObservacionReembolso       = observada?.ObservacionReembolso,
+                ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
+                    observada?.ObservacionReembolsoOrigenId),
                 RevisorNotificadoAt = propias.Max(s => s.RevisorNotificadoAt),
 
                 EstadoPrimeraRevision      = EstadosSalida.PrimeraRevision.Nombre(planilla.EstadoPrimeraRevisionId),
@@ -519,6 +564,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 PuedeSubsanar              = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada,
 
                 PuedeAdjuntarConsolidado = primeraAprobada && abierto,
+                ConsolidadoCompartido    = consolidadoCompartido,
                 PuedeNotificarRevisor    = primeraAprobada && abierto && consolidado != null,
 
                 CorreccionS10 = correccion,
@@ -552,6 +598,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.EstadoReembolso          = origen.EstadoReembolso;
             destino.ReembolsoMixto           = origen.ReembolsoMixto;
             destino.ObservacionReembolso     = origen.ObservacionReembolso;
+            destino.ObservacionReembolsoOrigen = origen.ObservacionReembolsoOrigen;
             destino.RevisorNotificadoAt      = origen.RevisorNotificadoAt;
             destino.EstadoPrimeraRevision      = origen.EstadoPrimeraRevision;
             destino.EnviadaRevisionAt          = origen.EnviadaRevisionAt;
@@ -560,6 +607,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.PuedeEnviarPrimeraRevision = origen.PuedeEnviarPrimeraRevision;
             destino.PuedeSubsanar              = origen.PuedeSubsanar;
             destino.PuedeAdjuntarConsolidado = origen.PuedeAdjuntarConsolidado;
+            destino.ConsolidadoCompartido    = origen.ConsolidadoCompartido;
             destino.PuedeNotificarRevisor    = origen.PuedeNotificarRevisor;
             destino.CorreccionS10            = origen.CorreccionS10;
             destino.PuedeSolicitarCorreccion = origen.PuedeSolicitarCorreccion;

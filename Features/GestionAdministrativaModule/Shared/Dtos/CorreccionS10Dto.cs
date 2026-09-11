@@ -18,8 +18,14 @@
         /// <summary>El «MOTIVO *» que escribió el trabajador: qué necesita del ERP.</summary>
         public string Motivo { get; set; } = string.Empty;
 
-        /// <summary>Con qué observó la jefatura el reembolso, copiada al solicitar.</summary>
+        /// <summary>Con qué se observó el reembolso, copiada al solicitar.</summary>
         public string? MotivoJefatura { get; set; }
+
+        /// <summary>
+        /// Quién escribió esa observación: "Jefatura" o "Tesorería" (RG-49). Vacío en las
+        /// correcciones anteriores a la columna, que son todas de jefatura.
+        /// </summary>
+        public string MotivoOrigen { get; set; } = string.Empty;
 
         /// <summary>Guía del consolidado observado — con esto el ERP lo encuentra en el S10.</summary>
         public string? NumeroGuia { get; set; }

@@ -1,35 +1,38 @@
-﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Repositories
+namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Repositories
 {
     /// <summary>
-    /// Lectura/escritura del override de visibilidad de salidas
-    /// (ga_salida_visibilidad_area) por trabajador. El algoritmo de jerarquía vive en
-    /// SalidaVisibilityResolver; aquí solo se administra la asignación manual de nodos.
+    /// Lectura/escritura del override de visibilidad por área (<c>ga_visibilidad_area</c>) por
+    /// trabajador y por ámbito. El algoritmo de jerarquía vive en SalidaVisibilityResolver; aquí
+    /// solo se administra la asignación manual de nodos.
+    ///
+    /// Todo va filtrado por <c>ambitoId</c>: las asignaciones de Gestión de Salidas y las de
+    /// Gestión de Rendiciones conviven en la misma tabla y no se pisan.
     /// </summary>
-    public class VisibilidadSalidaRepository : IVisibilidadSalidaRepository
+    public class VisibilidadAreaRepository : IVisibilidadAreaRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
 
-        public VisibilidadSalidaRepository(IDbContextFactory<AppDbContext> factory)
+        public VisibilidadAreaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
         }
 
-        public async Task<VisibilidadInicialDto> GetInitialDataAsync()
+        public async Task<VisibilidadInicialDto> GetInitialDataAsync(int ambitoId)
         {
             // Filtros (árbol de áreas) + tabla (trabajadores) en una sola conexión.
             using var ctx = _factory.CreateDbContext();
             return new VisibilidadInicialDto
             {
-                Workers = await LoadWorkersAsync(ctx),
+                Workers = await LoadWorkersAsync(ctx, ambitoId),
                 AreaTree = await GaAreaTreeLoader.LoadAsync(ctx),
             };
         }
@@ -40,11 +43,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
             return await GaAreaTreeLoader.LoadAsync(ctx);
         }
 
-        private static async Task<List<VisibilidadWorkerItemDto>> LoadWorkersAsync(AppDbContext ctx)
+        private static async Task<List<VisibilidadWorkerItemDto>> LoadWorkersAsync(AppDbContext ctx, int ambitoId)
         {
             // Conteo de asignaciones vivas por worker (para mostrar "N áreas" o "Automático").
-            var counts = await ctx.GaSalidaVisibilidadArea
-                .Where(v => v.State)
+            var counts = await ctx.GaVisibilidadArea
+                .Where(v => v.State && v.AmbitoId == ambitoId)
                 .GroupBy(v => v.WorkerId)
                 .Select(g => new { WorkerId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.WorkerId, x => x.Count);
@@ -77,12 +80,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
             return workers;
         }
 
-        public async Task<List<VisibilidadAsignacionDto>> GetWorkerAsignacionesAsync(int workerId)
+        public async Task<List<VisibilidadAsignacionDto>> GetWorkerAsignacionesAsync(int ambitoId, int workerId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await ctx.GaSalidaVisibilidadArea
-                .Where(v => v.State && v.WorkerId == workerId)
+            return await ctx.GaVisibilidadArea
+                .Where(v => v.State && v.AmbitoId == ambitoId && v.WorkerId == workerId)
                 .Select(v => new VisibilidadAsignacionDto
                 {
                     AreaScopeId = v.AreaScopeId,
@@ -91,7 +94,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 .ToListAsync();
         }
 
-        public async Task UpdateWorkerAsignacionesAsync(int workerId, List<VisibilidadAsignacionDto> asignaciones)
+        public async Task UpdateWorkerAsignacionesAsync(
+            int ambitoId, int workerId, List<VisibilidadAsignacionDto> asignaciones)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -116,8 +120,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
             }
 
             var now = DateTimeOffset.UtcNow;
-            var vivos = await ctx.GaSalidaVisibilidadArea
-                .Where(v => v.State && v.WorkerId == workerId)
+            var vivos = await ctx.GaVisibilidadArea
+                .Where(v => v.State && v.AmbitoId == ambitoId && v.WorkerId == workerId)
                 .ToListAsync();
             var vivosByScope = vivos.ToDictionary(v => v.AreaScopeId);
 
@@ -134,8 +138,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 }
                 else
                 {
-                    ctx.GaSalidaVisibilidadArea.Add(new GaSalidaVisibilidadArea
+                    ctx.GaVisibilidadArea.Add(new GaVisibilidadArea
                     {
+                        AmbitoId = ambitoId,
                         WorkerId = workerId,
                         AreaScopeId = scopeId,
                         IncluyeDescendientes = incluye,

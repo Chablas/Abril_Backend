@@ -64,12 +64,21 @@
         public int EstadoReembolsoId { get; set; } = EstadosSalida.Reembolso.Pendiente;
 
         /// <summary>
-        /// Observación que escribe el jefe al RECHAZAR el reembolso: es lo que el trabajador tiene
-        /// que subsanar. Se conserva al volver a Pendiente para que se vea qué se observó.
+        /// Observación con la que se devolvió el reembolso: es lo que el trabajador tiene que
+        /// subsanar. La escribe la jefatura en la segunda revisión o Tesorería antes de pagar
+        /// (RG-49) — cuál de las dos lo dice <see cref="ObservacionReembolsoOrigenId"/>. Se
+        /// conserva al volver a Pendiente para que se vea qué se observó.
         /// </summary>
         public string? ObservacionReembolso { get; set; }
 
-        /// <summary>FK a <c>app_user.user_id</c> del jefe que aprobó/rechazó el reembolso.</summary>
+        /// <summary>
+        /// FK a <c>ga_origen_observacion_reembolso</c>: quién escribió la observación de arriba.
+        /// Ver <see cref="EstadosSalida.OrigenObservacionReembolso"/>. Null cuando no hay
+        /// observación vigente; se limpia junto con ella al aprobar.
+        /// </summary>
+        public int? ObservacionReembolsoOrigenId { get; set; }
+
+        /// <summary>FK a <c>app_user.user_id</c> de quien aprobó/observó el reembolso.</summary>
         public int? ReembolsoDecididoPorId { get; set; }
         public DateTimeOffset? ReembolsoDecididoAt { get; set; }
 

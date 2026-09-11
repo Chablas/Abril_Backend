@@ -7,6 +7,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,13 +22,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IConsolidadorResolver _consolidadorResolver;
 
         public GestionRendicionRepository(
             IDbContextFactory<AppDbContext> factory,
-            IJefeRevisorResolver jefeResolver)
+            IJefeRevisorResolver jefeResolver,
+            IConsolidadorResolver consolidadorResolver)
         {
             _factory = factory;
             _jefeResolver = jefeResolver;
+            _consolidadorResolver = consolidadorResolver;
         }
 
         public async Task<List<GestionRendicionListItemDto>> GetAll(GestionRendicionFiltersDto filters)
@@ -39,7 +43,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var porDecidir = await IdsConReembolsoRevisableAsync(
                 ctx, planillas.SelectMany(p => p.Salidas).Select(s => s.Id).ToList());
 
-            var items = planillas.Select(p => Armar(p, ajenas, porDecidir)).ToList();
+            var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, filters.CurrentUserId, planillas);
+
+            var items = planillas.Select(p => Armar(p, ajenas, porDecidir, consolidacion)).ToList();
             return Filtrar(items, filters);
         }
 
@@ -55,7 +61,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var ajenas     = await MisWorkerIdsQueNoDecidoAsync(ctx, scope.CurrentUserId);
             var porDecidir = await IdsConReembolsoRevisableAsync(ctx, planilla.Salidas.Select(s => s.Id).ToList());
 
-            var cabecera = Armar(planilla, ajenas, porDecidir);
+            var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, scope.CurrentUserId, planillas);
+
+            var cabecera = Armar(planilla, ajenas, porDecidir, consolidacion);
             var detalle  = new GestionRendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
@@ -382,6 +390,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 s.ReembolsoDecididoAt    = now;
                 s.UpdatedAt              = now;
                 s.ObservacionReembolso   = obs;
+                // Esta pantalla es la de la jefatura; la de Tesorería marca el otro origen (RG-49).
+                s.ObservacionReembolsoOrigenId = EstadosSalida.OrigenObservacionReembolso.Jefatura;
             }
 
             await ctx.SaveChangesAsync();
@@ -421,8 +431,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var consolidadoIds = consolidadoPorSolicitud.Values.Select(c => c.Id).Distinct().ToList();
             var consolidados = await ctx.GaConsolidadoS10
                 .Where(c => consolidadoIds.Contains(c.Id))
-                .Select(c => new { c.Id, c.PdfUrl, c.PdfFilename })
+                .Select(c => new { c.Id, c.PdfUrl, c.PdfFilename, c.PdfFirmadoUrl })
                 .ToDictionaryAsync(c => c.Id, c => c);
+
+            // Un consolidado compartido puede llegar ya firmado por otro jefe, que aprobó otra de
+            // sus planillas: la firma nueva se suma sobre esa copia, en el lugar siguiente, en vez
+            // de pisarla. Y si quien aprueba ya lo firmó, no se vuelve a firmar.
+            var firmantes = await FirmantesPorConsolidadoAsync(ctx, consolidadoIds);
 
             return planillas.Select(p =>
             {
@@ -434,11 +449,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                     .Select(cid => cid!.Value)
                     .Distinct()
                     .Where(cid => consolidados.ContainsKey(cid))
-                    .Select(cid => new DocumentoParaFirmarDto
+                    .Where(cid => !(firmantes.TryGetValue(cid, out var yaFirmaron) && yaFirmaron.Contains(reviewerUserId)))
+                    .Select(cid =>
                     {
-                        Id       = cid,
-                        Url      = consolidados[cid].PdfUrl,
-                        Filename = consolidados[cid].PdfFilename,
+                        var c = consolidados[cid];
+                        var previas = c.PdfFirmadoUrl != null && firmantes.TryGetValue(cid, out var yaFirmaron)
+                            ? yaFirmaron.Count
+                            : 0;
+                        return new DocumentoParaFirmarDto
+                        {
+                            Id       = cid,
+                            Url      = previas > 0 ? c.PdfFirmadoUrl! : c.PdfUrl,
+                            Filename = c.PdfFilename,
+                            Slot     = previas,
+                        };
                     })
                     .ToList();
 
@@ -519,8 +543,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 s.FirmadoPorId           = reviewerUserId;
                 s.FirmadoAt              = now;
                 s.UpdatedAt              = now;
-                // Al aprobar se limpia la observación: ya no hay nada que subsanar.
-                s.ObservacionReembolso   = null;
+                // Al aprobar se limpia la observación y de quién era: ya no hay nada que subsanar,
+                // y dejar el origen puesto haría que Tesorería siguiera viendo como "suya" una
+                // planilla que ya volvió firmada.
+                s.ObservacionReembolso         = null;
+                s.ObservacionReembolsoOrigenId = null;
             }
 
             await ctx.SaveChangesAsync();
@@ -860,6 +887,137 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             return ids.ToHashSet();
         }
 
+        public async Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId != null && ids.Contains(s.RendicionId.Value))
+                .Select(s => s.WorkerId)
+                .Distinct()
+                .ToListAsync();
+        }
+
+        /// <summary>Lo que la pantalla necesita para ofrecer (o no) el Consolidado del S10 de una fila.</summary>
+        private sealed class ConsolidacionFila
+        {
+            public bool PuedeAdjuntar { get; init; }
+            public List<ConsolidadoConjuntoItemDto> Conjunto { get; init; } = new();
+            public bool PuedeConsolidar { get; init; }
+            public int? RazonSocialId { get; init; }
+            public string? RazonSocial { get; init; }
+        }
+
+        /// <summary>
+        /// Para cada planilla de la tabla: si admite el Consolidado del S10, qué planillas cubriría
+        /// el que se adjunte desde ella (su conjunto, ver <see cref="ConsolidadoS10Agrupacion"/>),
+        /// si el usuario puede consolidar por TODOS los trabajadores de ese conjunto y bajo qué razón
+        /// social. Son las mismas reglas que valida la subida, así que la pantalla no ofrece nada
+        /// que el servidor vaya a rechazar. El permiso sale de <c>IConsolidadorResolver</c>, el
+        /// mismo que alimenta la pantalla de Consolidadores: ver una planilla no habilita a hacerle
+        /// el trámite.
+        ///
+        /// Un número fijo de consultas para toda la tabla —incluidas las planillas de fuera de la
+        /// tabla que cuelgan de un consolidado compartido— y una sola llamada al resolver.
+        /// </summary>
+        private async Task<Dictionary<int, ConsolidacionFila>> ConsolidacionPorPlanillaAsync(
+            AppDbContext ctx, int? userId, List<PlanillaRendicionLoader.PlanillaFila> planillas)
+        {
+            if (planillas.Count == 0) return new();
+
+            // Las planillas de la tabla y las demás de sus consolidados actuales: un consolidado
+            // compartido se reemplaza entero, así que el conjunto de una fila puede traer planillas
+            // que la tabla no muestra (otro filtro, otra área).
+            var enTabla = planillas.ToDictionary(p => p.Id);
+            var involucradas = planillas.Select(p => p.Id)
+                .Concat(planillas
+                    .Where(p => p.ConsolidadoS10 != null)
+                    .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
+                    .Select(r => r.Id))
+                .Distinct()
+                .ToList();
+
+            var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, involucradas);
+
+            // El monto completo de las de la tabla ya viene en la fila; el del resto se calcula.
+            var totalesFuera = await TotalPlanillaLoader.LoadAsync(
+                ctx, involucradas.Where(id => !enTabla.ContainsKey(id)).ToList());
+
+            var codigoDe = planillas
+                .Where(p => p.ConsolidadoS10 != null)
+                .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
+                .GroupBy(r => r.Id)
+                .ToDictionary(g => g.Key, g => g.First().Codigo);
+            foreach (var planilla in planillas) codigoDe[planilla.Id] = planilla.Codigo;
+
+            var conjuntos = planillas.ToDictionary(
+                p => p.Id, p => ConsolidadoS10Agrupacion.Conjunto(p.Id, p.ConsolidadoS10, agrupables));
+
+            List<int> TrabajadoresDe(IEnumerable<int> rendicionIds) => rendicionIds
+                .SelectMany(id => agrupables.TryGetValue(id, out var a) ? a.WorkerIds : new List<int>())
+                .Distinct()
+                .ToList();
+
+            var workerIds = TrabajadoresDe(conjuntos.Values.SelectMany(c => c));
+
+            var habilitado = userId == null || workerIds.Count == 0
+                ? new HashSet<int>()
+                : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId.Value, workerIds);
+
+            var razones = await ConsolidadoS10Agrupacion.LoadRazonSocialAsync(ctx, workerIds);
+
+            return planillas.ToDictionary(p => p.Id, p =>
+            {
+                var conjunto     = conjuntos[p.Id];
+                var trabajadores = TrabajadoresDe(conjunto);
+                var razon        = ConsolidadoS10Agrupacion.RazonSocialComun(trabajadores, razones);
+
+                return new ConsolidacionFila
+                {
+                    PuedeAdjuntar = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
+                                 && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto,
+                    Conjunto = conjunto.Select(id => new ConsolidadoConjuntoItemDto
+                    {
+                        Id                 = id,
+                        Codigo             = codigoDe.TryGetValue(id, out var codigo) ? codigo : $"#{id}",
+                        MontoTotalPlanilla = enTabla.TryGetValue(id, out var fila)
+                                                ? fila.MontoTotalPlanilla
+                                                : totalesFuera.GetValueOrDefault(id),
+                    }).ToList(),
+                    // El consolidado cubre los documentos enteros: hace falta poder por TODOS los
+                    // trabajadores del conjunto, también por los que la tabla no muestra.
+                    PuedeConsolidar = trabajadores.Count > 0 && trabajadores.All(habilitado.Contains),
+                    RazonSocialId   = razon?.Id,
+                    RazonSocial     = razon?.Nombre,
+                };
+            });
+        }
+
+        /// <summary>
+        /// Quiénes firmaron ya cada consolidado: los jefes que aprobaron alguna de las planillas que
+        /// cubre. Aprobar firma la planilla y su consolidado en el mismo acto, así que los firmantes
+        /// del consolidado son los de sus planillas firmadas.
+        /// </summary>
+        private static async Task<Dictionary<int, HashSet<int>>> FirmantesPorConsolidadoAsync(
+            AppDbContext ctx, List<int> consolidadoIds)
+        {
+            if (consolidadoIds.Count == 0) return new();
+
+            var filas = await (
+                from v in ctx.GaConsolidadoS10Rendicion
+                join r in ctx.GaRendicion on v.RendicionId equals r.Id
+                where v.State && consolidadoIds.Contains(v.ConsolidadoS10Id)
+                   && r.FirmadoPorId != null && r.PdfFirmadoUrl != null
+                select new { v.ConsolidadoS10Id, FirmadoPorId = r.FirmadoPorId!.Value }
+            ).ToListAsync();
+
+            return filas
+                .GroupBy(f => f.ConsolidadoS10Id)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.FirmadoPorId).ToHashSet());
+        }
+
         /// <summary>
         /// Fichas del usuario cuyas salidas NO le toca decidir a él: la regla es "nadie decide lo
         /// suyo", y la única excepción es que el revisor resuelto de esa ficha sea él mismo, o sea
@@ -927,7 +1085,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         }
 
         private static GestionRendicionListItemDto Armar(
-            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> misWorkerIdsQueNoDecido, HashSet<int> porDecidir) => new()
+            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> misWorkerIdsQueNoDecido,
+            HashSet<int> porDecidir, IReadOnlyDictionary<int, ConsolidacionFila> consolidacion) => new()
         {
             Id                 = p.Id,
             Codigo             = p.Codigo,
@@ -954,11 +1113,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             EstadoReembolso    = p.EstadoReembolso,
             ReembolsoMixto     = p.ReembolsoMixto,
             ObservacionReembolso = p.ObservacionReembolso,
+            ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
+                p.ObservacionReembolsoOrigenId),
             RevisorNotificadoAt  = p.RevisorNotificadoAt,
             PorDecidirCount    = p.Salidas.Count(s => porDecidir.Contains(s.Id)),
             // Basta una salida suya que no le toque decidir para apagar la planilla entera: la
             // primera revisión es del documento completo, no se puede aprobar "a medias".
             PuedeDecidir       = !p.Salidas.Any(s => misWorkerIdsQueNoDecido.Contains(s.WorkerId)),
+            // Lo que resolvió ConsolidacionPorPlanillaAsync: qué cubriría el consolidado de esta
+            // fila, si se le puede adjuntar y si el usuario puede consolidar por TODOS sus trabajadores.
+            PuedeConsolidar          = consolidacion[p.Id].PuedeConsolidar,
+            PuedeAdjuntarConsolidado = consolidacion[p.Id].PuedeAdjuntar,
+            ConsolidadoConjunto      = consolidacion[p.Id].Conjunto,
+            RazonSocialId            = consolidacion[p.Id].RazonSocialId,
+            RazonSocial              = consolidacion[p.Id].RazonSocial,
         };
 
         private static void CopiarCabecera(GestionRendicionListItemDto o, GestionRendicionDetalleDto d)
@@ -975,9 +1143,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.PrimeraRevisionObservacion = o.PrimeraRevisionObservacion;
             d.PorPrimeraRevision = o.PorPrimeraRevision;
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
-            d.ObservacionReembolso = o.ObservacionReembolso; d.RevisorNotificadoAt = o.RevisorNotificadoAt;
+            d.ObservacionReembolso = o.ObservacionReembolso;
+            d.ObservacionReembolsoOrigen = o.ObservacionReembolsoOrigen;
+            d.RevisorNotificadoAt = o.RevisorNotificadoAt;
             d.PorDecidirCount = o.PorDecidirCount;
-            d.PuedeDecidir = o.PuedeDecidir;
+            d.PuedeDecidir = o.PuedeDecidir; d.PuedeConsolidar = o.PuedeConsolidar;
+            d.PuedeAdjuntarConsolidado = o.PuedeAdjuntarConsolidado;
+            d.ConsolidadoConjunto = o.ConsolidadoConjunto;
+            d.RazonSocialId = o.RazonSocialId; d.RazonSocial = o.RazonSocial;
         }
 
         /// <summary>

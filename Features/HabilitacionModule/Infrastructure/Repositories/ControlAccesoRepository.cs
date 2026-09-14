@@ -32,7 +32,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.Worker.Include(w => w.Person).AsQueryable();
+            var query = ctx.Worker.Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo).ThenInclude(p => p!.Categoria)
+                .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -93,14 +95,46 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // el día de hoy sigue vigente durante todo su último día.
             var hoy = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
 
-            var noAutorizadosIds = await ctx.SsHabTrabajador
+            var workersInfo = await ctx.Worker
+                .Where(w => workerIds.Contains(w.Id))
+                .Select(w => new
+                {
+                    w.Id,
+                    w.ContrataCasa,
+                    w.ObraOficinaStaffId,
+                    CategoriaNombre = w.PuestoCatalogo != null && w.PuestoCatalogo.Categoria != null
+                        ? w.PuestoCatalogo.Categoria.Nombre : null
+                })
+                .ToListAsync();
+            var workerInfoMap = workersInfo.ToDictionary(w => w.Id);
+
+            var itemsFullMap = await ctx.SsItemTrabajador.ToDictionaryAsync(i => i.Id);
+
+            var habRowsPendientes = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
                              (h.Estado == "Aprobado" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy)) ||
                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value < hoy))))
+                .Select(h => new { h.WorkerId, h.ItemId })
+                .ToListAsync();
+
+            // Mismo criterio de aplicabilidad (categoría/obra-oficina) que BuildDtosAsync — ver
+            // EsItemAplicable. Sin esto, un ítem "Falta" que ya no le corresponde al trabajador
+            // actual (categoría u obra distinta a cuando se creó la fila) lo marcaba "No
+            // Autorizado" acá aunque Gestión de Ingresos ya no lo contara como pendiente.
+            var noAutorizadosIds = habRowsPendientes
+                .Where(h =>
+                {
+                    workerInfoMap.TryGetValue(h.WorkerId, out var info);
+                    var esCasa = string.Equals(info?.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+                    var esContratista = string.Equals(info?.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+                    var workerType = esCasa ? "CASA" : "CONTRATISTA";
+                    var obraOficinaNombre = ObraOficinaStaffIds.Nombre(info?.ObraOficinaStaffId);
+                    return EsItemAplicable(itemsFullMap, h.ItemId, workerType, info?.CategoriaNombre, obraOficinaNombre, esContratista);
+                })
                 .Select(h => h.WorkerId)
                 .Distinct()
-                .ToListAsync();
+                .ToList();
 
             var noAutorizadosSet = noAutorizadosIds.ToHashSet();
 
@@ -115,6 +149,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workers = await ctx.Worker
                 .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo).ThenInclude(p => p!.Categoria)
                 .Where(w => filteredIds.Contains(w.Id))
                 .ToListAsync();
 
@@ -161,6 +196,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workers = await ctx.Worker
                 .Include(w => w.Person)
+                .Include(w => w.PuestoCatalogo).ThenInclude(p => p!.Categoria)
                 .Where(w => conSctrIds.Contains(w.Id))
                 .ToListAsync();
 
@@ -342,6 +378,32 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         // ─── helpers ───────────────────────────────────────────────────────────
 
+        // Réplica del criterio de aplicabilidad de ítem usado en HabTrabajadorRepository
+        // (EstadoCalc / GetEntregablesWorkerAsync) — debe evaluarse igual acá para que un
+        // trabajador no salga "No Autorizado" en Control de Acceso por un ítem que las demás
+        // pantallas de Habilitación ya no le muestran ni cuentan.
+        private static bool EsItemAplicable(
+            Dictionary<int, SsItemTrabajador> itemsFullMap, int itemId, string workerType,
+            string? categoriaWorker, string? obraOficinaNombre, bool esContratista)
+        {
+            if (!itemsFullMap.TryGetValue(itemId, out var item) || !item.Activo)
+                return false;
+
+            return (item.AplicaA == "TODOS" || item.AplicaA == workerType) &&
+                   CsvContiene(item.AplicaCategoria, categoriaWorker) &&
+                   CsvContiene(item.AplicaObraOficina, obraOficinaNombre) &&
+                   !CsvExcluye(item.ExcluyeObraOficina, obraOficinaNombre) &&
+                   (!esContratista || !CsvExcluye(item.ExcluyeCategoriaContratista, categoriaWorker));
+        }
+
+        private static bool CsvContiene(string? csv, string? valor)
+            => csv == null || csv.Split(',', StringSplitOptions.TrimEntries)
+                   .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+        private static bool CsvExcluye(string? csv, string? valor)
+            => csv != null && csv.Split(',', StringSplitOptions.TrimEntries)
+                   .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
         private static void InsertDetalles(AppDbContext ctx, int tareoId, TareoCreateDto dto)
         {
             if (dto.DetallesCasa.Count > 0)
@@ -475,8 +537,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(p => proyIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
 
-            var itemCatalog = await ctx.SsItemTrabajador
-                .ToDictionaryAsync(i => i.Id, i => i.Nombre);
+            var itemsFullMap = await ctx.SsItemTrabajador
+                .ToDictionaryAsync(i => i.Id);
+            var itemCatalog = itemsFullMap.ToDictionary(kv => kv.Key, kv => kv.Value.Nombre);
 
             var habItems = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId))
@@ -557,11 +620,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 else
                 {
                     var esCasa = casaIds.Contains(w.Id);
+                    var esContratistaWorker = string.Equals(w.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+                    var workerType = esCasa ? "CASA" : "CONTRATISTA";
+                    var categoriaWorker = w.PuestoCatalogo?.Categoria?.Nombre;
+                    var obraOficinaNombre = ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId);
+
                     // Para trabajadores Casa, el/los ítem(s) EMO se excluyen del cómputo genérico:
                     // su estado real se calcula más abajo desde WorkerEmo, no desde este registro crudo.
-                    var itemsGenerico = esCasa
-                        ? items.Where(h => !itemsEmoIds.Contains(h.ItemId)).ToList()
-                        : items;
+                    // Además se descarta cualquier ítem que ya NO le aplique al trabajador según el
+                    // catálogo (categoría/obra-oficina) — mismo criterio que usan la lista de
+                    // Trabajadores (EstadoCalc) y el detalle de entregables (GetEntregablesWorkerAsync)
+                    // en HabTrabajadorRepository. Sin este filtro, una fila SsHabTrabajador "Falta"
+                    // que quedó de una categoría/obra anterior del trabajador (y que esas otras
+                    // pantallas ya no muestran ni cuentan) igual bloqueaba acá en Control de Acceso,
+                    // mostrando "No Autorizado" para alguien "Habilitado" en Gestión de Ingresos.
+                    var itemsGenerico = items
+                        .Where(h => !esCasa || !itemsEmoIds.Contains(h.ItemId))
+                        .Where(h => EsItemAplicable(itemsFullMap, h.ItemId, workerType, categoriaWorker, obraOficinaNombre, esContratistaWorker))
+                        .ToList();
 
                     hasPendientes = itemsGenerico.Any(h =>
                         h.ItemId != HabItemIds.LecturaEmo &&

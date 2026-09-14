@@ -6109,4 +6109,19 @@ Sesión centrada en dos módulos de Arquitectura Comercial (Costos y Almacén), 
 
 ### Pendiente
 - Probar en navegador el flujo completo de Costos (cerrar/reabrir periodo, presupuesto vs desviación) y Almacén (devoluciones, import Excel con archivo real, gestión de materiales).
+
+## Sesión 2026-09-14 — Diagnóstico "Error del servidor" en contractors/registro + fixes de Habilitación sin commitear
+
+### Contexto
+Sesión enfocada en diagnosticar un 500 genérico ("Error del servidor. Por favor contactar al administrador del sistema.") reportado al enviar el formulario público de `contractors/registro` para un contratista puntual (RUC 20616218001 — SKY SERVICIOS EN ALTURA S.A.C). Se confirmó que el RUC no existía en BD (entra por la rama "registro nuevo" de `ContractorRegistrationService.Create`), así que la causa más probable queda en `UploadFiles` (SharePoint vía Graph, con token de aplicación) o en el insert de `Contributor`/`Contractor`, dependiente de los datos/archivos concretos de ese envío (archivo >4MB activa el camino de upload por sesión, con más superficie de fallo). No se pudo confirmar la causa exacta por falta de acceso a los logs del backend en el momento — pendiente de reproducir o de revisar el log `"ERROR CONTRACTOR REGISTRATION:"`.
+
+### Cambios commiteados (arrastrados de otra sesión, no generados en esta)
+Al pedir el usuario "commitear y pushear todo lo de hoy", se encontraron cambios sin commitear en `master` de una sesión anterior (Habilitación / Control de Acceso). Se compiló (`dotnet build`, 0 errores) y se commitearon:
+- **Control de Acceso** (`ControlAccesoRepository.cs`): ahora aplica el mismo criterio de aplicabilidad (categoría/obra-oficina, vía `EsItemAplicable`) que ya usa Gestión de Ingresos, para no marcar "No Autorizado" con ítems de habilitación que ya no le corresponden al trabajador tras un cambio de categoría/obra.
+- **Interconsultas** (`InterconsultaRepository.cs`): al resolver una interconsulta se vuelve a llamar `EmoRepository.SincronizarEntregableEmoAsync` (ahora `internal` en vez de `private`), porque antes el Certificado de Aptitud se quedaba en "Falta" para siempre aunque el EMO ya estuviera Apto/Vigente (caso real: worker 44735768, MUÑOZ MIDEIROS DELIA).
+- `Migrations_Manual/_check_certaptitud_falta_con_emo_apto.sql` y `_fix_certaptitud_falta_con_emo_apto.sql`: scripts de diagnóstico/corrección manual para casos ya existentes en BD con ese mismo problema (pendientes de correr en pgAdmin si el usuario lo confirma).
+
+### Pendiente
+- Reproducir o conseguir el log exacto del intento fallido de SKY SERVICIOS EN ALTURA S.A.C. en `contractors/registro` para confirmar la causa real (candidatos: archivo pesado, nombre/RUC con caracteres invisibles, filename problemático en Graph).
+- Correr (si se confirma que aplica) los scripts SQL manuales de certaptitud contra la BD real vía pgAdmin.
 - RAC todavía no tiene ningún botón que llame al nuevo `PenalidadService` — el flujo "crear penalidad desde un RAC" no está conectado en la UI todavía (no es un bug, es una parte de la feature de Penalidades sin construir aún).

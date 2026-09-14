@@ -27,8 +27,8 @@
         /// </summary>
         public string MotivoOrigen { get; set; } = string.Empty;
 
-        /// <summary>Guía del consolidado observado — con esto el ERP lo encuentra en el S10.</summary>
-        public string? NumeroGuia { get; set; }
+        /// <summary>Número de reembolso del consolidado observado — con esto el ERP lo encuentra en el S10.</summary>
+        public string? NumeroReembolso { get; set; }
 
         public string SolicitadaPor { get; set; } = string.Empty;
         public DateTimeOffset SolicitadaAt { get; set; }
@@ -39,11 +39,11 @@
         public string? ComentarioAtencion { get; set; }
 
         /// <summary>
-        /// True si el ERP anuló el registro del S10: hace falta una guía NUEVA y la anterior ya no
+        /// True si el ERP anuló el registro del S10: hace falta un número de reembolso NUEVO y el anterior ya no
         /// se puede reutilizar (CA-19). La pantalla lo dice y el backend lo hace cumplir al
         /// recargar el consolidado.
         /// </summary>
-        public bool GuiaAnulada { get; set; }
+        public bool NumeroReembolsoAnulado { get; set; }
 
         /// <summary>True mientras el ERP no la haya atendido: la pelota está en el Coordinador.</summary>
         public bool EsperandoErp { get; set; }

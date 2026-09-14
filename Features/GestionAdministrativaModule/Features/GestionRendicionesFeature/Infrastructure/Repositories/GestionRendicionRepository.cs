@@ -837,7 +837,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                                         salidas.Min(s => s.FechaSalida), salidas.Max(s => s.FechaSalida)),
                     SalidasCount   = salidas.Count,
                     MontoTotal     = trayectos.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m),
-                    NumeroGuia     = consolidado?.NumeroGuia,
+                    NumeroReembolso     = consolidado?.NumeroReembolso,
                     FirmadoPor     = firmadoPor,
                 },
             };

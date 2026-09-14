@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 {
     /// <summary>
     /// Una solicitud de corrección en la bandeja del Coordinador ERP. Trae todo lo que necesita
-    /// para hacer su trabajo sin abrir nada más: la guía con la que ubica el registro en el S10,
+    /// para hacer su trabajo sin abrir nada más: el número de reembolso con el que ubica el registro en el S10,
     /// qué observó la jefatura y qué le pide el colaborador.
     ///
     /// No trae la planilla ni los tramos: el ERP no revisa el gasto —eso ya lo hizo la jefatura—,
@@ -55,10 +55,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string MotivoOrigen { get; set; } = string.Empty;
 
         /// <summary>
-        /// Guía del Consolidado del S10 observado. Es EL dato con el que el ERP encuentra el
+        /// Número de reembolso del Consolidado del S10 observado. Es EL dato con el que el ERP encuentra el
         /// registro en el S10, así que la tabla lo muestra en columna propia.
         /// </summary>
-        public string? NumeroGuia { get; set; }
+        public string? NumeroReembolso { get; set; }
 
         /// <summary>Periodo que cubre la planilla ("Agosto 2026", o un rango si cruza meses).</summary>
         public string Periodo { get; set; } = string.Empty;
@@ -85,8 +85,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public DateTimeOffset? AtendidaAt { get; set; }
         public string? ComentarioAtencion { get; set; }
 
-        /// <summary>True si el ERP anuló el registro y hace falta una guía nueva (CA-19).</summary>
-        public bool GuiaAnulada { get; set; }
+        /// <summary>True si el ERP anuló el registro y hace falta un número de reembolso nuevo (CA-19).</summary>
+        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>
@@ -102,7 +102,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         /// <summary>Ficha del colaborador (<c>workers.id</c>), del desplegable. Null para todos.</summary>
         public int? WorkerId { get; set; }
 
-        /// <summary>Busca en el código de la rendición y en el número de guía.</summary>
+        /// <summary>Busca en el código de la rendición y en el número de reembolso.</summary>
         public string? Q { get; set; }
 
         /// <summary>Periodo de la planilla. Los dos o ninguno.</summary>
@@ -170,7 +170,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 
     /// <summary>
     /// El check de confirmación del Coordinador ERP (RG-22 / RF-OBS-07). El comentario es opcional
-    /// —el requerimiento solo exige el check—, pero <see cref="GuiaAnulada"/> cambia lo que el
+    /// —el requerimiento solo exige el check—, pero <see cref="NumeroReembolsoAnulado"/> cambia lo que el
     /// colaborador tiene que hacer después, así que se pregunta explícitamente.
     /// </summary>
     public class AtenderCorreccionS10Dto
@@ -179,10 +179,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string? ComentarioAtencion { get; set; }
 
         /// <summary>
-        /// true = el registro del S10 se ANULÓ y el colaborador tiene que sacar una guía nueva; la
-        /// anterior queda bloqueada (HU-ERP-03 / CA-19). false = se corrigió conservando la guía.
+        /// true = el registro del S10 se ANULÓ y el colaborador tiene que sacar un número de reembolso nuevo; la
+        /// anterior queda bloqueado (HU-ERP-03 / CA-19). false = se corrigió conservando el número de reembolso.
         /// </summary>
-        public bool GuiaAnulada { get; set; }
+        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>Resultado de atender una o varias correcciones en bloque.</summary>

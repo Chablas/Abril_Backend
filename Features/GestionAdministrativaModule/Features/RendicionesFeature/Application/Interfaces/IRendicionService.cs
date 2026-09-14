@@ -58,9 +58,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
         /// Importe total del consolidado. Tiene que coincidir con el monto de la planilla completa
         /// (todas sus salidas, que es lo que el consolidado cubre) o se rechaza con 400.
         /// </param>
-        /// <param name="numeroGuia">Número de guía del S10 (texto, obligatorio).</param>
+        /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
         Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
 
         /// <summary>
         /// Avisa al jefe/revisor que la planilla ya tiene su Consolidado del S10 y el reembolso
@@ -79,7 +79,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
         /// arreglarlo él mismo, vuelve a adjuntarlo y el reembolso regresa a Pendiente sin pasar
         /// por acá.
         ///
-        /// Manda al ERP la rendición, la guía, la observación de la jefatura y el motivo del
+        /// Manda al ERP la rendición, el número de reembolso, la observación de la jefatura y el motivo del
         /// trabajador, todo en un correo. A diferencia de los otros avisos de la pantalla, este NO
         /// es best-effort: si el correo no le puede llegar a nadie, la solicitud no se registra —
         /// una corrección que el ERP no ve es una espera infinita.

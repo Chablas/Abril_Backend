@@ -62,11 +62,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public int? MotivoOrigenId { get; set; }
 
         /// <summary>
-        /// Número de guía del consolidado observado, copiado al solicitar. Es el dato con el que el
-        /// ERP encuentra el registro en el S10 (§10.5: se envía "la rendición, guía, motivo de
+        /// Número de reembolso del consolidado observado, copiado al solicitar. Es el dato con el que el
+        /// ERP encuentra el registro en el S10 (§10.5: se envía "la rendición, número de reembolso, motivo de
         /// jefatura y MOTIVO").
         /// </summary>
-        public string? NumeroGuia { get; set; }
+        public string? NumeroReembolso { get; set; }
 
         /// <summary>FK a <c>ga_estado_correccion_s10</c>. Ver <see cref="EstadosSalida.CorreccionS10"/>.</summary>
         public int EstadoId { get; set; } = EstadosSalida.CorreccionS10.Solicitada;
@@ -84,16 +84,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// <summary>
         /// Comentario opcional del Coordinador ERP al confirmar: qué hizo en el S10. No es
         /// obligatorio porque el requerimiento solo exige el check (RF-OBS-07), pero cuando el
-        /// consolidado se anuló y hay que sacar una guía nueva, es donde lo explica.
+        /// consolidado se anuló y hay que sacar un número de reembolso nuevo, es donde lo explica.
         /// </summary>
         public string? ComentarioAtencion { get; set; }
 
         /// <summary>
         /// True cuando el ERP anuló el registro del S10 en vez de corregirlo: el trabajador tiene
-        /// que generar una guía NUEVA y la anterior queda inservible (HU-ERP-03 / CA-19). Con esto
-        /// en true, volver a adjuntar el consolidado con la misma guía se rechaza.
+        /// que generar un número de reembolso NUEVO y el anterior queda inservible (HU-ERP-03 / CA-19). Con esto
+        /// en true, volver a adjuntar el consolidado con el mismo número de reembolso se rechaza.
         /// </summary>
-        public bool GuiaAnulada { get; set; }
+        public bool NumeroReembolsoAnulado { get; set; }
 
         /// <summary>
         /// Soft delete. Pasa a false cuando el trabajador recarga el Consolidado del S10: la

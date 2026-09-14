@@ -138,6 +138,46 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <summary>
+        /// Le pone la categoría a los vigentes ya resueltos (los de cada área y los de cada uno de
+        /// sus proyectos). Va aparte de <see cref="Completar"/> y en UNA consulta para todas las
+        /// filas: el resolver devuelve nombre y correo, pero la categoría sale del puesto y recién
+        /// acá se sabe por quiénes preguntar.
+        /// </summary>
+        public static async Task CompletarCategoriasAsync(
+            AppDbContext ctx, List<AreaAsignacionItemDto> areas)
+        {
+            var vigentes = areas
+                .SelectMany(a => a.Efectivos.Concat(a.Proyectos.SelectMany(p => p.Efectivos)))
+                .ToList();
+
+            var ids = vigentes
+                .Where(e => e.WorkerId.HasValue)
+                .Select(e => e.WorkerId!.Value)
+                .Distinct()
+                .ToList();
+
+            if (ids.Count == 0) return;
+
+            var filas = await (
+                from w in ctx.Worker
+                where ids.Contains(w.Id)
+                join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId
+                join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId
+                select new { w.Id, c.Nombre }
+            ).ToListAsync();
+
+            var categoriaPorWorker = filas
+                .GroupBy(f => f.Id)
+                .ToDictionary(g => g.Key, g => g.First().Nombre);
+
+            foreach (var e in vigentes)
+            {
+                if (e.WorkerId.HasValue && categoriaPorWorker.TryGetValue(e.WorkerId.Value, out var nombre))
+                    e.Category = nombre;
+            }
+        }
+
+        /// <summary>
         /// Validaciones del PUT, iguales en las dos pantallas: el área tiene que ser configurable,
         /// el proyecto (si viene) tiene que existir, no se puede asignar dos veces a la misma
         /// persona ni repetir prioridad, y todos tienen que tener correo corporativo.

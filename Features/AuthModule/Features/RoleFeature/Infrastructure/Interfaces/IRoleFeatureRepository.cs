@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces
         Task Create(RoleCreateDto dto, int userId);
         Task<List<FeatureDto>> GetAllFeatures();
         Task<List<int>> GetRoleFeatureIds(int roleId);
+        /// <summary>Null si el rol no existe o fue eliminado.</summary>
+        Task<RoleDetailDto?> GetDetail(int roleId);
         Task UpdateRoleFeatures(int roleId, List<int> featureIds);
         Task<List<int>> GetUserIdsByRole(int roleId);
         Task UpdateRoleDescription(int roleId, string description, int userId);

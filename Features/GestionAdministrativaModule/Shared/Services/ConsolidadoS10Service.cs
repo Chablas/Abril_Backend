@@ -34,7 +34,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             IReadOnlyCollection<int> rendicionIds,
             IFormFile file,
             decimal montoTotal,
-            string numeroGuia,
+            string numeroReembolso,
             int userId,
             int? ownerUserId = null)
         {
@@ -45,11 +45,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (ext != ".pdf")
                 throw new AbrilException("El Consolidado del S10 debe ser un archivo PDF.", 400);
 
-            var guia = (numeroGuia ?? string.Empty).Trim();
-            if (guia.Length == 0)
-                throw new AbrilException("Falta el número de guía del Consolidado del S10.", 400);
-            if (guia.Length > 60)
-                throw new AbrilException("El número de guía no puede pasar de 60 caracteres.", 400);
+            var reembolso = (numeroReembolso ?? string.Empty).Trim();
+            if (reembolso.Length == 0)
+                throw new AbrilException("Falta el número de reembolso del Consolidado del S10.", 400);
+            if (reembolso.Length > 60)
+                throw new AbrilException("El número de reembolso no puede pasar de 60 caracteres.", 400);
 
             // La columna es numeric(12,2): se redondea antes de comparar y de guardar, así el
             // monto que se contrasta es el mismo que queda en la base.
@@ -174,22 +174,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     + (ids.Count == 1 ? "de la planilla" : $"de las {ids.Count} planillas")
                     + $" (S/ {totalPlanillas:N2}). Corrígelo antes de adjuntarlo.", 400);
 
-            // Si el Coordinador ERP ANULÓ el registro del S10, la guía anterior quedó inservible y
-            // hay que sacar una nueva (HU-ERP-03 / CA-19). Se valida acá, con el resto de lo que se
-            // mira antes de tocar SharePoint: dejar pasar la guía vieja mandaría a la jefatura a
-            // revisar un consolidado que el S10 ya no reconoce.
+            // Si el Coordinador ERP ANULÓ el registro del S10, el número de reembolso anterior quedó
+            // inservible y hay que sacar uno nuevo (HU-ERP-03 / CA-19). Se valida acá, con el resto
+            // de lo que se mira antes de tocar SharePoint: dejar pasar el número de reembolso viejo
+            // mandaría a la jefatura a revisar un consolidado que el S10 ya no reconoce.
             var correcciones = await ctx.GaCorreccionS10
                 .Where(c => c.State && ids.Contains(c.RendicionId))
                 .ToListAsync();
 
             var anulada = correcciones.FirstOrDefault(c =>
-                c.GuiaAnulada
-                && !string.IsNullOrWhiteSpace(c.NumeroGuia)
-                && string.Equals(c.NumeroGuia!.Trim(), guia, StringComparison.OrdinalIgnoreCase));
+                c.NumeroReembolsoAnulado
+                && !string.IsNullOrWhiteSpace(c.NumeroReembolso)
+                && string.Equals(c.NumeroReembolso!.Trim(), reembolso, StringComparison.OrdinalIgnoreCase));
             if (anulada != null)
                 throw new AbrilException(
-                    $"La guía {anulada.NumeroGuia} se anuló en el S10 y no se puede reutilizar. " +
-                    "Genera una guía nueva y vuelve a adjuntar el consolidado.", 400);
+                    $"El número de reembolso {anulada.NumeroReembolso} se anuló en el S10 y no se puede reutilizar. " +
+                    "Genera un número de reembolso nuevo y vuelve a adjuntar el consolidado.", 400);
 
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var folderUrl = await ctx.GaRendicionFolder
@@ -265,7 +265,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 PdfDriveId   = carpeta.DriveId,
                 PdfFilename  = filename,
                 MontoTotal   = monto,
-                NumeroGuia   = guia,
+                NumeroReembolso   = reembolso,
                 UploadedById = userId,
                 UploadedAt   = now,
                 State        = true,

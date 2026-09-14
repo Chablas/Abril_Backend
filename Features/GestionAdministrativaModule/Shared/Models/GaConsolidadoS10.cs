@@ -44,11 +44,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public decimal? MontoTotal { get; set; }
 
         /// <summary>
-        /// Número de guía que devuelve el S10. Es TEXTO y no un número: no es un correlativo
+        /// Número de reembolso que devuelve el S10. Es TEXTO y no un número: no es un correlativo
         /// nuestro y puede traer letras y separadores. Null solo en las filas viejas — ver
         /// <see cref="MontoTotal"/>.
         /// </summary>
-        public string? NumeroGuia { get; set; }
+        public string? NumeroReembolso { get; set; }
 
         /// <summary>
         /// Copia del consolidado con la firma de la jefatura estampada en TODAS sus hojas. Se genera

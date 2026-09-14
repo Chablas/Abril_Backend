@@ -4,6 +4,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.Role.Application.Dtos;
 using Abril_Backend.Features.AuthModule.Role.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.AuthModule.Role.Presentation
 {
@@ -84,6 +85,30 @@ namespace Abril_Backend.Features.AuthModule.Role.Presentation
             {
                 var result = await _service.GetRoleFeatureIds(roleId);
                 return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Detalle de un rol para el modal de Seguridad → Roles: quiénes lo tienen y qué
+        /// funcionalidades da, en una sola petición. Pide la feature de la pantalla porque expone
+        /// los accesos de todos los usuarios, no basta con estar autenticado.
+        /// </summary>
+        [HttpGet("{roleId:int}/detail")]
+        [RequireFeature("security.roles")]
+        public async Task<IActionResult> GetDetail(int roleId)
+        {
+            try
+            {
+                var result = await _service.GetDetail(roleId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

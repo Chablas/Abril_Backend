@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -58,6 +59,31 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
 
                 var result = await _service.GetPaged(page, pageSize, search, categoriaId);
                 return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Detalle de un usuario para el modal de Seguridad → Usuarios: sus roles y las
+        /// funcionalidades a las que accede por ellos, en una sola petición. Pide la feature de la
+        /// pantalla porque expone los accesos de cualquier usuario, no basta con estar autenticado.
+        /// </summary>
+        [Authorize]
+        [RequireFeature("security.users")]
+        [HttpGet("{id:int}/detail")]
+        public async Task<IActionResult> GetDetail(int id)
+        {
+            try
+            {
+                var result = await _service.GetDetail(id);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

@@ -95,6 +95,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
                         ? Describir(p)
                         : new List<AreaEfectivoDto>());
 
+            await AreaAsignacionArmador.CompletarCategoriasAsync(ctx, areas);
+
             return new AreaAsignacionInicialDto
             {
                 Areas = areas,
@@ -112,6 +114,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
                 {
                     WorkerId = c.WorkerId,
                     Nombre = c.Nombre,
+                    Email = c.Email,
                     Origen = c.Origen.ToString(),
                 })
                 .ToList();

@@ -1,9 +1,11 @@
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.AuthModule.Role.Application.Dtos;
 using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
+using Abril_Backend.Features.AuthModule.Shared.Dtos;
 using RoleEntity = Abril_Backend.Infrastructure.Models.Role;
 
 namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
@@ -117,6 +119,56 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
             return await ctx.Database
                 .SqlQuery<int>($"SELECT feature_id FROM role_feature WHERE role_id = {roleId}")
                 .ToListAsync();
+        }
+
+        /// <summary>
+        /// Cabecera, usuarios y funcionalidades del rol en un solo viaje a la base. Se cuentan los
+        /// mismos accesos que al iniciar sesión (user_role vivo), sin los usuarios eliminados.
+        /// </summary>
+        public async Task<RoleDetailDto?> GetDetail(int roleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            const string sql = """
+                SELECT role_id, role_description
+                FROM role
+                WHERE role_id = @roleId AND state;
+
+                SELECT u.user_id,
+                       u.email,
+                       u.active,
+                       p.full_name AS display_name
+                FROM user_role ur
+                JOIN app_user u ON u.user_id = ur.user_id AND u.state
+                LEFT JOIN LATERAL (
+                    SELECT pe.full_name
+                    FROM person pe
+                    WHERE pe.user_id = u.user_id AND pe.state
+                    ORDER BY pe.person_id DESC
+                    LIMIT 1
+                ) p ON true
+                WHERE ur.role_id = @roleId
+                  AND ur.state
+                ORDER BY COALESCE(p.full_name, u.email), u.user_id;
+
+                SELECT f.feature_id, f.feature_key, f.module_id, m.module_name
+                FROM role_feature rf
+                JOIN feature f     ON f.feature_id = rf.feature_id
+                LEFT JOIN module m ON m.module_id  = f.module_id
+                WHERE rf.role_id = @roleId
+                ORDER BY m.module_name NULLS LAST, f.feature_key;
+                """;
+
+            var conn = ctx.Database.GetDbConnection();
+            await conn.OpenAsync();
+            using var multi = await conn.QueryMultipleAsync(sql, new { roleId });
+
+            var detail = await multi.ReadSingleOrDefaultAsync<RoleDetailDto>();
+            if (detail == null) return null;
+
+            detail.Users    = (await multi.ReadAsync<AccessUserDto>()).ToList();
+            detail.Features = (await multi.ReadAsync<AccessFeatureDto>()).ToList();
+            return detail;
         }
 
         public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)

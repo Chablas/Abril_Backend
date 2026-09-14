@@ -23,8 +23,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public string PdfFilename { get; set; } = string.Empty;
         /// <summary>Importe total con el que el S10 registró las planillas. Null en los consolidados viejos.</summary>
         public decimal? MontoTotal { get; set; }
-        /// <summary>Número de guía del S10 (texto). Null en los consolidados viejos.</summary>
-        public string? NumeroGuia { get; set; }
+        /// <summary>Número del reembolso del S10 (texto). Null en los consolidados viejos.</summary>
+        public string? NumeroReembolso { get; set; }
 
         /// <summary>
         /// Copia firmada por la jefatura (todas sus hojas). Se genera al aprobar el reembolso, así

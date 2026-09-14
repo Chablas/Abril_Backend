@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     ///   <item>AREA → <see cref="AreaScopeId"/> (se expande a los email_corporativo de los
     ///     trabajadores del nodo; si <see cref="IncluirDescendientes"/>, también los de sus sub-áreas).</item>
     ///   <item>CORREO → <see cref="Correo"/> (dirección literal; puede ser un grupo de correos opaco).</item>
+    ///   <item>ROL → <see cref="RoleId"/> (se expande a los email_corporativo de TODOS los que hoy
+    ///     tengan ese rol; quién entra cambia solo cuando cambian los roles, sin tocar esta fila).</item>
     /// </list>
     /// </summary>
     [Table("ga_correo_regla")]
@@ -44,6 +46,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// <summary>Dirección de correo literal cuando el tipo es CORREO. NULL en otro caso.</summary>
         [Column("correo")]
         public string? Correo { get; set; }
+
+        /// <summary>
+        /// Rol (role.role_id) cuando el tipo es ROL. NULL en otro caso. Es el destinatario que se
+        /// resuelve por CARGO y no por persona: el correo le llega a quien TENGA ese rol el día que
+        /// sale, así que un cambio de personal no deja la configuración apuntando a alguien que ya
+        /// no hace ese trabajo.
+        /// </summary>
+        [Column("role_id")]
+        public int? RoleId { get; set; }
 
         /// <summary>Solo para AREA: si true, incluye también a los trabajadores de las sub-áreas del nodo.</summary>
         [Column("incluir_descendientes")]

@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public List<CorreoEventoDto> Eventos { get; set; } = new();
         public List<CorreoWorkerOptionDto> Trabajadores { get; set; } = new();
         public List<CorreoAreaOptionDto> Areas { get; set; } = new();
+        public List<CorreoRolOptionDto> Roles { get; set; } = new();
     }
 
     /// <summary>Un correo configurable (ga_correo_evento) con su lista de destinatarios.</summary>
@@ -52,20 +53,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
     {
         /// <summary>ga_correo_regla.id.</summary>
         public int Id { get; set; }
-        /// <summary>TRABAJADOR / AREA / CORREO.</summary>
+        /// <summary>TRABAJADOR / AREA / CORREO / ROL.</summary>
         public string TipoCodigo { get; set; } = string.Empty;
 
-        /// <summary>Nombre para mostrar: el del trabajador, el del área, o el propio correo.</summary>
+        /// <summary>Nombre para mostrar: el del trabajador, el del área, el del rol, o el propio correo.</summary>
         public string Nombre { get; set; } = string.Empty;
 
-        /// <summary>Dirección literal (tipo CORREO) o el correo corporativo del trabajador. Null en AREA.</summary>
+        /// <summary>Dirección literal (tipo CORREO) o el correo corporativo del trabajador. Null en AREA y ROL.</summary>
         public string? Email { get; set; }
 
-        /// <summary>Solo en AREA: a cuántos correos se expande hoy. Null en los otros tipos.</summary>
+        /// <summary>Solo en AREA y ROL: a cuántos correos se expande hoy. Null en los otros tipos.</summary>
         public int? Miembros { get; set; }
 
         public int? WorkerId { get; set; }
         public int? AreaScopeId { get; set; }
+        public int? RoleId { get; set; }
         public bool IncluirDescendientes { get; set; } = true;
         public bool Active { get; set; } = true;
 
@@ -89,6 +91,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public string? Email { get; set; }
     }
 
+    /// <summary>
+    /// Un rol del sistema para el desplegable del tipo ROL. Trae además a cuánta gente alcanza hoy,
+    /// que es lo que decide si vale la pena ponerlo: un rol sin nadie asignado no le llega a nadie.
+    /// </summary>
+    public class CorreoRolOptionDto
+    {
+        public int RoleId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        /// <summary>A cuántos correos corporativos se expande hoy ese rol.</summary>
+        public int Miembros { get; set; }
+    }
+
     // ── Escritura ────────────────────────────────────────────────────────────
     // Las operaciones son granulares (una por acción de la pantalla) y no un
     // reemplazo completo de la lista: los interruptores guardan al momento de
@@ -104,11 +118,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
     /// <summary>Alta o edición de un destinatario configurado.</summary>
     public class CorreoDestinatarioInputDto
     {
-        /// <summary>TRABAJADOR / AREA / CORREO.</summary>
+        /// <summary>TRABAJADOR / AREA / CORREO / ROL.</summary>
         public string TipoCodigo { get; set; } = string.Empty;
         public int? WorkerId { get; set; }
         public int? AreaScopeId { get; set; }
         public string? Correo { get; set; }
+        public int? RoleId { get; set; }
         /// <summary>Solo aplica a AREA: si true, también los trabajadores de sus sub-áreas.</summary>
         public bool IncluirDescendientes { get; set; } = true;
     }

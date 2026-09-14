@@ -149,7 +149,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             // de las capturas: el binder de formularios usa la cultura del servidor y un "50.00"
             // se leería distinto según dónde corra.
             [FromForm] string montoTotal,
-            [FromForm] string numeroGuia)
+            [FromForm] string numeroReembolso)
         {
             try
             {
@@ -160,7 +160,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
                                       System.Globalization.CultureInfo.InvariantCulture, out var monto))
                     return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
 
-                return Ok(await _service.UploadConsolidadoS10(rendicionIds, file, monto, numeroGuia, userId.Value));
+                return Ok(await _service.UploadConsolidadoS10(rendicionIds, file, monto, numeroReembolso, userId.Value));
             }
             catch (AbrilException ex)
             {

@@ -11,8 +11,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
 {
     /// <summary>
     /// Lectura/escritura del override de visibilidad por área (<c>ga_visibilidad_area</c>) por
-    /// trabajador y por ámbito. El algoritmo de jerarquía vive en SalidaVisibilityResolver; aquí
-    /// solo se administra la asignación manual de nodos.
+    /// trabajador y por ámbito. Acá solo se administra la asignación manual de nodos; el algoritmo
+    /// de jerarquía vive en <see cref="ISalidaVisibilityResolver"/> y se le pregunta —no se copia—
+    /// para mostrar qué ve hoy un trabajador que no tiene override.
     ///
     /// Todo va filtrado por <c>ambitoId</c>: las asignaciones de Gestión de Salidas y las de
     /// Gestión de Rendiciones conviven en la misma tabla y no se pisan.
@@ -20,10 +21,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
     public class VisibilidadAreaRepository : IVisibilidadAreaRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ISalidaVisibilityResolver _visibilityResolver;
 
-        public VisibilidadAreaRepository(IDbContextFactory<AppDbContext> factory)
+        public VisibilidadAreaRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ISalidaVisibilityResolver visibilityResolver)
         {
             _factory = factory;
+            _visibilityResolver = visibilityResolver;
         }
 
         public async Task<VisibilidadInicialDto> GetInitialDataAsync(int ambitoId)
@@ -35,12 +40,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
                 Workers = await LoadWorkersAsync(ctx, ambitoId),
                 AreaTree = await GaAreaTreeLoader.LoadAsync(ctx),
             };
-        }
-
-        public async Task<List<GaAreaNodeDto>> GetAreaTreeAsync()
-        {
-            using var ctx = _factory.CreateDbContext();
-            return await GaAreaTreeLoader.LoadAsync(ctx);
         }
 
         private static async Task<List<VisibilidadWorkerItemDto>> LoadWorkersAsync(AppDbContext ctx, int ambitoId)
@@ -80,18 +79,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
             return workers;
         }
 
-        public async Task<List<VisibilidadAsignacionDto>> GetWorkerAsignacionesAsync(int ambitoId, int workerId)
+        public async Task<VisibilidadWorkerDetalleDto> GetWorkerDetalleAsync(int ambitoId, int workerId)
         {
-            using var ctx = _factory.CreateDbContext();
+            List<VisibilidadAsignacionDto> asignaciones;
+            using (var ctx = _factory.CreateDbContext())
+            {
+                asignaciones = await ctx.GaVisibilidadArea
+                    .Where(v => v.State && v.AmbitoId == ambitoId && v.WorkerId == workerId)
+                    .Select(v => new VisibilidadAsignacionDto
+                    {
+                        AreaScopeId = v.AreaScopeId,
+                        IncluyeDescendientes = v.IncluyeDescendientes,
+                    })
+                    .ToListAsync();
+            }
 
-            return await ctx.GaVisibilidadArea
-                .Where(v => v.State && v.AmbitoId == ambitoId && v.WorkerId == workerId)
-                .Select(v => new VisibilidadAsignacionDto
-                {
-                    AreaScopeId = v.AreaScopeId,
-                    IncluyeDescendientes = v.IncluyeDescendientes,
-                })
-                .ToListAsync();
+            // Lo que ve hoy sale del MISMO resolver que recorta la bandeja, así que el modal no
+            // puede mostrar un alcance que después no se cumpla.
+            var efectiva = await _visibilityResolver.ResolveByWorkerAsync(workerId, ambitoId);
+
+            return new VisibilidadWorkerDetalleDto
+            {
+                Asignaciones = asignaciones,
+                Efectivas = efectiva.AreaScopeIds.ToList(),
+                EsPersonalizado = asignaciones.Count > 0,
+                VeTodo = efectiva.SeesAll,
+            };
         }
 
         public async Task UpdateWorkerAsignacionesAsync(

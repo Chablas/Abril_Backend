@@ -185,14 +185,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
         }
 
         public Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            int rendicionId, IFormFile file, decimal montoTotal, string numeroGuia, int userId) =>
+            int rendicionId, IFormFile file, decimal montoTotal, string numeroReembolso, int userId) =>
             // ownerUserId = userId: en el autoservicio la planilla tiene que incluir alguna salida
             // propia. El servicio compartido resuelve el resto (validación del monto contra la
             // planilla, SharePoint, reemplazo, subsanación). Acá va siempre UNA planilla: si su
             // consolidado es compartido con otras todavía abiertas, el servicio lo rechaza —se
             // reemplaza entero, desde Gestión de Rendiciones— y la pantalla ya apaga el botón.
             _consolidadoService.UploadParaRendiciones(
-                new[] { rendicionId }, file, montoTotal, numeroGuia, userId, ownerUserId: userId);
+                new[] { rendicionId }, file, montoTotal, numeroReembolso, userId, ownerUserId: userId);
 
         public async Task<string> NotificarRevisor(int rendicionId, int userId)
         {
@@ -305,7 +305,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 Area           = quien?.Area,
                 Periodo        = planilla.Periodo,
                 NumeroPlanilla = planilla.NumeroPlanilla,
-                NumeroGuia     = correccion.NumeroGuia,
+                NumeroReembolso     = correccion.NumeroReembolso,
                 MontoTotal     = planilla.MontoTotalPlanilla,
                 Motivo         = correccion.Motivo,
                 MotivoJefatura = correccion.MotivoJefatura,

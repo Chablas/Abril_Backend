@@ -40,6 +40,12 @@ namespace Abril_Backend.Features.AuthModule.Role.Application.Services
             return await _repository.GetRoleFeatureIds(roleId);
         }
 
+        public async Task<RoleDetailDto> GetDetail(int roleId)
+        {
+            return await _repository.GetDetail(roleId)
+                ?? throw new AbrilException("El rol no existe.", 404);
+        }
+
         public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)
         {
             await _repository.UpdateRoleFeatures(roleId, featureIds);

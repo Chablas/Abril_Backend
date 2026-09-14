@@ -37,6 +37,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Applicat
         public bool IncluyeDescendientes { get; set; }
     }
 
+    /// <summary>
+    /// Lo que los modales de un trabajador necesitan saber de él, en una sola llamada: lo que tiene
+    /// cargado a mano y lo que REALMENTE ve hoy.
+    ///
+    /// Van los dos juntos porque los modales los combinan distinto: el de detalle muestra siempre
+    /// <see cref="Efectivas"/> (la pregunta es "¿qué ve?", no "¿qué le cargaron?") y el de edición
+    /// parte de <see cref="Asignaciones"/> si las hay y, si no, de <see cref="Efectivas"/>, para que
+    /// el trabajador sin configuración propia no abra el modal en blanco sino sobre lo que hoy
+    /// resuelve el algoritmo.
+    /// </summary>
+    public class VisibilidadWorkerDetalleDto
+    {
+        /// <summary>Override vivo del trabajador en este ámbito. Vacío = lo resuelve el algoritmo.</summary>
+        public List<VisibilidadAsignacionDto> Asignaciones { get; set; } = new();
+
+        /// <summary>
+        /// Nodos <c>area_scope</c> que el trabajador ve hoy: el override si lo tiene y, si no, lo que
+        /// deduce el algoritmo de jerarquía. En los dos casos se le suman las ramas donde está
+        /// designado revisor o consolidador, que ve siempre.
+        /// </summary>
+        public List<int> Efectivas { get; set; } = new();
+
+        /// <summary>true = lo de <see cref="Efectivas"/> nace de un override cargado a mano.</summary>
+        public bool EsPersonalizado { get; set; }
+
+        /// <summary>true = ve TODO sin recorte por área (hoy, el personal de GTH).</summary>
+        public bool VeTodo { get; set; }
+    }
+
     /// <summary>Cuerpo del PUT: reemplaza el conjunto completo de asignaciones del trabajador.</summary>
     public class VisibilidadUpdateDto
     {

@@ -122,7 +122,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             PdfUrl      = c.PdfUrl,
             PdfFilename = c.PdfFilename,
             MontoTotal  = c.MontoTotal,
-            NumeroGuia  = c.NumeroGuia,
+            NumeroReembolso  = c.NumeroReembolso,
             PdfFirmadoUrl      = c.PdfFirmadoUrl,
             PdfFirmadoFilename = c.PdfFirmadoFilename,
             FirmadoAt          = c.FirmadoAt,

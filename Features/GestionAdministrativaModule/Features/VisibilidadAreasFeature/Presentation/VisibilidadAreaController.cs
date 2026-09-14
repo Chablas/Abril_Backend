@@ -50,30 +50,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Presenta
             }
         }
 
-        [HttpGet("area-scope-tree")]
-        public async Task<IActionResult> GetAreaTree(string ambito)
-        {
-            try
-            {
-                AmbitoId(ambito);
-                return Ok(await _service.GetAreaTreeAsync());
-            }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en VisibilidadAreaController.GetAreaTree");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
+        /// <summary>
+        /// Lo cargado a mano del trabajador y lo que realmente ve hoy. Los dos modales de la
+        /// sección (detalle y edición) salen de esta sola llamada; el árbol de áreas no vuelve acá
+        /// porque ya vino con la carga inicial de la pantalla.
+        /// </summary>
         [HttpGet("worker/{workerId:int}")]
-        public async Task<IActionResult> GetWorkerAsignaciones(string ambito, int workerId)
+        public async Task<IActionResult> GetWorkerDetalle(string ambito, int workerId)
         {
-            try   { return Ok(await _service.GetWorkerAsignacionesAsync(AmbitoId(ambito), workerId)); }
+            try   { return Ok(await _service.GetWorkerDetalleAsync(AmbitoId(ambito), workerId)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en VisibilidadAreaController.GetWorkerAsignaciones");
+                _logger.LogError(ex, "Error en VisibilidadAreaController.GetWorkerDetalle");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

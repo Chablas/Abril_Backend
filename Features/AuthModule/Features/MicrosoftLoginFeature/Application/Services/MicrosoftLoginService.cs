@@ -11,7 +11,7 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
     {
         /// <summary>
         /// USUARIO REVISOR DE SALIDAS — espejo entero de
-        /// <see cref="Shared.Constants.Roles.UsuarioRevisorSalidas"/>, que es string porque
+        /// <see cref="Abril_Backend.Shared.Constants.Roles.UsuarioRevisorSalidas"/>, que es string porque
         /// así viaja en el claim del JWT; acá se necesita el ID para asignar el user_role.
         /// </summary>
         private const int RoleIdUsuarioRevisorSalidas = 78;

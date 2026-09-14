@@ -169,7 +169,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                     Motivo         = c.Motivo,
                     MotivoJefatura = c.MotivoJefatura,
                     MotivoOrigen   = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
-                    NumeroGuia     = c.NumeroGuia,
+                    NumeroReembolso     = c.NumeroReembolso,
 
                     Periodo     = info != null
                                     ? PlanillaRendicionHelper.EtiquetaPeriodo(info.Desde, info.Hasta)
@@ -190,7 +190,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                                             ? erp : null,
                     AtendidaAt         = c.AtendidaAt,
                     ComentarioAtencion = c.ComentarioAtencion,
-                    GuiaAnulada        = c.GuiaAnulada,
+                    NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
 
                     // WorkerId no viaja en el DTO: la pantalla filtra por el desplegable y el
                     // backend resuelve el recorte, así que exponerlo no agregaría nada.
@@ -222,7 +222,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             return items;
         }
 
-        /// <summary>Busca el texto en lo que la fila muestra: código, planilla, guía y colaborador.</summary>
+        /// <summary>Busca el texto en lo que la fila muestra: código, planilla, reembolso y colaborador.</summary>
         private static bool Coincide(CorreccionS10ListItemDto x, string texto)
         {
             bool Tiene(string? valor) =>
@@ -231,7 +231,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
 
             return Tiene(x.Codigo)
                 || Tiene(x.NumeroPlanilla)
-                || Tiene(x.NumeroGuia)
+                || Tiene(x.NumeroReembolso)
                 || Tiene(x.Trabajador)
                 || Tiene(x.Periodo);
         }
@@ -291,7 +291,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         }
 
         public async Task<List<int>> Atender(
-            IEnumerable<int> correccionIds, string? comentario, bool guiaAnulada, int erpUserId)
+            IEnumerable<int> correccionIds, string? comentario, bool numeroReembolsoAnulado, int erpUserId)
         {
             var ids = correccionIds?.Distinct().ToList() ?? new List<int>();
             if (ids.Count == 0) return new();
@@ -319,7 +319,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 c.AtendidaPorId      = erpUserId;
                 c.AtendidaAt         = now;
                 c.ComentarioAtencion = obs;
-                c.GuiaAnulada        = guiaAnulada;
+                c.NumeroReembolsoAnulado        = numeroReembolsoAnulado;
                 c.UpdatedDateTime    = now;
             }
 
@@ -361,7 +361,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 Periodo        = fechas.Count == 0
                                     ? null
                                     : PlanillaRendicionHelper.EtiquetaPeriodo(fechas.Min(), fechas.Max()),
-                NumeroGuia     = c.NumeroGuia,
+                NumeroReembolso     = c.NumeroReembolso,
                 MontoTotal     = await TotalPlanillaLoader.LoadOneAsync(ctx, c.RendicionId),
                 Motivo         = c.Motivo,
                 MotivoJefatura = c.MotivoJefatura,
@@ -369,7 +369,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 AtendidaPor    = c.AtendidaPorId != null && nombres.TryGetValue(c.AtendidaPorId.Value, out var erp)
                                     ? erp : null,
                 ComentarioAtencion = c.ComentarioAtencion,
-                GuiaAnulada        = c.GuiaAnulada,
+                NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
             };
         }
 

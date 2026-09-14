@@ -110,7 +110,6 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();
             services.AddScoped<IGestionSalidaService, GestionSalidaService>();
-            services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             // Lugares (configuración)
             services.AddScoped<IGaLugarRepository, GaLugarRepository>();
@@ -181,6 +180,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Consolidado del S10 (PDF de respaldo de una salida ya rendida). Lo usan las dos
             // pantallas de salidas, de ahí que viva en el Shared del módulo.
             services.AddScoped<IConsolidadoS10Service, ConsolidadoS10Service>();
+
+            // Alcance por área de las dos bandejas (Gestión de Salidas y Gestión de Rendiciones) y
+            // de la previsualización que muestra su Configuración → Visibilidad.
+            services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             return services;
         }

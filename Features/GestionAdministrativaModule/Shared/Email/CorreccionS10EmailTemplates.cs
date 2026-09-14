@@ -27,8 +27,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>Número impreso en el PDF ("TI: 000123"), o null si la planilla no lo tiene.</summary>
         public string? NumeroPlanilla { get; set; }
 
-        /// <summary>Guía del Consolidado del S10 observado: con esto el ERP lo ubica.</summary>
-        public string? NumeroGuia { get; set; }
+        /// <summary>Número de reembolso del Consolidado del S10 observado: con esto el ERP lo ubica.</summary>
+        public string? NumeroReembolso { get; set; }
 
         /// <summary>Monto de la planilla completa, en soles.</summary>
         public decimal MontoTotal { get; set; }
@@ -51,8 +51,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>Comentario del ERP al confirmar. Solo en el correo de atención.</summary>
         public string? ComentarioAtencion { get; set; }
 
-        /// <summary>True si el ERP anuló el registro y hace falta una guía nueva (CA-19).</summary>
-        public bool GuiaAnulada { get; set; }
+        /// <summary>True si el ERP anuló el registro y hace falta un número de reembolso nuevo (CA-19).</summary>
+        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>
@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// (<see cref="SalidaEmailLayout"/>) que el resto de los correos de salidas:
     ///
     /// <list type="bullet">
-    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con la guía, la
+    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con el número de reembolso, la
     ///     observación que devolvió el reembolso —de la jefatura o de Tesorería— y el MOTIVO del
     ///     trabajador (§10.5 / RF-OBS-06).</item>
     ///   <item>Al trabajador: el ERP ya atendió — puede recargar el Consolidado (RF-OBS-08).</item>
@@ -88,7 +88,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaTrabajador = "req-solicitante";
         private const string FilaArea       = "req-area";
         private const string FilaPeriodo    = "req-fecha";
-        private const string FilaGuia       = "req-ti";
+        private const string FilaReembolso       = "req-ti";
         private const string FilaMonto      = "req-sustento";
         private const string FilaMotivo     = "req-comentario";
         private const string FilaAtendida   = "req-vistobueno";
@@ -141,7 +141,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// de habilitar.
         ///
         /// Cuando el consolidado se anuló, la franja lo dice en rojo: no alcanza con volver a
-        /// subir el mismo archivo, hay que sacar una guía nueva (CA-19).
+        /// subir el mismo archivo, hay que sacar un número de reembolso nuevo (CA-19).
         /// </summary>
         public static string Atendida(
             SalidaEmailLayout l, CorreccionS10CorreoDatos d, string urlRecargar)
@@ -156,12 +156,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     $"{quien} confirmó que la corrección ya se hizo en el S10."),
             };
 
-            if (d.GuiaAnulada)
+            if (d.NumeroReembolsoAnulado)
                 bloques.Add(l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
-                    "El registro anterior se <b>anuló</b>: genera una guía nueva en el S10 — la guía "
-                    + (string.IsNullOrWhiteSpace(d.NumeroGuia)
+                    "El registro anterior se <b>anuló</b>: genera un número de reembolso nuevo en el S10 — el "
+                    + (string.IsNullOrWhiteSpace(d.NumeroReembolso)
                         ? "anterior"
-                        : $"<b>{AbrilEmailLayout.Esc(d.NumeroGuia)}</b>")
+                        : $"<b>{AbrilEmailLayout.Esc(d.NumeroReembolso)}</b>")
                     + " ya no se puede volver a usar."));
 
             if (!string.IsNullOrWhiteSpace(d.ComentarioAtencion))
@@ -212,12 +212,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
                 filas.Add(new(FilaCodigo, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
 
-            // La guía es EL dato con el que el ERP ubica el registro en el S10: si falta, se dice
+            // El número de reembolso es EL dato con el que el ERP ubica el registro en el S10: si falta, se dice
             // en vez de omitir la fila, porque su ausencia es en sí un problema a resolver.
-            filas.Add(new(FilaGuia, "N.º de guía S10",
-                string.IsNullOrWhiteSpace(d.NumeroGuia)
-                    ? "sin guía registrada"
-                    : AbrilEmailLayout.Esc(d.NumeroGuia)));
+            filas.Add(new(FilaReembolso, "N.º de reembolso del S10",
+                string.IsNullOrWhiteSpace(d.NumeroReembolso)
+                    ? "sin número de reembolso registrado"
+                    : AbrilEmailLayout.Esc(d.NumeroReembolso)));
 
             if (d.MontoTotal > 0m)
                 filas.Add(new(FilaMonto, "Monto de la planilla",

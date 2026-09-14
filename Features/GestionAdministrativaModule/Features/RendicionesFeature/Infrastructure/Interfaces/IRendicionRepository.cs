@@ -49,7 +49,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         /// <summary>
         /// Registra la solicitud de corrección del Consolidado del S10 al Coordinador ERP (§10.5).
-        /// Copia la observación de la jefatura y la guía del consolidado observado: el ERP las
+        /// Copia la observación de la jefatura y el número de reembolso del consolidado observado: el ERP las
         /// necesita y la observación de la salida se sobrescribe si la jefatura vuelve a observar.
         ///
         /// No mueve el estado del reembolso: la salida se queda Observada mientras dura la gestión.

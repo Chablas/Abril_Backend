@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         /// en silencio: en una acción masiva la selección puede traer filas que otro ya resolvió.
         /// </summary>
         Task<List<int>> Atender(
-            IEnumerable<int> correccionIds, string? comentario, bool guiaAnulada, int erpUserId);
+            IEnumerable<int> correccionIds, string? comentario, bool numeroReembolsoAnulado, int erpUserId);
 
         /// <summary>
         /// Lo que necesitan los correos de una corrección, en una sola consulta. Null si la

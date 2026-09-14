@@ -481,10 +481,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Carga worker + subarea para regla TI ("Tecnología de la Información")
+            // Carga worker + subarea para regla TI ("Tecnología de la Información"). El área sale
+            // del puesto (workers ya no la guarda) y decide si las capturas le son obligatorias.
             var workerInfo = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => new { w.Id, w.Subarea })
+                .Select(w => new
+                {
+                    w.Id,
+                    w.Subarea,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                })
                 .FirstOrDefaultAsync();
             if (workerInfo == null) return null;
 
@@ -645,6 +651,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     : (raw.Dto.MontoCatalogo ?? 0m);
             }
 
+            // ── ¿Se puede rendir desde el detalle? ──────────────────────────────────────────
+            // La MISMA definición que la columna de acciones del listado (GetByUserId →
+            // AptaParaRendir): aprobada, no rendida, con todos sus trayectos cubiertos, con motivo
+            // reembolsable y dentro del plazo. Se resuelve acá para que el botón del modal no pueda
+            // discrepar de la fila que lo abrió ni ofrecer algo que RendirYGenerarPlanilla rechace.
+            //
+            // Va en cascada y de lo barato a lo caro: los dos primeros cortes salen de lo que ya
+            // está cargado, así que el detalle de una salida pendiente, rendida o sin motivo
+            // reembolsable —el caso normal— no gasta ni un viaje extra a la base.
+            var aptaParaRendir = false;
+            if (trayectosRaw.Count > 0
+                && solicitud.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                && solicitud.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
+                // Basta un trayecto con motivo del catálogo marcado como reembolsable: es la misma
+                // regla que aplica GetIdsNoReembolsables al rendir. El par (origen, destino)
+                // excluido apaga el pill del trayecto, pero no la aptitud de la salida.
+                && trayectosRaw.Any(t => t.MotivoEsReembolsable))
+            {
+                var calendario   = await CalendarioNoLaborable.CargarAsync(ctx);
+                var plazoVencido = MesAnteriorPeru.HoyPeru()
+                                 > calendario.LimiteDeRendicion(solicitud.FechaSalida.Year, solicitud.FechaSalida.Month);
+
+                // Cobertura de los trayectos: captura propia o, para TI, match contra el catálogo
+                // (que es justo lo que dejó puesto MontoCatalogo unas líneas más arriba). El área
+                // con las capturas en OPCIONAL solo se consulta si quedó alguno sin cubrir.
+                var todosCubiertos = trayectosRaw.All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
+
+                aptaParaRendir = !plazoVencido
+                    && (todosCubiertos
+                        || await CapturasObligatoriasLoader.SonOpcionalesAsync(ctx, workerInfo.AreaScopeId));
+            }
+
             return new SolicitudSalidaDetalleDto
             {
                 Id               = solicitud.Id,
@@ -658,6 +696,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 // Tope de CADA trayecto. Ya no hace falta mirar las otras salidas del día: lo que
                 // un día no aguanta se reparte al imprimir la planilla, no se corta acá.
                 LimiteMovilidadTrayecto = TopeMovilidad.Acotar(solicitud.LimiteMovilidad),
+                AptaParaRendir   = aptaParaRendir,
                 ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
                                         ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
                                     .GetValueOrDefault(solicitud.Id),

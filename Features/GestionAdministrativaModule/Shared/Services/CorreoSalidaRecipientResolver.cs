@@ -18,6 +18,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         private const string TipoTrabajador = CorreoTipoCodigos.Trabajador;
         private const string TipoArea = CorreoTipoCodigos.Area;
         private const string TipoCorreo = CorreoTipoCodigos.Correo;
+        private const string TipoRol = CorreoTipoCodigos.Rol;
 
         public CorreoSalidaRecipientResolver(
             IDbContextFactory<AppDbContext> factory,
@@ -68,6 +69,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         r.WorkerId,
                         r.AreaScopeId,
                         r.Correo,
+                        r.RoleId,
                         r.IncluirDescendientes,
                     }
                 ).ToListAsync();
@@ -89,6 +91,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                                     && w.EmailCorporativo != null && w.EmailCorporativo != "")
                         .Select(w => new { w.Id, Email = w.EmailCorporativo! })
                         .ToDictionaryAsync(x => x.Id, x => x.Email);
+
+                // 3.b) Correos de los roles referenciados (1 query). Mismo camino que usa el aviso
+                // a Tesorería para resolver "quien tenga el rol": user_role → person → workers.
+                var roleIds = reglas
+                    .Where(r => r.TipoCodigo == TipoRol && r.RoleId.HasValue)
+                    .Select(r => r.RoleId!.Value)
+                    .Distinct()
+                    .ToList();
+
+                var emailsByRoleId = new Dictionary<int, List<string>>();
+                if (roleIds.Count > 0)
+                {
+                    var porRol = await (
+                        from w   in ctx.Worker
+                        join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                        join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
+                        where roleIds.Contains(ur.RoleId) && ur.State && ur.Active
+                           && w.EmailCorporativo != null && w.EmailCorporativo != ""
+                        select new { ur.RoleId, Email = w.EmailCorporativo! }
+                    ).Distinct().ToListAsync();
+
+                    emailsByRoleId = porRol
+                        .GroupBy(x => x.RoleId)
+                        .ToDictionary(g => g.Key, g => g.Select(x => x.Email).ToList());
+                }
 
                 // 4) Expansión de áreas → correos de sus miembros (árbol + workers, 2 queries).
                 var emailsByAreaId = new Dictionary<int, List<string>>();
@@ -140,6 +167,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         case TipoCorreo:
                             if (!string.IsNullOrWhiteSpace(r.Correo))
                                 target.Add(r.Correo.Trim());
+                            break;
+                        case TipoRol:
+                            if (r.RoleId.HasValue && emailsByRoleId.TryGetValue(r.RoleId.Value, out var rolEmails))
+                                foreach (var em in rolEmails) target.Add(em.Trim());
                             break;
                     }
                 }

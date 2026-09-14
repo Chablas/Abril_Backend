@@ -70,12 +70,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public bool Active { get; set; }
     }
 
-    /// <summary>Una persona vigente para el área/proyecto, con de dónde salió.</summary>
+    /// <summary>
+    /// Una persona vigente para el área/proyecto, con de dónde salió. Trae los mismos datos de
+    /// contacto que <see cref="AreaAsignadoDto"/> porque el modal de detalle lista a los vigentes
+    /// —vengan de donde vengan— y no solo a los cargados a mano: la columna de la tabla muestra al
+    /// primero y un "+N más", así que el modal es el único lugar donde se ve quiénes son los demás.
+    /// </summary>
     public class AreaEfectivoDto
     {
         /// <summary>Ficha, para que el filtro por persona de la pantalla la encuentre. Null en el fallback GTH.</summary>
         public int? WorkerId { get; set; }
         public string? Nombre { get; set; }
+        /// <summary>Correo al que le llegaría. En el fallback GTH es el correo del área.</summary>
+        public string? Email { get; set; }
+        /// <summary>Categoría del puesto. Null en el fallback GTH, que no es una persona.</summary>
+        public string? Category { get; set; }
         /// <summary>
         /// "Personalizado" (alguien la asignó en ESTA área), "Algoritmo" (la dedujo el sistema o
         /// subió por el árbol hasta otra área) o "Gth" (último recurso, solo en revisores).

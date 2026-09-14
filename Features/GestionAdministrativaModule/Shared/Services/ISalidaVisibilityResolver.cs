@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces
+namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
     /// Resuelve el alcance de visibilidad de un usuario en una de las dos bandejas del flujo:
@@ -20,6 +20,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         /// <param name="ambitoId">Ver <c>VisibilidadAmbitoIds</c>: Salidas o Rendiciones.</param>
         Task<SalidaVisibility> ResolveAsync(int userId, int ambitoId);
+
+        /// <summary>
+        /// Lo mismo pero para UNA ficha de <c>workers</c> en vez de para un usuario, que es como
+        /// lo pide Configuración &#8594; Visibilidad: ahí cada fila es un trabajador y el override
+        /// se guarda por <c>worker_id</c>, así que la previsualización tiene que ser de esa ficha y
+        /// no del conjunto de fichas de su persona.
+        ///
+        /// Sale del MISMO recorrido que <see cref="ResolveAsync"/>, así que el modal no puede
+        /// mostrar un alcance distinto del que va a tener la bandeja.
+        /// </summary>
+        Task<SalidaVisibility> ResolveByWorkerAsync(int workerId, int ambitoId);
     }
 
     /// <summary>

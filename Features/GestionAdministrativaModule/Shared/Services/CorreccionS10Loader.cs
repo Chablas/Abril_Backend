@@ -80,13 +80,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 Motivo             = c.Motivo,
                 MotivoJefatura     = c.MotivoJefatura,
                 MotivoOrigen       = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
-                NumeroGuia         = c.NumeroGuia,
+                NumeroReembolso         = c.NumeroReembolso,
                 SolicitadaPor      = Nombre(c.SolicitadaPorId) ?? string.Empty,
                 SolicitadaAt       = c.SolicitadaAt,
                 AtendidaPor        = Nombre(c.AtendidaPorId),
                 AtendidaAt         = c.AtendidaAt,
                 ComentarioAtencion = c.ComentarioAtencion,
-                GuiaAnulada        = c.GuiaAnulada,
+                NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
                 EsperandoErp       = c.EstadoId == EstadosSalida.CorreccionS10.Solicitada,
             };
         }

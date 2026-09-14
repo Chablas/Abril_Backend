@@ -40,7 +40,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     .ToList();
 
             // El texto se filtra acá, sobre las filas ya armadas, porque busca contra cosas que no
-            // son columnas: el número de planilla formateado, los nombres agrupados y la guía del
+            // son columnas: el número de planilla formateado, los nombres agrupados y el número de reembolso del
             // consolidado. Va antes de que el servicio cuente las tarjetas, así la tabla y los
             // números del encabezado siempre hablan del mismo conjunto.
             var texto = filters.Texto?.Trim();
@@ -50,7 +50,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return items;
         }
 
-        /// <summary>Busca el texto en lo que la fila muestra: planilla, código, gente, guía y periodo.</summary>
+        /// <summary>Busca el texto en lo que la fila muestra: planilla, código, gente, reembolso y periodo.</summary>
         private static bool Coincide(ReembolsoListItemDto x, string texto)
         {
             bool Tiene(string? valor) =>
@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return Tiene(x.NumeroPlanilla)
                 || Tiene(x.Codigo)
                 || Tiene(x.Periodo)
-                || Tiene(x.ConsolidadoS10?.NumeroGuia)
+                || Tiene(x.ConsolidadoS10?.NumeroReembolso)
                 || x.Trabajadores.Any(Tiene);
         }
 
@@ -329,7 +329,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                         Periodo         = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                         SalidasCount    = g.Count(),
                         MontoTotal      = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
-                        NumeroGuia      = consolidado?.NumeroGuia,
+                        NumeroReembolso      = consolidado?.NumeroReembolso,
                         PagadoPor       = pagadoPorId.HasValue && nombresUsuario.TryGetValue(pagadoPorId.Value, out var n)
                                             ? n : null,
                     };
@@ -405,7 +405,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                                 Periodo           = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                                 PeriodoAnio       = desde.Year,
                                 PeriodoMes        = desde.Month,
-                                NumeroGuia        = consolidado?.NumeroGuia,
+                                NumeroReembolso        = consolidado?.NumeroReembolso,
                                 SalidasCount      = g.Count(),
                                 MontoAbonado      = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
                                 ActualizadoAt     = g.Max(x => x.PagadoAt),
@@ -463,7 +463,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                         || c.Rendiciones.Any(r =>
                             r.Codigo.Contains(texto, StringComparison.OrdinalIgnoreCase)
                             || (r.NumeroPlanilla ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
-                            || (r.NumeroGuia ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
+                            || (r.NumeroReembolso ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
                             || r.Periodo.Contains(texto, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
 

@@ -29,12 +29,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// Importe total del consolidado. Tiene que COINCIDIR con la suma de las planillas completas
         /// (<see cref="TotalPlanillaLoader"/>); si no, se rechaza con 400 y no se sube nada.
         /// </param>
-        /// <param name="numeroGuia">Número de guía del S10. Texto obligatorio (no es un número nuestro).</param>
+        /// <param name="numeroReembolso">Número del reembolso del S10. Texto obligatorio (no es un número nuestro).</param>
         Task<ConsolidadoS10Dto> UploadParaRendiciones(
             IReadOnlyCollection<int> rendicionIds,
             IFormFile file,
             decimal montoTotal,
-            string numeroGuia,
+            string numeroReembolso,
             int userId,
             int? ownerUserId = null);
 

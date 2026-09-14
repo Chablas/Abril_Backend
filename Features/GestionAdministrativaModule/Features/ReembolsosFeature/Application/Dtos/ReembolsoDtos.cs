@@ -141,7 +141,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     {
         public int? WorkerId { get; set; }
         /// <summary>
-        /// Búsqueda libre de la pantalla (planilla, código, trabajador, guía o periodo). Se aplica
+        /// Búsqueda libre de la pantalla (planilla, código, trabajador, reembolso o periodo). Se aplica
         /// acá y no en el frontend para que las tarjetas del encabezado cuenten exactamente lo que
         /// muestra la tabla: filtrar del lado del cliente las dejaría contando de más.
         /// </summary>
@@ -250,8 +250,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string Periodo { get; set; } = string.Empty;
         public int PeriodoAnio { get; set; }
         public int PeriodoMes { get; set; }
-        /// <summary>Número de guía del Consolidado del S10. Null en las planillas viejas.</summary>
-        public string? NumeroGuia { get; set; }
+        /// <summary>Número de reembolso del Consolidado del S10. Null en las planillas viejas.</summary>
+        public string? NumeroReembolso { get; set; }
         public int SalidasCount { get; set; }
         /// <summary>Lo abonado a ESTE colaborador por esta planilla.</summary>
         public decimal MontoAbonado { get; set; }

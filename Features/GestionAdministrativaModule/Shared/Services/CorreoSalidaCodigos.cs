@@ -59,8 +59,8 @@
         // corrección al ERP y el ERP le confirma que ya la hizo. Ver EstadosSalida.CorreccionS10.
 
         /// <summary>
-        /// Al Coordinador ERP: hay una corrección del Consolidado del S10 esperándolo, con la
-        /// guía, la observación de la jefatura y el «MOTIVO *» del trabajador (RF-OBS-06). Lo
+        /// Al Coordinador ERP: hay una corrección del Consolidado del S10 esperándolo, con el
+        /// número de reembolso, la observación de la jefatura y el «MOTIVO *» del trabajador (RF-OBS-06). Lo
         /// dispara el trabajador desde Mis Rendiciones, así que se administra ahí.
         /// </summary>
         public const string CorreccionS10Solicitada = "CORRECCION_S10_SOLICITADA";
@@ -76,7 +76,9 @@
         /// <summary>
         /// A Tesorería: la jefatura ya firmó una planilla y su reembolso entró a la bandeja de
         /// pago (RF-TES-01). Se origina en Gestión de Rendiciones, que es donde se firma; el
-        /// destinatario principal se resuelve por puesto (categoría Tesorero), no por área.
+        /// destinatario principal se resuelve por ROL (TESORERO), no por área. Quién más lo recibe
+        /// —el Coordinador ERP, por ejemplo— sale de Configuración → Correos como cualquier otro
+        /// destinatario, con su propio interruptor.
         /// </summary>
         public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
 
@@ -198,5 +200,13 @@
         public const string Trabajador = "TRABAJADOR";
         public const string Area = "AREA";
         public const string Correo = "CORREO";
+
+        /// <summary>
+        /// Todos los que hoy tengan un rol (role.role_id). Es el único tipo que se resuelve por
+        /// CARGO y no por persona ni por área: sirve para los destinatarios que son "quien haga
+        /// ese trabajo" —Tesorería, el Coordinador ERP— y que no se pueden fijar a un nombre
+        /// porque ese nombre cambia sin que nadie se acuerde de venir a esta pantalla.
+        /// </summary>
+        public const string Rol = "ROL";
     }
 }

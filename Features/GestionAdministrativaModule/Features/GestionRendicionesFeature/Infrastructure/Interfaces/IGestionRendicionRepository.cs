@@ -101,10 +101,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope);
 
         /// <summary>
-        /// Correos de quienes atienden la bandeja de Reembolsos, destinatarios principales del
-        /// aviso a Tesorería que dispara la aprobación del reembolso. No dependen de la planilla
-        /// —se resuelven por puesto y rol, igual que en <see cref="GetTesoreriaCorreoInfo"/>— así
-        /// que el preview de una selección los resuelve una sola vez.
+        /// Correos de quienes atienden la bandeja de Reembolsos, destinatario principal del aviso a
+        /// Tesorería que dispara la aprobación del reembolso. No dependen de la planilla —salen del
+        /// rol TESORERO, igual que en <see cref="GetTesoreriaCorreoInfo"/>— así que el preview de
+        /// una selección los resuelve una sola vez.
         /// </summary>
         Task<List<string>> GetCorreosTesoreria();
 
@@ -121,7 +121,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// Lo que necesita el aviso a Tesorería de que una planilla quedó firmada (RF-TES-01): sus
         /// datos y los correos de quienes atienden esa bandeja. Es por planilla y no por
         /// trabajador —Tesorería paga el documento completo— y devuelve null si la planilla no
-        /// existe. Los destinatarios pueden venir vacíos: no hay nadie con puesto de Tesorería.
+        /// existe. Los destinatarios pueden venir vacíos: no hay nadie con el rol TESORERO.
         /// </summary>
         Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId);
 

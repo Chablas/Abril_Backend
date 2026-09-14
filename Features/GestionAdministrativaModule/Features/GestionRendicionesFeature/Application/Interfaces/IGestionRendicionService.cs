@@ -51,9 +51,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas
         /// o se rechaza con 400.
         /// </param>
-        /// <param name="numeroGuia">Número de guía del S10 (texto, obligatorio).</param>
+        /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
         Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroGuia, int userId);
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
 
         /// <summary>
         /// Aprueba o rechaza el reembolso de lo seleccionado. La selección puede venir por planilla

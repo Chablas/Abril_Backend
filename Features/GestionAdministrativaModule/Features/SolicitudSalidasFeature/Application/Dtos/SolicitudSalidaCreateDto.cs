@@ -87,6 +87,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// </summary>
         public decimal LimiteMovilidadTrayecto { get; set; }
 
+        /// <summary>
+        /// True si la salida está lista para rendirse. Misma definición que
+        /// <c>SolicitudSalidaListItemDto.AptaParaRendir</c> —aprobada, no rendida, con todos sus
+        /// trayectos cubiertos, con motivo reembolsable y dentro del plazo—: el botón "Rendir" del
+        /// modal de detalle y el de la columna de acciones tienen que aparecer o faltar juntos, y
+        /// ninguno de los dos puede ofrecer algo que después el rendir vaya a rechazar.
+        /// </summary>
+        public bool AptaParaRendir { get; set; }
+
         public List<TrayectoDetalleDto> Trayectos { get; set; } = new();
     }
 

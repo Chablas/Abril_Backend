@@ -48,8 +48,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int SalidasCount { get; set; }
         /// <summary>Suma de lo rendido por el trabajador en esa planilla, en soles.</summary>
         public decimal MontoTotal { get; set; }
-        /// <summary>Número de guía del Consolidado del S10. Null si la planilla no lo tiene.</summary>
-        public string? NumeroGuia { get; set; }
+        /// <summary>Número de reembolso del Consolidado del S10. Null si la planilla no lo tiene.</summary>
+        public string? NumeroReembolso { get; set; }
         /// <summary>Nombre de quien firmó la planilla. Lo usa el aviso a Tesorería.</summary>
         public string? FirmadoPor { get; set; }
         /// <summary>Nombre del tesorero que registró el pago. Lo usa el aviso de pago.</summary>
@@ -95,7 +95,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaPlanilla   = "req-codigo";
         private const string FilaMonto      = "req-sustento";
         private const string FilaDecision   = "req-vistobueno";
-        private const string FilaGuia       = "req-ti";
+        private const string FilaReembolso       = "req-ti";
 
         /// <summary>
         /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 de su PLANILLA y
@@ -271,8 +271,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
                 filas.Add(new(FilaPlanilla, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
 
-            if (!string.IsNullOrWhiteSpace(d.NumeroGuia))
-                filas.Add(new(FilaGuia, "N.º de guía S10", AbrilEmailLayout.Esc(d.NumeroGuia)));
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso del S10", AbrilEmailLayout.Esc(d.NumeroReembolso)));
 
             if (d.MontoTotal > 0m)
                 filas.Add(new(FilaMonto, "Monto rendido",

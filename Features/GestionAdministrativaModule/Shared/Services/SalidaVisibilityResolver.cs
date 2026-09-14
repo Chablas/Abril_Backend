@@ -1,9 +1,8 @@
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
-namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services
+namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
     /// Implementa la resolución de visibilidad. Ver <see cref="ISalidaVisibilityResolver"/>.
@@ -51,15 +50,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == userId
-                select new
+                select new WorkerContexto
                 {
-                    w.Id,
                     // El área y la categoría salen las dos del puesto: workers ya no las guarda.
+                    Id = w.Id,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                     CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
                 }
             ).ToListAsync();
 
+            return await ResolveAsync(ctx, workers, ambitoId);
+        }
+
+        public async Task<SalidaVisibility> ResolveByWorkerAsync(int workerId, int ambitoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var workers = await (
+                from w in ctx.Worker
+                where w.Id == workerId
+                select new WorkerContexto
+                {
+                    Id = w.Id,
+                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                }
+            ).ToListAsync();
+
+            return await ResolveAsync(ctx, workers, ambitoId);
+        }
+
+        /// <summary>Lo único que cambia entre las dos entradas es de qué fichas se parte.</summary>
+        private async Task<SalidaVisibility> ResolveAsync(
+            AppDbContext ctx, List<WorkerContexto> workers, int ambitoId)
+        {
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());
 
             var workerIds = workers.Select(w => w.Id).ToList();
@@ -186,6 +210,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             }
 
             return new SalidaVisibility(false, visible);
+        }
+
+        /// <summary>Lo que el algoritmo necesita saber de una ficha: dónde está y qué categoría tiene.</summary>
+        private class WorkerContexto
+        {
+            public int Id { get; set; }
+            public int? AreaScopeId { get; set; }
+            public int? CategoriaId { get; set; }
         }
 
         /// <summary>Cadena (self, padre, abuelo, …, raíz) caminando hacia arriba. Corta ciclos.</summary>

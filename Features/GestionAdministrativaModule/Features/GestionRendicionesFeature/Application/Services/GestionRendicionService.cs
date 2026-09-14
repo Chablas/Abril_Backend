@@ -2,7 +2,6 @@
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
@@ -181,7 +180,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         }
 
         public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroGuia, int userId)
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId)
         {
             var ids = rendicionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
             if (ids.Count == 0)
@@ -206,7 +205,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     + "Pueden hacerlo el propio trabajador y los consolidadores de su área.", 403);
 
             return await _consolidadoService.UploadParaRendiciones(
-                ids, file, montoTotal, numeroGuia, userId);
+                ids, file, montoTotal, numeroReembolso, userId);
         }
 
         public async Task<ReembolsoBulkResultDto> DecidirReembolso(

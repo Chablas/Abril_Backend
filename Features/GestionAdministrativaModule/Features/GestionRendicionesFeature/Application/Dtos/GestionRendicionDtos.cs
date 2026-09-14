@@ -234,15 +234,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     }
 
     /// <summary>
-    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. Los
-    /// destinatarios se resuelven por PUESTO (categoría Tesorero) y no por área ni por una lista
-    /// escrita a mano: es la misma condición que abre la bandeja de Reembolsos, así que el correo
-    /// le llega exactamente a quien puede actuar sobre él.
+    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. El destinatario
+    /// principal se resuelve por ROL (TESORERO), que es la misma condición que abre la bandeja de
+    /// Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él, sin depender
+    /// de un área ni de una lista de nombres.
+    ///
+    /// Los demás —el Coordinador ERP, por ejemplo— NO salen de acá: son destinatarios normales de
+    /// Configuración → Correos (tipo ROL) y los agrega el resolver al enviar. Este DTO solo trae
+    /// el principal.
     /// </summary>
     public class TesoreriaCorreoInfoDto
     {
         public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
-        /// <summary>Correos corporativos de Tesorería. Vacío si no hay ningún puesto asignado.</summary>
+        /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
         public List<string> Destinatarios { get; set; } = new();
     }
 

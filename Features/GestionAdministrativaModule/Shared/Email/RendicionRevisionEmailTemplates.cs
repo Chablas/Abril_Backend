@@ -150,9 +150,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     + $"<b>{AbrilEmailLayout.Esc(d.Codigo)}</b>."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.DecididoPor)
-                        ? "Ya puedes registrar la información en el S10 y cargar el Consolidado con su número de guía."
+                        ? "Ya puedes registrar la información en el S10 y cargar el Consolidado con su número de reembolso."
                         : $"Aprobada por <b>{AbrilEmailLayout.Esc(d.DecididoPor)}</b>. Ya puedes cargar el "
-                          + "Consolidado del S10 con su número de guía."),
+                          + "Consolidado del S10 con su número de reembolso."),
                 l.Tarjeta(Filas(d, conTrabajador: false)),
                 l.Boton("Cargar el Consolidado del S10", urlCargarS10),
                 l.EnlaceDirecto(urlCargarS10));

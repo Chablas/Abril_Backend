@@ -71,6 +71,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                     r.WorkerId,
                     r.AreaScopeId,
                     r.Correo,
+                    r.RoleId,
                     r.IncluirDescendientes,
                     r.Active,
                 }
@@ -103,6 +104,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                     Nombre = ai.AreaItemName,
                     ParentId = s.AreaScopeParentId,
                     Email = s.Email,
+                }
+            ).ToListAsync();
+
+            // Roles con la cuenta de a cuantos correos corporativos alcanza cada uno hoy. Se trae
+            // la lista completa (no solo los referenciados) porque es el desplegable del modal, y
+            // el conteo es lo que deja ver de un vistazo que un rol no le llega a nadie.
+            var roles = await (
+                from r in ctx.Role
+                where r.State && r.Active
+                orderby r.RoleDescription
+                select new CorreoRolOptionDto
+                {
+                    RoleId = r.RoleId,
+                    Nombre = r.RoleDescription,
+                    Miembros = (
+                        from w   in ctx.Worker
+                        join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                        join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
+                        where ur.RoleId == r.RoleId && ur.State && ur.Active
+                           && w.EmailCorporativo != null && w.EmailCorporativo != ""
+                        select w.EmailCorporativo!
+                    ).Distinct().Count(),
                 }
             ).ToListAsync();
 
@@ -167,6 +190,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                             TipoCodigo = r.TipoCodigo,
                             WorkerId = r.WorkerId,
                             AreaScopeId = r.AreaScopeId,
+                            RoleId = r.RoleId,
                             IncluirDescendientes = r.IncluirDescendientes,
                             Active = r.Active,
                         };
@@ -193,6 +217,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                                 fila.SinCorreo = (fila.Miembros ?? 0) == 0;
                                 break;
 
+                            case CorreoTipoCodigos.Rol:
+                                var rol = r.RoleId.HasValue
+                                    ? roles.FirstOrDefault(x => x.RoleId == r.RoleId.Value)
+                                    : null;
+                                fila.Nombre = rol?.Nombre ?? "[Rol no encontrado]";
+                                fila.Miembros = rol?.Miembros ?? 0;
+                                fila.SinCorreo = (fila.Miembros ?? 0) == 0;
+                                break;
+
                             default: // CORREO
                                 fila.Nombre = r.Correo ?? string.Empty;
                                 fila.Email = r.Correo;
@@ -210,6 +243,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 Eventos = eventos,
                 Trabajadores = trabajadores,
                 Areas = areas,
+                Roles = roles,
             };
         }
 
@@ -251,9 +285,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             var evento = await BuscarEventoAsync(ctx, pantallaCodigo, eventoCodigo);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
-            var (workerId, areaScopeId, correo) = await NormalizarAsync(ctx, tipoCodigo, dto);
+            var (workerId, areaScopeId, correo, roleId) = await NormalizarAsync(ctx, tipoCodigo, dto);
 
-            await ValidarNoDuplicadoAsync(ctx, evento.Id, null, tipoCodigo, workerId, areaScopeId, correo);
+            await ValidarNoDuplicadoAsync(ctx, evento.Id, null, tipoCodigo, workerId, areaScopeId, correo, roleId);
 
             var now = DateTimeOffset.UtcNow;
             var ultimoOrden = await ctx.GaCorreoRegla
@@ -268,6 +302,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 WorkerId = workerId,
                 AreaScopeId = areaScopeId,
                 Correo = correo,
+                RoleId = roleId,
                 IncluirDescendientes = tipoCodigo == CorreoTipoCodigos.Area && dto.IncluirDescendientes,
                 Orden = ultimoOrden + 1,
                 Active = true,
@@ -287,14 +322,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             var regla = await BuscarReglaAsync(ctx, pantallaCodigo, id);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
-            var (workerId, areaScopeId, correo) = await NormalizarAsync(ctx, tipoCodigo, dto);
+            var (workerId, areaScopeId, correo, roleId) = await NormalizarAsync(ctx, tipoCodigo, dto);
 
-            await ValidarNoDuplicadoAsync(ctx, regla.EventoId, id, tipoCodigo, workerId, areaScopeId, correo);
+            await ValidarNoDuplicadoAsync(ctx, regla.EventoId, id, tipoCodigo, workerId, areaScopeId, correo, roleId);
 
             regla.TipoId = tipoId;
             regla.WorkerId = workerId;
             regla.AreaScopeId = areaScopeId;
             regla.Correo = correo;
+            regla.RoleId = roleId;
             regla.IncluirDescendientes = tipoCodigo == CorreoTipoCodigos.Area && dto.IncluirDescendientes;
             regla.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
@@ -399,10 +435,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
         /// <summary>
         /// Deja llena solo la columna que corresponde al tipo y valida que lo referenciado exista.
-        /// Las otras dos quedan en null: una fila con worker_id Y correo a la vez sería ambigua al
-        /// enviar.
+        /// Las otras quedan en null: una fila con worker_id Y correo a la vez sería ambigua al
+        /// enviar (lo refuerza el CHECK chk_ga_correo_regla_target).
         /// </summary>
-        private static async Task<(int? WorkerId, int? AreaScopeId, string? Correo)> NormalizarAsync(
+        private static async Task<(int? WorkerId, int? AreaScopeId, string? Correo, int? RoleId)> NormalizarAsync(
             AppDbContext ctx, string tipoCodigo, CorreoDestinatarioInputDto dto)
         {
             switch (tipoCodigo)
@@ -412,14 +448,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                         throw new AbrilException("Falta seleccionar el trabajador.", 400);
                     if (!await ctx.Worker.AnyAsync(w => w.Id == dto.WorkerId))
                         throw new AbrilException("El trabajador seleccionado no existe.", 400);
-                    return (dto.WorkerId, null, null);
+                    return (dto.WorkerId, null, null, null);
 
                 case CorreoTipoCodigos.Area:
                     if (dto.AreaScopeId is null or <= 0)
                         throw new AbrilException("Falta seleccionar el área.", 400);
                     if (!await ctx.AreaScope.AnyAsync(a => a.AreaScopeId == dto.AreaScopeId && a.State))
                         throw new AbrilException("El área seleccionada no existe.", 400);
-                    return (null, dto.AreaScopeId, null);
+                    return (null, dto.AreaScopeId, null, null);
+
+                case CorreoTipoCodigos.Rol:
+                    if (dto.RoleId is null or <= 0)
+                        throw new AbrilException("Falta seleccionar el rol.", 400);
+                    if (!await ctx.Role.AnyAsync(r => r.RoleId == dto.RoleId && r.State))
+                        throw new AbrilException("El rol seleccionado no existe.", 400);
+                    return (null, null, null, dto.RoleId);
 
                 default: // CORREO
                     var correo = (dto.Correo ?? string.Empty).Trim();
@@ -427,7 +470,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                         throw new AbrilException("Falta escribir el correo.", 400);
                     if (!correo.Contains('@') || correo.Contains(' '))
                         throw new AbrilException($"Correo inválido: '{dto.Correo}'.", 400);
-                    return (null, null, correo);
+                    return (null, null, correo, null);
             }
         }
 
@@ -438,7 +481,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
         /// </summary>
         private static async Task ValidarNoDuplicadoAsync(
             AppDbContext ctx, int eventoId, int? excluirReglaId,
-            string tipoCodigo, int? workerId, int? areaScopeId, string? correo)
+            string tipoCodigo, int? workerId, int? areaScopeId, string? correo, int? roleId)
         {
             var query = ctx.GaCorreoRegla.Where(r => r.EventoId == eventoId && r.State);
             if (excluirReglaId.HasValue) query = query.Where(r => r.Id != excluirReglaId.Value);
@@ -447,6 +490,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             {
                 CorreoTipoCodigos.Trabajador => await query.AnyAsync(r => r.WorkerId == workerId),
                 CorreoTipoCodigos.Area => await query.AnyAsync(r => r.AreaScopeId == areaScopeId),
+                CorreoTipoCodigos.Rol => await query.AnyAsync(r => r.RoleId == roleId),
                 _ => await query.AnyAsync(r => r.Correo != null && r.Correo.ToLower() == correo!.ToLower()),
             };
 

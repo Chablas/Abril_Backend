@@ -104,6 +104,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                         ? Describir(p)
                         : new List<AreaEfectivoDto>());
 
+            await AreaAsignacionArmador.CompletarCategoriasAsync(ctx, areas);
+
             return new AreaAsignacionInicialDto
             {
                 Areas = areas,
@@ -126,6 +128,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                     {
                         WorkerId = elegido.Revisor.WorkerId,
                         Nombre = elegido.Revisor.Nombre,
+                        Email = elegido.Revisor.Email,
                         Origen = elegido.Revisor.Origen.ToString(),
                     },
                 };

@@ -417,7 +417,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 from v in ctx.GaConsolidadoS10Rendicion
                 join c in ctx.GaConsolidadoS10 on v.ConsolidadoS10Id equals c.Id
                 where v.State && c.State && v.RendicionId == rendicionId
-                select new { c.Id, c.NumeroGuia }
+                select new { c.Id, c.NumeroReembolso }
             ).FirstOrDefaultAsync();
 
             if (consolidado == null)
@@ -446,7 +446,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 // el rótulo del otro.
                 MotivoJefatura   = observada?.ObservacionReembolso,
                 MotivoOrigenId   = observada?.ObservacionReembolsoOrigenId,
-                NumeroGuia       = consolidado.NumeroGuia,
+                NumeroReembolso       = consolidado.NumeroReembolso,
                 EstadoId         = EstadosSalida.CorreccionS10.Solicitada,
                 SolicitadaPorId  = userId,
                 SolicitadaAt     = now,

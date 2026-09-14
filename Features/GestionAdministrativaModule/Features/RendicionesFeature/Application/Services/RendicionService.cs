@@ -151,7 +151,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 Area           = solicitante.Area,
                 Periodo        = planilla.Periodo,
                 SalidasCount   = planilla.SalidasCount,
-                TramosCount    = await _repo.ContarTramos(rendicionId, userId),
+                TrayectosCount = await _repo.ContarTrayectos(rendicionId, userId),
                 MontoTotal     = planilla.MontoTotal,
                 NumeroPlanilla = planilla.NumeroPlanilla,
             };

@@ -928,6 +928,156 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Da de baja una vacante que todavía no decidió nadie, con todo lo que cuelga de ella.
+        ///
+        /// Es la versión en código de la limpieza que hasta ahora se hacía por SQL a mano cuando una
+        /// solicitud se registraba por error: no alcanza con bajar <c>gth_requerimiento</c>. Si la
+        /// aprobación sobrevive, el enlace del correo sigue llevando a «Aprobaciones» y ahí responde
+        /// <b>403 «no está dentro de tu alcance»</b> —que se lee como un problema de permisos— y la
+        /// campanita le sigue pidiendo firmar algo que ya no existe. Por eso se bajan también el
+        /// detalle de la aprobación, su historial de fases y, cuando la vacante era la última viva
+        /// de la solicitud, la aprobación, la solicitud y las notificaciones que la nombran.
+        ///
+        /// Todo es soft delete (<c>state = false</c>): las filas quedan para auditoría, nadie las
+        /// vuelve a ver. El correlativo REQ **no** se libera — el índice único de <c>codigo</c> y
+        /// <c>SiguienteNumeroLibre</c> no filtran por <c>state</c>, así que la siguiente solicitud
+        /// salta ese número. Es a propósito: un código ya salió por correo.
+        /// </summary>
+        public async Task<AnularVacanteResultDto> AnularRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Todo lo que hace falta para decidir —y casi todo lo que hay que bajar— en un
+            // roundtrip. Las entidades salen rastreadas (sin AsNoTracking) porque son las mismas
+            // que se van a modificar.
+            var data = await (
+                from r in EnScope(ctx.GthRequerimiento, scope)
+                where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
+                join e in ctx.GthEstadoRequerimiento
+                    on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    Requerimiento = r,
+                    Solicitud     = r.Solicitud!,
+                    EstadoCodigo  = e.Codigo,
+                    EstadoNombre  = e.Nombre,
+                    Detalle       = DetallesAprobacionVivos(ctx)
+                                        .FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId),
+                    Aprobacion    = ctx.GthAprobacionGg
+                                        .FirstOrDefault(a => a.State && a.GthSolicitudId == r.GthSolicitudId),
+                    // Hermanas vivas: deciden si la solicitud se va con esta vacante o sobrevive.
+                    Hermanas      = ctx.GthRequerimiento
+                                        .Where(o => o.State && o.GthSolicitudId == r.GthSolicitudId
+                                                    && o.GthRequerimientoId != r.GthRequerimientoId)
+                                        .Count(),
+                }).FirstOrDefaultAsync();
+
+            if (data == null)
+                throw new AbrilException(
+                    "La solicitud de vacante no existe o no está dentro de tu alcance.", 404);
+
+            // Las mismas dos condiciones con las que la fila mostró el botón (ver PuedeAnular). Se
+            // revalidan acá porque entre que se pintó la tabla y se apretó el botón, el gerente pudo
+            // haber firmado: el mensaje dice exactamente qué cambió.
+            if (data.EstadoCodigo != EstadoReclutamiento.AprobacionGg)
+                throw new AbrilException(
+                    $"Esta vacante ya avanzó a «{data.EstadoNombre}»: solo se puede anular mientras "
+                    + "espera su aprobación.", 409);
+
+            var d = data.Detalle;
+            if (d != null && (d.AprobadoGerenteGeneral != null
+                              || d.AprobadoGerenteArea != null
+                              || d.AprobadoGth != null))
+                throw new AbrilException(
+                    "Esta vacante ya fue decidida por alguien: no se puede anular.", 409);
+
+            // Recién acá, con las guardas ya pasadas: es una colección y va en su propia consulta
+            // (mezclarla en la proyección de arriba complica la traducción sin ganar nada, y así ni
+            // se paga cuando la anulación se rechaza).
+            var historial = await ctx.GthRequerimientoEstadoHistorial
+                .Where(h => h.State && h.GthRequerimientoId == requerimientoId)
+                .ToListAsync();
+
+            var now = DateTimeOffset.UtcNow;
+
+            // El estado NO se toca: el interceptor de historial escribe una fila por cada cambio de
+            // gth_estado_requerimiento_id, y anular no es una fase más del proceso — es sacar el
+            // requerimiento de la vista. Ver RequerimientoEstadoHistorialInterceptor.
+            data.Requerimiento.State           = false;
+            data.Requerimiento.UpdatedDateTime = now;
+            data.Requerimiento.UpdatedUserId   = userId;
+
+            if (d != null)
+            {
+                d.State           = false;
+                d.UpdatedDateTime = now;
+                d.UpdatedUserId   = userId;
+            }
+
+            // El historial de fases se va con el requerimiento: son las mediciones de demora que usa
+            // GTH y un proceso anulado las ensuciaría. La tabla no tiene updated_*.
+            foreach (var h in historial) h.State = false;
+
+            var solicitudDadaDeBaja = data.Hermanas == 0;
+            if (solicitudDadaDeBaja)
+            {
+                data.Solicitud.State           = false;
+                data.Solicitud.UpdatedDateTime = now;
+                data.Solicitud.UpdatedUserId   = userId;
+
+                if (data.Aprobacion != null)
+                {
+                    data.Aprobacion.State           = false;
+                    data.Aprobacion.UpdatedDateTime = now;
+                    data.Aprobacion.UpdatedUserId   = userId;
+                }
+
+                await ApagarNotificacionesDeLaVacante(ctx, data.Requerimiento.Codigo, userId, now);
+            }
+
+            // Un solo SaveChanges: o se va el árbol entero o no se va nada.
+            await ctx.SaveChangesAsync();
+
+            return new AnularVacanteResultDto
+            {
+                Codigo              = data.Requerimiento.Codigo,
+                SolicitudDadaDeBaja = solicitudDadaDeBaja,
+                VacantesRestantes   = data.Hermanas,
+            };
+        }
+
+        /// <summary>
+        /// Baja las campanitas que apuntan a una solicitud que acaba de desaparecer. Solo se llama
+        /// cuando la solicitud entera se dio de baja: mientras le quede una vacante viva, el aviso
+        /// de «solicitud por aprobar» sigue siendo cierto.
+        ///
+        /// La notificación de aprobación es UNA por solicitud y guarda en <c>referencia</c> los
+        /// códigos de todas sus vacantes separados por coma, así que no hay FK que seguir: se
+        /// prefiltra con un LIKE y se confirma en memoria comparando token por token. El match
+        /// exacto importa — con un <c>Contains</c> a secas, anular REQ-2026-001 apagaría también la
+        /// campanita de REQ-2026-0010.
+        /// </summary>
+        private static async Task ApagarNotificacionesDeLaVacante(
+            AppDbContext ctx, string codigo, int userId, DateTimeOffset now)
+        {
+            var candidatas = await ctx.Notificacion
+                .Where(n => n.State && n.Referencia != null && n.Referencia.Contains(codigo))
+                .ToListAsync();
+
+            foreach (var n in candidatas)
+            {
+                var codigos = n.Referencia!.Split(',', StringSplitOptions.TrimEntries
+                                                      | StringSplitOptions.RemoveEmptyEntries);
+                if (!codigos.Contains(codigo, StringComparer.OrdinalIgnoreCase)) continue;
+
+                n.State           = false;
+                n.UpdatedDateTime = now;
+                n.UpdatedUserId   = userId;
+            }
+        }
+
+        /// <summary>
         /// Recorta una consulta de requerimientos al alcance del usuario en «Solicitud de Personal»:
         /// los de su área y los de las áreas que cuelgan de ella, más —siempre— los que él mismo
         /// registró. El requerimiento es del ÁREA y no de quien lo pidió: si el solicitante se va de
@@ -3641,6 +3791,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     TieneDetalle = d != null,
                     AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGth = d != null ? d.AprobadoGth : null,
+                    // La tercera casilla no se usa para la etiqueta del estado (la ruta GG no tiene
+                    // turnos), pero sí para saber si la vacante todavía se puede anular.
+                    AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
@@ -3661,8 +3814,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 TipoRequerimiento       = x.Tipo,
                 TipoRequerimientoCodigo = x.TipoCodigo,
                 EsFft           = x.EsFft,
+                PuedeAnular     = PuedeAnular(
+                                      x.EstadoCodigo, x.AprobadoGerenteGeneral,
+                                      x.AprobadoGerenteArea, x.AprobadoGth),
             }).ToList();
         }
+
+        /// <summary>
+        /// ¿La vacante se puede dar de baja desde «Solicitud de Personal»? Solo mientras espera su
+        /// aprobación y con las TRES casillas en blanco. El corte es "nadie decidió todavía", no
+        /// "nadie aprobó": un rechazo también cierra la puerta, porque ya salieron los correos de
+        /// la decisión y esa postura tiene que quedar registrada.
+        ///
+        /// Los ingresos directos FFT quedan fuera solos: nacen en <c>EMO_INGRESO</c>, con candidato
+        /// seleccionado y ficha de pre-ingreso abierta, así que nunca pasan por este estado.
+        /// </summary>
+        private static bool PuedeAnular(
+            string estadoCodigo, bool? aprobadoGerenteGeneral, bool? aprobadoGerenteArea,
+            bool? aprobadoGth) =>
+            estadoCodigo == EstadoReclutamiento.AprobacionGg
+            && aprobadoGerenteGeneral == null
+            && aprobadoGerenteArea == null
+            && aprobadoGth == null;
 
         /// <summary>
         /// Filas de <c>gth_aprobacion_gg_detalle</c> que cuentan: las vivas de una aprobación viva.

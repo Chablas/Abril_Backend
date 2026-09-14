@@ -41,7 +41,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         public int? NumeroPlanilla { get; set; }
 
         // -- Primera revisión de la jefatura ----------------------------------
-        // El eje de estado que va ANTES del Consolidado del S10: el jefe revisa tramos, montos y
+        // El eje de estado que va ANTES del Consolidado del S10: el jefe revisa trayectos, montos y
         // capturas registrados en Abril One y solo con su aprobación se habilita cargar el
         // consolidado (RG-30 y RG-35). Vive acá y no en la salida porque lo que se revisa es la
         // planilla entera. Ver EstadosSalida.PrimeraRevision.

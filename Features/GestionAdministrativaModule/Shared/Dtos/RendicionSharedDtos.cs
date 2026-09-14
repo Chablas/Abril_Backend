@@ -67,8 +67,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public string? Periodo { get; set; }
         /// <summary>Cuántas salidas suyas entran en la planilla.</summary>
         public int SalidasCount { get; set; }
-        /// <summary>Cuántos tramos suman esas salidas — es lo que el revisor mira.</summary>
-        public int TramosCount { get; set; }
+        /// <summary>Cuántos trayectos suman esas salidas — es lo que el revisor mira.</summary>
+        public int TrayectosCount { get; set; }
         /// <summary>Suma de lo rendido en sus salidas, con la misma regla que imprime la planilla.</summary>
         public decimal MontoTotal { get; set; }
 

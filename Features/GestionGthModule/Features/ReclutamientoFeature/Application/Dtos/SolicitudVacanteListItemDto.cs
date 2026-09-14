@@ -46,5 +46,17 @@
         /// de la vacante: no la firma nadie y pasa derecho al EMO de ingreso.
         /// </summary>
         public bool EsFft { get; set; }
+
+        /// <summary>
+        /// true cuando la vacante todavía se puede anular: sigue esperando su aprobación
+        /// (estado <c>APROBACION_GG</c>) y <b>ninguna</b> de las tres firmas fue registrada. Con que
+        /// una sola persona haya decidido —aunque sea rechazando— deja de poder anularse: a partir
+        /// de ahí ya salieron correos y hay una decisión que auditar.
+        ///
+        /// Es solo la condición de la VACANTE. Quién puede apretar el botón lo dice
+        /// <c>PuedeGestionar</c> del panel, igual que en «Reenviar aprobación»; el backend revalida
+        /// las dos cosas al anular.
+        /// </summary>
+        public bool PuedeAnular { get; set; }
     }
 }

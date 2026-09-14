@@ -151,6 +151,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 : new SolicitantePanelDto();
 
         /// <summary>
+        /// Anula una vacante que nadie decidió todavía. Anular es mover el requerimiento, así que
+        /// pide lo mismo que reenviar la aprobación: ser jefatura del área (o GTH). El resto de las
+        /// guardas —la fase y las tres firmas en blanco— las revalida el repositorio contra la BD.
+        ///
+        /// No sale ningún correo: el pedido de firma ya salió, pero avisar de una vacante que se
+        /// anuló a los minutos de registrarse es ruido. Lo que sí se apaga es la campanita, que si
+        /// no le seguiría pidiendo al gerente aprobar algo que ya no existe.
+        /// </summary>
+        public async Task<AnularVacanteResultDto> AnularRequerimiento(int requerimientoId, int? userId)
+        {
+            var scope = await ResolverScope(userId, paraGestionar: true);
+            return await _repo.AnularRequerimiento(requerimientoId, scope, userId!.Value);
+        }
+
+        /// <summary>
         /// Alcance del usuario en la pantalla del solicitante. <paramref name="paraGestionar"/> =
         /// true en las acciones que mueven el requerimiento (registrar, decidir, reenviar): esas
         /// son de la jefatura del area, asi que se cortan aca con un 403 y un mensaje que dice por

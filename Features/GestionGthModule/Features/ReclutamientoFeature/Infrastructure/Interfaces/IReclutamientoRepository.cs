@@ -129,6 +129,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<SolicitantePanelDto> GetSolicitantePanel(SolicitudPersonalScope scope);
 
         /// <summary>
+        /// Da de baja (soft delete) una vacante que todavía no decidió nadie y todo lo que cuelga
+        /// de ella: su detalle de aprobación, su historial de fases y —solo si era la última viva de
+        /// su solicitud— la solicitud, la aprobación y las campanitas que la nombran.
+        /// </summary>
+        /// <exception cref="Abril_Backend.Application.Exceptions.AbrilException">
+        /// 404 si no existe o está fuera del alcance; 409 si ya avanzó de fase o si alguien ya firmó.
+        /// </exception>
+        Task<AnularVacanteResultDto> AnularRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope, int userId);
+
+        /// <summary>
         /// Revisión de la long list de un requerimiento (cabecera + candidatos con su CV), en 1
         /// roundtrip. Devuelve null si el requerimiento no existe, queda fuera del alcance del
         /// usuario o su long list aún no fue enviada.

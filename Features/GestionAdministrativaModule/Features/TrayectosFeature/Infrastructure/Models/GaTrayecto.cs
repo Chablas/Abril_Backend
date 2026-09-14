@@ -3,7 +3,7 @@
     /// <summary>
     /// Catálogo de trayectos preconfigurados — asocia un par (lugar origen, lugar destino) con su
     /// monto referencial en soles. Sirve como fuente de datos para autocompletar montos en las
-    /// solicitudes de salida. Distinto de <c>GaSolicitudTrayecto</c>, que representa el tramo
+    /// solicitudes de salida. Distinto de <c>GaSolicitudTrayecto</c>, que representa el trayecto
     /// real de una solicitud específica.
     /// </summary>
     public class GaTrayecto

@@ -41,7 +41,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             decimal Importe);
 
         /// <summary>
-        /// Tramo del mes que ya quedó cubierto por una rendición anterior del trabajador. Se toma
+        /// Periodo del mes que ya quedó cubierto por una rendición anterior del trabajador. Se toma
         /// del alcance real de esa planilla (su primera y su última <c>fecha_salida</c>), que es lo
         /// que define en los hechos la semana o la quincena que el trabajador rindió.
         /// </summary>
@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <param name="periodosRendidos">
-        /// workerId → tramos ya rendidos en otras planillas. <b>Null = no se permite retroceder</b>,
+        /// workerId → periodos ya rendidos en otras planillas. <b>Null = no se permite retroceder</b>,
         /// que es como se llama la primera vez: retroceder es el caso raro y no vale la pena pagar
         /// esa consulta si todo entra hacia adelante. Si vuelve algo en
         /// <see cref="Resultado.SinUbicar"/>, se carga y se vuelve a resolver.

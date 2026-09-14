@@ -121,6 +121,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Anula (soft delete) una vacante registrada por error, con todo lo que cuelga de ella.
+        /// Solo mientras espera su aprobación y con las tres firmas en blanco; solo para las
+        /// jefaturas y gerencias del área. Sin correo: apaga la campanita de quien tenía que firmar.
+        /// </summary>
+        [HttpDelete("requerimiento/{id:int}")]
+        public async Task<IActionResult> AnularRequerimiento(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var result = await _service.AnularRequerimiento(id, userId);
+                var message = result.SolicitudDadaDeBaja
+                    ? $"Se anuló la vacante {result.Codigo} y su solicitud."
+                    : $"Se anuló la vacante {result.Codigo}. La solicitud sigue con "
+                      + $"{result.VacantesRestantes} vacante(s).";
+                return Ok(new { message, result.Codigo, result.SolicitudDadaDeBaja, result.VacantesRestantes });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.AnularRequerimiento");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Revisión de la long list de un requerimiento del solicitante (modal "Revisar long list y CVs"):
         /// cabecera + candidatos con sus datos y CV, en una sola petición.
         /// </summary>

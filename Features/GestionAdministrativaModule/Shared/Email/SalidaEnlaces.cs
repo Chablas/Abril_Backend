@@ -51,7 +51,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// planteada (<c>&amp;accion=aprobar|observar</c>). Los dos botones del correo al revisor
         /// entran por acá: la decisión no se ejecuta desde el correo porque observar exige escribir
         /// un comentario, así que el enlace lleva a la pantalla con el diálogo abierto y el revisor
-        /// confirma ahí, viendo los tramos y las capturas.
+        /// confirma ahí, viendo los trayectos y las capturas.
         /// </summary>
         public static string GestionRendicionesAccion(
             IConfiguration configuration, int rendicionId, string accion) =>

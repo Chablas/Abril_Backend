@@ -36,10 +36,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string GerenteArea = "GERENTE_AREA";
 
         /// <summary>
-        /// Gestión del Talento Humano: cualquier trabajador ACTIVO cuyo <c>area_scope_id</c> sea el
-        /// nodo de GTH (<see cref="Abril_Backend.Shared.Constants.AreaScopeIds.GestionDelTalentoHumano"/>).
-        /// Es el único nivel que NO sale de la categoría del puesto sino del área: GTH no aprueba
-        /// como jefatura sino como el área dueña del proceso, y quien esté ahí adentro sirve.
+        /// Jefatura de Gestión del Talento Humano: trabajador ACTIVO cuyo puesto esté en el nodo de
+        /// GTH (<see cref="Abril_Backend.Shared.Constants.AreaScopeIds.GestionDelTalentoHumano"/>)
+        /// <b>y</b> sea de categoría <see cref="Abril_Backend.Shared.Constants.CategoriaIds.Jefe"/>.
+        /// Las dos condiciones sobre la misma ficha: estar en el área ya no alcanza. Es el único
+        /// nivel que mira las dos cosas — los otros dos salen solo de la categoría.
+        ///
+        /// Ojo con la asimetría: en «Solicitud de Personal» GTH sigue moviendo requerimientos sin
+        /// mirar categoría (<c>SolicitudPersonalScope.EsGth</c>). Acá se firma, y firmar es de la
+        /// jefatura.
         ///
         /// Decide las vacantes de ruta <see cref="RutaAprobacion.AreaYGth"/> — los reemplazos —
         /// <b>después</b> del gerente del área: una vacante de reemplazo avanza recién con las DOS

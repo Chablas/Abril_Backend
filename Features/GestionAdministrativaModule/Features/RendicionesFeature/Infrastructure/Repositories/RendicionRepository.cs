@@ -226,7 +226,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             };
         }
 
-        public async Task<int> ContarTramos(int rendicionId, int userId)
+        public async Task<int> ContarTrayectos(int rendicionId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 

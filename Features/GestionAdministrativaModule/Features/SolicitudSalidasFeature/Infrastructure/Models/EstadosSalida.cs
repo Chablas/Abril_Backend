@@ -80,7 +80,7 @@
             public const int Pagado    = 5;
             /// <summary>
             /// Tesorería ya revisó la documentación (planilla, Consolidado del S10, firma de la
-            /// jefatura y tramos) y confirmó que el reembolso puede desembolsarse (RG-26). Es el
+            /// jefatura y trayectos) y confirmó que el reembolso puede desembolsarse (RG-26). Es el
             /// ÚNICO estado desde el que se puede pagar: sin esa confirmación previa el pago está
             /// bloqueado, aunque la planilla ya esté firmada.
             /// </summary>
@@ -182,7 +182,7 @@
         /// <c>ga_rendicion</c> y no en la salida, porque lo que el jefe revisa es el documento y
         /// este cubre todas las salidas que agrupa.
         ///
-        /// Es anterior al <see cref="Reembolso"/>: la primera revisión mira tramos, montos y
+        /// Es anterior al <see cref="Reembolso"/>: la primera revisión mira trayectos, montos y
         /// capturas registrados en Abril One, y solo con su aprobación se habilita cargar el
         /// Consolidado del S10 (RG-35). El reembolso es la SEGUNDA revisión, la que compara el
         /// total del consolidado contra el de la planilla.

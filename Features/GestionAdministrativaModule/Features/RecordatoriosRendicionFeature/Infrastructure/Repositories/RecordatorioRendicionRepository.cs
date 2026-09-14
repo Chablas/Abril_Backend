@@ -174,21 +174,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
 
             foreach (var s in solicitudes)
             {
-                if (!trayectosPorSolicitud.TryGetValue(s.Id, out var tramos) || tramos.Count == 0)
+                if (!trayectosPorSolicitud.TryGetValue(s.Id, out var trayectosDeSalida) || trayectosDeSalida.Count == 0)
                     continue;
 
                 // Basta un trayecto reembolsable: una salida mixta igual generó gasto de movilidad
                 // y tiene algo que rendir. Se usa la regla completa (motivo + par origen-destino) y
                 // no solo el flag del motivo, para no recordarle a nadie que rinda un recorrido que
                 // el catálogo de trayectos ya declaró sin reembolso.
-                var esReembolsable = tramos.Any(t => ReembolsoTrayectoRule.Resolver(
+                var esReembolsable = trayectosDeSalida.Any(t => ReembolsoTrayectoRule.Resolver(
                     t.EsMotivoDeCatalogo, t.MotivoEsReembolsable,
                     t.LugarOrigenId, t.LugarDestinoId, excluidos) == true);
 
                 if (!esReembolsable) continue;
 
-                var primero = tramos[0];
-                var ultimo  = tramos[^1];
+                var primero = trayectosDeSalida[0];
+                var ultimo  = trayectosDeSalida[^1];
 
                 if (!porTrabajador.TryGetValue(s.WorkerId, out var trabajador))
                 {
@@ -210,9 +210,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
                     FechaSalida    = s.FechaSalida,
                     Motivo         = primero.Motivo ?? string.Empty,
                     Origen         = primero.LugarOrigen ?? string.Empty,
-                    // El destino es el del ÚLTIMO tramo: es donde termina el recorrido.
+                    // El destino es el del ÚLTIMO trayecto: es donde termina el recorrido.
                     Destino        = ultimo.LugarDestino ?? string.Empty,
-                    TrayectosCount = tramos.Count,
+                    TrayectosCount = trayectosDeSalida.Count,
                 });
             }
 

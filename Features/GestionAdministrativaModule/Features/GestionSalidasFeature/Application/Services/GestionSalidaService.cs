@@ -435,7 +435,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // Mismo bloqueo que al rendir: cada trayecto tiene que seguir cubierto. Al subsanar se
             // pueden QUITAR capturas, así que sin esto una planilla podría volver a jefatura con un
-            // tramo sin sustento — justo lo contrario de lo que se pidió corregir.
+            // trayecto sin sustento — justo lo contrario de lo que se pidió corregir.
             var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(planilla.SolicitudIds);
             if (sinCapturas.Count > 0)
                 throw new AbrilException(

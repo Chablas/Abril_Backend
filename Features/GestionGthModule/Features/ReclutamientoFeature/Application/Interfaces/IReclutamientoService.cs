@@ -21,6 +21,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<SolicitantePanelDto> GetSolicitantePanel(int? userId);
 
         /// <summary>
+        /// Anula (soft delete) una vacante registrada por error. Solo mientras espera su aprobación
+        /// y con las tres firmas en blanco, y solo para quien puede mover los requerimientos del
+        /// área — el mismo permiso que reenviar la aprobación. No manda ningún correo: lo que sí
+        /// hace es apagar la campanita de quien tenía que firmar, si la solicitud se va entera.
+        /// </summary>
+        Task<AnularVacanteResultDto> AnularRequerimiento(int requerimientoId, int? userId);
+
+        /// <summary>
         /// Revisión de la long list de un requerimiento del solicitante (cabecera + candidatos con su CV).
         /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe, no le
         /// pertenece o su long list aún no fue enviada.

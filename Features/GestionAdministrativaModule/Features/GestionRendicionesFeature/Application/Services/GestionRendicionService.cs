@@ -466,7 +466,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         Area           = info.Area,
                         Periodo        = info.Periodo,
                         SalidasCount   = info.SalidasCount,
-                        TramosCount    = info.TramosCount,
+                        TrayectosCount = info.TrayectosCount,
                         MontoTotal     = info.MontoTotal,
                         NumeroPlanilla = info.NumeroPlanilla,
                         DecididoPor    = info.DecididoPor,

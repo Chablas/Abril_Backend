@@ -5,7 +5,7 @@
 -- Hasta hoy una planilla recién rendida iba derecho al Consolidado del S10 y la
 -- única revisión del jefe era la del reembolso (la SEGUNDA del requerimiento
 -- funcional). Ahora la rendición pasa antes por una PRIMERA revisión: el
--- trabajador la envía, el jefe mira tramos, montos y capturas, y recién con su
+-- trabajador la envía, el jefe mira trayectos, montos y capturas, y recién con su
 -- aprobación se habilita el Consolidado del S10 (RG-30 y RG-35). Si la observa,
 -- el trabajador corrige capturas y montos de las salidas de esa planilla y
 -- vuelve a generar el PDF conservando el mismo código (RG-02).

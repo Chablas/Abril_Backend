@@ -26,9 +26,21 @@ public class PetsService : IPetsService
 
     public Task<List<PetPasoDto>> GetPasosAsync(int petId) => _repo.GetPasosAsync(petId);
 
+    public Task<string> ObtenerSiguienteCodigoAbrilAsync() => _repo.ObtenerSiguienteCodigoAbrilAsync();
+
     public Task<int> CrearAsync(CrearPetRequest request) => _repo.CrearAsync(request);
 
     public Task ActualizarAsync(int id, ActualizarPetRequest request) => _repo.ActualizarAsync(id, request);
+
+    public async Task EliminarAsync(int id)
+    {
+        var referencias = await _repo.ContarReferenciasExternasAsync(id);
+        if (referencias > 0)
+            throw new AbrilException(
+                "No se puede eliminar: este PETS está referenciado por OPT o reportes de Accidentes/Incidentes. Usa \"Desactivar\" en su lugar.",
+                409);
+        await _repo.EliminarAsync(id);
+    }
 
     // Clona pasos/responsabilidades (respetando jerarquía), secciones narrativas y
     // catálogo (Marco Legal/EPP/Recursos) de un PETS existente hacia uno nuevo.
@@ -66,6 +78,7 @@ public class PetsService : IPetsService
 
         await DuplicarArbolAsync(nuevoId, "procedimiento", original.Pasos);
         await DuplicarArbolAsync(nuevoId, "responsabilidades", original.Responsabilidades);
+        await DuplicarArbolAsync(nuevoId, "gestion_personal", original.GestionPersonal);
 
         foreach (var (seccion, contenido) in original.SeccionesTexto)
         {
@@ -157,6 +170,7 @@ public class PetsService : IPetsService
     public Task EliminarPasoAsync(int petId, int pasoId) => _repo.EliminarPasoAsync(petId, pasoId);
 
     public Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request) => _repo.ReordenarPasosAsync(petId, request);
+    public Task CambiarNivelPasoAsync(int petId, int pasoId, int? nuevoParentId) => _repo.CambiarNivelPasoAsync(petId, pasoId, nuevoParentId);
 
     public Task DesactivarSeccionAsync(int petId, string seccion) => _repo.DesactivarSeccionAsync(petId, seccion);
 
@@ -190,6 +204,9 @@ public class PetsService : IPetsService
 
     public Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request)
         => _repo.AgregarItemPersonalizadoAsync(petId, request);
+
+    public Task AgregarItemsPersonalizadosBulkAsync(int petId, List<AgregarItemPersonalizadoRequest> items)
+        => _repo.AgregarItemsPersonalizadosBulkAsync(petId, items);
 
     public Task EliminarSeleccionAsync(int petId, int seleccionId) => _repo.EliminarSeleccionAsync(petId, seleccionId);
 

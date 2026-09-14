@@ -54,6 +54,15 @@ public class PetsController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("siguiente-codigo")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> GetSiguienteCodigo()
+    {
+        try { return Ok(new { codigo = await _service.ObtenerSiguienteCodigoAbrilAsync() }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetSiguienteCodigo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost]
     [RequireFeature("ssoma.gestion.pets")]
     public async Task<IActionResult> Crear([FromBody] CrearPetRequest request)
@@ -70,6 +79,17 @@ public class PetsController : ControllerBase
         try { await _service.ActualizarAsync(id, request); return NoContent(); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Actualizar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // Borrado REAL (no Desactivar): solo procede si nada lo referencia (OPT,
+    // Accidentes/Incidentes) — si está en uso, el service tira 409 pidiendo Desactivar.
+    [HttpDelete("{id:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Eliminar(int id)
+    {
+        try { await _service.EliminarAsync(id); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Eliminar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     // Clona un PETS existente (pasos, responsabilidades, secciones narrativas y
@@ -117,6 +137,15 @@ public class PetsController : ControllerBase
         try { await _service.ReordenarPasosAsync(id, request); return NoContent(); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ReordenarPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("{id:int}/pasos/{pasoId:int}/nivel")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> CambiarNivelPaso(int id, int pasoId, [FromBody] CambiarNivelPasoRequest request)
+    {
+        try { await _service.CambiarNivelPasoAsync(id, pasoId, request.NuevoParentId); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.CambiarNivelPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     // Sube un .docx de un PETS ya existente y devuelve una vista previa de los pasos

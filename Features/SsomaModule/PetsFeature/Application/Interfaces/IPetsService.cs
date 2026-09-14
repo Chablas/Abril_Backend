@@ -7,8 +7,14 @@ public interface IPetsService
     Task<List<PetListItemDto>> GetListAsync();
     Task<PetDetalleDto> GetDetalleAsync(int id);
     Task<List<PetPasoDto>> GetPasosAsync(int petId);
+    Task<string> ObtenerSiguienteCodigoAbrilAsync();
     Task<int> CrearAsync(CrearPetRequest request);
     Task ActualizarAsync(int id, ActualizarPetRequest request);
+
+    // Borrado REAL del PETS (no soft-delete) — solo permitido si nada más lo referencia
+    // (OPT, Accidentes/Incidentes). Si está referenciado, tira AbrilException pidiendo
+    // usar Desactivar en su lugar.
+    Task EliminarAsync(int id);
 
     // Clona un PETS existente (pasos, responsabilidades, secciones narrativas y
     // catálogo) como borrador nuevo para partir de él — no copia firmas ni anexos.
@@ -18,6 +24,7 @@ public interface IPetsService
     Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request);
     Task EliminarPasoAsync(int petId, int pasoId);
     Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request);
+    Task CambiarNivelPasoAsync(int petId, int pasoId, int? nuevoParentId);
     Task<(int Id, string Url)> SubirImagenPasoAsync(int petId, int pasoId, Stream fileStream, string fileName);
     Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId);
     Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria);
@@ -30,6 +37,7 @@ public interface IPetsService
     Task DesactivarCatalogoItemAsync(int catalogoItemId);
     Task<int> SeleccionarCatalogoItemAsync(int petId, SeleccionarItemCatalogoRequest request);
     Task<int> AgregarItemPersonalizadoAsync(int petId, AgregarItemPersonalizadoRequest request);
+    Task AgregarItemsPersonalizadosBulkAsync(int petId, List<AgregarItemPersonalizadoRequest> items);
     Task EliminarSeleccionAsync(int petId, int seleccionId);
     Task DesactivarSeleccionesGrupoAsync(int petId, string grupo);
 

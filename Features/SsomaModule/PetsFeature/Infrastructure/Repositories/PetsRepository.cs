@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
@@ -193,6 +194,7 @@ public class PetsRepository : IPetsRepository
             ProyectoNombre = proyectoNombre,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
             Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
+            GestionPersonal = pasosPorSeccion.GetValueOrDefault("gestion_personal") ?? [],
             SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
             MarcoLegal = seleccionados.Where(x => x.Grupo == "marco_legal").ToList(),
             Epp = seleccionados.Where(x => x.Grupo == "epp").ToList(),
@@ -207,11 +209,41 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pasos = await ctx.SsomaPetPaso
             .Where(x => x.PetId == petId && x.Activo && x.Seccion == "procedimiento")
-            .OrderBy(x => x.Orden)
             .ToListAsync();
 
         var imagenesPorPaso = await CargarImagenesPorPasoAsync(ctx, pasos.Select(x => x.Id));
-        return pasos.Select(x => MapPaso(x, imagenesPorPaso)).ToList();
+
+        // "Orden" solo es único ENTRE HERMANOS del mismo ParentId (ver comentario en
+        // SsomaPetPaso) — un OrderBy(Orden) plano sobre toda la tabla intercala mal en
+        // cuanto hay más de un subtítulo con hijos (cada uno reinicia en 1, 2, 3...).
+        // Acá sí importa el orden real de lectura: OPT usa este endpoint para copiar
+        // los pasos y agruparlos por subtítulo, así que se recorre el árbol en DFS
+        // (mismo criterio que pets-detalle.ts arma en pantalla) y se aplana, calculando
+        // el nivel de profundidad de paso.
+        var hijosPorPadre = pasos
+            .Where(p => p.ParentId != null)
+            .GroupBy(p => p.ParentId!.Value)
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Orden).ToList());
+        var raiz = pasos.Where(p => p.ParentId == null).OrderBy(p => p.Orden).ToList();
+
+        var ordenados = new List<(SsomaPetPaso Paso, int Nivel)>();
+        void Recorrer(List<SsomaPetPaso> nodos, int nivel)
+        {
+            foreach (var n in nodos)
+            {
+                ordenados.Add((n, nivel));
+                if (hijosPorPadre.TryGetValue(n.Id, out var hijos))
+                    Recorrer(hijos, nivel + 1);
+            }
+        }
+        Recorrer(raiz, 0);
+
+        return ordenados.Select(o =>
+        {
+            var dto = MapPaso(o.Paso, imagenesPorPaso);
+            dto.Nivel = o.Nivel;
+            return dto;
+        }).ToList();
     }
 
     // Un PETS de contratista siempre tiene empresa dueña (obligatoria); el proyecto
@@ -232,6 +264,31 @@ public class PetsRepository : IPetsRepository
             throw new AbrilException("Selecciona la empresa contratista dueña del PETS.", 400);
 
         return ("Contratista", contributorId, proyectoId);
+    }
+
+    // Correlativo solo aplica a PETS "Abril" (catálogo propio) — el de Contratista
+    // varía por documento externo y se escribe manualmente. Se calcula por el mayor
+    // número ya usado (no un COUNT) para no repetir código si algún PETS intermedio
+    // fue borrado.
+    private static readonly Regex CodigoAbrilRegex = new(@"^SSO-PETS-(\d+)$", RegexOptions.Compiled);
+
+    public async Task<string> ObtenerSiguienteCodigoAbrilAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var codigos = await ctx.SsomaPet
+            .Where(p => p.Origen == "Abril" && p.Codigo != null)
+            .Select(p => p.Codigo!)
+            .ToListAsync();
+
+        var maxNumero = 0;
+        foreach (var codigo in codigos)
+        {
+            var match = CodigoAbrilRegex.Match(codigo);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var numero) && numero > maxNumero)
+                maxNumero = numero;
+        }
+
+        return $"SSO-PETS-{maxNumero + 1}";
     }
 
     public async Task<int> CrearAsync(CrearPetRequest request)
@@ -275,11 +332,46 @@ public class PetsRepository : IPetsRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task<int> ContarReferenciasExternasAsync(int petId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var enOpt = await ctx.Set<SsomaOpt>().CountAsync(o => o.PetId == petId);
+        var enAccidentes = await ctx.Set<SsomaAccidenteIncidente>().CountAsync(a => a.PetId == petId);
+        return enOpt + enAccidentes;
+    }
+
+    // Borra en el orden correcto por las FKs (hijos antes que el propio PETS). Los
+    // pasos se traen con su árbol completo (no solo Activo=true) porque un borrado
+    // real no debe dejar filas huérfanas desactivadas colgando.
+    public async Task EliminarAsync(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(id)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var pasoIds = await ctx.SsomaPetPaso.Where(p => p.PetId == id).Select(p => p.Id).ToListAsync();
+        if (pasoIds.Count > 0)
+        {
+            var imagenes = ctx.Set<SsomaPetPasoImagen>().Where(i => pasoIds.Contains(i.PasoId));
+            ctx.RemoveRange(imagenes);
+            await ctx.SaveChangesAsync();
+            ctx.RemoveRange(ctx.SsomaPetPaso.Where(p => p.PetId == id));
+        }
+
+        ctx.RemoveRange(ctx.Set<SsomaPetSeccionTexto>().Where(s => s.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetItemSeleccionado>().Where(s => s.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetAnexo>().Where(a => a.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetFirma>().Where(f => f.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetVersion>().Where(v => v.PetId == id));
+        ctx.SsomaPet.Remove(pet);
+        await ctx.SaveChangesAsync();
+    }
+
     private static readonly HashSet<string> TiposValidos = ["subtitulo", "paso", "letra", "guion"];
 
     // Solo estas dos secciones usan el árbol de pasos — el resto (Introducción,
     // Alcance, Objetivo, Definiciones, Restricciones) son bloques de texto único.
-    private static readonly HashSet<string> SeccionesValidas = ["procedimiento", "responsabilidades"];
+    private static readonly HashSet<string> SeccionesValidas = ["procedimiento", "responsabilidades", "gestion_personal"];
 
     private static string ValidarTipo(string? tipo)
     {
@@ -465,6 +557,49 @@ public class PetsRepository : IPetsRepository
                 paso.UpdatedAt = DateTime.UtcNow;
             }
         }
+        await ctx.SaveChangesAsync();
+    }
+
+    // Sangrar/quitar sangría: mueve el paso a otro grupo de hermanos (otro ParentId),
+    // agregándolo al final de ese grupo. Solo se puede anidar dentro de un
+    // "subtitulo" (es el único tipo que la pantalla dibuja con hijos), y se valida
+    // que el destino no sea el propio paso ni un descendiente suyo (evitar ciclos).
+    public async Task CambiarNivelPasoAsync(int petId, int pasoId, int? nuevoParentId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
+            ?? throw new AbrilException("Paso no encontrado.", 404);
+
+        if (nuevoParentId == pasoId)
+            throw new AbrilException("Un paso no puede ser su propio padre.", 400);
+
+        if (nuevoParentId != null)
+        {
+            var nuevoPadre = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == nuevoParentId && p.PetId == petId && p.Seccion == paso.Seccion)
+                ?? throw new AbrilException("El subtítulo destino no existe.", 404);
+            if (nuevoPadre.Tipo != "subtitulo")
+                throw new AbrilException("Solo se puede anidar dentro de un subtítulo.", 400);
+
+            var actual = nuevoPadre;
+            var visitados = new HashSet<int> { paso.Id };
+            while (actual.ParentId != null)
+            {
+                if (actual.ParentId == paso.Id)
+                    throw new AbrilException("No se puede mover un subtítulo dentro de sí mismo.", 400);
+                if (!visitados.Add(actual.ParentId.Value)) break;
+                actual = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == actual.ParentId)
+                    ?? throw new AbrilException("Estructura de pasos inconsistente.", 500);
+            }
+        }
+
+        var maxOrden = await ctx.SsomaPetPaso
+            .Where(p => p.PetId == petId && p.Seccion == paso.Seccion && p.ParentId == nuevoParentId && p.Activo)
+            .Select(p => (int?)p.Orden).MaxAsync() ?? 0;
+
+        paso.ParentId = nuevoParentId;
+        paso.Orden = maxOrden + 1;
+        paso.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }
 
@@ -745,6 +880,75 @@ public class PetsRepository : IPetsRepository
         ctx.SsomaPetItemSeleccionado.Add(nuevo);
         await ctx.SaveChangesAsync();
         return nuevo.Id;
+    }
+
+    public async Task AgregarItemsPersonalizadosBulkAsync(int petId, List<AgregarItemPersonalizadoRequest> items)
+    {
+        if (items.Count == 0) return;
+        foreach (var item in items) ValidarGrupoTipo(item.Grupo, item.Tipo);
+
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
+
+        var gruposEnLote = items.Select(i => i.Grupo).Distinct().ToList();
+
+        // Una sola consulta para TODO lo ya guardado en los grupos que aparecen en este
+        // lote (en vez de una consulta de duplicados por ítem) y una sola para el
+        // siguiente "Orden" de cada grupo — ver comentario en AgregarItemPersonalizadoAsync
+        // sobre por qué existe el chequeo de duplicados.
+        var existentes = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Activo && x.CatalogoItemId == null && x.DescripcionPersonalizada != null
+                && gruposEnLote.Contains(x.Grupo))
+            .ToListAsync();
+        var existentesPorGrupoTipo = existentes
+            .GroupBy(x => (x.Grupo, x.Tipo))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DescripcionPersonalizada!).ToList());
+
+        var maxOrdenPorGrupo = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Activo && gruposEnLote.Contains(x.Grupo))
+            .GroupBy(x => x.Grupo)
+            .Select(g => new { Grupo = g.Key, Max = g.Max(x => x.Orden) })
+            .ToDictionaryAsync(g => g.Grupo, g => g.Max);
+
+        var vistosEnEsteLote = new HashSet<(string Grupo, string? Tipo, string DescNorm)>();
+        var nuevos = new List<SsomaPetItemSeleccionado>();
+
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.Descripcion)) continue;
+            var descripcion = item.Descripcion.Trim();
+            var clave = (item.Grupo, item.Tipo);
+
+            var yaGuardado = existentesPorGrupoTipo.TryGetValue(clave, out var descripciones)
+                && descripciones.Any(d => string.Equals(d, descripcion, StringComparison.OrdinalIgnoreCase));
+            // El propio Word puede repetir la misma fila dos veces (o el usuario duplicó
+            // sin querer una fila en el triaje) — sin este chequeo, dos filas idénticas EN
+            // EL MISMO import se guardaban dos veces (el chequeo contra lo ya EXISTENTE en
+            // la base de datos no las agarra porque ninguna de las dos existía todavía).
+            var repetidoEnLote = !vistosEnEsteLote.Add((item.Grupo, item.Tipo, descripcion.ToUpperInvariant()));
+            if (yaGuardado || repetidoEnLote) continue;
+
+            maxOrdenPorGrupo.TryGetValue(item.Grupo, out var maxOrden);
+            maxOrdenPorGrupo[item.Grupo] = maxOrden + 1;
+
+            nuevos.Add(new SsomaPetItemSeleccionado
+            {
+                PetId = petId,
+                Grupo = item.Grupo,
+                Tipo = item.Tipo,
+                CatalogoItemId = null,
+                DescripcionPersonalizada = descripcion,
+                Orden = maxOrden + 1,
+                Activo = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
+        if (nuevos.Count == 0) return;
+        ctx.SsomaPetItemSeleccionado.AddRange(nuevos);
+        await ctx.SaveChangesAsync();
     }
 
     public async Task EliminarSeleccionAsync(int petId, int seleccionId)

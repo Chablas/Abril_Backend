@@ -38,7 +38,7 @@ public static class PetsPdfService
     public static async Task<byte[]> GenerarPdfAsync(PetDetalleDto pet, PetVersionDto? version)
     {
         var imagenesPorUrl = new Dictionary<string, byte[]>();
-        foreach (var url in pet.Pasos.Concat(pet.Responsabilidades)
+        foreach (var url in pet.Pasos.Concat(pet.Responsabilidades).Concat(pet.GestionPersonal)
                      .SelectMany(p => p.Imagenes.Select(i => i.Url))
                      .Where(u => !string.IsNullOrEmpty(u))
                      .Distinct())
@@ -85,6 +85,39 @@ public static class PetsPdfService
                     // arrancaba pegado al margen y el título 4px más adentro, desalineados.
                     void Parrafo(string texto, int nivel = 0) =>
                         col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Text(texto ?? string.Empty).FontSize(9);
+
+                    // Lista con viñetas — en columnas cuando es larga (catálogo de materiales
+                    // importado de un Word real, que puede traer 100-200+ ítems): una línea por
+                    // renglón para esa cantidad ocupa decenas de páginas. Listas cortas (Marco
+                    // Legal, EPP básico...) siguen igual que antes, una por renglón — partirlas
+                    // en columnas de 3-4 ítems no ahorra nada y se ve peor.
+                    const int umbralColumnas = 12;
+                    const int numColumnas = 3;
+                    void ListaEnColumnas(List<string> lineas, int nivel = 1)
+                    {
+                        if (lineas.Count == 0) { Parrafo("(Sin ítems seleccionados)", nivel); return; }
+
+                        if (lineas.Count <= umbralColumnas)
+                        {
+                            foreach (var l in lineas) Parrafo($"- {l}", nivel);
+                            return;
+                        }
+
+                        var porColumna = (int)Math.Ceiling(lineas.Count / (double)numColumnas);
+                        col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Row(row =>
+                        {
+                            for (var c = 0; c < numColumnas; c++)
+                            {
+                                var trozo = lineas.Skip(c * porColumna).Take(porColumna).ToList();
+                                if (trozo.Count == 0) continue;
+                                row.RelativeItem().PaddingRight(6).Column(colInterna =>
+                                {
+                                    foreach (var l in trozo)
+                                        colInterna.Item().PaddingBottom(3).Text($"- {l}").FontSize(9);
+                                });
+                            }
+                        });
+                    }
 
                     // Para Definiciones: "Término: descripción" -> el término en negrita. Si la
                     // línea no trae ":" se muestra igual, sin romper el resto del texto.
@@ -190,8 +223,7 @@ public static class PetsPdfService
                             contador++;
                             Parrafo($"{numeroSeccion}.{contador} {etiqueta}:");
                             var delTipo = items.Where(i => i.Tipo == tipo).ToList();
-                            if (delTipo.Count == 0) { Parrafo("(Sin ítems seleccionados)", 1); continue; }
-                            foreach (var i in delTipo) Parrafo($"- {i.Descripcion}", 1);
+                            ListaEnColumnas(delTipo.Select(i => i.Descripcion).ToList());
                         }
                     }
 
@@ -205,8 +237,7 @@ public static class PetsPdfService
                     TextoLibre(pet.SeccionesTexto.GetValueOrDefault("objetivo"));
 
                     Titulo("4. Marco Legal");
-                    if (pet.MarcoLegal.Count == 0) Parrafo("(Sin ítems seleccionados)");
-                    foreach (var m in pet.MarcoLegal) Parrafo($"- {m.Descripcion}");
+                    ListaEnColumnas(pet.MarcoLegal.Select(m => m.Descripcion).ToList(), nivel: 0);
 
                     Titulo("5. Definiciones");
                     TextoLibre(pet.SeccionesTexto.GetValueOrDefault("definiciones"), negritaAntesDeDosPuntos: true);
@@ -215,7 +246,11 @@ public static class PetsPdfService
                     Arbol(pet.Responsabilidades, "6");
 
                     Titulo("7. Gestión de personal");
-                    var contadorGestionPersonal = 0;
+                    // "7.1 Personal" (requisitos/experiencia por rol) va primero — el árbol ya
+                    // numera sus propios subtítulos de raíz como 7.1, 7.2... así que el catálogo
+                    // de EPP/Recursos que sigue debajo arranca justo después de esos, no desde 0.
+                    Arbol(pet.GestionPersonal, "7");
+                    var contadorGestionPersonal = pet.GestionPersonal.Count(p => p.ParentId == null && p.Tipo == "subtitulo");
                     CatalogoPorTipo(pet.Epp, TiposEpp, "7", ref contadorGestionPersonal);
                     CatalogoPorTipo(pet.Recursos, TiposRecurso, "7", ref contadorGestionPersonal);
 

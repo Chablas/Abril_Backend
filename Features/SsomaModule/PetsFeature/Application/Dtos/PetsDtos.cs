@@ -36,6 +36,11 @@ public class PetPasoDto
     public int Id { get; set; }
     public int? ParentId { get; set; }
     public string Tipo { get; set; } = "paso";
+
+    // Profundidad en el árbol (0 = nivel superior) — solo la calcula GetPasosAsync
+    // (consumido por OPT para poder agrupar/colapsar por subtítulo); GetDetalleAsync
+    // no la necesita porque el frontend de PETS ya arma su propio árbol con hijos[].
+    public int Nivel { get; set; }
     public string Descripcion { get; set; } = string.Empty;
 
     // Se mantiene = Imagenes.FirstOrDefault()?.Url para no romper nada que ya lea
@@ -75,6 +80,13 @@ public class PetDetalleDto
     // Responsabilidades sí tiene estructura real (subtítulo por cargo, con ítems
     // debajo) — es el único árbol además de Procedimiento.
     public List<PetPasoDto> Responsabilidades { get; set; } = [];
+
+    // Capítulo 7 fijo del PDF, "7.1 Personal" — mismo tipo de árbol que
+    // Responsabilidades (subtítulo por rol/cargo con las condiciones/requisitos de
+    // ese personal debajo), pero es un capítulo aparte: Responsabilidades describe
+    // QUÉ debe hacer cada rol: Gestión de Personal describe QUIÉN puede ocupar ese
+    // rol (experiencia mínima, certificaciones vigentes, etc.).
+    public List<PetPasoDto> GestionPersonal { get; set; } = [];
 
     // Secciones narrativas — un solo bloque de texto cada una, por clave:
     // introduccion | alcance | objetivo | definiciones | restricciones.
@@ -139,6 +151,14 @@ public class ActualizarPetPasoRequest
 {
     public string Descripcion { get; set; } = string.Empty;
     public string Tipo { get; set; } = "paso";
+}
+
+public class CambiarNivelPasoRequest
+{
+    // null = pasa al nivel superior de la sección. Si se indica, pasa a ser hijo de
+    // ese paso (debe ser "subtitulo" — es el único tipo que agrupa hijos en pantalla).
+    // Se agrega al final de ese nuevo grupo de hermanos.
+    public int? NuevoParentId { get; set; }
 }
 
 public class ActualizarCategoriaPasoRequest

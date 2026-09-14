@@ -20,7 +20,7 @@ public class PetsImportService : IPetsImportService
 {
     // Títulos de sección conocidos, en el orden en que normalmente aparecen en la
     // plantilla — el orden real en el documento no importa, se detectan por texto.
-    // SeccionArbol != null -> Procedimiento/Responsabilidades (van a ssoma_pet_paso).
+    // SeccionArbol != null -> Procedimiento/Responsabilidades/Gestión de Personal (van a ssoma_pet_paso).
     // SeccionTexto != null -> narrativas (van a ssoma_pet_seccion_texto, texto plano).
     // Ambos null -> el título sirve solo de LÍMITE (Marco Legal, Gestión de personal,
     // Anexos): son catálogo/archivos, no párrafos, así que su contenido no se
@@ -34,11 +34,24 @@ public class PetsImportService : IPetsImportService
         ("OBJETIVOS", "objetivo", null),
         ("MARCO LEGAL", null, null),
         ("DEFINICIONES", "definiciones", null),
+        // Singular/variantes de redacción reales — igual que OBJETIVO/OBJETIVOS de arriba.
+        // "Definición" (singular) apareció tal cual en un PETS real (Carpintería Metálica)
+        // y nunca calzaba con "DEFINICIONES": StartsWith exige que el título sea AL MENOS
+        // tan largo como el marcador, así que un singular más corto que el marcador plural
+        // jamás puede empezar por él, sin importar cuán flexible sea el resto de la regla.
+        ("DEFINICION", "definiciones", null),
         ("RESPONSABILIDADES", null, "responsabilidades"),
-        ("GESTION DE PERSONAL", null, null),
+        ("RESPONSABILIDAD", null, "responsabilidades"),
+        // Capítulo 7 fijo — árbol real (subtítulo "Personal" + roles/requisitos
+        // debajo), igual que Responsabilidades. Antes solo servía de LÍMITE (ambos
+        // null) y su contenido cae siempre a triaje manual — ahora se importa solo.
+        ("GESTION DE PERSONAL", null, "gestion_personal"),
+        ("GESTION DEL PERSONAL", null, "gestion_personal"),
         ("PROCEDIMIENTO", null, "procedimiento"),
         ("RESTRICCIONES", "restricciones", null),
+        ("RESTRICCION", "restricciones", null),
         ("ANEXOS", null, null),
+        ("ANEXO", null, null),
     ];
 
     private readonly IPetsService _petsService;
@@ -121,37 +134,59 @@ public class PetsImportService : IPetsImportService
         // Restricciones). Ahora también corta el tramo, pero como sección aparte
         // ("no reconocida") — nunca se asigna sola, el usuario decide a qué pestaña
         // enviarla.
-        // Marcador conocido más cercano hacia atrás de un índice dado — para decidir si un
-        // subtítulo (nivel > 1) que no calzó con ningún marcador está colgando de una
-        // sección con destino real (Responsabilidades, Procedimiento...), en cuyo caso NO
-        // debe cortarla, o de una sección "solo delimitadora" (Marco Legal, Gestión de
-        // personal, Anexos), en cuyo caso sí debe seguir ofreciéndose para triaje manual.
-        (int Indice, string? SeccionTexto, string? SeccionArbol)? MarcadorAnterior(int indice)
-        {
-            (int Indice, string? SeccionTexto, string? SeccionArbol)? mejor = null;
-            foreach (var l in limitesConocidos)
-                if (l.Indice < indice && (mejor is null || l.Indice > mejor.Value.Indice))
-                    mejor = l;
-            return mejor;
-        }
+        // Si el tramo actual está dentro de una sección con destino REAL (Responsabilidades,
+        // Procedimiento — donde AnotarParrafos ya arma su propia jerarquía de subtítulos) o
+        // no. Se actualiza según el límite MÁS CERCANO hacia atrás, sea conocido (marcador de
+        // la plantilla) o desconocido (cualquier otro encabezado real, ej. un título que la
+        // plantilla no anticipó, o que viene con una redacción distinta — "Gestión DEL
+        // Personal" en vez de "Gestión DE Personal" — y por eso no calzó como marcador
+        // conocido). Antes esto solo miraba limitesConocidos, así que un marcador que no
+        // calzó exacto por una simple variación de redacción quedaba tratado como si
+        // estuviera colgando de Responsabilidades/Procedimiento, y sus subtítulos internos
+        // (EPP, Materiales...) nunca se ofrecían como corte — todo el contenido cae en un
+        // solo bloque de triaje. Se recorre en el MISMO orden que los párrafos (índice
+        // creciente), así que un simple booleano que se actualiza al cruzar cada límite
+        // alcanza — no hace falta buscar hacia atrás en cada iteración.
+        var dentroDeSeccionConDestino = false;
 
         var limitesDesconocidos = new List<(int Indice, string Titulo)>();
         for (var i = 0; i < paragraphs.Count; i++)
         {
-            if (indicesConocidos.Contains(i)) continue;
+            if (indicesConocidos.Contains(i))
+            {
+                var conocido = limitesConocidos.First(l => l.Indice == i);
+                dentroDeSeccionConDestino = conocido.SeccionArbol != null || conocido.SeccionTexto != null;
+                continue;
+            }
+
             var texto = textosParrafos[i].Trim();
             if (string.IsNullOrWhiteSpace(texto)) continue;
             var styleName = stylesParrafos[i];
-            if (!EsEncabezadoGenerico(texto, styleName)) continue;
 
-            if (NivelEncabezado(styleName) > 1)
-            {
-                var anterior = MarcadorAnterior(i);
-                if (anterior is { SeccionArbol: not null } or { SeccionTexto: not null })
-                    continue; // subtítulo anidado dentro de una sección con destino real: es contenido de esa sección, no un corte propio.
-            }
+            var esEncabezadoPorEstilo = EsEncabezadoGenerico(texto, styleName);
+
+            // Dentro de una sección SIN destino real (Marco Legal, Gestión de Personal,
+            // Anexos, o cualquier encabezado desconocido), un subtítulo real casi nunca
+            // lleva estilo Heading/Título de Word — en la práctica viene marcado solo con
+            // negrita ("Equipo de Protección Personal", "Materiales"...), SIN necesitar
+            // además estar en MAYÚSCULAS (esa exigencia es de otro heurístico, pensado para
+            // roles de Responsabilidades). Sin este corte extra, todo el contenido de la
+            // sección (EPP + herramientas + materiales, por ejemplo) caía en un solo bloque
+            // de triaje, mezclado, obligando a re-tipear cada fila a mano.
+            var esSubtituloInformalPorNegrita = !esEncabezadoPorEstilo
+                && !dentroDeSeccionConDestino
+                && EsParrafoTodoNegrita(paragraphs[i])
+                && texto.Length <= 60
+                && !Regex.IsMatch(texto, @"[.!?]\s*$")
+                && !EsRuidoDeFiguraOTabla(texto, styleName);
+
+            if (!esEncabezadoPorEstilo && !esSubtituloInformalPorNegrita) continue;
+
+            if (esEncabezadoPorEstilo && NivelEncabezado(styleName) > 1 && dentroDeSeccionConDestino)
+                continue; // subtítulo anidado dentro de una sección con destino real: es contenido de esa sección, no un corte propio.
 
             limitesDesconocidos.Add((i, LimpiarNumeroInicial(texto)));
+            dentroDeSeccionConDestino = false; // todo encabezado/subtítulo desconocido abre una sección SIN destino real (triaje manual).
         }
 
         // Todo título que sea límite de sección (conocido o no) se marca ANTES de anotar
@@ -304,6 +339,14 @@ public class PetsImportService : IPetsImportService
 
             var styleName = stylesParrafos[i];
 
+            // Ruido que Word genera solo, nunca contenido real del procedimiento: la
+            // leyenda de una tabla/figura ("Tabla 1 Consideraciones...", "Ilustración 3
+            // ...", estilo "caption") y la línea "Fuente: Elaboración propia" que se
+            // repite debajo de cada tabla. Sin imagen propia (si la tuviera, sí se
+            // conserva) — se descartan ANTES de anotar para que no aparezcan como filas
+            // sueltas en el preview ni corten nada como sección.
+            if (imagenes.Count == 0 && EsRuidoDeFiguraOTabla(texto, styleName)) continue;
+
             var (tipo, nivel) = ClasificarTipo(texto, styleName, EsParrafoTodoNegrita(paragraphs[i]));
             var textoGuardado = LimpiarPrefijoParaGuardar(texto, tipo);
 
@@ -362,12 +405,27 @@ public class PetsImportService : IPetsImportService
     // que es un cargo/rol, no una oración); "a. texto" -> letra; "- texto" / "• texto"
     // -> guión; cualquier otra cosa (Normal, Body Text, List Paragraph sin viñeta
     // detectable) -> paso simple.
+    // Ningún PETS real usa más de 4 niveles de encabezado (Heading1..4 alcanza incluso
+    // para "Elementos Verticales (Placas)" → "Encofrado de Placas"). Un documento real
+    // (Carpintería Metálica) trae un catálogo de ~220 materiales pegado desde Excel
+    // donde CADA fila quedó con estilo "Heading 8" por un error de Word al pegar — si
+    // se confía en el estilo tal cual, cada material se lee como el título de su
+    // propia sección nueva, y la importación explota en cientos de secciones vacías
+    // "no reconocidas". Por eso un heading más profundo que esto se ignora como
+    // estructura y cae a las heurísticas de abajo (numeración, negrita) como un
+    // párrafo cualquiera.
+    private const int NivelMaximoEncabezadoEstructural = 4;
+
     private static (string Tipo, int Nivel) ClasificarTipo(string texto, string? styleName, bool esNegritaCompleta)
     {
         if (!string.IsNullOrEmpty(styleName))
         {
             var m = Regex.Match(styleName, @"heading\s*(\d+)", RegexOptions.IgnoreCase);
-            if (m.Success) return ("subtitulo", int.Parse(m.Groups[1].Value));
+            if (m.Success)
+            {
+                var nivelHeading = int.Parse(m.Groups[1].Value);
+                if (nivelHeading <= NivelMaximoEncabezadoEstructural) return ("subtitulo", nivelHeading);
+            }
         }
 
         var t = texto.TrimStart();
@@ -384,12 +442,15 @@ public class PetsImportService : IPetsImportService
 
         // "Sin punto final" descarta oraciones normales resaltadas en negrita por
         // énfasis (ej. una advertencia en Restricciones) — un rol/cargo real ("Jefe de
-        // SSOMA", "Operario de Grúa") es una frase corta, nunca termina en ".", "!" ni "?".
+        // SSOMA", "Operario de Grúa", "Residente de Obra") es una frase corta, nunca
+        // termina en ".", "!" ni "?". Ya NO se exige que esté en MAYÚSCULAS: muchos
+        // documentos reales escriben el rol en negrita con formato normal ("Residente
+        // de Obra", no "RESIDENTE DE OBRA") y ese caso quedaba sin detectar — la
+        // combinación negrita + corto + sin punto final ya es suficiente señal.
         if (esNegritaCompleta
-            && t.Length is > 0 and <= 40
+            && t.Length is > 0 and <= 90
             && !Regex.IsMatch(t, @"[.!?]\s*$")
-            && t.Any(char.IsLetter)
-            && t.Where(char.IsLetter).All(c => !char.IsLower(c)))
+            && t.Any(char.IsLetter))
         {
             return ("subtitulo", 1);
         }
@@ -512,12 +573,13 @@ public class PetsImportService : IPetsImportService
                 await _petsService.DesactivarSeleccionesGrupoAsync(petId, grupo);
         }
 
-        foreach (var item in request.ItemsCatalogo)
-        {
-            if (string.IsNullOrWhiteSpace(item.Descripcion)) continue;
-            item.AgregarAlCatalogoGlobal = false;
-            await _petsService.AgregarItemPersonalizadoAsync(petId, item);
-        }
+        // En lote (no uno por uno): un PETS real puede traer 200+ ítems triados (ej. un
+        // catálogo de materiales mal-taggeado como encabezados, ver PetsImportService en
+        // el comentario de EsRuidoDeFiguraOTabla/NivelMaximoEncabezadoEstructural) — a uno
+        // por uno cada ítem hacía ~3 round-trips propios a la base de datos, así que
+        // confirmar una importación así tardaba varios minutos.
+        foreach (var item in request.ItemsCatalogo) item.AgregarAlCatalogoGlobal = false;
+        await _petsService.AgregarItemsPersonalizadosBulkAsync(petId, request.ItemsCatalogo);
     }
 
     private static string GetParagraphText(Paragraph p)
@@ -532,6 +594,28 @@ public class PetsImportService : IPetsImportService
     {
         return s.ToUpperInvariant()
             .Replace('Á', 'A').Replace('É', 'E').Replace('Í', 'I').Replace('Ó', 'O').Replace('Ú', 'U');
+    }
+
+    // "caption" es el estilo NATIVO que Word asigna solo al insertar un título de tabla
+    // o figura (Insertar > Título) — nunca se usa para redactar un paso real, así que
+    // es una señal 100% confiable, no una heurística de texto. "Fuente: Elaboración
+    // propia" no tiene estilo propio (viene como "Body Text" normal, igual que
+    // narrativa real), así que ahí sí hace falta comparar el texto — se exige
+    // coincidencia casi exacta (con o sin espacio/punto final) para no descartar por
+    // error una oración real que solo empiece parecido.
+    private static bool EsRuidoDeFiguraOTabla(string texto, string? styleName)
+    {
+        if (!string.IsNullOrEmpty(styleName) && string.Equals(styleName, "caption", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var limpio = Normalizar(texto.Trim().TrimEnd('.', ' '));
+        if (limpio == "FUENTE: ELABORACION PROPIA" || limpio == "FUENTE ELABORACION PROPIA") return true;
+
+        // Encabezados de columna de una tabla (ej. "DESCRIPCIÓN" repetido dos veces por
+        // una celda de cabecera fusionada/duplicada en el Word de origen) — no son
+        // contenido, y en negrita+mayúsculas calzarían con el heurístico de "subtítulo
+        // informal" de más abajo si no se descartan acá primero.
+        return limpio is "DESCRIPCION" or "CANTIDAD" or "UNIDAD" or "ITEM";
     }
 
     // El párrafo debe SER el título de la sección (ej. "7. PROCEDIMIENTO DE TRABAJO"),
@@ -593,6 +677,10 @@ public class PetsImportService : IPetsImportService
     private static bool EsEncabezadoGenerico(string texto, string? styleName)
     {
         if (styleName == null || !Regex.IsMatch(styleName, @"heading|tulo", RegexOptions.IgnoreCase)) return false;
+        // Mismo tope que ClasificarTipo: un heading más profundo que 4 casi siempre es
+        // un catálogo mal pegado (ver comentario en NivelMaximoEncabezadoEstructural),
+        // no un corte de sección real — no se ofrece como límite ni como "no reconocida".
+        if (NivelEncabezado(styleName) > NivelMaximoEncabezadoEstructural) return false;
         var limpio = Regex.Replace(texto.Trim(), @"^\d+[\.\)]?\s*-?\s*", "").TrimEnd('.', ':', ' ');
         return limpio.Length > 0 && limpio.Length <= 100;
     }

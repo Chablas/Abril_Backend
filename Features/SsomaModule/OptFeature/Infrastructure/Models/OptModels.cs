@@ -37,7 +37,12 @@ public class SsomaOpt
     public int TotalSeguros { get; set; }
     public int TotalInseguros { get; set; }
     public decimal? ScorePct { get; set; }
-    public string Estado { get; set; } = "Completado";
+
+    // "borrador" (a medio llenar, se puede seguir editando) | "finalizado" (registro
+    // oficial, de solo lectura). "Completado" es el valor histórico que tenían todas
+    // las OPT creadas antes de que existiera el concepto de borrador — se trata igual
+    // que "finalizado" en todo el código (ver EsFinalizado en OptRepository).
+    public string Estado { get; set; } = "borrador";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public int? CreatedBy { get; set; }
 
@@ -231,8 +236,29 @@ public class SsomaOptPaso
     public string NumeroDisplay { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
     public int Nivel { get; set; } = 1;
+
+    // subtitulo | paso — copiado del PETS al momento de traer los pasos (ver
+    // PetsFeature.GetPasosAsync), sirve para que la pantalla de OPT pueda agrupar y
+    // colapsar por subtítulo igual que ya hace PETS. Un "subtitulo" no se marca
+    // Seguro/Inseguro/MejorPractica, solo agrupa visualmente lo que sigue debajo.
+    public string Tipo { get; set; } = "paso";
+
+    // Seguro | Inseguro | MejorPractica | NA (o null = sin marcar todavía).
     public string? Resultado { get; set; }
     public string? DesviacionObservada { get; set; }
+
+    // true = actividad real observada que el PETS NO contemplaba — se agregó a mano
+    // durante la observación (botón "+ Actividad no contemplada"), no vino del
+    // catálogo del PETS. Dispara la sugerencia de "Modificar/Ampliar el PETS".
+    public bool EsNoContemplado { get; set; }
+
+    // true = esta fila la agregó el observador a mano (paso suelto o "actividad no
+    // contemplada"), no vino del catálogo del PETS — solo estas se pueden eliminar
+    // de la observación. Un paso/subtítulo del catálogo nunca se borra: si no aplica
+    // hoy, se marca "No aplica" (documenta que SÍ se revisó, en vez de desaparecer
+    // en silencio del reporte).
+    public bool EsManual { get; set; }
+
     public int Orden { get; set; }
 
     public SsomaOpt? Opt { get; set; }

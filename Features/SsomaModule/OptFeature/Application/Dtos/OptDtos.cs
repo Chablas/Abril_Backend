@@ -47,8 +47,11 @@ public class OptPasoRequest
     public string NumeroDisplay { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
     public int Nivel { get; set; } = 1;
+    public string Tipo { get; set; } = "paso";
     public string? Resultado { get; set; }
     public string? DesviacionObservada { get; set; }
+    public bool EsNoContemplado { get; set; }
+    public bool EsManual { get; set; }
     public int Orden { get; set; }
 }
 
@@ -80,6 +83,12 @@ public class CrearOptRequest
     public List<OptVerificacionRequest> Verificaciones { get; set; } = [];
     public List<OptPasoRequest> Pasos { get; set; } = [];
     public List<string> FotosAreaBase64 { get; set; } = [];
+
+    // true (default) = registro oficial, exige los mínimos (3 fotos, etc.) y queda de
+    // solo lectura. false = borrador: se puede guardar a medio llenar (sin fotos
+    // todavía, sin trabajadores, etc.) para retomarlo después — ver "Continuar
+    // llenando" en la lista de OPT.
+    public bool Finalizar { get; set; } = true;
 }
 
 // ── Respuestas ─────────────────────────────────────────────────────────────
@@ -111,8 +120,11 @@ public class OptPasoDto
     public string NumeroDisplay { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
     public int Nivel { get; set; }
+    public string Tipo { get; set; } = "paso";
     public string? Resultado { get; set; }
     public string? DesviacionObservada { get; set; }
+    public bool EsNoContemplado { get; set; }
+    public bool EsManual { get; set; }
     public int Orden { get; set; }
 }
 

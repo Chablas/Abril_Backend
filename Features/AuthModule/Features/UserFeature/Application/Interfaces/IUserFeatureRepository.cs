@@ -8,6 +8,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces
     {
         Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null, int? categoriaId = null);
         Task<List<UserCategoriaOptionDto>> GetCategoriaOptions();
+        /// <summary>Null si el usuario no existe o fue eliminado.</summary>
+        Task<UserDetailDto?> GetDetail(int userId);
         Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser();
         Task<UserModel> Create(UserFeatureCreateDto dto);
         Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId);

@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     {
         Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryIdFactory(int milestoneScheduleHistoryId);
         Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesThisMonthAsync();
+        Task<int?> GetProjectIdByMilestoneScheduleId(int milestoneScheduleId);
         Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId);
         Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId);
     }

@@ -6,6 +6,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
@@ -52,7 +53,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var result = await _service.Create(dto, userId);
+                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
+                var result = await _service.Create(dto, userId, esAdminResidentes);
 
                 if (result.Changes.Any())
                 {
@@ -68,7 +70,29 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Eliminar (soft-delete) una versión de cronograma ya creada — solo el
+        /// ADMINISTRADOR DE RESIDENTES puede hacerlo, en cualquier proyecto.</summary>
+        [Authorize(Roles = Roles.AdministradorResidentes)]
+        [HttpDelete("{milestoneScheduleHistoryId:int}")]
+        public async Task<IActionResult> Delete(int milestoneScheduleHistoryId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                await _service.DeleteAsync(milestoneScheduleHistoryId, userId);
+                return Ok(new { message = "Cronograma eliminado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

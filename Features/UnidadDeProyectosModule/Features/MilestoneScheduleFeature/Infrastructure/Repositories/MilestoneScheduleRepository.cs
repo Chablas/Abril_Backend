@@ -82,6 +82,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             return await registros.ToListAsync();
         }
 
+        /// <summary>Resuelve el proyecto dueño de un hito, para validar que quien edita
+        /// (Culminar/MarcarCritico) es el residente asignado a ese proyecto.</summary>
+        public async Task<int?> GetProjectIdByMilestoneScheduleId(int milestoneScheduleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from ms in ctx.MilestoneSchedule
+                join msh in ctx.MilestoneScheduleHistory on ms.MilestoneScheduleHistoryId equals msh.MilestoneScheduleHistoryId
+                where ms.MilestoneScheduleId == milestoneScheduleId && ms.State
+                select (int?)msh.ProjectId
+            ).FirstOrDefaultAsync();
+        }
+
         public async Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId)
         {
             using var ctx = _factory.CreateDbContext();

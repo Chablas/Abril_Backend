@@ -325,8 +325,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         /// </summary>
         public async Task<ProjectLookupsDto> GetLookups()
         {
-            const string SubareaArqCom = "Arquitectura Comercial";
-            const string SubareaUdp    = "Unidad de Proyectos";
+            const string SubareaArqCom          = "Arquitectura Comercial";
+            const string SubareaUdp             = "Unidad de Proyectos";
+            const string SubareaPlaneamientoUdp = "Planeamiento BIM";
 
             // Un solo roundtrip: se filtra por la unión de los tres criterios y se reparte
             // en memoria. El coordinador administrativo usa el mismo criterio que Gestión de
@@ -338,7 +339,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             var filas = await _context.Worker
                 .Where(w =>
                     (w.WorkersEstadoId == WorkersEstadoIds.Activo &&
-                        (w.Subarea == SubareaArqCom || w.Subarea == SubareaUdp)) ||
+                        (w.Subarea == SubareaArqCom || w.Subarea == SubareaUdp || w.Subarea == SubareaPlaneamientoUdp)) ||
                     (w.ContrataCasa == "Casa" &&
                      WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId) &&
                      w.EmailCorporativo != null && w.EmailCorporativo != ""))
@@ -376,6 +377,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaArqCom)),
                 Udp = Armar(candidatos
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaUdp)),
+                PlaneamientoUdp = Armar(candidatos
+                    .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaPlaneamientoUdp)),
                 CoordAdmins = Armar(candidatos
                     .Where(w => w.ContrataCasa == "Casa"
                              && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)

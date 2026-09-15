@@ -69,6 +69,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public int ProjectId { get; set; }
         public List<MilestoneScheduleCreateDTO> MilestoneSchedules { get; set; }
         public bool ForceSave { get; set; }
+        /// <summary>El usuario ya vio la advertencia de hitos sin fecha y confirmó guardar así.
+        /// Independiente de <see cref="ForceSave"/> (ese es para "guardar igual a la versión
+        /// anterior"), ver MilestoneScheduleHistoryRepository.ValidarFechasCompletasAsync.</summary>
+        public bool ConfirmarHitosSinFecha { get; set; }
     }
 
     public class MilestoneScheduleHistoryDTO

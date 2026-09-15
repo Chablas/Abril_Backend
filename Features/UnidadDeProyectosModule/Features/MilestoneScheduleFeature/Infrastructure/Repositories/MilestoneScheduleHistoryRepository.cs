@@ -41,6 +41,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public async Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
         {
             await ValidarHitosObligatoriosAsync(dto.MilestoneSchedules);
+            await ValidarFechasCompletasAsync(dto.MilestoneSchedules, dto.ConfirmarHitosSinFecha);
 
             var lastHistory = await _context.MilestoneScheduleHistory
                 .Where(h => h.ProjectId == dto.ProjectId && h.Active && h.State)
@@ -147,9 +148,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             return new ScheduleChangeResult { ProjectName = projectName, Changes = changes };
         }
 
+        /// <summary>"Inicio de obra" es el único hito obligatorio/puntual cuya fecha única va en
+        /// PlannedStartDate en vez de PlannedEndDate (conceptualmente es una fecha de inicio, no
+        /// de fin) — PlannedStartDate no admite null en el DTO, así que ya queda garantizado sin
+        /// exigir PlannedEndDate. Misma excepción en MilestoneScheduleService.BuildFakeSchedule.</summary>
+        private const string DescripcionInicioDeObra = "Inicio de obra";
+
         /// <summary>Última línea de defensa server-side: un hito marcado es_obligatorio=true en el
-        /// catálogo debe llegar con PlannedEndDate. El frontend también valida, pero no hay que
-        /// confiar solo en eso (ej. Postman/DevTools contra el endpoint directo).</summary>
+        /// catálogo debe llegar con PlannedEndDate (salvo "Inicio de obra", ver constante). El
+        /// frontend también valida, pero no hay que confiar solo en eso (ej. Postman/DevTools
+        /// contra el endpoint directo).</summary>
         private async Task ValidarHitosObligatoriosAsync(List<MilestoneScheduleCreateDTO> milestoneSchedules)
         {
             var milestoneIds = milestoneSchedules
@@ -169,6 +177,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             var faltantes = milestoneSchedules
                 .Where(m => m.MilestoneId.HasValue
                             && obligatorios.ContainsKey(m.MilestoneId.Value)
+                            && obligatorios[m.MilestoneId.Value] != DescripcionInicioDeObra
                             && m.PlannedEndDate == null)
                 .Select(m => obligatorios[m.MilestoneId!.Value])
                 .Distinct()
@@ -177,6 +186,79 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             if (faltantes.Count > 0)
                 throw new AbrilException(
                     $"Los siguientes hitos son obligatorios y deben tener una fecha: {string.Join(", ", faltantes)}.");
+        }
+
+        /// <summary>Advertencia previa a guardar (bloquea salvo que el usuario ya confirmó vía
+        /// <see cref="MilestoneScheduleHistoryCreateDTO.ConfirmarHitosSinFecha"/>): cualquier hito
+        /// del envío —de catálogo o personalizado— que no traiga PlannedEndDate se reporta por
+        /// nombre. Los obligatorios ya fueron bloqueados duro por ValidarHitosObligatoriosAsync
+        /// antes de llegar acá, así que nunca aparecen en esta lista — esto cubre el resto de
+        /// hitos, que sí se pueden guardar sin fecha si el usuario confirma explícitamente.
+        /// "Inicio de obra" es la excepción cuya fecha única va en PlannedStartDate (ver constante
+        /// DescripcionInicioDeObra), no se le exige PlannedEndDate.</summary>
+        private async Task ValidarFechasCompletasAsync(List<MilestoneScheduleCreateDTO> milestoneSchedules, bool confirmado)
+        {
+            if (confirmado) return;
+
+            var milestoneIds = milestoneSchedules
+                .Where(m => m.MilestoneId.HasValue)
+                .Select(m => m.MilestoneId!.Value)
+                .Distinct()
+                .ToList();
+
+            var descripciones = milestoneIds.Count == 0
+                ? new Dictionary<int, string>()
+                : await _context.Milestone
+                    .Where(m => milestoneIds.Contains(m.MilestoneId))
+                    .ToDictionaryAsync(m => m.MilestoneId, m => m.MilestoneDescription);
+
+            string Describe(MilestoneScheduleCreateDTO m) =>
+                m.MilestoneId.HasValue
+                    ? descripciones.GetValueOrDefault(m.MilestoneId.Value, "Desconocido")
+                    : (m.CustomDescription ?? "Hito personalizado");
+
+            var sinFecha = milestoneSchedules
+                .Where(m => m.PlannedEndDate == null && Describe(m) != DescripcionInicioDeObra)
+                .Select(Describe)
+                .Distinct()
+                .ToList();
+
+            if (sinFecha.Count > 0)
+                throw new AbrilException(
+                    $"Los siguientes hitos no tienen fecha registrada: {string.Join(", ", sinFecha)}. Si deseas guardar de todas formas, confirma nuevamente.");
+        }
+
+        /// <summary>Soft-delete de una versión de cronograma completa (la cabecera y sus hitos).
+        /// Solo lo puede llamar ADMINISTRADOR DE RESIDENTES (gateado en el controller).</summary>
+        public async Task DeleteAsync(int milestoneScheduleHistoryId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var history = await ctx.MilestoneScheduleHistory
+                .FirstOrDefaultAsync(h => h.MilestoneScheduleHistoryId == milestoneScheduleHistoryId && h.State);
+            if (history == null)
+                throw new AbrilException("Cronograma no encontrado.", 404);
+
+            var now = DateTime.UtcNow;
+
+            history.State = false;
+            history.Active = false;
+            history.UpdatedDateTime = now;
+            history.UpdatedUserId = userId;
+
+            var milestones = await ctx.MilestoneSchedule
+                .Where(ms => ms.MilestoneScheduleHistoryId == milestoneScheduleHistoryId && ms.State)
+                .ToListAsync();
+
+            foreach (var ms in milestones)
+            {
+                ms.State = false;
+                ms.Active = false;
+                ms.UpdatedDateTime = now;
+                ms.UpdatedUserId = userId;
+            }
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth()

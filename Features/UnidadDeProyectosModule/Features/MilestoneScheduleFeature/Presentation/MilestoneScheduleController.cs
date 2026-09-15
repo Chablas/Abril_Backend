@@ -4,6 +4,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
@@ -58,7 +59,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId);
+                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
+                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId, esAdminResidentes);
                 var message = request.FechaRealFin.HasValue
                     ? "Hito marcado como culminado."
                     : "Hito desmarcado como culminado.";
@@ -87,7 +89,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId);
+                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
+                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId, esAdminResidentes);
                 var message = request.EsHitoCritico
                     ? "Hito marcado como crítico."
                     : "Hito desmarcado como crítico.";

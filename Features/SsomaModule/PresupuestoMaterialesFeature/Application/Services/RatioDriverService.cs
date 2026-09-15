@@ -25,6 +25,12 @@ public class RatioDriverService : IRatioDriverService
 {
     public const string HH = "HH";
     public const string TRABAJADORES = "TRABAJADORES";
+    /// <summary>Proxy de cuántos miembros de Staff hubo en el proyecto — dos señales
+    /// independientes (casco blanco/ingeniero, orejera 3M), ambas EPP que se entregan una sola
+    /// vez por persona. Sin fuente Manual/Proyectado (no existe un campo tipeado en Project para
+    /// esto, a diferencia de HH/Trabajadores) — el único valor posible es el Calculado.</summary>
+    public const string STAFF_CASCO = "STAFF_CASCO";
+    public const string STAFF_OREJERA = "STAFF_OREJERA";
 
     private readonly IRatioDriverRepository _repo;
     public RatioDriverService(IRatioDriverRepository repo) => _repo = repo;
@@ -38,6 +44,8 @@ public class RatioDriverService : IRatioDriverService
         var projectIds = proyectos.Select(p => p.ProjectId).ToList();
         var hhPorProyecto = (await _repo.ObtenerHhRealPorProyectoAsync(projectIds)).ToDictionary(h => h.ProjectId);
         var trabPorProyecto = (await _repo.ObtenerTrabajadoresRealPorProyectoAsync(projectIds)).ToDictionary(t => t.ProjectId);
+        var staffCascoPorProyecto = (await _repo.ObtenerStaffCascoPorProyectoAsync(projectIds)).ToDictionary(s => s.ProjectId);
+        var staffOrejeraPorProyecto = (await _repo.ObtenerStaffOrejeraPorProyectoAsync(projectIds)).ToDictionary(s => s.ProjectId);
 
         var items = new List<RatioDriverUpsertItem>();
         var sinTareo = 0;
@@ -117,6 +125,47 @@ public class RatioDriverService : IRatioDriverService
                     IncluidoManualDefault = incluidoPorDefecto,
                 });
             }
+
+            // Staff (casco/orejera): sin Manual/Proyectado propio — el único valor es el
+            // calculado desde consumo real, igual criterio de inclusión por defecto que los
+            // otros dos drivers (solo proyectos Finalizados entran solos a la mediana).
+            var staffCasco = staffCascoPorProyecto.TryGetValue(p.ProjectId, out var sc) ? sc.Cantidad : 0;
+            if (staffCasco > 0)
+            {
+                items.Add(new RatioDriverUpsertItem
+                {
+                    TipoDriver = STAFF_CASCO,
+                    ProjectId = p.ProjectId,
+                    AreaTechada = p.AreaTechada,
+                    Cantidad = staffCasco,
+                    Ratio = staffCasco / p.AreaTechada,
+                    CantidadCalculado = staffCasco,
+                    CantidadManual = null,
+                    CantidadProyectado = null,
+                    FuenteCantidadDefault = "CALCULADO",
+                    DiasRegistrados = 0,
+                    IncluidoManualDefault = incluidoPorDefecto,
+                });
+            }
+
+            var staffOrejera = staffOrejeraPorProyecto.TryGetValue(p.ProjectId, out var so) ? so.Cantidad : 0;
+            if (staffOrejera > 0)
+            {
+                items.Add(new RatioDriverUpsertItem
+                {
+                    TipoDriver = STAFF_OREJERA,
+                    ProjectId = p.ProjectId,
+                    AreaTechada = p.AreaTechada,
+                    Cantidad = staffOrejera,
+                    Ratio = staffOrejera / p.AreaTechada,
+                    CantidadCalculado = staffOrejera,
+                    CantidadManual = null,
+                    CantidadProyectado = null,
+                    FuenteCantidadDefault = "CALCULADO",
+                    DiasRegistrados = 0,
+                    IncluidoManualDefault = incluidoPorDefecto,
+                });
+            }
         }
 
         if (items.Count > 0)
@@ -163,6 +212,8 @@ public class RatioDriverService : IRatioDriverService
         {
             Hh = await CalcularRecomendadoAsync(HH),
             Trabajadores = await CalcularRecomendadoAsync(TRABAJADORES),
+            StaffCasco = await CalcularRecomendadoAsync(STAFF_CASCO),
+            StaffOrejera = await CalcularRecomendadoAsync(STAFF_OREJERA),
         };
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

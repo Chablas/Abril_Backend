@@ -60,7 +60,7 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                        WHEN ph.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
-                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       THEN ROUND(GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0), 4)
                        ELSE ph.semanas
                    END AS Semanas,
                    ph.costo_mensual AS CostoMensual,
@@ -68,13 +68,17 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                    -- salida) después de guardar, "Semanas" ya se recalculaba acá pero "Total" se
                    -- quedaba con el valor viejo — quedaba desalineado con la Cantidad/Semanas que
                    -- se veían en pantalla.
-                   ph.cantidad * ph.costo_mensual * (CASE
+                   -- ROUND(...) acota la escala del numeric antes de que Dapper lo mapee a decimal:
+                   -- sin esto, GREATEST(.../7.0) arrastra escala ilimitada y al multiplicarse se pasa
+                   -- de los ~28 dígitos que soporta System.Decimal, tirando OverflowException (500
+                   -- silencioso, sin loguear, porque el catch genérico del controller no loguea).
+                   ROUND(ph.cantidad * ph.costo_mensual * (CASE
                        WHEN ph.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
                        THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
                        ELSE ph.semanas
-                   END) AS Total
+                   END), 2) AS Total
             FROM ss_presupuesto_personal_hito ph
             JOIN ss_presupuesto p ON p.id = ph.presupuesto_id
             JOIN cronograma_vigente cv ON cv.milestone_schedule_id = ph.hito_id

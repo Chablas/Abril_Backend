@@ -15,10 +15,15 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
 public class PresupuestoMaterialesController : ControllerBase
 {
     private readonly IPresupuestoService _service;
+    private readonly IPresupuestoResumenExportService _exportService;
     private readonly ILogger<PresupuestoMaterialesController> _logger;
-    public PresupuestoMaterialesController(IPresupuestoService service, ILogger<PresupuestoMaterialesController> logger)
+    public PresupuestoMaterialesController(
+        IPresupuestoService service,
+        IPresupuestoResumenExportService exportService,
+        ILogger<PresupuestoMaterialesController> logger)
     {
         _service = service;
+        _exportService = exportService;
         _logger = logger;
     }
 
@@ -162,5 +167,41 @@ public class PresupuestoMaterialesController : ControllerBase
             return Ok(new { estado });
         }
         catch (Exception) { return StatusCode(500, new { message = "Error al aprobar presupuesto." }); }
+    }
+
+    /// <summary>Resumen de recursos (Materiales + Personal + Vigilancia + Servicios fijos + Kits) del
+    /// presupuesto vigente del proyecto, en el mismo formato "Desagregado de Recursos" que usa Costos.</summary>
+    [HttpGet("proyectos/{projectId}/resumen-recursos")]
+    public async Task<IActionResult> ObtenerResumenRecursos(int projectId)
+    {
+        try
+        {
+            var resumen = await _exportService.ObtenerResumenAsync(projectId);
+            if (resumen is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return Ok(resumen);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener el resumen de recursos del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener el resumen de recursos." });
+        }
+    }
+
+    /// <summary>Exporta el resumen de recursos del proyecto a Excel (.xlsx).</summary>
+    [HttpGet("proyectos/{projectId}/resumen-recursos/exportar-excel")]
+    public async Task<IActionResult> ExportarResumenRecursosExcel(int projectId)
+    {
+        try
+        {
+            var bytes = await _exportService.ExportarExcelAsync(projectId);
+            if (bytes is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"Desagregado_Recursos_SSOMA_Proyecto_{projectId}.xlsx");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al exportar el resumen de recursos del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al exportar el resumen a Excel." });
+        }
     }
 }

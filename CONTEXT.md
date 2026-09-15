@@ -6283,3 +6283,31 @@ Se empezó investigando un 500 en `personal-hitos` (`OverflowException` real, ve
   - Definir si "Monitores" va como una sola línea agregada o separada en Etapa 1/Etapa 2 (¿corte en qué hito? ¿"Casco Torre" en adelante?).
   - Definir destino de los materiales que no caen en ninguna de las ~14 partidas del modelo (alcohol, cintas, clavos, botiquín suelto, etc.) — ¿"Varios Seguridad", se omiten del Resumen, o una línea catch-all nueva?
 - Confirmar en producción que las dos migraciones manuales de esta sesión ya se corrieron antes de que alguien use el export (si no, 500 con relation ... does not exist).
+
+## Sesión 2026-09-15 (continuación) — Cronograma de Hitos: validación de fechas faltantes antes de guardar
+
+### Contexto
+El usuario reportó que al guardar el cronograma de hitos, la plantilla completa se carga en pantalla pero al guardar solo persisten los hitos que se estuvieron editando — causa raíz identificada: `MilestoneScheduleHistoryRepository.Create` reemplaza por completo la versión anterior con lo que venga en el payload (no hace merge), y la única validación existente (`ValidarHitosObligatoriosAsync`) solo revisaba los hitos `es_obligatorio=true` que sí llegaban en el envío, sin detectar hitos ausentes por completo.
+
+Se evaluaron dos enfoques con el usuario:
+1. Notificación en tiempo real al guardar si faltan fechas — **aprobado**.
+2. Forzar que todo proyecto tenga siempre los mismos hitos del catálogo (endpoint bloqueante) — **rechazado explícitamente** por el usuario.
+
+También se armó (y luego se revirtió a pedido del usuario) un tercer enfoque intermedio: aviso mensual por correo a residentes cuyo cronograma ya subido no cubre el catálogo completo (`GetProjectsWithIncompleteMilestoneScheduleAsync` + `SendMilestoneScheduleIncompleteReminderAsync` en `ReminderService`). El usuario pidió cambiarlo por una validación síncrona en el guardado en vez de un correo — el código de correo fue removido por completo, no quedó rastro en el diff final.
+
+### Cambios
+- **`MilestoneScheduleHistoryRepository.cs`**: nuevo método `ValidarFechasCompletasAsync`, llamado en `Create` justo después de `ValidarHitosObligatoriosAsync` (antes de tocar la BD). Revisa **todos** los hitos del envío (catálogo y personalizados) y si alguno no trae `PlannedEndDate`, lanza `AbrilException` con mensaje `"Los siguientes hitos no tienen fecha registrada: X, Y. Si deseas guardar de todas formas, confirma nuevamente."` — bypasseable si `dto.ConfirmarHitosSinFecha == true`. Respeta la excepción de "Inicio de obra" (fecha única en `PlannedStartDate`). Los hitos ya bloqueados duro por `ValidarHitosObligatoriosAsync` (obligatorios sin fecha) nunca llegan a aparecer en este mensaje porque la ejecución ya cortó antes.
+- **`MilestoneScheduleDtos.cs`**: nuevo campo `ConfirmarHitosSinFecha` (bool) en `MilestoneScheduleHistoryCreateDTO`, independiente de `ForceSave` (ese sigue siendo solo para "cronograma igual a la última versión subida" — ambas confirmaciones pueden viajar juntas si aplican a la vez).
+- Se le entregó al usuario un prompt para replicar el manejo en el frontend Angular: capturar el 400 con ese mensaje, mostrar diálogo de confirmación (mismo patrón UI que ya existe para `ForceSave`) y reenviar el payload con `ConfirmarHitosSinFecha: true` si el usuario confirma.
+- Commit incluyó además trabajo previo sin commitear en el mismo módulo (de sesión(es) anterior(es), no de este hilo): restricción de `Create`/`CulminarAsync`/`MarcarCriticoAsync` del cronograma al residente asignado al proyecto (o `ADMINISTRADOR DE RESIDENTES`), fix de la excepción "Inicio de obra" en `BuildFakeSchedule`, y `ProjectRepository.GetLookups` con la subárea "Planeamiento BIM" (`PlaneamientoUdp`) — todo bundleado en un solo commit por venir junto en el `git status` de la rama.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/Repositories/MilestoneScheduleHistoryRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Dtos/MilestoneScheduleDtos.cs`
+
+### Verificado
+`dotnet build` → 0 errores, sin warnings nuevos en los archivos tocados.
+
+### Pendiente
+- Implementar en Abril-Frontend el manejo del nuevo mensaje/flag `ConfirmarHitosSinFecha` (prompt ya entregado al usuario para una sesión de Claude Code en ese repo).
+- No se tocó el chequeo duro de hitos obligatorios ni se implementó la opción 2 (mismos hitos para todos) — descartada explícitamente por el usuario.

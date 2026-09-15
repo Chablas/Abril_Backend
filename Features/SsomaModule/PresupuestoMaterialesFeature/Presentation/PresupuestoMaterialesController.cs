@@ -169,6 +169,24 @@ public class PresupuestoMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al aprobar presupuesto." }); }
     }
 
+    /// <summary>Reenvía el correo de aprobación de un presupuesto YA aprobado (ej. no llegó, o se
+    /// corrigió algo en el Resumen después de aprobar).</summary>
+    [HttpPost("{presupuestoId}/reenviar-notificacion")]
+    public async Task<IActionResult> ReenviarNotificacion(int presupuestoId)
+    {
+        try
+        {
+            await _service.ReenviarNotificacionAprobacionAsync(presupuestoId);
+            return Ok(new { message = "Correo reenviado." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al reenviar la notificación del presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al reenviar el correo." });
+        }
+    }
+
     /// <summary>Resumen de recursos (Materiales + Personal + Vigilancia + Servicios fijos + Kits) del
     /// presupuesto vigente del proyecto, en el mismo formato "Desagregado de Recursos" que usa Costos.</summary>
     [HttpGet("proyectos/{projectId}/resumen-recursos")]

@@ -6125,3 +6125,55 @@ Al pedir el usuario "commitear y pushear todo lo de hoy", se encontraron cambios
 - Reproducir o conseguir el log exacto del intento fallido de SKY SERVICIOS EN ALTURA S.A.C. en `contractors/registro` para confirmar la causa real (candidatos: archivo pesado, nombre/RUC con caracteres invisibles, filename problemático en Graph).
 - Correr (si se confirma que aplica) los scripts SQL manuales de certaptitud contra la BD real vía pgAdmin.
 - RAC todavía no tiene ningún botón que llame al nuevo `PenalidadService` — el flujo "crear penalidad desde un RAC" no está conectado en la UI todavía (no es un bug, es una parte de la feature de Penalidades sin construir aún).
+
+## Sesión 2026-09-15 — Desagregado de Recursos SSOMA (export a Excel) + EPI de Staff
+
+### Contexto
+Se empezó investigando un 500 en `personal-hitos` (`OverflowException` real, ver debajo) y terminó en una sesión larga construyendo un export a Excel "Desagregado de Recursos" para que Costos reciba el presupuesto SSOMA en el mismo formato que ya maneja. En el camino se definió — con harto ida y vuelta con el usuario, verificando cada cosa contra datos reales de `ss_consumo_linea` antes de programar — cómo separar el costo de EPP compartido entre personal Staff y Obrero.
+
+### Bug original: 500 en `GET personal-hitos`
+`PersonalHitoRepository.ObtenerPorProyectoAsync` calculaba `Semanas`/`Total` con `GREATEST(0, dias/7.0)` sin redondear — Postgres numeric va sumando escala en cada multiplicación sin límite, y para algunas filas reales el resultado llegó a 34 dígitos significativos, superando los ~28 que soporta `System.Decimal`. Dapper tiraba `OverflowException` al mapear, silenciada por el `catch(Exception)` genérico del controller (sin loguear). Mismo patrón sin corregir encontrado y arreglado en `VigilanciaHitoRepository`. Fix: `ROUND(...)` en ambos.
+
+### Cambios — Desagregado de Recursos (nuevo)
+- `PresupuestoResumenExportService` + `PresupuestoResumenExcelBuilder`: junta Materiales/Personal/Vigilancia/Servicios fijos/Kits/EPI Staff/Costo fijo manual en una hoja "Desagregado" (lista plana numerada, sin agrupar por fuente — así lo pidió el usuario tras ver que el modelo real de Costos también es plano). Falta la hoja "Resumen" con las ~14 partidas agregadas del modelo — quedó pendiente, ver abajo.
+- Endpoints nuevos en `PresupuestoMaterialesController`: `GET/exportar-excel` y `GET/resumen-recursos` bajo `proyectos/{projectId}`.
+
+### Cambios — StaffHeadcount (nuevo driver de Ratios de Dotación)
+- `RatioDriverRepository`/`RatioDriverService`: dos tipos de driver nuevos, `STAFF_CASCO` y `STAFF_OREJERA` — cuentan consumo real (`ss_consumo_linea.recurso_crudo`, no la família estandarizada, que mezcla todos los colores/marcas bajo un solo precio promedio) de casco blanco/ingeniero y orejera 3M por proyecto histórico. Son EPP que se entregan una sola vez por persona (a diferencia de zapato/guantes, que rotan), así que su cantidad histórica es un proxy razonable de "cuántos Staff hubo". Reutiliza 100% la infraestructura ya existente de Ratios de Dotación (checkboxes "Incluir"/"Usar", mediana/rango) — cero cambios de schema, cero cambios de controller.
+- Patrón de texto corregido de `%CASCO%` a `CASCO%` (empieza-con, no contiene) — con `%` a ambos lados también agarraba accesorios tipo "OREJERA PARA CASCO 3M", contaminando el precio/cantidad de casco con datos de orejera.
+
+### Cambios — EPI de Staff (nuevo feature)
+- `ss_epi_staff_config` (tabla nueva, singleton global — una sola fila para toda la empresa): tasas de rotación editables (arnés por staff=1, lentes cada 1 mes, barbiquejo cada 3 meses, guantes cada 2 meses) — decisión del usuario de que sea global, no por proyecto.
+- `EpiStaffCalculoService`: para Casco(404)/Orejera(377)/Arnés(383)/Lentes(410)/Barbiquejo(376)/Guantes anticorte(433) — familias que Staff y Obrero comparten en el mismo SKU — calcula `CantidadStaff` (derivada de StaffHeadcount × tasa, o × MesesProyecto/tasa para los que rotan) y la descuenta del total ya calculado por Ratios, para no duplicar el costo entre las dos líneas del export. Camisa(365)/Blusa(415)/Zapato de seguridad staff(392) son families exclusivas de Staff en Catálogo, no necesitan descuento.
+- Precio Staff vs. Obrero separados para Casco/Orejera: el precio promedio de la família (`ss_ratio_proyecto`) mezcla ciegamente todas las variantes — bug real encontrado y corregido (Casco salía a S/15.99 en vez de los ~S/40-46 reales de la variante 3M/blanco). `EpiStaffRepository.ObtenerPreciosCascoAsync`/`ObtenerPreciosOrejeraAsync` calculan el precio real de cada variante desde `ss_consumo_linea.recurso_crudo` directamente.
+- `MesesProyecto` = (último hito del cronograma vigente − primer hito) / 30.44 — misma fuente que ya usan Personal/Vigilancia para "Semanas".
+- Pestaña "Cálculo EPP Staff" en `proyecto-page` (frontend) con la config global editable y el detalle Staff/Obrero por ítem.
+
+### Cambios — Costo fijo manual (nuevo feature)
+- `ss_presupuesto_costo_fijo_manual` (tabla nueva, una fila por proyecto): Malla Anticaída/Encapsulado/Malla Anillo Fenólico — montos "glb" tipeados a mano, sin ratio histórico confiable (dependen de la geometría/altura de cada obra puntual). Card nueva en la pestaña Servicios y equipos del frontend.
+
+### Cambios — EPC (solo relabeling en el export, no toca el cálculo interno)
+- En el export, se etiquetan como "EPC" (en vez de "MATERIALES"/"KITS"): Kits guardados (Botiquín/Estación de Emergencia), y las families de Rodapié (292, triplay 8mm) y Ducto (211 fenólico 18mm + 253 listón) del Cálculo técnico — a pedido explícito del usuario ("eso es para el export, para el cálculo interno no"). No hay família nativa "EPC"/"Equipo de Protección Colectiva" en Catálogo (verificado, no existe).
+
+### Cambios — Personal
+- Rol Paletero/Paletero Montacarga agregado como roles propios en `ROLES_PERSONAL_CONFIG` (frontend) — antes se cargaban prestando cantidad del rol Vígia, pero sus fechas de etapa difieren. `rol` es texto libre en el backend (sin whitelist), cero cambios de backend necesarios.
+
+### Bug real encontrado y corregido: families desactivadas colándose en el export
+`PresupuestoRepository.ObtenerDetalleAsync` lee directo de `ss_presupuesto_detalle` (snapshot de cuando se generó esa versión del presupuesto) sin filtrar por `ss_material_familia.activo` — correcto para ver el histórico de una versión ya generada, pero el export heredaba líneas de families ya desactivadas después (ej. "ALCOHOL GALON", "BARRA FRP" genérica ya reemplazada por FRP 21MM/25MM). Se agregó el campo `Activo` a `PresupuestoLineaDto` (cambio aditivo, no rompe la pantalla de Detalle) y se filtra en `PresupuestoResumenExportService`/`EpiStaffCalculoService`.
+
+### Archivos clave
+- `Application/Services/PresupuestoResumenExportService.cs`, `Application/Helpers/PresupuestoResumenExcelBuilder.cs`
+- `Application/Services/EpiStaffCalculoService.cs`, `Infrastructure/Repositories/EpiStaffRepository.cs`
+- `Application/Services/RatioDriverService.cs`, `Infrastructure/Repositories/RatioDriverRepository.cs` (drivers STAFF_CASCO/STAFF_OREJERA)
+- `Application/Services/CostoFijoManualService.cs`, `Infrastructure/Repositories/CostoFijoManualRepository.cs`
+- `Migrations_Manual/2026-09-15_ss_epi_staff_config.sql`, `Migrations_Manual/2026-09-15_ss_presupuesto_costo_fijo_manual.sql` — correr contra la base antes/junto con este deploy, si no el export tira 500 (relation ... does not exist).
+
+### Verificado
+`dotnet build` → 0 errores de compilación reales (solo el falso error de copia del .exe por tener el backend corriendo localmente, no aplica al deploy real). No se probó en navegador — el usuario fue verificando cada pieza visualmente él mismo a medida que se construía.
+
+### Pendiente
+- La hoja "Resumen" del Excel (las ~14 partidas agregadas, calcando el modelo real de Costos) todavía no está construida — hoy el export solo tiene la hoja "Desagregado" (detalle plano línea por línea). Falta:
+  - Mapeo final de Barandas: família 476 = FRP 21MM (horizontal), 475 = FRP 25MM (vertical) — identificadas, falta escribir el builder de esa hoja.
+  - Definir si "Monitores" va como una sola línea agregada o separada en Etapa 1/Etapa 2 (¿corte en qué hito? ¿"Casco Torre" en adelante?).
+  - Definir destino de los materiales que no caen en ninguna de las ~14 partidas del modelo (alcohol, cintas, clavos, botiquín suelto, etc.) — ¿"Varios Seguridad", se omiten del Resumen, o una línea catch-all nueva?
+- Confirmar en producción que las dos migraciones manuales de esta sesión ya se corrieron antes de que alguien use el export (si no, 500 con relation ... does not exist).

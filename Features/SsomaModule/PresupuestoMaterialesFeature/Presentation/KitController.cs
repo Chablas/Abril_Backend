@@ -56,6 +56,20 @@ public class KitController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al crear el kit." }); }
     }
 
+    /// <summary>Reemplaza el BOM completo de un kit ya existente (agregar/quitar materiales o cambiar
+    /// cantidades) — no cambia nombre ni tipo del kit.</summary>
+    [HttpPut("{kitId}")]
+    public async Task<IActionResult> Editar(int kitId, [FromBody] KitEditarDto dto)
+    {
+        try
+        {
+            await _service.EditarAsync(kitId, dto);
+            return Ok(new { message = "Kit actualizado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception) { return StatusCode(500, new { message = "Error al actualizar el kit." }); }
+    }
+
     /// <summary>Multiplica el BOM del kit por la cantidad de kits que necesita el proyecto.</summary>
     [HttpGet("{kitId}/calcular")]
     public async Task<IActionResult> Calcular(int kitId, [FromQuery] decimal cantidadKits)

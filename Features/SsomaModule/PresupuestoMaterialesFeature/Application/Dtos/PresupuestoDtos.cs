@@ -23,6 +23,21 @@ public class ActualizarCantidadManualDto
     public decimal? CantidadManual { get; set; }
 }
 
+/// <summary>Alta manual de una família directo desde el detalle del presupuesto (materiales que
+/// todavía no existen en el catálogo, ej. un EPP nuevo) — crea la família si no existe (o reutiliza
+/// la existente por nombre) y la agrega como línea 100% manual del presupuesto vigente, sin tener
+/// que ir a la pantalla de Catálogo primero.</summary>
+public class AgregarFamiliaManualDto
+{
+    public string  Nombre         { get; set; } = "";
+    public int     TipoId         { get; set; }
+    public string  VariableBase   { get; set; } = "FIJO";
+    public string? UnidadMedida   { get; set; }
+    public decimal CantidadManual { get; set; }
+    public decimal PrecioManual   { get; set; }
+    public string? NotasLinea     { get; set; }
+}
+
 // ── Response ──────────────────────────────────────────────────────────────────
 
 public class PresupuestoResumenDto
@@ -70,6 +85,12 @@ public class PresupuestoLineaDto
     public decimal  PrecioUnitario     { get; set; }
     public decimal  TotalEstimado      { get; set; }
     public bool     TieneHistoria      { get; set; }
+    /// <summary>Si la família sigue activa en Catálogo — esta línea puede seguir "true" (venir
+    /// de una versión de presupuesto vieja) aunque la família ya se haya desactivado después de
+    /// generarla; se guarda tal cual para no reescribir el histórico de versiones ya generadas.
+    /// Los consumidores que solo quieren el estado ACTUAL del catálogo (como el export a Excel)
+    /// deben filtrar por este campo ellos mismos.</summary>
+    public bool     Activo             { get; set; } = true;
     // Overrides manuales
     public decimal? CantidadManual     { get; set; }
     public decimal? PrecioManual       { get; set; }
@@ -78,6 +99,12 @@ public class PresupuestoLineaDto
     public decimal  CantidadEfectiva   => CantidadManual ?? CantidadEstimada;
     public decimal  PrecioEfectivo     => PrecioManual   ?? PrecioUnitario;
     public decimal  TotalEfectivo      => Math.Round(CantidadEfectiva * PrecioEfectivo, 2);
+}
+
+public class PresupuestoDestinatarioDto
+{
+    public string Rol   { get; set; } = null!;
+    public string Email { get; set; } = null!;
 }
 
 // ── Ratio recomendado (interno, usado por el servicio) ────────────────────────
@@ -89,6 +116,7 @@ public class RatioRecomendadoDto
     public int      TipoId             { get; set; }
     public string   NombreTipo         { get; set; } = null!;
     public string   VariableBase       { get; set; } = null!;
+    public string?  UnidadMedida       { get; set; }
     public decimal  RatioRecomendado   { get; set; }
     public decimal  PrecioRecomendado  { get; set; }
     public int      NProyectos         { get; set; }

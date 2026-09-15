@@ -31,7 +31,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         /// legacy y el revisor ya resueltos por nodo. Una sola petición alimenta toda la cascada y
         /// el campo de revisor, sin ir al servidor cada vez que se cambia de área.
         /// </summary>
-        public async Task<List<AreaArbolNodoDto>> GetAreaArbolAsync()
+        public async Task<List<AreaArbolNodoDto>> GetAreaArbolAsync(int? workerId = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -55,7 +55,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var ids = nodos.Select(n => n.AreaScopeId).ToList();
             var legacy = await _legacyResolver.ResolveTodosAsync();
-            var revisores = await _revisorResolver.ResolveByAreaScopeManyAsync(ids);
+            var revisores = await _revisorResolver.ResolveByAreaScopeManyAsync(ids, workerId);
 
             foreach (var nodo in nodos)
             {
@@ -68,12 +68,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!revisores.TryGetValue(nodo.AreaScopeId, out var rev)) continue;
 
-                nodo.Revisores = rev.Area.Select(MapRevisor).ToList();
-                nodo.RevisoresPorProyecto = rev.PorProyecto
+                nodo.Revisor = MapRevisor(rev.Area.Revisor);
+                nodo.EsRevisorDeSuPropiaArea = rev.Area.EsRevisorDeSuPropiaArea;
+                nodo.RevisorPorProyecto = rev.PorProyecto
                     .Select(kv => new AreaArbolRevisorProyectoDto
                     {
                         ProyectoId = kv.Key,
-                        Revisores = kv.Value.Select(MapRevisor).ToList(),
+                        Revisor = MapRevisor(kv.Value.Revisor),
+                        EsRevisorDeSuPropiaArea = kv.Value.EsRevisorDeSuPropiaArea,
                     })
                     .ToList();
             }
@@ -81,7 +83,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return nodos;
         }
 
-        private static AreaArbolRevisorDto MapRevisor(JefeRevisorResolution r) => new()
+        private static AreaArbolRevisorDto? MapRevisor(JefeRevisorResolution? r) => r == null ? null : new()
         {
             WorkerId = r.WorkerId,
             PersonId = r.PersonId,

@@ -421,6 +421,7 @@ namespace Abril_Backend.Controllers
             {
                 var result = await _service.SnapshotAvanceSemanal();
                 await _service.SnapshotRankingSemanal();
+                await _service.SnapshotCargaSemanal();
                 return Ok(result);
             }
             catch (Exception)

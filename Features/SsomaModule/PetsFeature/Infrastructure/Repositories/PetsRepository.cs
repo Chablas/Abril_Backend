@@ -1,9 +1,14 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Repositories;
@@ -29,9 +34,39 @@ public class PetsRepository : IPetsRepository
                 Codigo = p.Codigo,
                 Activo = p.Activo,
                 TotalPasos = p.Pasos.Count(x => x.Activo),
-                CreatedAt = p.CreatedAt
+                CreatedAt = p.CreatedAt,
+                EstadoRevision = p.EstadoRevision,
+                VersionVigente = p.VersionVigente,
+                RevisionPendiente = p.RevisionPendiente,
+                RevisionPendienteMotivo = p.RevisionPendienteMotivo,
+                Origen = p.Origen,
+                ContributorId = p.ContributorId,
+                ContributorNombre = ctx.Set<Contributor>()
+                    .Where(c => c.ContributorId == p.ContributorId)
+                    .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                    .FirstOrDefault(),
+                ProyectoId = p.ProyectoId,
+                ProyectoNombre = ctx.Set<Project>()
+                    .Where(pr => pr.ProjectId == p.ProyectoId)
+                    .Select(pr => pr.ProjectDescription)
+                    .FirstOrDefault()
             })
             .ToListAsync();
+    }
+
+
+    // Cualquier edición de contenido (paso, imagen, catálogo, texto, firma, anexo,
+    // datos generales) vuelve a poner el PETS en "borrador", aunque ya hubiera una
+    // versión aprobada — así el estado nunca miente sobre si lo que se ve/edita
+    // coincide con la última versión oficial. No hace nada si ya estaba en borrador
+    // (evita un UPDATE de más en el caso común). Se llama siempre ANTES de cualquier
+    // validación que pueda tirar excepción — si la operación falla, el ctx se
+    // descarta sin SaveChanges y este cambio nunca se persiste, que es lo correcto.
+    private static async Task MarcarBorradorAsync(AppDbContext ctx, int petId)
+    {
+        var pet = await ctx.SsomaPet.FindAsync(petId);
+        if (pet != null && pet.EstadoRevision == "aprobado")
+            pet.EstadoRevision = "borrador";
     }
 
     // Secciones narrativas: un solo bloque de texto cada una (no árbol).
@@ -49,15 +84,37 @@ public class PetsRepository : IPetsRepository
         FirmaUrl = f?.FirmaUrl
     };
 
-    private static PetPasoDto MapPaso(SsomaPetPaso x) => new()
+    private static PetPasoDto MapPaso(SsomaPetPaso x, Dictionary<int, List<PetImagenDto>> imagenesPorPaso)
     {
-        Id = x.Id,
-        ParentId = x.ParentId,
-        Tipo = x.Tipo,
-        Descripcion = x.Descripcion,
-        ImagenUrl = x.ImagenUrl,
-        Orden = x.Orden
-    };
+        var imagenes = imagenesPorPaso.GetValueOrDefault(x.Id) ?? [];
+        return new PetPasoDto
+        {
+            Id = x.Id,
+            ParentId = x.ParentId,
+            Tipo = x.Tipo,
+            Descripcion = x.Descripcion,
+            // Compatibilidad: si todavía no tiene fila en la tabla nueva pero sí en la
+            // columna vieja (pasos importados antes de este cambio), se sigue mostrando.
+            ImagenUrl = imagenes.Count > 0 ? imagenes[0].Url : x.ImagenUrl,
+            Imagenes = imagenes,
+            Categoria = x.Categoria,
+            Orden = x.Orden
+        };
+    }
+
+    private async Task<Dictionary<int, List<PetImagenDto>>> CargarImagenesPorPasoAsync(AppDbContext ctx, IEnumerable<int> pasoIds)
+    {
+        var ids = pasoIds.ToList();
+        if (ids.Count == 0) return [];
+
+        var imagenes = await ctx.SsomaPetPasoImagen
+            .Where(x => ids.Contains(x.PasoId) && x.Activo)
+            .OrderBy(x => x.Orden)
+            .ToListAsync();
+
+        return imagenes.GroupBy(x => x.PasoId)
+            .ToDictionary(g => g.Key, g => g.Select(i => new PetImagenDto { Id = i.Id, Url = i.Url }).ToList());
+    }
 
     private static PetItemSeleccionadoDto MapSeleccion(SsomaPetItemSeleccionado x) => new()
     {
@@ -81,8 +138,9 @@ public class PetsRepository : IPetsRepository
             .OrderBy(x => x.Orden)
             .ToListAsync();
 
+        var imagenesPorPaso = await CargarImagenesPorPasoAsync(ctx, todosPasos.Select(x => x.Id));
         var pasosPorSeccion = todosPasos.GroupBy(x => x.Seccion)
-            .ToDictionary(g => g.Key, g => g.Select(MapPaso).ToList());
+            .ToDictionary(g => g.Key, g => g.Select(x => MapPaso(x, imagenesPorPaso)).ToList());
 
         var textosPorSeccion = await ctx.SsomaPetSeccionTexto
             .Where(x => x.PetId == id)
@@ -105,6 +163,19 @@ public class PetsRepository : IPetsRepository
             .Where(x => x.PetId == id)
             .ToDictionaryAsync(x => x.Rol);
 
+        var contributorNombre = pet.ContributorId.HasValue
+            ? await ctx.Set<Contributor>()
+                .Where(c => c.ContributorId == pet.ContributorId.Value)
+                .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                .FirstOrDefaultAsync()
+            : null;
+        var proyectoNombre = pet.ProyectoId.HasValue
+            ? await ctx.Set<Project>()
+                .Where(pr => pr.ProjectId == pet.ProyectoId.Value)
+                .Select(pr => pr.ProjectDescription)
+                .FirstOrDefaultAsync()
+            : null;
+
         return new PetDetalleDto
         {
             Id = pet.Id,
@@ -112,8 +183,18 @@ public class PetsRepository : IPetsRepository
             Codigo = pet.Codigo,
             SharepointUrl = pet.SharepointUrl,
             Activo = pet.Activo,
+            EstadoRevision = pet.EstadoRevision,
+            VersionVigente = pet.VersionVigente,
+            RevisionPendiente = pet.RevisionPendiente,
+            RevisionPendienteMotivo = pet.RevisionPendienteMotivo,
+            Origen = pet.Origen,
+            ContributorId = pet.ContributorId,
+            ContributorNombre = contributorNombre,
+            ProyectoId = pet.ProyectoId,
+            ProyectoNombre = proyectoNombre,
             Pasos = pasosPorSeccion.GetValueOrDefault("procedimiento") ?? [],
             Responsabilidades = pasosPorSeccion.GetValueOrDefault("responsabilidades") ?? [],
+            GestionPersonal = pasosPorSeccion.GetValueOrDefault("gestion_personal") ?? [],
             SeccionesTexto = SeccionesTextoKeys.ToDictionary(s => s, s => textosPorSeccion.GetValueOrDefault(s) ?? ""),
             MarcoLegal = seleccionados.Where(x => x.Grupo == "marco_legal").ToList(),
             Epp = seleccionados.Where(x => x.Grupo == "epp").ToList(),
@@ -126,29 +207,103 @@ public class PetsRepository : IPetsRepository
     public async Task<List<PetPasoDto>> GetPasosAsync(int petId)
     {
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsomaPetPaso
+        var pasos = await ctx.SsomaPetPaso
             .Where(x => x.PetId == petId && x.Activo && x.Seccion == "procedimiento")
-            .OrderBy(x => x.Orden)
-            .Select(x => new PetPasoDto
-            {
-                Id = x.Id,
-                ParentId = x.ParentId,
-                Tipo = x.Tipo,
-                Descripcion = x.Descripcion,
-                ImagenUrl = x.ImagenUrl,
-                Orden = x.Orden
-            })
             .ToListAsync();
+
+        var imagenesPorPaso = await CargarImagenesPorPasoAsync(ctx, pasos.Select(x => x.Id));
+
+        // "Orden" solo es único ENTRE HERMANOS del mismo ParentId (ver comentario en
+        // SsomaPetPaso) — un OrderBy(Orden) plano sobre toda la tabla intercala mal en
+        // cuanto hay más de un subtítulo con hijos (cada uno reinicia en 1, 2, 3...).
+        // Acá sí importa el orden real de lectura: OPT usa este endpoint para copiar
+        // los pasos y agruparlos por subtítulo, así que se recorre el árbol en DFS
+        // (mismo criterio que pets-detalle.ts arma en pantalla) y se aplana, calculando
+        // el nivel de profundidad de paso.
+        var hijosPorPadre = pasos
+            .Where(p => p.ParentId != null)
+            .GroupBy(p => p.ParentId!.Value)
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Orden).ToList());
+        var raiz = pasos.Where(p => p.ParentId == null).OrderBy(p => p.Orden).ToList();
+
+        var ordenados = new List<(SsomaPetPaso Paso, int Nivel)>();
+        void Recorrer(List<SsomaPetPaso> nodos, int nivel)
+        {
+            foreach (var n in nodos)
+            {
+                ordenados.Add((n, nivel));
+                if (hijosPorPadre.TryGetValue(n.Id, out var hijos))
+                    Recorrer(hijos, nivel + 1);
+            }
+        }
+        Recorrer(raiz, 0);
+
+        return ordenados.Select(o =>
+        {
+            var dto = MapPaso(o.Paso, imagenesPorPaso);
+            dto.Nivel = o.Nivel;
+            return dto;
+        }).ToList();
+    }
+
+    // Un PETS de contratista siempre tiene empresa dueña (obligatoria); el proyecto
+    // en cambio puede quedar sin asignar TEMPORALMENTE (ej. justo después de
+    // "Duplicar", que crea la copia sin proyecto a propósito para forzar que se
+    // reasigne a la obra nueva) — mientras no tenga proyecto, simplemente no
+    // aparece en ningún selector de OPT/Accidentes (esos filtran por proyecto
+    // exacto), así que no hay riesgo de que se use sin estar bien ubicado.
+    // El de Abril, en cambio, se fuerza a quedar sin proyecto/empresa (es el
+    // catálogo global de siempre), aunque el request traiga algo por error.
+    private static (string Origen, int? ContributorId, int? ProyectoId) NormalizarOrigen(
+        string? origen, int? contributorId, int? proyectoId)
+    {
+        var esContratista = string.Equals(origen, "Contratista", StringComparison.OrdinalIgnoreCase);
+        if (!esContratista) return ("Abril", null, null);
+
+        if (!contributorId.HasValue)
+            throw new AbrilException("Selecciona la empresa contratista dueña del PETS.", 400);
+
+        return ("Contratista", contributorId, proyectoId);
+    }
+
+    // Correlativo solo aplica a PETS "Abril" (catálogo propio) — el de Contratista
+    // varía por documento externo y se escribe manualmente. Se calcula por el mayor
+    // número ya usado (no un COUNT) para no repetir código si algún PETS intermedio
+    // fue borrado.
+    private static readonly Regex CodigoAbrilRegex = new(@"^SSO-PETS-(\d+)$", RegexOptions.Compiled);
+
+    public async Task<string> ObtenerSiguienteCodigoAbrilAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var codigos = await ctx.SsomaPet
+            .Where(p => p.Origen == "Abril" && p.Codigo != null)
+            .Select(p => p.Codigo!)
+            .ToListAsync();
+
+        var maxNumero = 0;
+        foreach (var codigo in codigos)
+        {
+            var match = CodigoAbrilRegex.Match(codigo);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var numero) && numero > maxNumero)
+                maxNumero = numero;
+        }
+
+        return $"SSO-PETS-{maxNumero + 1}";
     }
 
     public async Task<int> CrearAsync(CrearPetRequest request)
     {
+        var (origen, contributorId, proyectoId) = NormalizarOrigen(request.Origen, request.ContributorId, request.ProyectoId);
+
         using var ctx = _factory.CreateDbContext();
         var pet = new SsomaPet
         {
             Nombre = request.Nombre,
             Codigo = request.Codigo,
             SharepointUrl = request.SharepointUrl,
+            Origen = origen,
+            ContributorId = contributorId,
+            ProyectoId = proyectoId,
             Activo = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -159,15 +314,56 @@ public class PetsRepository : IPetsRepository
 
     public async Task ActualizarAsync(int id, ActualizarPetRequest request)
     {
+        var (origen, contributorId, proyectoId) = NormalizarOrigen(request.Origen, request.ContributorId, request.ProyectoId);
+
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(id)
             ?? throw new AbrilException("PETS no encontrado.", 404);
 
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
         pet.Nombre = request.Nombre;
         pet.Codigo = request.Codigo;
         pet.SharepointUrl = request.SharepointUrl;
         pet.Activo = request.Activo;
+        pet.Origen = origen;
+        pet.ContributorId = contributorId;
+        pet.ProyectoId = proyectoId;
         pet.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> ContarReferenciasExternasAsync(int petId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var enOpt = await ctx.Set<SsomaOpt>().CountAsync(o => o.PetId == petId);
+        var enAccidentes = await ctx.Set<SsomaAccidenteIncidente>().CountAsync(a => a.PetId == petId);
+        return enOpt + enAccidentes;
+    }
+
+    // Borra en el orden correcto por las FKs (hijos antes que el propio PETS). Los
+    // pasos se traen con su árbol completo (no solo Activo=true) porque un borrado
+    // real no debe dejar filas huérfanas desactivadas colgando.
+    public async Task EliminarAsync(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(id)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var pasoIds = await ctx.SsomaPetPaso.Where(p => p.PetId == id).Select(p => p.Id).ToListAsync();
+        if (pasoIds.Count > 0)
+        {
+            var imagenes = ctx.Set<SsomaPetPasoImagen>().Where(i => pasoIds.Contains(i.PasoId));
+            ctx.RemoveRange(imagenes);
+            await ctx.SaveChangesAsync();
+            ctx.RemoveRange(ctx.SsomaPetPaso.Where(p => p.PetId == id));
+        }
+
+        ctx.RemoveRange(ctx.Set<SsomaPetSeccionTexto>().Where(s => s.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetItemSeleccionado>().Where(s => s.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetAnexo>().Where(a => a.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetFirma>().Where(f => f.PetId == id));
+        ctx.RemoveRange(ctx.Set<SsomaPetVersion>().Where(v => v.PetId == id));
+        ctx.SsomaPet.Remove(pet);
         await ctx.SaveChangesAsync();
     }
 
@@ -175,7 +371,7 @@ public class PetsRepository : IPetsRepository
 
     // Solo estas dos secciones usan el árbol de pasos — el resto (Introducción,
     // Alcance, Objetivo, Definiciones, Restricciones) son bloques de texto único.
-    private static readonly HashSet<string> SeccionesValidas = ["procedimiento", "responsabilidades"];
+    private static readonly HashSet<string> SeccionesValidas = ["procedimiento", "responsabilidades", "gestion_personal"];
 
     private static string ValidarTipo(string? tipo)
     {
@@ -198,6 +394,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var seccion = ValidarSeccion(request.Seccion);
 
@@ -242,9 +439,81 @@ public class PetsRepository : IPetsRepository
         return nuevo.Id;
     }
 
+    public async Task<Dictionary<int, int>> AgregarPasosBulkAsync(int petId, string seccionRaw, List<ImportPasoConfirmDto> pasos)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
+        var seccion = ValidarSeccion(seccionRaw);
+
+        var idPorIndice = new Dictionary<int, int>();
+        // Próximo "Orden" disponible por padre real (0 = raíz), cacheado en memoria durante
+        // todo el batch: solo se consulta la base la PRIMERA vez que aparece cada padre: el
+        // resto de hermanos del mismo padre solo incrementan el contador en memoria. Antes
+        // cada paso releía la lista completa de hermanos existentes, así que insertar 200
+        // pasos hermanos hacía ~200 consultas cada vez más grandes (cuadrático).
+        var ordenSiguientePorPadre = new Dictionary<int, int>();
+
+        async Task<int> SiguienteOrden(int? parentIdReal)
+        {
+            var key = parentIdReal ?? 0;
+            if (!ordenSiguientePorPadre.TryGetValue(key, out var siguiente))
+            {
+                var maxActual = await ctx.SsomaPetPaso
+                    .Where(p => p.PetId == petId && p.Activo && p.Seccion == seccion && p.ParentId == parentIdReal)
+                    .MaxAsync(p => (int?)p.Orden) ?? 0;
+                siguiente = maxActual + 1;
+            }
+            ordenSiguientePorPadre[key] = siguiente + 1;
+            return siguiente;
+        }
+
+        // Se procesa nivel por nivel (BFS del árbol reconstruido en el preview): un paso
+        // solo puede insertarse una vez que su padre (si tiene) ya tiene un id real de base
+        // de datos, así que cada vuelta procesa todos los que YA están listos y hace un solo
+        // SaveChanges para ese nivel completo.
+        var pendientes = new List<ImportPasoConfirmDto>(pasos);
+        var vueltasRestantes = pendientes.Count + 5; // corte de seguridad — no debería hacer falta.
+        while (pendientes.Count > 0 && vueltasRestantes-- > 0)
+        {
+            var listos = pendientes.Where(p => p.ParentIndice is null || idPorIndice.ContainsKey(p.ParentIndice.Value)).ToList();
+            if (listos.Count == 0) break; // padre nunca resuelto (dato inconsistente del preview) — se descarta el resto, igual que antes fallaba solo esa fila.
+
+            var nuevos = new List<(int Indice, SsomaPetPaso Entidad)>();
+            foreach (var item in listos)
+            {
+                int? parentIdReal = item.ParentIndice.HasValue ? idPorIndice[item.ParentIndice.Value] : null;
+                var orden = await SiguienteOrden(parentIdReal);
+                var entidad = new SsomaPetPaso
+                {
+                    PetId = petId,
+                    Seccion = seccion,
+                    ParentId = parentIdReal,
+                    Tipo = ValidarTipo(item.Tipo),
+                    Descripcion = item.Texto,
+                    Categoria = item.Categoria != null && CategoriasValidas.Contains(item.Categoria) ? item.Categoria : null,
+                    Orden = orden,
+                    Activo = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                ctx.SsomaPetPaso.Add(entidad);
+                nuevos.Add((item.Indice, entidad));
+            }
+
+            await ctx.SaveChangesAsync();
+            foreach (var (indice, entidad) in nuevos)
+                idPorIndice[indice] = entidad.Id;
+
+            pendientes = pendientes.Where(p => !idPorIndice.ContainsKey(p.Indice)).ToList();
+        }
+
+        return idPorIndice;
+    }
+
     public async Task ActualizarPasoAsync(int petId, int pasoId, ActualizarPetPasoRequest request)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -257,6 +526,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarPasoAsync(int petId, int pasoId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
@@ -272,6 +542,7 @@ public class PetsRepository : IPetsRepository
     public async Task ReordenarPasosAsync(int petId, ReordenarPasosRequest request)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var seccion = ValidarSeccion(request.Seccion);
         var pasos = await ctx.SsomaPetPaso
             .Where(p => p.PetId == petId && p.Activo && p.Seccion == seccion && p.ParentId == request.ParentId)
@@ -289,13 +560,114 @@ public class PetsRepository : IPetsRepository
         await ctx.SaveChangesAsync();
     }
 
+    // Sangrar/quitar sangría: mueve el paso a otro grupo de hermanos (otro ParentId),
+    // agregándolo al final de ese grupo. Solo se puede anidar dentro de un
+    // "subtitulo" (es el único tipo que la pantalla dibuja con hijos), y se valida
+    // que el destino no sea el propio paso ni un descendiente suyo (evitar ciclos).
+    public async Task CambiarNivelPasoAsync(int petId, int pasoId, int? nuevoParentId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
+            ?? throw new AbrilException("Paso no encontrado.", 404);
+
+        if (nuevoParentId == pasoId)
+            throw new AbrilException("Un paso no puede ser su propio padre.", 400);
+
+        if (nuevoParentId != null)
+        {
+            var nuevoPadre = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == nuevoParentId && p.PetId == petId && p.Seccion == paso.Seccion)
+                ?? throw new AbrilException("El subtítulo destino no existe.", 404);
+            if (nuevoPadre.Tipo != "subtitulo")
+                throw new AbrilException("Solo se puede anidar dentro de un subtítulo.", 400);
+
+            var actual = nuevoPadre;
+            var visitados = new HashSet<int> { paso.Id };
+            while (actual.ParentId != null)
+            {
+                if (actual.ParentId == paso.Id)
+                    throw new AbrilException("No se puede mover un subtítulo dentro de sí mismo.", 400);
+                if (!visitados.Add(actual.ParentId.Value)) break;
+                actual = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == actual.ParentId)
+                    ?? throw new AbrilException("Estructura de pasos inconsistente.", 500);
+            }
+        }
+
+        var maxOrden = await ctx.SsomaPetPaso
+            .Where(p => p.PetId == petId && p.Seccion == paso.Seccion && p.ParentId == nuevoParentId && p.Activo)
+            .Select(p => (int?)p.Orden).MaxAsync() ?? 0;
+
+        paso.ParentId = nuevoParentId;
+        paso.Orden = maxOrden + 1;
+        paso.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task SetImagenPasoAsync(int petId, int pasoId, string? imagenUrl)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
             ?? throw new AbrilException("Paso no encontrado.", 404);
 
         paso.ImagenUrl = imagenUrl;
+        paso.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> AgregarImagenPasoAsync(int petId, int pasoId, string url)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
+        if (!existe) throw new AbrilException("Paso no encontrado.", 404);
+
+        var maxOrden = await ctx.SsomaPetPasoImagen
+            .Where(x => x.PasoId == pasoId && x.Activo)
+            .Select(x => (int?)x.Orden).MaxAsync() ?? 0;
+
+        var nueva = new SsomaPetPasoImagen
+        {
+            PasoId = pasoId,
+            Url = url,
+            Orden = maxOrden + 1,
+            Activo = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaPetPasoImagen.Add(nueva);
+        await ctx.SaveChangesAsync();
+        return nueva.Id;
+    }
+
+    public async Task EliminarImagenPasoAsync(int petId, int pasoId, int imagenId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var existe = await ctx.SsomaPetPaso.AnyAsync(p => p.Id == pasoId && p.PetId == petId);
+        if (!existe) throw new AbrilException("Paso no encontrado.", 404);
+
+        var imagen = await ctx.SsomaPetPasoImagen.FirstOrDefaultAsync(x => x.Id == imagenId && x.PasoId == pasoId)
+            ?? throw new AbrilException("Imagen no encontrada.", 404);
+
+        imagen.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    // Catálogo fijo de categorías válidas — texto libre no, porque el color/ícono en
+    // pantalla y PDF dependen de reconocer el valor exacto.
+    private static readonly HashSet<string> CategoriasValidas = ["medio_ambiente"];
+
+    public async Task ActualizarCategoriaPasoAsync(int petId, int pasoId, string? categoria)
+    {
+        if (categoria != null && !CategoriasValidas.Contains(categoria))
+            throw new AbrilException($"Categoría inválida: '{categoria}'.", 400);
+
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var paso = await ctx.SsomaPetPaso.FirstOrDefaultAsync(p => p.Id == pasoId && p.PetId == petId)
+            ?? throw new AbrilException("Paso no encontrado.", 404);
+
+        paso.Categoria = categoria;
         paso.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }
@@ -306,6 +678,7 @@ public class PetsRepository : IPetsRepository
     {
         seccion = ValidarSeccion(seccion);
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var pasos = await ctx.SsomaPetPaso
             .Where(p => p.PetId == petId && p.Seccion == seccion && p.Activo)
             .ToListAsync();
@@ -333,6 +706,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetSeccionTexto.FirstOrDefaultAsync(x => x.PetId == petId && x.Seccion == seccion);
         if (fila == null)
@@ -423,6 +797,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var catalogoItem = await ctx.SsomaCatalogoItem.FirstOrDefaultAsync(x => x.Id == request.CatalogoItemId && x.Activo)
             ?? throw new AbrilException("Ítem de catálogo no encontrado.", 404);
@@ -456,6 +831,20 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
+
+        // Import de Word reimportado varias veces sin este chequeo triplicaba Marco
+        // Legal/EPP/Recursos — a diferencia de Procedimiento/Responsabilidades, estos
+        // ítems personalizados no tienen un "Reemplazar" explícito, así que si ya existe
+        // uno activo con la misma descripción en este PETS (mismo grupo/tipo), se
+        // reutiliza en vez de duplicar.
+        var yaExiste = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Grupo == request.Grupo && x.Tipo == request.Tipo && x.Activo
+                && x.CatalogoItemId == null && x.DescripcionPersonalizada != null)
+            .Select(x => new { x.Id, x.DescripcionPersonalizada })
+            .ToListAsync();
+        var existente = yaExiste.FirstOrDefault(x => string.Equals(x.DescripcionPersonalizada, request.Descripcion, StringComparison.OrdinalIgnoreCase));
+        if (existente != null) return existente.Id;
 
         int? catalogoItemId = null;
         if (request.AgregarAlCatalogoGlobal)
@@ -493,13 +882,96 @@ public class PetsRepository : IPetsRepository
         return nuevo.Id;
     }
 
+    public async Task AgregarItemsPersonalizadosBulkAsync(int petId, List<AgregarItemPersonalizadoRequest> items)
+    {
+        if (items.Count == 0) return;
+        foreach (var item in items) ValidarGrupoTipo(item.Grupo, item.Tipo);
+
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId)
+            ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
+
+        var gruposEnLote = items.Select(i => i.Grupo).Distinct().ToList();
+
+        // Una sola consulta para TODO lo ya guardado en los grupos que aparecen en este
+        // lote (en vez de una consulta de duplicados por ítem) y una sola para el
+        // siguiente "Orden" de cada grupo — ver comentario en AgregarItemPersonalizadoAsync
+        // sobre por qué existe el chequeo de duplicados.
+        var existentes = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Activo && x.CatalogoItemId == null && x.DescripcionPersonalizada != null
+                && gruposEnLote.Contains(x.Grupo))
+            .ToListAsync();
+        var existentesPorGrupoTipo = existentes
+            .GroupBy(x => (x.Grupo, x.Tipo))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DescripcionPersonalizada!).ToList());
+
+        var maxOrdenPorGrupo = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Activo && gruposEnLote.Contains(x.Grupo))
+            .GroupBy(x => x.Grupo)
+            .Select(g => new { Grupo = g.Key, Max = g.Max(x => x.Orden) })
+            .ToDictionaryAsync(g => g.Grupo, g => g.Max);
+
+        var vistosEnEsteLote = new HashSet<(string Grupo, string? Tipo, string DescNorm)>();
+        var nuevos = new List<SsomaPetItemSeleccionado>();
+
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.Descripcion)) continue;
+            var descripcion = item.Descripcion.Trim();
+            var clave = (item.Grupo, item.Tipo);
+
+            var yaGuardado = existentesPorGrupoTipo.TryGetValue(clave, out var descripciones)
+                && descripciones.Any(d => string.Equals(d, descripcion, StringComparison.OrdinalIgnoreCase));
+            // El propio Word puede repetir la misma fila dos veces (o el usuario duplicó
+            // sin querer una fila en el triaje) — sin este chequeo, dos filas idénticas EN
+            // EL MISMO import se guardaban dos veces (el chequeo contra lo ya EXISTENTE en
+            // la base de datos no las agarra porque ninguna de las dos existía todavía).
+            var repetidoEnLote = !vistosEnEsteLote.Add((item.Grupo, item.Tipo, descripcion.ToUpperInvariant()));
+            if (yaGuardado || repetidoEnLote) continue;
+
+            maxOrdenPorGrupo.TryGetValue(item.Grupo, out var maxOrden);
+            maxOrdenPorGrupo[item.Grupo] = maxOrden + 1;
+
+            nuevos.Add(new SsomaPetItemSeleccionado
+            {
+                PetId = petId,
+                Grupo = item.Grupo,
+                Tipo = item.Tipo,
+                CatalogoItemId = null,
+                DescripcionPersonalizada = descripcion,
+                Orden = maxOrden + 1,
+                Activo = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
+        if (nuevos.Count == 0) return;
+        ctx.SsomaPetItemSeleccionado.AddRange(nuevos);
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task EliminarSeleccionAsync(int petId, int seleccionId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var seleccion = await ctx.SsomaPetItemSeleccionado.FirstOrDefaultAsync(x => x.Id == seleccionId && x.PetId == petId)
             ?? throw new AbrilException("Selección no encontrada.", 404);
 
         seleccion.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task DesactivarSeleccionesGrupoAsync(int petId, string grupo)
+    {
+        using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
+        var selecciones = await ctx.SsomaPetItemSeleccionado
+            .Where(x => x.PetId == petId && x.Grupo == grupo && x.Activo)
+            .ToListAsync();
+
+        foreach (var s in selecciones)
+            s.Activo = false;
         await ctx.SaveChangesAsync();
     }
 
@@ -510,6 +982,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var maxOrden = await ctx.SsomaPetAnexo
             .Where(x => x.PetId == petId && x.Activo)
@@ -532,6 +1005,7 @@ public class PetsRepository : IPetsRepository
     public async Task EliminarAnexoAsync(int petId, int anexoId)
     {
         using var ctx = _factory.CreateDbContext();
+        await MarcarBorradorAsync(ctx, petId);
         var anexo = await ctx.SsomaPetAnexo.FirstOrDefaultAsync(x => x.Id == anexoId && x.PetId == petId)
             ?? throw new AbrilException("Anexo no encontrado.", 404);
 
@@ -554,6 +1028,7 @@ public class PetsRepository : IPetsRepository
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
         if (fila == null)
@@ -578,12 +1053,111 @@ public class PetsRepository : IPetsRepository
         await ctx.SaveChangesAsync();
     }
 
+    // ── Versionado y aprobación ──────────────────────────────────────────────────
+
+    // El snapshot se toma leyendo GetDetalleAsync (mismo shape que ve la pantalla en
+    // vivo) y se serializa entero como JSON — una versión aprobada nunca se edita,
+    // así que no hace falta duplicar cada tabla de pasos/catálogo con un VersionId,
+    // alcanza con guardar la "foto" completa tal cual quedó en ese momento.
+    public async Task<PetVersionDto> AprobarVersionAsync(int petId, string motivo, int? aprobadoPorId, string aprobadoPorNombre)
+    {
+        if (string.IsNullOrWhiteSpace(motivo))
+            throw new AbrilException("El motivo es obligatorio para aprobar una versión.", 400);
+
+        var detalle = await GetDetalleAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+        var snapshot = JsonSerializer.Serialize(detalle);
+
+        using var ctx = _factory.CreateDbContext();
+        var pet = await ctx.SsomaPet.FindAsync(petId) ?? throw new AbrilException("PETS no encontrado.", 404);
+
+        var numeroVersion = pet.VersionVigente + 1;
+        var version = new SsomaPetVersion
+        {
+            PetId = petId,
+            NumeroVersion = numeroVersion,
+            SnapshotJson = snapshot,
+            Motivo = motivo.Trim(),
+            AprobadoPorId = aprobadoPorId,
+            AprobadoPorNombre = aprobadoPorNombre,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaPetVersion.Add(version);
+
+        pet.VersionVigente = numeroVersion;
+        pet.EstadoRevision = "aprobado";
+        pet.UpdatedAt = DateTime.UtcNow;
+        // Aprobar una versión ES la revisión que el accidente/incidente pedía.
+        pet.RevisionPendiente = false;
+        pet.RevisionPendienteMotivo = null;
+
+        // Cierra en automático el entregable "Evidencia de modificación de PETS"
+        // (ss_entregable_tipo.id = 16) de cualquier accidente/incidente que tenía
+        // este PETS asociado: la aprobación de la versión ES la evidencia, nadie
+        // tiene que subir un archivo aparte para levantar ese entregable puntual.
+        const int TipoEvidenciaModificacionPets = 16;
+        var accidenteIds = await ctx.Set<SsomaAccidenteIncidente>()
+            .Where(a => a.PetId == petId)
+            .Select(a => a.Id)
+            .ToListAsync();
+        if (accidenteIds.Count > 0)
+        {
+            var entregablesPendientes = await ctx.Set<SsomaEntregable>()
+                .Where(e => accidenteIds.Contains(e.AccidenteIncidenteId)
+                    && e.TipoId == TipoEvidenciaModificacionPets
+                    && e.Estado != "Aprobado")
+                .ToListAsync();
+            foreach (var ent in entregablesPendientes)
+            {
+                ent.Estado = "Aprobado";
+                ent.Observacion = $"Auto-aprobado: PETS versión {numeroVersion} publicada el {DateTime.UtcNow:dd/MM/yyyy}.";
+                ent.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await ctx.SaveChangesAsync();
+
+        return new PetVersionDto
+        {
+            NumeroVersion = numeroVersion,
+            Motivo = version.Motivo,
+            AprobadoPorNombre = aprobadoPorNombre,
+            CreatedAt = version.CreatedAt
+        };
+    }
+
+    public async Task<List<PetVersionDto>> GetVersionesAsync(int petId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsomaPetVersion
+            .Where(v => v.PetId == petId)
+            .OrderByDescending(v => v.NumeroVersion)
+            .Select(v => new PetVersionDto
+            {
+                NumeroVersion = v.NumeroVersion,
+                Motivo = v.Motivo,
+                AprobadoPorNombre = v.AprobadoPorNombre,
+                CreatedAt = v.CreatedAt
+            })
+            .ToListAsync();
+    }
+
+    // Usado para regenerar el PDF "oficial" de una versión pasada — nunca se lee para
+    // editar, la deserialización es de solo lectura.
+    public async Task<PetDetalleDto?> GetVersionSnapshotAsync(int petId, int numeroVersion)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var version = await ctx.SsomaPetVersion.FirstOrDefaultAsync(v => v.PetId == petId && v.NumeroVersion == numeroVersion);
+        if (version == null) return null;
+        return JsonSerializer.Deserialize<PetDetalleDto>(version.SnapshotJson);
+    }
+
     public async Task SetFirmaUrlAsync(int petId, string rol, string firmaUrl)
     {
         rol = ValidarRolFirma(rol);
         using var ctx = _factory.CreateDbContext();
         var pet = await ctx.SsomaPet.FindAsync(petId)
             ?? throw new AbrilException("PETS no encontrado.", 404);
+        if (pet.EstadoRevision == "aprobado") pet.EstadoRevision = "borrador";
 
         var fila = await ctx.SsomaPetFirma.FirstOrDefaultAsync(x => x.PetId == petId && x.Rol == rol);
         if (fila == null)

@@ -1099,6 +1099,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (esCambioPuesto)
                 worker.PuestoId = dto.PuestoId;
 
+            // La razón social vigente se replica en la ficha, no solo en la vinculación nueva. Es
+            // redundante y es a propósito: `workers.contributor_id` lo siguen leyendo ocho archivos
+            // (EMO, Salidas, Adjudicaciones…) y hasta el 2026-09-08 el cambio de obra no lo tocaba
+            // — por eso en prod había 15 fichas contando en la empresa equivocada. Deuda temporal:
+            // cuando esos lectores pasen a la vinculación, esta línea se va con la columna.
+            worker.ContributorId = dto.NuevaEmpresaId ?? currentEmpresaId;
+
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
@@ -1354,7 +1361,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await EnviarEmailSilenciosoAsync(to, subject, body);
         }
 
-        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto)
+        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1369,6 +1376,40 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
+            // Si el retiro más reciente fue AUTOMÁTICO (por documentación vencida/rechazada), no se
+            // puede reingresar hasta levantar esa observación: mientras siga habiendo un ítem sin
+            // aprobar, es el mismo incumplimiento por el que se retiró, solo que ahora reingresado.
+            // Bandeja ya deja aprobar el documento de un trabajador retirado (no lo filtra por
+            // estado), así que "subsanar" no requiere estar activo — lo que faltaba era este freno.
+            // Solo bloquea si el ÚLTIMO retiro fue automático: uno manual (renuncia, despido, etc.)
+            // no tiene "observación" que levantar. El override es exclusivo de Administrador/
+            // Coordinador SSOMA de Abril — nunca disponible para una sesión de contratista.
+            if (!esOverrideAutorizado && worker.WorkersEstadoId == WorkersEstadoIds.Retirado)
+            {
+                var ultimoRetiroFueAutomatico = await ctx.SsRetiroAutomaticoLog
+                    .Where(l => l.WorkerId == workerId)
+                    .OrderByDescending(l => l.EjecutadoEn)
+                    .Select(l => l.TipoRetiro)
+                    .FirstOrDefaultAsync() == "AUTOMATICO";
+
+                if (ultimoRetiroFueAutomatico)
+                {
+                    var pendientes = await ctx.SsHabTrabajador
+                        .Where(h => h.WorkerId == workerId && h.ItemId != HabItemIds.LecturaEmo
+                                 && (h.Estado == "Falta" || h.Estado == "Vencido" || h.Estado == "Rechazado"))
+                        .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
+                              h => h.ItemId, i => i.Id, (h, i) => i.Nombre)
+                        .ToListAsync();
+
+                    if (pendientes.Count > 0)
+                        throw new AbrilException(
+                            "No se puede reingresar: sigue pendiente de aprobación " +
+                            string.Join(", ", pendientes) +
+                            ". Suba y apruebe la evidencia en Bandeja antes de reingresar, o pida a un " +
+                            "Administrador/Coordinador SSOMA que lo autorice de forma excepcional.", 400);
+                }
+            }
 
             // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
             // workerId — es ciega a que exista otro worker_id distinto para la misma persona
@@ -1511,6 +1552,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 vinculActual.FechaFin = fechaReingreso;
                 vinculActual.UpdatedAt = now;
             }
+
+            // Misma réplica que en el cambio de obra: la ficha y la vinculación tienen que decir la
+            // misma razón social mientras `workers.contributor_id` siga teniendo lectores.
+            worker.ContributorId = dto.NuevaEmpresaId ?? currentEmpresaId;
 
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
@@ -1750,6 +1795,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = fechaReingreso,
                     CreatedAt   = DateTimeOffset.UtcNow,
                 });
+                // La vinculación reparada también manda sobre la ficha: si no, la reparación
+                // arreglaría la mitad del problema y dejaría las dos fuentes discrepando.
+                if (ultimaCerrada?.EmpresaId != null)
+                    worker.ContributorId = ultimaCerrada.EmpresaId;
                 await ctx.SaveChangesAsync();
                 _logger.LogWarning(
                     "[ReingresoAsync] Safety check activado: worker {WorkerId} quedó sin vinculación activa — reparada (empresa={Empresa}, proyecto={Proyecto}).",
@@ -2717,6 +2766,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .GroupBy(v => v.WorkerId)
                 .ToDictionary(g => g.Key, g => g.First());
 
+            // 4. Las fichas de esos mismos workers, en un solo roundtrip: la reparación tiene que
+            // dejar las dos fuentes de razón social diciendo lo mismo (ver el comentario de
+            // CambiarObraAsync), o arreglaría la vinculación y dejaría la ficha discrepando.
+            var fichas = await ctx.Worker
+                .Where(w => sinVincActiva.Contains(w.Id))
+                .ToDictionaryAsync(w => w.Id);
+
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
             var reparados = new List<WorkerReparacionVinculacionDto>();
@@ -2733,6 +2789,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = hoy,
                     CreatedAt   = now,
                 });
+                if (ultima?.EmpresaId != null && fichas.TryGetValue(workerId, out var ficha))
+                {
+                    ficha.ContributorId = ultima.EmpresaId;
+                    ficha.UpdatedAt     = now;
+                }
                 reparados.Add(new WorkerReparacionVinculacionDto
                 {
                     WorkerId   = workerId,
@@ -2808,6 +2869,45 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             })
             .OrderByDescending(x => x.DiasPendiente)
             .ToList();
+        }
+
+        public async Task<List<RetiroAutomaticoRecienteDto>> GetRetirosAutomaticosRecientesAsync(int dias)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var desde = DateTimeOffset.UtcNow.AddDays(-dias);
+
+            var raw = await (
+                from log in ctx.SsRetiroAutomaticoLog
+                where log.TipoRetiro == "AUTOMATICO" && log.EjecutadoEn >= desde
+                join w in ctx.Worker on log.WorkerId equals w.Id into wj
+                from w in wj.DefaultIfEmpty()
+                select new
+                {
+                    log.WorkerId,
+                    log.EmpresaId,
+                    log.Motivo,
+                    log.EntregablesVencidos,
+                    log.EjecutadoEn,
+                    WorkerNombre = w != null && w.Person != null ? w.Person.FullName : null,
+                    Dni = w != null && w.Person != null ? w.Person.DocumentIdentityCode : null
+                }
+            ).OrderByDescending(x => x.EjecutadoEn).ToListAsync();
+
+            var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            return raw.Select(x => new RetiroAutomaticoRecienteDto
+            {
+                WorkerId = x.WorkerId,
+                WorkerNombre = x.WorkerNombre ?? "—",
+                Dni = x.Dni,
+                RazonSocial = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var en) ? en : "Abril",
+                Motivo = x.Motivo ?? "Documentación vencida",
+                EntregablesVencidos = x.EntregablesVencidos,
+                EjecutadoEn = x.EjecutadoEn
+            }).ToList();
         }
 
         public async Task<string?> GetResponsableItemTrabajadorAsync(int entregableId)

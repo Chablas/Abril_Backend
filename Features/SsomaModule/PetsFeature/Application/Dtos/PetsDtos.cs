@@ -8,6 +8,27 @@ public class PetListItemDto
     public bool Activo { get; set; }
     public int TotalPasos { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    // "borrador" | "aprobado" — ver comentario en SsomaPet.EstadoRevision.
+    public string EstadoRevision { get; set; } = "borrador";
+    public int VersionVigente { get; set; }
+
+    // Eje independiente — ver SsomaPet.RevisionPendiente.
+    public bool RevisionPendiente { get; set; }
+    public string? RevisionPendienteMotivo { get; set; }
+
+    // "Abril" | "Contratista" — ver SsomaPet.Origen.
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
+    public string? ProyectoNombre { get; set; }
+}
+
+public class PetImagenDto
+{
+    public int Id { get; set; }
+    public string Url { get; set; } = string.Empty;
 }
 
 public class PetPasoDto
@@ -15,8 +36,21 @@ public class PetPasoDto
     public int Id { get; set; }
     public int? ParentId { get; set; }
     public string Tipo { get; set; } = "paso";
+
+    // Profundidad en el árbol (0 = nivel superior) — solo la calcula GetPasosAsync
+    // (consumido por OPT para poder agrupar/colapsar por subtítulo); GetDetalleAsync
+    // no la necesita porque el frontend de PETS ya arma su propio árbol con hijos[].
+    public int Nivel { get; set; }
     public string Descripcion { get; set; } = string.Empty;
+
+    // Se mantiene = Imagenes.FirstOrDefault()?.Url para no romper nada que ya lea
+    // ImagenUrl (ej. el PDF, pantallas viejas) — el dato real vive en Imagenes.
     public string? ImagenUrl { get; set; }
+    public List<PetImagenDto> Imagenes { get; set; } = [];
+
+    // Etiqueta libre por tema transversal (hoy solo "medio_ambiente"). null = ninguna.
+    public string? Categoria { get; set; }
+
     public int Orden { get; set; }
 }
 
@@ -28,6 +62,17 @@ public class PetDetalleDto
     public string? SharepointUrl { get; set; }
     public bool Activo { get; set; }
 
+    public string EstadoRevision { get; set; } = "borrador";
+    public int VersionVigente { get; set; }
+    public bool RevisionPendiente { get; set; }
+    public string? RevisionPendienteMotivo { get; set; }
+
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
+    public string? ProyectoNombre { get; set; }
+
     // "Procedimiento (paso a paso)" — se mantiene aparte por compatibilidad, ya que
     // OPT jala este mismo dato vía GET /pets/{id}/pasos.
     public List<PetPasoDto> Pasos { get; set; } = [];
@@ -35,6 +80,13 @@ public class PetDetalleDto
     // Responsabilidades sí tiene estructura real (subtítulo por cargo, con ítems
     // debajo) — es el único árbol además de Procedimiento.
     public List<PetPasoDto> Responsabilidades { get; set; } = [];
+
+    // Capítulo 7 fijo del PDF, "7.1 Personal" — mismo tipo de árbol que
+    // Responsabilidades (subtítulo por rol/cargo con las condiciones/requisitos de
+    // ese personal debajo), pero es un capítulo aparte: Responsabilidades describe
+    // QUÉ debe hacer cada rol: Gestión de Personal describe QUIÉN puede ocupar ese
+    // rol (experiencia mínima, certificaciones vigentes, etc.).
+    public List<PetPasoDto> GestionPersonal { get; set; } = [];
 
     // Secciones narrativas — un solo bloque de texto cada una, por clave:
     // introduccion | alcance | objetivo | definiciones | restricciones.
@@ -55,6 +107,12 @@ public class CrearPetRequest
     public string Nombre { get; set; } = string.Empty;
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
+
+    // "Abril" (default) | "Contratista". Si es Contratista, ContributorId y
+    // ProyectoId son obligatorios (se valida en el repositorio).
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class ActualizarPetRequest
@@ -63,6 +121,9 @@ public class ActualizarPetRequest
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
     public bool Activo { get; set; } = true;
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class CrearPetPasoRequest
@@ -90,6 +151,22 @@ public class ActualizarPetPasoRequest
 {
     public string Descripcion { get; set; } = string.Empty;
     public string Tipo { get; set; } = "paso";
+}
+
+public class CambiarNivelPasoRequest
+{
+    // null = pasa al nivel superior de la sección. Si se indica, pasa a ser hijo de
+    // ese paso (debe ser "subtitulo" — es el único tipo que agrupa hijos en pantalla).
+    // Se agrega al final de ese nuevo grupo de hermanos.
+    public int? NuevoParentId { get; set; }
+}
+
+public class ActualizarCategoriaPasoRequest
+{
+    // "medio_ambiente" | null (quitar la categoría). Validado contra un catálogo fijo
+    // en el repo — no cualquier texto libre, para que el color/ícono en pantalla y PDF
+    // sepan siempre qué mostrar.
+    public string? Categoria { get; set; }
 }
 
 public class ReordenarPasosRequest
@@ -190,4 +267,26 @@ public class ActualizarFirmaRequest
     public string? Nombre { get; set; }
     public string? Cargo { get; set; }
     public DateOnly? Fecha { get; set; }
+}
+
+// ── Versionado y aprobación ──────────────────────────────────────────────────
+
+public class PetVersionDto
+{
+    public int NumeroVersion { get; set; }
+    public string Motivo { get; set; } = string.Empty;
+    public string AprobadoPorNombre { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class AprobarVersionRequest
+{
+    // Obligatorio — queda en el historial visible como la respuesta a "por qué
+    // cambió esta versión" (ej. "Revisión periódica", "Accidente #123").
+    public string Motivo { get; set; } = string.Empty;
+
+    // El JWT interno no trae el nombre completo del usuario (solo id y email), así
+    // que lo manda el frontend con el nombre ya mostrado en la sesión — el id sí sale
+    // del token, nunca del body, para que no se pueda falsear quién aprobó.
+    public string AprobadoPorNombre { get; set; } = string.Empty;
 }

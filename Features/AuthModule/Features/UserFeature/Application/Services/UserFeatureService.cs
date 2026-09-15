@@ -50,6 +50,10 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             Users = await _repo.GetPaged(page, pageSize),
         };
 
+        public async Task<UserDetailDto> GetDetail(int userId) =>
+            await _repo.GetDetail(userId)
+            ?? throw new AbrilException("Usuario no encontrado.", 404);
+
         public Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser() =>
             _repo.GetAbrilWorkersWithoutUser();
 

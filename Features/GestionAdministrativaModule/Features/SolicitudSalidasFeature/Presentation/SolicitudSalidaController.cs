@@ -34,7 +34,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         public async Task<IActionResult> GetMySolicitudes(
             [FromQuery] int? lugarProyectoId,
             [FromQuery] string? estadoAprobacion,
-            [FromQuery] string? estadoRendicion)
+            [FromQuery] string? estadoRendicion,
+            [FromQuery] int? rendicionAnio = null,
+            [FromQuery] int? rendicionMes = null)
         {
             try
             {
@@ -48,6 +50,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                     LugarProyectoId  = lugarProyectoId,
                     EstadoAprobacion = estadoAprobacion,
                     EstadoRendicion  = estadoRendicion,
+                    RendicionAnio    = rendicionAnio,
+                    RendicionMes     = rendicionMes,
                 };
                 return Ok(await _service.GetByUserId(userId.Value, filters));
             }
@@ -186,13 +190,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
-        [HttpPost("trayectos/{trayectoId:int}/capturas")]
+        /// <summary>
+        /// Guarda de una vez todo lo que el modal de capturas tocó en una salida propia: las
+        /// capturas nuevas de cualquiera de sus trayectos y los montos e imágenes que se cambiaron
+        /// en las que ya estaban. Es una sola llamada porque en la pantalla es un solo botón
+        /// "Guardar" —lo que el trabajador arma es el sustento completo de la salida, no una fila
+        /// suelta— y porque así la carpeta de SharePoint se resuelve una vez para todo el lote.
+        ///
+        /// Las listas viajan en paralelo (misma posición = misma captura). La imagen de una
+        /// edición es opcional, así que los archivos de reemplazo van con su propio índice
+        /// (<c>editFileIndices</c>) apuntando a la posición dentro de <c>editIds</c>, igual que
+        /// los adjuntos por trayecto en la creación.
+        /// </summary>
+        /// <returns>El detalle ya actualizado, para repintar el modal sin pedirlo de nuevo.</returns>
+        [HttpPost("{solicitudId:int}/capturas")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB total
-        public async Task<IActionResult> UploadCapturasTrayecto(
-            int trayectoId,
-            [FromForm] List<IFormFile> files,
-            [FromForm] List<string> montos)
+        [RequestSizeLimit(80 * 1024 * 1024)] // 80 MB: el lote es de toda la salida, no de un trayecto
+        public async Task<IActionResult> GuardarCapturas(
+            int solicitudId,
+            // Los números viajan como texto y se parsean con InvariantCulture: el binder de
+            // formularios usa la cultura del servidor y ahí "10.50" no significa lo mismo siempre.
+            [FromForm] List<string>? nuevasTrayectoIds,
+            [FromForm] List<string>? nuevasMontos,
+            [FromForm] List<IFormFile>? nuevasFiles,
+            [FromForm] List<string>? editIds,
+            [FromForm] List<string>? editMontos,
+            [FromForm] List<string>? editFileIndices,
+            [FromForm] List<IFormFile>? editFiles)
         {
             try
             {
@@ -201,20 +225,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                if (files == null || montos == null || files.Count != montos.Count)
-                    return BadRequest(new { message = "La cantidad de archivos y montos debe coincidir." });
+                var trayectosNuevas = nuevasTrayectoIds ?? new List<string>();
+                var montosNuevas    = nuevasMontos      ?? new List<string>();
+                var archivosNuevas  = nuevasFiles       ?? new List<IFormFile>();
+                var idsEdicion      = editIds           ?? new List<string>();
+                var montosEdicion   = editMontos        ?? new List<string>();
+                var indicesEdicion  = editFileIndices   ?? new List<string>();
+                var archivosEdicion = editFiles         ?? new List<IFormFile>();
 
-                var items = new List<(IFormFile File, decimal Monto)>(files.Count);
-                for (int i = 0; i < files.Count; i++)
+                if (trayectosNuevas.Count != montosNuevas.Count || trayectosNuevas.Count != archivosNuevas.Count)
+                    return BadRequest(new { message = "Cada captura nueva debe traer su trayecto, su monto y su imagen." });
+                if (idsEdicion.Count != montosEdicion.Count)
+                    return BadRequest(new { message = "Cada captura editada debe traer su id y su monto." });
+                if (indicesEdicion.Count != archivosEdicion.Count)
+                    return BadRequest(new { message = "Cada imagen de reemplazo debe traer a qué captura editada corresponde." });
+
+                var input = new GuardarCapturasInput();
+
+                for (int i = 0; i < trayectosNuevas.Count; i++)
                 {
-                    if (!decimal.TryParse(montos[i], System.Globalization.NumberStyles.Number,
-                                          System.Globalization.CultureInfo.InvariantCulture, out var monto))
-                        return BadRequest(new { message = $"Monto inválido en la posición {i + 1}: '{montos[i]}'." });
-                    items.Add((files[i], monto));
+                    if (!int.TryParse(trayectosNuevas[i], out var trayectoId))
+                        return BadRequest(new { message = $"Trayecto inválido en la captura nueva {i + 1}: '{trayectosNuevas[i]}'." });
+                    if (!TryParseMonto(montosNuevas[i], out var monto))
+                        return BadRequest(new { message = $"Monto inválido en la captura nueva {i + 1}: '{montosNuevas[i]}'." });
+
+                    input.Nuevas.Add(new CapturaNuevaInput
+                    {
+                        TrayectoId = trayectoId,
+                        Monto      = monto,
+                        File       = archivosNuevas[i],
+                    });
                 }
 
-                var creadas = await _service.UploadCapturasToTrayecto(trayectoId, items, userId.Value);
-                return Ok(creadas);
+                for (int i = 0; i < idsEdicion.Count; i++)
+                {
+                    if (!int.TryParse(idsEdicion[i], out var capturaId))
+                        return BadRequest(new { message = $"Captura inválida en la posición {i + 1}: '{idsEdicion[i]}'." });
+                    if (!TryParseMonto(montosEdicion[i], out var monto))
+                        return BadRequest(new { message = $"Monto inválido en la captura editada {i + 1}: '{montosEdicion[i]}'." });
+
+                    input.Ediciones.Add(new CapturaEdicionInput { CapturaId = capturaId, Monto = monto });
+                }
+
+                for (int i = 0; i < indicesEdicion.Count; i++)
+                {
+                    if (!int.TryParse(indicesEdicion[i], out var pos) || pos < 0 || pos >= input.Ediciones.Count)
+                        return BadRequest(new { message = $"Índice de imagen de reemplazo inválido en la posición {i + 1}: '{indicesEdicion[i]}'." });
+
+                    input.Ediciones[pos].File = archivosEdicion[i];
+                }
+
+                return Ok(await _service.GuardarCapturas(solicitudId, input, userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -222,7 +283,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.UploadCapturasTrayecto");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.GuardarCapturas");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Un monto que viajó como texto: siempre con punto decimal, nunca con la cultura del servidor.</summary>
+        private static bool TryParseMonto(string raw, out decimal monto) =>
+            decimal.TryParse(raw, System.Globalization.NumberStyles.Number,
+                             System.Globalization.CultureInfo.InvariantCulture, out monto);
+
+        /// <summary>
+        /// Da de baja una captura propia. La fila se conserva para auditoría pero deja de contar
+        /// para el importe rendido y para la planilla.
+        /// </summary>
+        [HttpDelete("capturas/{capturaId:int}")]
+        public async Task<IActionResult> EliminarCaptura(int capturaId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.EliminarCaptura(capturaId, userId.Value);
+                return Ok(new { message = "Captura eliminada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.EliminarCaptura");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -294,12 +388,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
-        /// Rinde de una vez TODAS las salidas propias del mes anterior que estén listas (aprobadas,
-        /// no rendidas y con las capturas de todos sus trayectos) y descarga la planilla. Las que no
-        /// cumplen se ignoran.
+        /// Rinde de una vez TODAS las salidas propias del mes indicado (sin <c>anio</c>/<c>mes</c>,
+        /// el anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
+        /// trayectos y con un motivo reembolsable— y descarga la planilla. Es lo que la pantalla
+        /// ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
         /// </summary>
-        [HttpPatch("rendir-mes-anterior")]
-        public async Task<IActionResult> RendirMesAnterior()
+        [HttpPatch("rendir-mes")]
+        public async Task<IActionResult> RendirMes([FromQuery] int? anio = null, [FromQuery] int? mes = null)
         {
             try
             {
@@ -310,7 +405,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
 
                 // Mismo camino que MarcarRendidas: el servicio del autoservicio resuelve qué entra
                 // (solo lo propio) y la planilla la genera Gestión de Salidas, con guard de propiedad.
-                var ids = await _service.GetIdsRendiblesMesAnterior(userId.Value);
+                var ids = await _service.GetIdsRendiblesMes(userId.Value, anio, mes);
                 var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(
                     ids, userId.Value, ownerUserId: userId.Value);
 
@@ -326,85 +421,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMesAnterior");
+                _logger.LogError(ex, "Error en SolicitudSalidaController.RendirMes");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
-        }
-
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una salida PROPIA ya rendida.
-        /// <c>ambito</c>: "Rendicion" (cubre toda la planilla, es el default de la pantalla) o
-        /// "Solicitud" (cubre solo esta salida).
-        /// </summary>
-        [HttpPost("{id:int}/consolidado-s10")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB
-        public async Task<IActionResult> UploadConsolidadoS10(int id, [FromForm] IFormFile file, [FromForm] string? ambito)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                if (!TryParseAmbito(ambito, out var ambitoEnum))
-                    return BadRequest(new { message = "Ámbito inválido: usa \"Rendicion\" o \"Solicitud\"." });
-
-                return Ok(await _service.UploadConsolidadoS10(id, ambitoEnum, file, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.UploadConsolidadoS10");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>Traduce el ámbito recibido del formulario. Vacío/ausente = Rendicion (el default).</summary>
-        private static bool TryParseAmbito(string? ambito, out ConsolidadoS10Ambito parsed)
-        {
-            if (string.IsNullOrWhiteSpace(ambito))
-            {
-                parsed = ConsolidadoS10Ambito.Rendicion;
-                return true;
-            }
-            return Enum.TryParse(ambito.Trim(), ignoreCase: true, out parsed)
-                && Enum.IsDefined(parsed);
         }
 
         // ── Endpoints públicos invocados desde los links del email ──────────
-
-        /// <summary>
-        /// Avisa al jefe/revisor que el Consolidado del S10 de esa salida ya está adjunto y su
-        /// reembolso espera revisión. Lo dispara el propio trabajador desde su pantalla.
-        /// </summary>
-        [HttpPatch("{id:int}/notificar-revisor")]
-        public async Task<IActionResult> NotificarRevisor(int id)
-        {
-            try
-            {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
-                    ? uid : (int?)null;
-                if (userId == null)
-                    return Unauthorized(new { message = "Usuario no autenticado." });
-
-                var message = await _service.NotificarRevisorS10(id, userId.Value);
-                return Ok(new { message });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en SolicitudSalidaController.NotificarRevisor");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
 
         [HttpGet("aprobar")]
         [AllowAnonymous]

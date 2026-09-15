@@ -23,6 +23,13 @@ public class KitService : IKitService
         return _repo.CrearAsync(dto);
     }
 
+    public Task EditarAsync(int kitId, KitEditarDto dto)
+    {
+        if (dto.Items.Any(i => i.CantidadPorKit <= 0))
+            throw new AbrilException("La cantidad por kit debe ser mayor a 0.", 400);
+        return _repo.EditarAsync(kitId, dto.Items);
+    }
+
     public Task<List<KitCalculoLineaDto>> CalcularAsync(int kitId, decimal cantidadKits)
     {
         if (cantidadKits <= 0)

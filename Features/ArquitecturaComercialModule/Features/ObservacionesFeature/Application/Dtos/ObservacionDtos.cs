@@ -28,6 +28,7 @@ public class ObservacionListItemDTO
     public string Origen { get; set; } = string.Empty;
     public int? LevantaPorWorkerId { get; set; }
     public string? LevantaPorNombre { get; set; }
+    public DateTime? FechaLevantamiento { get; set; }
     public List<ObservacionFotoDTO> Fotos { get; set; } = new();
 }
 
@@ -76,6 +77,10 @@ public class LevantarObservacionDTO
     /// Comercial", mismo que alimenta SupervisorAcDTO). Obligatorio: la cuenta de campo es
     /// compartida, no hay forma de inferirlo de la sesión.</summary>
     public int? LevantaPorWorkerId { get; set; }
+
+    /// <summary>Fecha real en que se hizo el levantamiento (no la de subida a la app —
+    /// el campo suele registrarse en papel antes y regularizarse después). Null = hoy.</summary>
+    public DateTime? FechaLevantamiento { get; set; }
 }
 
 /// <summary>
@@ -90,6 +95,7 @@ public class UpdateObservacionDTO
     public string? PartidaReportada { get; set; }
     public string? AreaResponsable { get; set; }
     public string? PersonaReporta { get; set; }
+    public DateTime? FechaLevantamiento { get; set; }
 }
 
 public class ObservacionDashboardSupervisorDTO

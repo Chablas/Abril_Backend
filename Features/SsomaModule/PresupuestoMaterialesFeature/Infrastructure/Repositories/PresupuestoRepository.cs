@@ -15,13 +15,21 @@ public class PresupuestoRepository : IPresupuestoRepository
     /// ya se manejan por su propio mecanismo manual, con su propia tabla y su propia suma en
     /// PresupuestoTotalHelper — si además entraran acá por ratio, quedarían contadas DOS VECES en el
     /// total: FIJO = Servicios (ss_presupuesto_item_metrado, cantidad 100% manual por diseño, nunca
-    /// debió entrar por ratio); famílias del BOM de algún kit = Kits/BOM (ss_presupuesto_kit_item,
-    /// cantidad = cantidadKits × receta); "Servicio de Vigilancia" = Vigilancia
-    /// (ss_presupuesto_vigilancia_hito, cantidad de puntos × precio fijo por turno).</summary>
+    /// debió entrar por ratio); "Servicio de Vigilancia" = Vigilancia (ss_presupuesto_vigilancia_hito,
+    /// cantidad de puntos × precio fijo por turno); ENCAPSULADO = servicio de personal que se coloca
+    /// a mano (Personal → rol Encapsulador), nunca por ratio de HH/Área; "Suministro e instalación de
+    /// malla (anticaída)" = también 100% manual, se coloca aparte (Servicios y equipos), no por ratio.
+    /// Kits/BOM (Botiquín, Estación de Emergencia): se excluye el TIPO completo — no solo las
+    /// famílias que ya están en el BOM de un kit — porque esas categorías se manejan enteras por
+    /// Kits/BOM (ss_presupuesto_kit_item, cantidad = cantidadKits × receta). Si se excluyera família
+    /// por família, cualquier família de esa categoría que todavía no esté en la receta del kit se
+    /// colaba igual por ratio, duplicando el criterio de "esto se calcula por kit, no por ratio".</summary>
     private const string FamiliasExcluidasDeRatioWhere = """
         f.variable_base <> 'FIJO'
         AND f.nombre NOT ILIKE '%vigilancia%'
-        AND NOT EXISTS (SELECT 1 FROM ss_kit_item ki WHERE ki.familia_id = f.id)
+        AND f.nombre NOT ILIKE '%malla%'
+        AND t.nombre NOT ILIKE '%encapsulado%'
+        AND NOT EXISTS (SELECT 1 FROM ss_kit k WHERE k.tipo_id = t.id AND k.activo = true)
         """;
 
     public async Task<List<RatioRecomendadoDto>> ObtenerRatiosRecomendadosAsync()
@@ -34,17 +42,18 @@ public class PresupuestoRepository : IPresupuestoRepository
               t.id                                                                        AS TipoId,
               t.nombre                                                                    AS NombreTipo,
               f.variable_base                                                             AS VariableBase,
-              COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.ratio_cantidad)
-                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_ratio = true), 0)  AS RatioRecomendado,
-              COALESCE(AVG(r.precio_unitario_promedio)
-                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_precio = true), 0) AS PrecioRecomendado,
+              f.unidad_medida                                                             AS UnidadMedida,
+              ROUND(COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.ratio_cantidad)
+                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_ratio = true), 0)::numeric, 6)  AS RatioRecomendado,
+              ROUND(COALESCE(AVG(r.precio_unitario_promedio)
+                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_precio = true), 0), 4) AS PrecioRecomendado,
               COUNT(r.id) FILTER (WHERE r.es_outlier = false AND r.incluido_manual_ratio = true)   AS NProyectos
             FROM ss_material_familia f
             JOIN ss_material_tipo t       ON t.id = f.tipo_id
             LEFT JOIN ss_ratio_proyecto r ON r.familia_id = f.id
             WHERE f.pertenece_ssoma = true AND f.activo = true
               AND {FamiliasExcluidasDeRatioWhere}
-            GROUP BY f.id, f.nombre, t.id, t.nombre, f.variable_base
+            GROUP BY f.id, f.nombre, t.id, t.nombre, f.variable_base, f.unidad_medida
             ORDER BY t.nombre, f.nombre
             """;
         var result = await conn.QueryAsync<RatioRecomendadoDto>(sql);
@@ -58,6 +67,51 @@ public class PresupuestoRepository : IPresupuestoRepository
             "SELECT MAX(version) FROM ss_presupuesto WHERE project_id = @projectId",
             new { projectId });
         return (max ?? 0) + 1;
+    }
+
+    public async Task<int?> ObtenerUltimoPresupuestoIdAsync(int projectId)
+    {
+        using var conn = Conn();
+        return await conn.ExecuteScalarAsync<int?>(
+            "SELECT id FROM ss_presupuesto WHERE project_id = @projectId ORDER BY generado_en DESC LIMIT 1",
+            new { projectId });
+    }
+
+    /// <summary>Copia Personal, Vigilancia, Servicios de costo fijo y Kits/BOM de la versión anterior
+    /// del presupuesto a la nueva — sin esto, cada "Generar presupuesto" (nueva versión) perdía todo
+    /// lo que el responsable SSOMA ya había cargado en esas 4 pestañas, porque solo recalcula
+    /// materiales por ratio. Los materiales/detalle NO se copian porque esos sí se recalculan siempre
+    /// desde cero con los ratios vigentes.</summary>
+    public async Task CopiarDatosDeVersionAnteriorAsync(int presupuestoOrigenId, int presupuestoDestinoId)
+    {
+        using var conn = Conn();
+        await conn.ExecuteAsync("""
+            INSERT INTO ss_presupuesto_personal_hito
+                (presupuesto_id, hito_id, hito_salida_id, rol, cantidad, semanas, costo_mensual, total)
+            SELECT @destinoId, hito_id, hito_salida_id, rol, cantidad, semanas, costo_mensual, total
+            FROM ss_presupuesto_personal_hito WHERE presupuesto_id = @origenId
+            """, new { origenId = presupuestoOrigenId, destinoId = presupuestoDestinoId });
+
+        await conn.ExecuteAsync("""
+            INSERT INTO ss_presupuesto_vigilancia_hito
+                (presupuesto_id, hito_id, hito_salida_id, cantidad_puntos, semanas, precio_unitario, total)
+            SELECT @destinoId, hito_id, hito_salida_id, cantidad_puntos, semanas, precio_unitario, total
+            FROM ss_presupuesto_vigilancia_hito WHERE presupuesto_id = @origenId
+            """, new { origenId = presupuestoOrigenId, destinoId = presupuestoDestinoId });
+
+        await conn.ExecuteAsync("""
+            INSERT INTO ss_presupuesto_item_metrado
+                (presupuesto_id, familia_id, metrado, precio_unitario, total, descripcion)
+            SELECT @destinoId, familia_id, metrado, precio_unitario, total, descripcion
+            FROM ss_presupuesto_item_metrado WHERE presupuesto_id = @origenId
+            """, new { origenId = presupuestoOrigenId, destinoId = presupuestoDestinoId });
+
+        await conn.ExecuteAsync("""
+            INSERT INTO ss_presupuesto_kit_item
+                (presupuesto_id, kit_id, cantidad_kits, familia_id, cantidad_por_kit, cantidad_total, precio_unitario, total, es_consumible)
+            SELECT @destinoId, kit_id, cantidad_kits, familia_id, cantidad_por_kit, cantidad_total, precio_unitario, total, es_consumible
+            FROM ss_presupuesto_kit_item WHERE presupuesto_id = @origenId
+            """, new { origenId = presupuestoOrigenId, destinoId = presupuestoDestinoId });
     }
 
     public async Task<int> CrearPresupuestoAsync(int projectId, int version, decimal hh, decimal area,
@@ -115,6 +169,12 @@ public class PresupuestoRepository : IPresupuestoRepository
             new { presupuestoId, total });
     }
 
+    public async Task RecalcularTotalAsync(int presupuestoId)
+    {
+        using var conn = Conn();
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId);
+    }
+
     public async Task<PresupuestoDetalleDto?> ObtenerDetalleAsync(int presupuestoId)
     {
         using var conn = Conn();
@@ -138,6 +198,7 @@ public class PresupuestoRepository : IPresupuestoRepository
             SELECT
               l.id AS LineaId, l.familia_id AS FamiliaId,
               f.nombre AS NombreFamilia, t.nombre AS NombreTipo, t.id AS TipoId,
+              f.activo AS Activo,
               l.variable_base AS VariableBase, l.ratio_recomendado AS RatioRecomendado,
               l.n_proyectos_base AS NProyectosBase, l.valor_driver AS ValorDriver,
               l.cantidad_estimada AS CantidadEstimada, l.precio_unitario AS PrecioUnitario,
@@ -233,6 +294,51 @@ public class PresupuestoRepository : IPresupuestoRepository
             "SELECT presupuesto_id FROM ss_presupuesto_detalle WHERE id = @lineaId", new { lineaId })));
     }
 
+    /// <summary>Agrega (o actualiza, si la família ya tenía línea) una línea 100% manual al
+    /// presupuesto vigente — usado por "Agregar família" en el detalle, para materiales que aún no
+    /// tienen historia de ratio (o directamente no existían en el catálogo hasta este momento).</summary>
+    public async Task InsertarLineaManualAsync(
+        int presupuestoId, int familiaId, decimal cantidadManual, decimal precioManual, string? notas)
+    {
+        using var conn = Conn();
+
+        var existenteId = await conn.ExecuteScalarAsync<int?>(
+            "SELECT id FROM ss_presupuesto_detalle WHERE presupuesto_id = @presupuestoId AND familia_id = @familiaId",
+            new { presupuestoId, familiaId });
+
+        if (existenteId.HasValue)
+        {
+            await conn.ExecuteAsync(
+                """
+                UPDATE ss_presupuesto_detalle
+                SET cantidad_manual = @cantidadManual, precio_manual = @precioManual, notas_linea = @notas
+                WHERE id = @id
+                """,
+                new { id = existenteId.Value, cantidadManual, precioManual, notas });
+        }
+        else
+        {
+            var familia = await conn.QuerySingleAsync<(string VariableBase, int TipoId)>(
+                "SELECT variable_base AS VariableBase, tipo_id AS TipoId FROM ss_material_familia WHERE id = @familiaId",
+                new { familiaId });
+
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO ss_presupuesto_detalle
+                  (presupuesto_id, familia_id, tipo_id, variable_base, ratio_recomendado,
+                   n_proyectos_base, valor_driver, cantidad_estimada, precio_unitario,
+                   total_estimado, tiene_historia, cantidad_manual, precio_manual, notas_linea)
+                VALUES
+                  (@presupuestoId, @familiaId, @tipoId, @variableBase, 0,
+                   0, 0, 0, 0,
+                   0, false, @cantidadManual, @precioManual, @notas)
+                """,
+                new { presupuestoId, familiaId, tipoId = familia.TipoId, variableBase = familia.VariableBase, cantidadManual, precioManual, notas });
+        }
+
+        await PresupuestoTotalHelper.RecalcularTotalAsync(conn, presupuestoId);
+    }
+
     public async Task<string> AprobarAsync(int presupuestoId)
     {
         using var conn = Conn();
@@ -247,5 +353,34 @@ public class PresupuestoRepository : IPresupuestoRepository
                 "No se puede aprobar: el presupuesto no existe o ya está aprobado.", 400);
 
         return "APROBADO";
+    }
+
+    public async Task<string?> ObtenerEstadoAsync(int presupuestoId)
+    {
+        using var conn = Conn();
+        return await conn.ExecuteScalarAsync<string?>(
+            "SELECT estado FROM ss_presupuesto WHERE id = @presupuestoId", new { presupuestoId });
+    }
+
+    /// <summary>Borra una versión de presupuesto completa (todas sus líneas de materiales, Personal,
+    /// Vigilancia, Servicios y Kits) — el controller ya valida que esté en BORRADOR antes de llamar
+    /// esto; una versión APROBADA puede tener Control de consumo semanal real encima y no se toca acá.
+    /// Borra explícitamente cada tabla hija en vez de confiar en ON DELETE CASCADE porque
+    /// ss_presupuesto_kit_item se creó vía SQL manual sin esa opción en el FK.</summary>
+    public async Task EliminarAsync(int presupuestoId)
+    {
+        using var conn = Conn();
+        await conn.OpenAsync();
+        using var tx = await conn.BeginTransactionAsync();
+
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_detalle WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_personal_hito WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_vigilancia_hito WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_item_metrado WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_kit_item WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto_seleccion_ratio WHERE presupuesto_id = @presupuestoId", new { presupuestoId }, tx);
+        await conn.ExecuteAsync("DELETE FROM ss_presupuesto WHERE id = @presupuestoId", new { presupuestoId }, tx);
+
+        await tx.CommitAsync();
     }
 }

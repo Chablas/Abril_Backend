@@ -50,7 +50,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static readonly HashSet<string> AllowedCartaFirmadaExt = new(StringComparer.OrdinalIgnoreCase)
             { ".pdf", ".doc", ".docx" };
 
-        private const long MaxCartaBytes = 15L * 1024 * 1024; // 15 MB
+        /// <summary>
+        /// Tope de la carta oferta que sube GTH a mano. Es el mismo que el del resto de archivos
+        /// de Reclutamiento (CVs y anexos de la long list, informe del finalista y sustento de la
+        /// solicitud). El techo no lo pone SharePoint —<c>GraphSharePointService</c> sube por
+        /// upload session en fragmentos— sino lo que se carga en memoria de una vez: la carta
+        /// llega entera como <c>byte[]</c>.
+        /// </summary>
+        private const long MaxCartaBytes = 20L * 1024 * 1024; // 20 MB
 
         /// <summary>
         /// Largo máximo de una condición de contrato. Cada una es una viñeta del documento, no un
@@ -258,7 +265,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (!AllowedCartaFirmadaExt.Contains(ext))
                 throw new AbrilException("La carta oferta firmada tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
             if (content.Length > MaxCartaBytes)
-                throw new AbrilException("La carta oferta firmada supera el tamaño máximo permitido (15 MB).", 400);
+                throw new AbrilException(
+                    $"La carta oferta firmada supera el tamaño máximo permitido ({MaxCartaBytes / (1024 * 1024)} MB).", 400);
 
             var ctx = await _repo.PrepararDocumentoFirmado(requerimientoId);
 

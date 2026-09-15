@@ -1,4 +1,4 @@
-using Abril_Backend.Shared.Services.Email.Layout;
+﻿using Abril_Backend.Shared.Services.Email.Layout;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 {
@@ -9,8 +9,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     public sealed class ReembolsoCorreoDatos
     {
         public int SolicitudId { get; set; }
-        /// <summary>Correlativo de la solicitud DENTRO del trabajador (el "#3" que ve él, no el id).</summary>
-        public int NumeroUsuario { get; set; }
+        /// <summary>Código SOL-AAAA-NNNN de la solicitud (o "#N" en las anteriores al código).</summary>
+        public string Codigo { get; set; } = string.Empty;
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>Correo del trabajador que pidió la salida — el destinatario de los dos correos de decisión.</summary>
         public string? TrabajadorEmail { get; set; }
@@ -21,24 +21,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int TrayectosCount { get; set; }
         /// <summary>Suma de lo rendido en la salida (capturas o catálogo), en soles.</summary>
         public decimal MontoTotal { get; set; }
-        /// <summary>Nombre de quien tomó la decisión (el jefe que aprobó o rechazó).</summary>
+        /// <summary>Nombre de quien tomó la decisión (el jefe que aprobó u observó).</summary>
         public string? DecididoPor { get; set; }
-        /// <summary>Observación del rechazo. Solo la usa el correo de rechazo.</summary>
+        /// <summary>Comentario de la observación. Solo lo usa el correo de observada.</summary>
         public string? Observacion { get; set; }
     }
 
     /// <summary>
-    /// Los tres correos que cierran el ciclo de la rendición, todos con el mismo chrome de la
+    /// Lo que necesita el aviso al revisor, que es de una PLANILLA entera y no de una salida: el
+    /// Consolidado del S10 cubre la planilla, así que el correo sale una vez por planilla.
+    /// </summary>
+    public sealed class ReembolsoPlanillaCorreoDatos
+    {
+        public int RendicionId { get; set; }
+        /// <summary>Código REN-AAAA-NNNN de la planilla. Vacío en las anteriores a la columna.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        public string Trabajador { get; set; } = string.Empty;
+        /// <summary>Correo del trabajador. Lo usa el aviso de pago, que va dirigido a él.</summary>
+        public string? TrabajadorEmail { get; set; }
+        public string? Area { get; set; }
+        /// <summary>Número de la planilla ("TI: 000123"), o null si la planilla no lo tiene.</summary>
+        public string? NumeroPlanilla { get; set; }
+        /// <summary>Periodo que cubre la planilla ("Agosto 2026", o un rango si cruza meses).</summary>
+        public string? Periodo { get; set; }
+        /// <summary>Cuántas salidas del trabajador entran en la planilla.</summary>
+        public int SalidasCount { get; set; }
+        /// <summary>Suma de lo rendido por el trabajador en esa planilla, en soles.</summary>
+        public decimal MontoTotal { get; set; }
+        /// <summary>Número de reembolso del Consolidado del S10. Null si la planilla no lo tiene.</summary>
+        public string? NumeroReembolso { get; set; }
+        /// <summary>Nombre de quien firmó la planilla. Lo usa el aviso a Tesorería.</summary>
+        public string? FirmadoPor { get; set; }
+        /// <summary>Nombre del tesorero que registró el pago. Lo usa el aviso de pago.</summary>
+        public string? PagadoPor { get; set; }
+    }
+
+    /// <summary>
+    /// Los seis correos que cierran el ciclo de la rendición, todos con el mismo chrome de la
     /// intranet (<see cref="SalidaEmailLayout"/>):
     ///
     /// <list type="bullet">
     ///   <item>Al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 y hay un reembolso
     ///     esperando su revisión.</item>
     ///   <item>Al trabajador: su reembolso quedó aprobado.</item>
-    ///   <item>Al trabajador: su reembolso quedó rechazado, con la observación a subsanar.</item>
+    ///   <item>Al trabajador: su reembolso volvió observado por la jefatura, con el comentario a
+    ///     subsanar.</item>
+    ///   <item>A Tesorería: la jefatura firmó una planilla y su reembolso entró a la bandeja.</item>
+    ///   <item>Al trabajador: Tesorería devolvió la planilla antes de pagarla (RG-49).</item>
+    ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo.</item>
     /// </list>
     ///
-    /// Los tres llevan UN botón que abre la pantalla exacta en la intranet: el correo avisa y lleva,
+    /// Todos llevan UN botón que abre la pantalla exacta en la intranet: el correo avisa y lleva,
     /// no explica el flujo (ver el criterio editorial en <see cref="AbrilEmailLayout"/>).
     /// </summary>
     public static class ReembolsoEmailTemplates
@@ -48,10 +81,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         // hace falta un juego propio de salidas para tres correos.
         private const string IconoRevisar     = "req-solicitud";
         private const string IconoAprobado    = "req-aprobada";
-        private const string IconoRechazado   = "req-decision";
+        private const string IconoObservado   = "req-decision";
         private const string IconoFranjaOk    = "req-check";
         private const string IconoFranjaNo    = "req-rechazadas";
         private const string IconoFranjaAviso = "req-aviso";
+
+        private const string IconoPago        = "req-aprobada";
+        private const string IconoPorPagar    = "req-sustento";
 
         private const string FilaTrabajador = "req-solicitante";
         private const string FilaArea       = "req-area";
@@ -59,47 +95,62 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaPlanilla   = "req-codigo";
         private const string FilaMonto      = "req-sustento";
         private const string FilaDecision   = "req-vistobueno";
+        private const string FilaReembolso       = "req-ti";
 
         /// <summary>
-        /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 y su reembolso
-        /// está esperando revisión. El botón abre Gestión de Salidas en esa solicitud.
+        /// Aviso al jefe/revisor: el trabajador ya adjuntó el Consolidado del S10 de su PLANILLA y
+        /// el reembolso está esperando revisión. El aviso es por planilla (no por salida) porque el
+        /// consolidado cubre la planilla entera; el botón abre esa planilla en Gestión de
+        /// Rendiciones, que es donde el revisor decide.
         /// </summary>
-        public static string RevisionPendiente(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlRevisar) =>
-            l.Documento(
+        public static string RevisionPendiente(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlRevisar)
+        {
+            var cuantas = d.SalidasCount == 1
+                ? "de una salida"
+                : $"de sus <b>{d.SalidasCount} salidas</b>";
+
+            return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoRevisar,
                     "Reembolso por revisar",
-                    $"<b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> adjuntó el Consolidado del S10 de su salida del "
-                    + $"<b>{d.FechaSalida:dd/MM/yyyy}</b>."),
-                l.Tarjeta(FilasBase(d)),
+                    $"<b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> adjuntó el Consolidado del S10 de su planilla "
+                    + $"{cuantas}."),
+                l.Tarjeta(FilasPlanilla(d)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
                     "La rendición ya está completa: falta tu visto bueno para que pase a firma y a tesorería."),
                 l.Boton("Revisar el reembolso", urlRevisar),
                 l.EnlaceDirecto(urlRevisar));
+        }
 
         /// <summary>
-        /// Al solicitante: su reembolso quedó aprobado. El botón abre su solicitud en la intranet.
+        /// Al solicitante: su reembolso quedó aprobado. El botón abre su planilla en Mis
+        /// Rendiciones, que es donde vive el expediente completo (planilla, S10, copia firmada).
         /// </summary>
         public static string Aprobado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlVer) =>
             l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoAprobado,
                     "Reembolso aprobado",
-                    $"Tu solicitud de salida <b>#{d.NumeroUsuario}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
+                    $"Tu solicitud de salida <b>{d.Codigo}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
                     + "quedó aprobada para reembolso."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.DecididoPor)
                         ? "Aprobado por tu jefatura."
                         : $"Aprobado por <b>{AbrilEmailLayout.Esc(d.DecididoPor)}</b>."),
                 l.Tarjeta(FilasBase(d)),
-                l.Boton("Ver mi solicitud", urlVer),
+                l.Boton("Ver mi rendición", urlVer),
                 l.EnlaceDirecto(urlVer));
 
         /// <summary>
-        /// Al solicitante: su reembolso quedó rechazado. La observación va en la franja roja porque
-        /// es lo único que tiene que leer, y el botón lo deja en la solicitud exacta a subsanar.
+        /// Al solicitante: su reembolso volvió OBSERVADO de la segunda revisión. La observación va
+        /// en la franja roja porque es lo único que tiene que leer, y el botón lo deja en la
+        /// planilla exacta a subsanar.
+        ///
+        /// La franja ámbar nombra los DOS caminos que tiene desde ahí: volver a adjuntar el
+        /// Consolidado del S10 corregido, o pedirle la corrección al Coordinador ERP cuando el
+        /// arreglo tiene que hacerse dentro del S10 (§10.5 del requerimiento).
         /// </summary>
-        public static string Rechazado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlSubsanar)
+        public static string Observado(SalidaEmailLayout l, ReembolsoCorreoDatos d, string urlSubsanar)
         {
             var observacion = string.IsNullOrWhiteSpace(d.Observacion)
                 ? "Sin observación registrada. Coordina con tu jefatura antes de volver a enviarlo."
@@ -107,20 +158,133 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
-                    IconoRechazado,
-                    "Reembolso rechazado",
-                    $"Tu solicitud de salida <b>#{d.NumeroUsuario}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
+                    IconoObservado,
+                    "Reembolso observado",
+                    $"Tu solicitud de salida <b>{d.Codigo}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b> "
                     + "volvió con observaciones."),
                 l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
                     $"<b>Observación:</b> {observacion}"),
                 l.Tarjeta(FilasBase(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Ambar,
+                    "Vuelve a adjuntar el Consolidado del S10 corregido, o solicita la corrección al "
+                    + "Coordinador ERP si el arreglo tiene que hacerse dentro del S10."),
                 l.Boton("Subsanar observaciones", urlSubsanar),
                 l.EnlaceDirecto(urlSubsanar));
         }
 
         /// <summary>
-        /// Las filas comunes a los tres correos. Las que no tienen dato no se agregan: una tarjeta
-        /// con "—" repetidos no informa nada.
+        /// A Tesorería: la jefatura firmó una planilla y su reembolso ya está en la bandeja de
+        /// pago (RF-TES-01). El botón abre esa planilla en Reembolsos, que es donde Tesorería
+        /// confirma la revisión documental y recién después puede pagar.
+        /// </summary>
+        public static string PorPagarTesoreria(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlRevisar)
+        {
+            var firma = string.IsNullOrWhiteSpace(d.FirmadoPor)
+                ? "La jefatura ya firmó la planilla y el Consolidado del S10."
+                : $"Firmada por <b>{AbrilEmailLayout.Esc(d.FirmadoPor)}</b>.";
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoPorPagar,
+                    "Reembolso por pagar",
+                    $"El reembolso de <b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> quedó firmado y pasó a Tesorería."),
+                l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde, firma),
+                l.Tarjeta(FilasPlanilla(d)),
+                l.Boton("Revisar el reembolso", urlRevisar),
+                l.EnlaceDirecto(urlRevisar));
+        }
+
+        /// <summary>
+        /// Al solicitante: Tesorería devolvió su reembolso antes de pagarlo (RG-49). Es el mismo
+        /// mensaje de fondo que el de la jefatura —qué corregir y por dónde— pero dice claramente
+        /// de dónde viene: el trabajador ya había visto la planilla aprobada y firmada, así que si
+        /// no se le nombra a Tesorería va a ir a preguntarle a su jefe.
+        ///
+        /// Habla de la PLANILLA y no de una salida suelta porque lo que Tesorería revisa (y
+        /// devuelve) es el documento entero con su Consolidado del S10.
+        /// </summary>
+        public static string ObservadoPorTesoreria(
+            SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string observacion, string urlSubsanar)
+        {
+            var motivo = string.IsNullOrWhiteSpace(observacion)
+                ? "Sin motivo registrado. Coordina con Tesorería antes de volver a enviarlo."
+                : AbrilEmailLayout.EscMultilinea(observacion.Trim());
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoObservado,
+                    "Reembolso observado por Tesorería",
+                    $"Tesorería revisó la rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b> y la devolvió "
+                    + "antes de pagarla."),
+                l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
+                    $"<b>Motivo:</b> {motivo}"),
+                l.Tarjeta(FilasPlanilla(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Ambar,
+                    "Vuelve a adjuntar el Consolidado del S10 corregido, o solicita la corrección al "
+                    + "Coordinador ERP si el arreglo tiene que hacerse dentro del S10. Al recargarlo, "
+                    + "la planilla vuelve a tu jefatura para la firma y de ahí a Tesorería."),
+                l.Boton("Subsanar observaciones", urlSubsanar),
+                l.EnlaceDirecto(urlSubsanar));
+        }
+
+        /// <summary>
+        /// Al solicitante: Tesorería ya pagó su reembolso (RG-28). Es el cierre del ciclo, así que
+        /// no pide nada — el botón solo lo lleva a su planilla en Mis Rendiciones.
+        /// </summary>
+        public static string Pagado(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlVer)
+        {
+            var monto = d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"));
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoPago,
+                    "Reembolso realizado",
+                    $"Tesorería registró el pago de tu rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>."),
+                l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
+                    string.IsNullOrWhiteSpace(d.PagadoPor)
+                        ? $"Monto reembolsado: <b>S/ {monto}</b>."
+                        : $"Monto reembolsado: <b>S/ {monto}</b> · registrado por "
+                          + $"<b>{AbrilEmailLayout.Esc(d.PagadoPor)}</b>."),
+                l.Tarjeta(FilasPlanilla(d)),
+                l.Boton("Ver mi rendición", urlVer),
+                l.EnlaceDirecto(urlVer));
+        }
+
+        /// <summary>
+        /// Filas del aviso al revisor, que habla de la PLANILLA entera: en vez de una fecha de
+        /// salida suelta muestra el periodo que cubre y cuántas salidas trae.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasPlanilla(ReembolsoPlanillaCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>
+            {
+                new(FilaTrabajador, "Trabajador", AbrilEmailLayout.Esc(d.Trabajador)),
+            };
+
+            if (!string.IsNullOrWhiteSpace(d.Area))
+                filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
+
+            var salidas = d.SalidasCount == 1 ? "1 salida" : $"{d.SalidasCount} salidas";
+            filas.Add(new(FilaFecha, "Periodo",
+                string.IsNullOrWhiteSpace(d.Periodo) ? salidas : $"{AbrilEmailLayout.Esc(d.Periodo)} · {salidas}"));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
+                filas.Add(new(FilaPlanilla, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso del S10", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+
+            if (d.MontoTotal > 0m)
+                filas.Add(new(FilaMonto, "Monto rendido",
+                    $"S/ {d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Las filas comunes a los correos de decisión (aprobado/observado), que sí son de UNA
+        /// salida. Las que no tienen dato no se agregan: una tarjeta con "—" repetidos no informa
+        /// nada.
         /// </summary>
         private static List<AbrilEmailLayout.Fila> FilasBase(ReembolsoCorreoDatos d)
         {

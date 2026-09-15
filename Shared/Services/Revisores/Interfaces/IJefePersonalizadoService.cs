@@ -44,13 +44,16 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         public string? Email { get; set; }
     }
 
-    /// <summary>Opción del desplegable de jefe personalizado.</summary>
+    /// <summary>
+    /// Opción del desplegable de jefe personalizado. El propio trabajador entra en la lista: el
+    /// jefe personalizado se elige a mano y puede ser él mismo (ver <see cref="IJefeRevisorResolver"/>).
+    /// </summary>
     public class JefeCandidatoDto
     {
         public int WorkerId { get; set; }
         /// <summary>
-        /// Persona del candidato, para que el formulario descarte al propio trabajador aunque la
-        /// ficha sea otra (una persona puede tener varias filas en <c>workers</c> por reingreso).
+        /// Persona del candidato (una persona puede tener varias filas en <c>workers</c> por
+        /// reingreso).
         /// </summary>
         public int? PersonId { get; set; }
         public string? FullName { get; set; }

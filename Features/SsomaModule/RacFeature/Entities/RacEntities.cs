@@ -82,7 +82,12 @@ public class SsomaRac
     public string? CierreDescripcion { get; set; }
     public int? CerradoPorId { get; set; }             // FK app_user (user_id)
 
-    // Penalidad
+    /// <summary>
+    /// DEPRECADO — la penalidad se desacopló de RAC (ver Features/SsomaModule/PenalidadFeature).
+    /// Se conserva solo como histórico de los RAC creados antes del rediseño (convención del
+    /// proyecto: no se borran campos); ningún código nuevo lo escribe. Para saber si un RAC
+    /// tiene una penalidad vinculada, consultar SsomaPenalidad por OrigenTipo="RAC"/OrigenId.
+    /// </summary>
     public bool AplicaPenalidad { get; set; }
 
     // Documentos
@@ -99,7 +104,6 @@ public class SsomaRac
     // Navegación interna
     public SsomaRacCategoria Categoria { get; set; } = null!;
     public List<SsomaRacFoto> Fotos { get; set; } = new();
-    public SsomaRacPenalidad? Penalidad { get; set; }
 }
 
 // ──────────────────────────────────────────────────────────
@@ -123,45 +127,6 @@ public class SsomaRacFoto
     public SsomaRac Rac { get; set; } = null!;
 }
 
-// ──────────────────────────────────────────────────────────
-// PENALIDAD
-// ──────────────────────────────────────────────────────────
-
-/// <summary>ssoma_rac_penalidad</summary>
-public class SsomaRacPenalidad
-{
-    public int Id { get; set; }
-    public string Codigo { get; set; } = "";
-    public int RacId { get; set; }
-    public int? EmpresaId { get; set; }                // FK contributor (contributor_id)
-    public int? ProyectoId { get; set; }               // FK project (project_id)
-    public int? InfraccionId { get; set; }             // FK ssoma_rac_infraccion
-    public decimal MontoCalculado { get; set; }
-    public decimal UitReferencia { get; set; }
-    public string? DescripcionOcurrido { get; set; }
-
-    // Estado
-    public string Estado { get; set; } = "EnEvaluacion"; // EnEvaluacion | DescargoPresentado | Aplicada | Anulada
-
-    // Descargo
-    public string? DescargoTexto { get; set; }
-    public string? DocumentoUrl { get; set; }
-    public DateTime? DescargoFecha { get; set; }
-    public int? DescargoUsuarioId { get; set; }        // FK app_user (user_id)
-
-    // Resolución
-    public string? ResolucionTexto { get; set; }
-    public string? ResolucionTipo { get; set; }        // Aplicada | Anulada
-    public int? ResueltoPorId { get; set; }            // FK app_user (user_id)
-    public DateTime? ResueltaEn { get; set; }
-    public string? PdfResolucionUrl { get; set; }
-
-    // Auditoría
-    public int? CreatedBy { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime? UpdatedAt { get; set; }
-
-    // Navegación interna
-    public SsomaRac Rac { get; set; } = null!;
-    public SsomaRacInfraccion? Infraccion { get; set; }
-}
+// NOTA: la penalidad se desacopló de RAC — ver Features/SsomaModule/PenalidadFeature.
+// SsomaRacPenalidad (la entidad 1:1 con RAC) fue reemplazada por SsomaPenalidad, que
+// referencia su origen (RAC/Amonestación/Directo) de forma débil, sin FK.

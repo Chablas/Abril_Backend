@@ -66,14 +66,6 @@ public class RacController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetCategorias"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
-    [HttpGet("infracciones")]
-    public async Task<IActionResult> GetInfracciones()
-    {
-        try { return Ok(await _service.GetInfraccionesAsync()); }
-        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetInfracciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
-    }
-
     [HttpGet("proyecto/{projectId:int}/niveles")]
     public async Task<IActionResult> GetNiveles(int projectId)
     {

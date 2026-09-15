@@ -479,7 +479,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         [HttpPut("candidato/{candidatoId:int}/evaluacion")]
         [RequireFeature("gestion-gth.reclutamiento")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(25 * 1024 * 1024)] // los dos archivos del informe + margen
+        [RequestSizeLimit(45 * 1024 * 1024)] // los dos archivos del informe (20 MB c/u) + margen
         public async Task<IActionResult> GuardarEvaluacion(int candidatoId, [FromForm] string data)
         {
             try
@@ -635,7 +635,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         [HttpPost("requerimiento/{id:int}/long-list/enviar")]
         [RequireFeature("gestion-gth.reclutamiento")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de adjuntos + margen
+        [RequestSizeLimit(65 * 1024 * 1024)] // MaxLongListTotalBytes (60 MB) + margen
         public async Task<IActionResult> EnviarLongList(int id, [FromForm] string data)
         {
             try
@@ -733,11 +733,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Crea la solicitud de personal. Multipart: <c>data</c> = JSON de
-        /// <see cref="SolicitudPersonalCreateDto"/>; <c>sustento</c> = adjunto opcional (PDF/DOC/DOCX/XLS/XLSX).
+        /// <see cref="SolicitudPersonalCreateDto"/>; <c>sustento</c> = adjunto opcional
+        /// (PDF/DOC/DOCX/XLS/XLSX/JPG/PNG/WEBP).
         /// </summary>
         [HttpPost]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(15 * 1024 * 1024)] // 10 MB de sustento + margen
+        [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de sustento + margen
         public async Task<IActionResult> Create([FromForm] string data, [FromForm] IFormFile? sustento)
         {
             try

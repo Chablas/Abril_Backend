@@ -2,6 +2,22 @@
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Interfaces;
@@ -14,18 +30,26 @@ using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CapturasArea.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
@@ -38,6 +62,14 @@ using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.PlazoRendicion.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa
@@ -56,10 +88,28 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
 
+            // Mis Rendiciones (autoservicio sobre las planillas ya rendidas: Consolidado del S10,
+            // aviso al revisor y seguimiento del reembolso — todo lo que va después de rendir)
+            services.AddScoped<IRendicionRepository, RendicionRepository>();
+            services.AddScoped<IRendicionService, RendicionService>();
+
+            // Gestión de Rendiciones (el revisor sobre las planillas de su alcance: Consolidado
+            // del S10, decisión del reembolso y firma — todo lo que va después de rendir)
+            services.AddScoped<IGestionRendicionRepository, GestionRendicionRepository>();
+            services.AddScoped<IGestionRendicionService, GestionRendicionService>();
+
+            // Reembolsos (la bandeja de Tesorería: paga lo que la jefatura ya firmó)
+            services.AddScoped<IReembolsoRepository, ReembolsoRepository>();
+            services.AddScoped<IReembolsoService, ReembolsoService>();
+
+            // Correcciones S10 (la bandeja del Coordinador ERP: el paso del medio de la
+            // subsanación, cuando la corrección tiene que hacerse dentro del S10)
+            services.AddScoped<ICorreccionS10Repository, CorreccionS10Repository>();
+            services.AddScoped<ICorreccionS10Service, CorreccionS10Service>();
+
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();
             services.AddScoped<IGestionSalidaService, GestionSalidaService>();
-            services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             // Lugares (configuración)
             services.AddScoped<IGaLugarRepository, GaLugarRepository>();
@@ -88,24 +138,52 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
 
-            // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
-            services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();
-            services.AddScoped<IVisibilidadSalidaService, VisibilidadSalidaService>();
+            // Consolidadores de áreas (configuración: quién, además del propio trabajador, puede
+            // adjuntar el Consolidado del S10 de sus planillas). Misma pantalla que Revisores de
+            // Áreas; acá quedan vigentes todos los activos y no solo el primero.
+            services.AddScoped<IAreaConsolidadorRepository, AreaConsolidadorRepository>();
+            services.AddScoped<IAreaConsolidadorService, AreaConsolidadorService>();
+
+            // Capturas por área (configuración: qué áreas exigen capturas de movilidad para rendir)
+            services.AddScoped<ICapturaAreaRepository, CapturaAreaRepository>();
+            services.AddScoped<ICapturaAreaService, CapturaAreaService>();
+
+            // Visibilidad por área (configuración: override manual de áreas visibles por trabajador).
+            // Sirve a los dos ámbitos —Gestión de Salidas y Gestión de Rendiciones— sobre la misma
+            // tabla, cada uno con sus propias filas.
+            services.AddScoped<IVisibilidadAreaRepository, VisibilidadAreaRepository>();
+            services.AddScoped<IVisibilidadAreaService, VisibilidadAreaService>();
 
             // Delegación de Revisión (funcionalidad principal: el propio revisor autogestiona los
             // revisores de su área/proyecto — delegar suplentes y tomar/soltar el puesto)
             services.AddScoped<IDelegacionRevisionRepository, DelegacionRevisionRepository>();
             services.AddScoped<IDelegacionRevisionService, DelegacionRevisionService>();
 
-            // Configuración de correos (destinatarios por correo: se enviará a / nunca se enviará a).
+            // Configuración de correos por pantalla (cada pantalla del flujo administra los correos
+            // que se originan en ella, desde su propio botón «Configuración»).
             services.AddScoped<ICorreoConfigRepository, CorreoConfigRepository>();
             services.AddScoped<ICorreoConfigService, CorreoConfigService>();
+
+            // Plazo de rendición (sección "Días reembolsables" de Solicitud de Salidas →
+            // Configuración: los días hábiles que dura el plazo para rendir un mes, antes
+            // hardcodeados en 7)
+            services.AddScoped<IPlazoRendicionRepository, PlazoRendicionRepository>();
+            services.AddScoped<IPlazoRendicionService, PlazoRendicionService>();
+
+            // Recordatorios del plazo de rendición (RG-33 / RG-34): el endpoint que el cron llama
+            // todos los días y que decide si hoy es el primer día hábil o el último para rendir.
+            services.AddScoped<IRecordatorioRendicionRepository, RecordatorioRendicionRepository>();
+            services.AddScoped<IRecordatorioRendicionService, RecordatorioRendicionService>();
             // Resolver consumido por SolicitudSalidaService para armar el CC de cada correo.
             services.AddScoped<ICorreoSalidaRecipientResolver, CorreoSalidaRecipientResolver>();
 
             // Consolidado del S10 (PDF de respaldo de una salida ya rendida). Lo usan las dos
             // pantallas de salidas, de ahí que viva en el Shared del módulo.
             services.AddScoped<IConsolidadoS10Service, ConsolidadoS10Service>();
+
+            // Alcance por área de las dos bandejas (Gestión de Salidas y Gestión de Rendiciones) y
+            // de la previsualización que muestra su Configuración → Visibilidad.
+            services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             return services;
         }

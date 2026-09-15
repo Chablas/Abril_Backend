@@ -8,6 +8,14 @@ public class OptPetDto
     public string Nombre { get; set; } = string.Empty;
     public string? Codigo { get; set; }
     public string? SharepointUrl { get; set; }
+
+    // "Abril" (global, válido en cualquier proyecto) | "Contratista" (atado a un
+    // proyecto puntual) — el frontend filtra el selector por ProyectoId cuando
+    // Origen es "Contratista"; los "Abril" se ofrecen siempre.
+    public string Origen { get; set; } = "Abril";
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public int? ProyectoId { get; set; }
 }
 
 public class OptCriterioVerificacionDto
@@ -39,8 +47,11 @@ public class OptPasoRequest
     public string NumeroDisplay { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
     public int Nivel { get; set; } = 1;
+    public string Tipo { get; set; } = "paso";
     public string? Resultado { get; set; }
     public string? DesviacionObservada { get; set; }
+    public bool EsNoContemplado { get; set; }
+    public bool EsManual { get; set; }
     public int Orden { get; set; }
 }
 
@@ -63,10 +74,21 @@ public class CrearOptRequest
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }
+
+    // El observador no modifica el PETS: solo indica que hace falta revisarlo y por qué.
+    public bool RequierePetModificacion { get; set; }
+    public string? RequierePetModificacionNota { get; set; }
+
     public List<OptTrabajadorRequest> Trabajadores { get; set; } = [];
     public List<OptVerificacionRequest> Verificaciones { get; set; } = [];
     public List<OptPasoRequest> Pasos { get; set; } = [];
     public List<string> FotosAreaBase64 { get; set; } = [];
+
+    // true (default) = registro oficial, exige los mínimos (3 fotos, etc.) y queda de
+    // solo lectura. false = borrador: se puede guardar a medio llenar (sin fotos
+    // todavía, sin trabajadores, etc.) para retomarlo después — ver "Continuar
+    // llenando" en la lista de OPT.
+    public bool Finalizar { get; set; } = true;
 }
 
 // ── Respuestas ─────────────────────────────────────────────────────────────
@@ -98,8 +120,11 @@ public class OptPasoDto
     public string NumeroDisplay { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
     public int Nivel { get; set; }
+    public string Tipo { get; set; } = "paso";
     public string? Resultado { get; set; }
     public string? DesviacionObservada { get; set; }
+    public bool EsNoContemplado { get; set; }
+    public bool EsManual { get; set; }
     public int Orden { get; set; }
 }
 
@@ -128,6 +153,8 @@ public class OptDetalleDto
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }
+    public bool RequierePetModificacion { get; set; }
+    public string? RequierePetModificacionNota { get; set; }
     public int TotalPasos { get; set; }
     public int TotalSeguros { get; set; }
     public int TotalInseguros { get; set; }

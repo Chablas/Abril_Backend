@@ -60,7 +60,9 @@
         /// <summary>
         /// true si GTH marcó que el candidato ya rindió el Multitest. La prueba se gestiona fuera
         /// de la plataforma: este check es informativo y no cambia el flujo por sí solo (RG del
-        /// requerimiento funcional). Sí es requisito para habilitar el paso a entrevistas.
+        /// requerimiento funcional). Sí es requisito, junto con el formulario aprobado, para que
+        /// ESTE candidato pase a la programación de entrevistas: se exige por candidato, no a toda
+        /// la long list.
         /// </summary>
         public bool MultitestRealizado { get; set; }
 

@@ -38,10 +38,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Reenvía el correo de aprobación desde el panel del solicitante (para cuando el primer
-        /// envío falló o hubo que corregir los destinatarios). Mismo token: el enlace anterior
-        /// sigue siendo válido.
+        /// envío falló, hubo que corregir los destinatarios o la firma se demora). Solo el correo
+        /// que espera la firma de ESA vacante: el de Gerencia General en una nueva, el del turno
+        /// abierto en un reemplazo. Mismo token: el enlace anterior sigue siendo válido.
         /// </summary>
         Task<AprobacionGgReenvioResultDto> Reenviar(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// A quién le llegaría <see cref="Reenviar"/> para esa vacante, resuelto con la misma
+        /// llamada que el envío. Lo pide la confirmación para nombrar las direcciones. Mismas
+        /// validaciones que el reenvío: 403 sin jefatura, 409 si ya no queda firma pendiente o si
+        /// el correo no le llega a nadie.
+        /// </summary>
+        Task<AprobacionGgReenvioPreviewDto> GetReenvioPreview(int requerimientoId, int? userId);
 
         /// <summary>
         /// Pantalla «Aprobaciones» para este usuario: su nivel, las tarjetas de resumen calculadas

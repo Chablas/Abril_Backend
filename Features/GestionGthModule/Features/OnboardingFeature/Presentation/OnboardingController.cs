@@ -28,8 +28,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
         }
 
         /// <summary>
-        /// Todo lo de la pantalla en una sola petición: tarjetas de resumen, embudo de fases, tabla de
-        /// colaboradores ingresados y los candidatos aptos del modal «Nuevo ingreso».
+        /// Todo lo de la pantalla en una sola petición: tarjetas de resumen, embudo de fases y tabla
+        /// de colaboradores ingresados. Los que terminaron reclutamiento entran solos a esa tabla.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.onboarding</c> en role_feature.</remarks>
         [HttpGet("bandeja")]
@@ -52,18 +52,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
         }
 
         /// <summary>
-        /// Abre el onboarding de un colaborador (modal «Nuevo ingreso»). No se sube ni se envía nada:
-        /// la carta oferta ya se firmó y se aprobó en Reclutamiento, y de ahí se heredan la ficha
-        /// maestra y el file digital del colaborador.
+        /// Envía el aviso al responsable de obra (fase «Correo de bienvenida»): el correo que le
+        /// pide al coordinador administrativo del proyecto que prevea espacio y condiciones para el
+        /// que entra. Solo aplica a los ingresos a una obra o sede.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.onboarding</c> en role_feature.</remarks>
-        [HttpPost]
+        [HttpPost("{id:int}/aviso-obra")]
         [RequireFeature("gestion-gth.onboarding")]
-        public async Task<IActionResult> Iniciar([FromBody] OnboardingCreateDto dto)
+        public async Task<IActionResult> EnviarAvisoObra(int id)
         {
             try
             {
-                return Ok(await _service.Iniciar(dto, UserId()));
+                return Ok(await _service.EnviarAvisoObra(id, UserId()));
             }
             catch (AbrilException ex)
             {
@@ -71,7 +71,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Pre
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en OnboardingController.Iniciar");
+                _logger.LogError(ex, "Error en OnboardingController.EnviarAvisoObra");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

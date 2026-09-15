@@ -223,6 +223,73 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<EvJefeSsomaPlanAccionDto>> GetPlanAccionAsync(int periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvJefeSsomaPlanAccion
+                .Where(p => p.PeriodoId == periodoId)
+                .OrderBy(p => p.Id)
+                .Select(p => MapPlanAccion(p))
+                .ToListAsync();
+        }
+
+        public async Task<EvJefeSsomaPlanAccionDto> CrearPlanAccionAsync(int periodoId, int userId, EvJefeSsomaPlanAccionCreateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = new EvJefeSsomaPlanAccion
+            {
+                PeriodoId = periodoId,
+                PlantillaId = dto.PlantillaId,
+                Criterio = dto.Criterio,
+                Accion = dto.Accion,
+                Meta = dto.Meta,
+                FechaLimite = dto.FechaLimite,
+                CreatedByUserId = userId,
+            };
+            ctx.EvJefeSsomaPlanAccion.Add(entity);
+            await ctx.SaveChangesAsync();
+            return MapPlanAccion(entity);
+        }
+
+        public async Task<EvJefeSsomaPlanAccionDto?> ActualizarPlanAccionAsync(int id, EvJefeSsomaPlanAccionUpdateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.EvJefeSsomaPlanAccion.FirstOrDefaultAsync(p => p.Id == id);
+            if (entity == null) return null;
+
+            entity.Accion = dto.Accion;
+            entity.Meta = dto.Meta;
+            entity.FechaLimite = dto.FechaLimite;
+            entity.Estado = dto.Estado;
+            entity.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+            return MapPlanAccion(entity);
+        }
+
+        public async Task<bool> EliminarPlanAccionAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.EvJefeSsomaPlanAccion.FirstOrDefaultAsync(p => p.Id == id);
+            if (entity == null) return false;
+            ctx.EvJefeSsomaPlanAccion.Remove(entity);
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        private static EvJefeSsomaPlanAccionDto MapPlanAccion(EvJefeSsomaPlanAccion p) => new()
+        {
+            Id = p.Id,
+            PeriodoId = p.PeriodoId,
+            PlantillaId = p.PlantillaId,
+            Criterio = p.Criterio,
+            Accion = p.Accion,
+            Meta = p.Meta,
+            FechaLimite = p.FechaLimite,
+            Estado = p.Estado,
+            CreatedAt = p.CreatedAt,
+            UpdatedAt = p.UpdatedAt,
+        };
+
         private static async Task<int?> ResolverUltimoPeriodoIdAsync(System.Data.IDbConnection conn)
         {
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow);

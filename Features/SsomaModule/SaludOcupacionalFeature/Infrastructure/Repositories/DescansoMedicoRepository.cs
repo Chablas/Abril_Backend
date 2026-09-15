@@ -808,18 +808,5 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .Select(c => new Cie10Dto { Codigo = c.Codigo, Descripcion = c.Descripcion })
                 .ToListAsync();
         }
-
-        public async Task Delete(int id)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var entity = await ctx.SsDescansoMedico.FirstOrDefaultAsync(d => d.Id == id && d.State)
-                ?? throw new AbrilException("Descanso médico no encontrado.", 404);
-
-            entity.State = false;
-            entity.UpdatedAt = DateTimeOffset.UtcNow;
-
-            await ctx.SaveChangesAsync();
-        }
     }
 }

@@ -1,13 +1,14 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
     /// <summary>
     /// Regla de destinatario de un correo del flujo de salidas (<see cref="GaCorreoEvento"/>).
-    /// Cada fila es una entrada de la lista "se enviará a" (<see cref="EsExclusion"/> = false) o
-    /// de la lista "nunca se enviará a" (<see cref="EsExclusion"/> = true). La exclusión gana
-    /// aunque el mismo correo aparezca como inclusión.
+    /// Cada fila es un destinatario al que se le envía ese correo; <see cref="Active"/> lo prende
+    /// y lo apaga sin borrarlo. La lista de exclusiones ("nunca se enviará a") se dio de baja en
+    /// septiembre de 2026: no había forma de saber por qué alguien estaba excluido y la misma
+    /// exclusión se lograba apagando o quitando su fila.
     ///
     /// Según <see cref="TipoId"/> (ver <see cref="GaCorreoTipoDestinatario"/>) se llena UNO solo de:
     /// <list type="bullet">
@@ -15,6 +16,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     ///   <item>AREA → <see cref="AreaScopeId"/> (se expande a los email_corporativo de los
     ///     trabajadores del nodo; si <see cref="IncluirDescendientes"/>, también los de sus sub-áreas).</item>
     ///   <item>CORREO → <see cref="Correo"/> (dirección literal; puede ser un grupo de correos opaco).</item>
+    ///   <item>ROL → <see cref="RoleId"/> (se expande a los email_corporativo de TODOS los que hoy
+    ///     tengan ese rol; quién entra cambia solo cuando cambian los roles, sin tocar esta fila).</item>
     /// </list>
     /// </summary>
     [Table("ga_correo_regla")]
@@ -27,10 +30,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// <summary>Correo al que aplica la regla (ga_correo_evento.id).</summary>
         [Column("evento_id")]
         public int EventoId { get; set; }
-
-        /// <summary>false = "se enviará a" (inclusión); true = "nunca se enviará a" (exclusión).</summary>
-        [Column("es_exclusion")]
-        public bool EsExclusion { get; set; }
 
         /// <summary>Tipo de destinatario (ga_correo_tipo_destinatario.id).</summary>
         [Column("tipo_id")]
@@ -48,11 +47,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("correo")]
         public string? Correo { get; set; }
 
+        /// <summary>
+        /// Rol (role.role_id) cuando el tipo es ROL. NULL en otro caso. Es el destinatario que se
+        /// resuelve por CARGO y no por persona: el correo le llega a quien TENGA ese rol el día que
+        /// sale, así que un cambio de personal no deja la configuración apuntando a alguien que ya
+        /// no hace ese trabajo.
+        /// </summary>
+        [Column("role_id")]
+        public int? RoleId { get; set; }
+
         /// <summary>Solo para AREA: si true, incluye también a los trabajadores de las sub-áreas del nodo.</summary>
         [Column("incluir_descendientes")]
         public bool IncluirDescendientes { get; set; } = true;
 
-        /// <summary>Orden de visualización dentro de su lista.</summary>
+        /// <summary>Orden de visualización dentro del correo.</summary>
         [Column("orden")]
         public int Orden { get; set; }
 

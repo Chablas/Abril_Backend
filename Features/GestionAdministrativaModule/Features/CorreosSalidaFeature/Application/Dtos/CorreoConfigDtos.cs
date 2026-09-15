@@ -2,18 +2,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
 {
     /// <summary>
     /// Carga inicial de la pantalla "Correos" (1 sola petición): los correos configurables con
-    /// sus reglas de inclusión/exclusión + las opciones para los desplegables (trabajadores,
-    /// áreas) y el catálogo de tipos de destinatario.
+    /// sus destinatarios ya resueltos + las opciones de los desplegables del modal de alta
+    /// (trabajadores y áreas).
     /// </summary>
     public class CorreoConfigInicialDto
     {
         public List<CorreoEventoDto> Eventos { get; set; } = new();
-        public List<CorreoTipoDto> Tipos { get; set; } = new();
         public List<CorreoWorkerOptionDto> Trabajadores { get; set; } = new();
         public List<CorreoAreaOptionDto> Areas { get; set; } = new();
+        public List<CorreoRolOptionDto> Roles { get; set; } = new();
     }
 
-    /// <summary>Un correo configurable (ga_correo_evento) con sus dos listas de reglas.</summary>
+    /// <summary>Un correo configurable (ga_correo_evento) con su lista de destinatarios.</summary>
     public class CorreoEventoDto
     {
         public int Id { get; set; }
@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public string? Descripcion { get; set; }
         public int Orden { get; set; }
 
-        /// <summary>Interruptor maestro: false = este correo no se envía.</summary>
+        /// <summary>Interruptor maestro: false = este correo no se envía a nadie.</summary>
         public bool Active { get; set; } = true;
 
         /// <summary>Etiqueta del destinatario principal que calcula el backend (el revisor, el solicitante).</summary>
@@ -37,30 +37,42 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         /// <summary>true = la pantalla muestra el interruptor del destinatario principal.</summary>
         public bool PermiteDesactivarPrincipal { get; set; }
 
-        /// <summary>"Se enviará a" (reglas con es_exclusion = false).</summary>
-        public List<CorreoReglaDto> Incluir { get; set; } = new();
-        /// <summary>"Nunca se enviará a" (reglas con es_exclusion = true).</summary>
-        public List<CorreoReglaDto> Excluir { get; set; } = new();
+        /// <summary>
+        /// Destinatarios configurados (ga_correo_regla). NO incluye al principal: ese no es una
+        /// fila de la tabla sino una propiedad del propio correo, y la pantalla lo dibuja aparte
+        /// con <see cref="DestinatarioPrincipalActivo"/>.
+        /// </summary>
+        public List<CorreoDestinatarioDto> Destinatarios { get; set; } = new();
     }
 
-    /// <summary>Una regla ya guardada (fila viva de ga_correo_regla).</summary>
-    public class CorreoReglaDto
+    /// <summary>
+    /// Un destinatario configurado, ya resuelto para mostrarlo: además de lo que está guardado
+    /// trae a quién le llega hoy, para que la pantalla no tenga que cruzar catálogos.
+    /// </summary>
+    public class CorreoDestinatarioDto
     {
+        /// <summary>ga_correo_regla.id.</summary>
         public int Id { get; set; }
-        /// <summary>TRABAJADOR / AREA / CORREO.</summary>
+        /// <summary>TRABAJADOR / AREA / CORREO / ROL.</summary>
         public string TipoCodigo { get; set; } = string.Empty;
+
+        /// <summary>Nombre para mostrar: el del trabajador, el del área, el del rol, o el propio correo.</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Dirección literal (tipo CORREO) o el correo corporativo del trabajador. Null en AREA y ROL.</summary>
+        public string? Email { get; set; }
+
+        /// <summary>Solo en AREA y ROL: a cuántos correos se expande hoy. Null en los otros tipos.</summary>
+        public int? Miembros { get; set; }
+
         public int? WorkerId { get; set; }
         public int? AreaScopeId { get; set; }
-        public string? Correo { get; set; }
+        public int? RoleId { get; set; }
         public bool IncluirDescendientes { get; set; } = true;
         public bool Active { get; set; } = true;
-    }
 
-    public class CorreoTipoDto
-    {
-        public int Id { get; set; }
-        public string Codigo { get; set; } = string.Empty;
-        public string Nombre { get; set; } = string.Empty;
+        /// <summary>true = está activo pero hoy no resuelve a ningún correo, así que no le llega a nadie.</summary>
+        public bool SinCorreo { get; set; }
     }
 
     public class CorreoWorkerOptionDto
@@ -79,32 +91,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public string? Email { get; set; }
     }
 
-    // ── Update (PUT /{eventoCodigo}) ─────────────────────────────────────────
-
     /// <summary>
-    /// Reemplaza el conjunto completo de reglas de un correo y, opcionalmente, el estado de sus
-    /// dos interruptores. Los interruptores son nullables a propósito: null = no tocar.
+    /// Un rol del sistema para el desplegable del tipo ROL. Trae además a cuánta gente alcanza hoy,
+    /// que es lo que decide si vale la pena ponerlo: un rol sin nadie asignado no le llega a nadie.
     /// </summary>
-    public class CorreoReglasUpdateDto
+    public class CorreoRolOptionDto
     {
-        public List<CorreoReglaInputDto> Incluir { get; set; } = new();
-        public List<CorreoReglaInputDto> Excluir { get; set; } = new();
-
-        /// <summary>Interruptor maestro del correo. Solo se puede cambiar si el correo lo permite.</summary>
-        public bool? Active { get; set; }
-
-        /// <summary>Interruptor del destinatario principal. Solo se puede cambiar si el correo lo permite.</summary>
-        public bool? DestinatarioPrincipalActivo { get; set; }
+        public int RoleId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        /// <summary>A cuántos correos corporativos se expande hoy ese rol.</summary>
+        public int Miembros { get; set; }
     }
 
-    public class CorreoReglaInputDto
+    // ── Escritura ────────────────────────────────────────────────────────────
+    // Las operaciones son granulares (una por acción de la pantalla) y no un
+    // reemplazo completo de la lista: los interruptores guardan al momento de
+    // tocarlos, así que un PUT con la lista entera pisaría lo que otro editor
+    // acabara de cambiar en otra fila.
+
+    /// <summary>Cuerpo de los endpoints que solo prenden o apagan algo.</summary>
+    public class CorreoActiveUpdateDto
     {
-        /// <summary>TRABAJADOR / AREA / CORREO.</summary>
+        public bool Active { get; set; }
+    }
+
+    /// <summary>Alta o edición de un destinatario configurado.</summary>
+    public class CorreoDestinatarioInputDto
+    {
+        /// <summary>TRABAJADOR / AREA / CORREO / ROL.</summary>
         public string TipoCodigo { get; set; } = string.Empty;
         public int? WorkerId { get; set; }
         public int? AreaScopeId { get; set; }
         public string? Correo { get; set; }
+        public int? RoleId { get; set; }
+        /// <summary>Solo aplica a AREA: si true, también los trabajadores de sus sub-áreas.</summary>
         public bool IncluirDescendientes { get; set; } = true;
-        public bool Active { get; set; } = true;
     }
 }

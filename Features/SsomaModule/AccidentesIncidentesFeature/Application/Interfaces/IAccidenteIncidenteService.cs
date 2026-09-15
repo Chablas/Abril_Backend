@@ -40,4 +40,9 @@ public interface IAccidenteIncidenteService
 
     // Reclasificar
     Task<int> ReclasificarComoAccidenteAsync(int id, int? usuarioId);
+
+    // Antecedentes de eventos
+    Task<object> BuscarAntecedentesAsync(string palabraClave, int? proyectoId, int? tipoId,
+        DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize);
+    Task<byte[]> GenerarPdfAntecedentesAsync(ExportarAntecedentesRequest req);
 }

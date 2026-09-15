@@ -109,4 +109,56 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public string? OportunidadesMejora { get; set; }
         public DateTime CreatedAt { get; set; }
     }
+
+    // ─── MIS RESULTADOS (Coordinador SSOMA / Prevencionista sobre sí mismos) ────
+    // Mismo shape que Resultados pero filtrado por evaluado_user_id = quien llama,
+    // nunca expone quién evaluó (D1-D4 son todas anónimas de cara al evaluado, ver
+    // ResolverRelacion — solo el Jefe SSOMA ve autoría en la vista consolidada).
+    public class EvGestionSsomaMisResultadosDto
+    {
+        public EvPeriodoDto? Periodo { get; set; }
+        public int TotalRespuestas { get; set; }
+        public decimal? PromedioGeneral { get; set; }
+        public List<EvGestionSsomaCriterioPromedioDto> PromediosPorCriterio { get; set; } = [];
+        public List<string> Comentarios { get; set; } = [];
+        public List<EvGestionSsomaTendenciaDto> Tendencia { get; set; } = [];
+    }
+
+    public class EvGestionSsomaTendenciaDto
+    {
+        public int Mes { get; set; }
+        public int Anio { get; set; }
+        public string NombreMes { get; set; } = string.Empty;
+        public decimal? Promedio { get; set; }
+    }
+
+    // ─── PLAN DE ACCIÓN (redactado por Coordinador SSOMA/Prevencionista sobre sus propios resultados) ──
+    public class EvGestionSsomaPlanAccionDto
+    {
+        public int Id { get; set; }
+        public int PeriodoId { get; set; }
+        public string Criterio { get; set; } = string.Empty;
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+        public string Estado { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class EvGestionSsomaPlanAccionCreateDto
+    {
+        public string Criterio { get; set; } = string.Empty;
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+    }
+
+    public class EvGestionSsomaPlanAccionUpdateDto
+    {
+        public string Accion { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public DateOnly? FechaLimite { get; set; }
+        public string Estado { get; set; } = string.Empty;
+    }
 }

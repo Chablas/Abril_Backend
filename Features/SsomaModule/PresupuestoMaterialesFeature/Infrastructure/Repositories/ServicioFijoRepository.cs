@@ -38,7 +38,10 @@ public class ServicioFijoRepository : IServicioFijoRepository
             FROM ss_presupuesto_item_metrado im
             JOIN ss_presupuesto p       ON p.id = im.presupuesto_id
             JOIN ss_material_familia f  ON f.id = im.familia_id
-            WHERE p.project_id = @projectId
+            WHERE p.id = (
+                SELECT id FROM ss_presupuesto WHERE project_id = @projectId
+                ORDER BY generado_en DESC LIMIT 1
+            )
             ORDER BY f.nombre
             """;
         var result = await conn.QueryAsync<ServicioFijoDto>(sql, new { projectId });
@@ -85,7 +88,7 @@ public class ServicioFijoRepository : IServicioFijoRepository
         // y el precio de Vigilancia).
         var familiaIds = items.Select(i => i.FamiliaId).Distinct().ToArray();
         const string preciosSql = """
-            SELECT r.familia_id AS FamiliaId, AVG(r.precio_unitario_promedio) AS Precio
+            SELECT r.familia_id AS FamiliaId, ROUND(AVG(r.precio_unitario_promedio), 4) AS Precio
             FROM ss_ratio_proyecto r
             WHERE r.familia_id = ANY(@familiaIds) AND r.incluido_manual_precio = true
             GROUP BY r.familia_id

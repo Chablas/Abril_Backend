@@ -70,8 +70,6 @@ public class RacService : IRacService
             query = query.Where(r => r.FechaReporte >= q.FechaDesde.Value);
         if (q.FechaHasta.HasValue)
             query = query.Where(r => r.FechaReporte <= q.FechaHasta.Value);
-        if (q.SoloConPenalidad == true)
-            query = query.Where(r => r.AplicaPenalidad);
 
         var total    = await query.CountAsync();
         var page     = q.Page < 1 ? 1 : q.Page;
@@ -134,8 +132,6 @@ public class RacService : IRacService
         var rac = await ctx.SsomaRacs
             .Include(r => r.Categoria)
             .Include(r => r.Fotos.OrderBy(f => f.Orden))
-            .Include(r => r.Penalidad)
-                .ThenInclude(p => p!.Infraccion)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (rac == null) return null;
@@ -245,33 +241,11 @@ public class RacService : IRacService
                 NombreArchivo = f.NombreArchivo,
                 Orden         = f.Orden
             }).ToList(),
-            Penalidad = rac.Penalidad is null ? null : new RacPenalidadResumenDto
-            {
-                Id               = rac.Penalidad.Id,
-                Codigo           = rac.Penalidad.Codigo,
-                Estado           = rac.Penalidad.Estado,
-                MontoCalculado   = rac.Penalidad.MontoCalculado,
-                InfraccionNombre = rac.Penalidad.Infraccion?.Nombre
-            }
         };
     }
     public async Task<RacCreadoDto> CrearAsync(RacCreateRequest req, int userId)
     {
-        // ── Validaciones ──────────────────────────────────────────────────────
-        if (req.AplicaPenalidad && req.InfraccionId is null)
-            throw new AbrilException("El campo InfraccionId es requerido cuando aplica penalidad.", 400);
-
         using var ctx = _factory.CreateDbContext();
-
-        if (req.AplicaPenalidad && req.EmpresaReportadaId.HasValue)
-        {
-            var esAbril = await ctx.Contributor
-                .Where(c => c.ContributorId == req.EmpresaReportadaId.Value)
-                .Select(c => c.EsAbril)
-                .FirstOrDefaultAsync();
-            if (esAbril)
-                throw new AbrilException("La empresa Abril Ingeniería no puede ser objeto de penalidad.", 422);
-        }
 
         // ── Snapshot reportante — siempre desde JWT ───────────────────────────
         // El autor se obtiene del userId (JWT), independientemente de EsAnonimoReportante
@@ -374,37 +348,12 @@ public class RacService : IRacService
                     PlazoLevantamiento  = req.PlazoLevantamiento.HasValue
                                           ? DateTime.SpecifyKind(req.PlazoLevantamiento.Value, DateTimeKind.Utc)
                                           : (DateTime?)null,
-                    AplicaPenalidad     = req.AplicaPenalidad,
                     CreatedBy           = userId,
                     CreatedAt           = DateTime.UtcNow
                 };
 
                 ctx.SsomaRacs.Add(rac);
                 project.ContadorRac = nuevoContadorRac;
-
-                SsomaRacPenalidad? penalidad = null;
-                if (req.AplicaPenalidad)
-                {
-                    var nuevoContadorPen = project.ContadorPenalidad + 1;
-                    var codigoPen        = $"PEN-{year}-{abbrev}-{nuevoContadorPen:D3}";
-
-                    penalidad = new SsomaRacPenalidad
-                    {
-                        Codigo              = codigoPen,
-                        Rac                 = rac,
-                        EmpresaId           = req.EmpresaReportadaId,
-                        ProyectoId          = req.ProyectoId,
-                        InfraccionId        = req.InfraccionId,
-                        MontoCalculado      = 0m,
-                        UitReferencia       = 0m,
-                        DescripcionOcurrido = req.DescripcionOcurrido,
-                        CreatedBy           = userId,
-                        CreatedAt           = DateTime.UtcNow
-                    };
-
-                    ctx.SsomaRacPenalidades.Add(penalidad);
-                    project.ContadorPenalidad = nuevoContadorPen;
-                }
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -413,10 +362,8 @@ public class RacService : IRacService
                 racCodigo = rac.Codigo;
                 resultado = new RacCreadoDto
                 {
-                    Id              = rac.Id,
-                    Codigo          = rac.Codigo,
-                    PenalidadId     = penalidad?.Id,
-                    PenalidadCodigo = penalidad?.Codigo
+                    Id     = rac.Id,
+                    Codigo = rac.Codigo,
                 };
             }
             catch
@@ -569,7 +516,6 @@ public class RacService : IRacService
 
         var totalAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto");
         var totalCerrados     = await baseQuery.CountAsync(r => r.Estado == "Cerrado");
-        var totalConPenalidad = await baseQuery.CountAsync(r => r.AplicaPenalidad);
         var criticosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "CRITICO");
         var altosAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "ALTO");
         var vencidosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.PlazoLevantamiento < ahora);
@@ -654,7 +600,6 @@ public class RacService : IRacService
         {
             TotalAbiertos     = totalAbiertos,
             TotalCerrados     = totalCerrados,
-            TotalConPenalidad = totalConPenalidad,
             CriticosAbiertos  = criticosAbiertos,
             AltosAbiertos     = altosAbiertos,
             VencidosAbiertos  = vencidosAbiertos,
@@ -665,23 +610,6 @@ public class RacService : IRacService
             Tendencia         = tendencia
         };
     }
-    public async Task<List<RacInfraccionDto>> GetInfraccionesAsync()
-    {
-        using var ctx = _factory.CreateDbContext();
-        var lista = await ctx.SsomaRacInfracciones
-            .Where(x => x.Activo == true)
-            .OrderBy(x => x.Nombre)
-            .ToListAsync();
-
-        return lista.Select(x => new RacInfraccionDto
-        {
-            Id       = x.Id,
-            Nombre   = x.Nombre,
-            FactorUit = x.FactorUit,
-            MontoFijo = x.MontoFijo
-        }).ToList();
-    }
-
     public async Task<List<string>> GetNivelesProyectoAsync(int projectId)
     {
         using var ctx = _factory.CreateDbContext();

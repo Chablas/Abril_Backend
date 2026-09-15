@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -66,11 +66,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         /// </summary>
         [HttpPut("{areaScopeId:int}")]
         [Authorize(Roles = RolesQueEditan)]
-        public async Task<IActionResult> UpdateRevisores(int areaScopeId, [FromBody] AreaRevisoresUpdateDto dto)
+        public async Task<IActionResult> UpdateRevisores(int areaScopeId, [FromBody] AreaAsignacionUpdateDto dto)
         {
             try
             {
-                await _service.UpdateAreaRevisoresAsync(areaScopeId, dto?.ProjectId, dto?.Revisores ?? new List<AreaRevisorAsignacionDto>());
+                await _service.UpdateAreaRevisoresAsync(
+                    areaScopeId, dto?.ProjectId, dto?.Asignados ?? new List<AreaAsignacionInputDto>());
                 return Ok(new { message = "Revisores del área actualizados exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -83,7 +84,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
 
         /// <summary>
         /// Marca/desmarca "filtrar por proyecto" para un área. Al activarse, el área se
-        /// subdivide por proyecto y sus revisores se asignan por proyecto.
+        /// subdivide por proyecto y sus revisores se asignan por proyecto. La bandera es del área y
+        /// la comparte con Consolidadores de Áreas.
         /// Editan el ADMINISTRADOR DE SOLICITUD DE SALIDAS y el USUARIO DE GTH.
         /// </summary>
         [HttpPut("{areaScopeId:int}/filtro-proyecto")]

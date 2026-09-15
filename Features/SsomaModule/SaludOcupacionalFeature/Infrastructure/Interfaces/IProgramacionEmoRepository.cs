@@ -19,12 +19,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
 
         /// <summary>
         /// Razones sociales del grupo con sus cupos, para el desplegable que el modal de
-        /// programación muestra cuando el trabajador llegó SIN razón social (el caso del ingreso
-        /// directo FFT, que pasa de la solicitud al EMO sin tocar la asignación de Reclutamiento).
-        /// Es la misma lista y la misma cuenta que ofrece Reclutamiento (ver
-        /// <see cref="RazonSocialCuposHelper"/>).
+        /// programación muestra cuando el trabajador llegó SIN razón social — toda ficha de
+        /// pre-ingreso, porque la asignación se hace acá y en ningún otro punto del proceso. La
+        /// cuenta vive en <see cref="RazonSocialCuposHelper"/>, que es la misma que lee
+        /// Configuración → Razones Sociales.
+        ///
+        /// <paramref name="workerId"/> es la ficha a la que se le va a asignar: es lo que decide si
+        /// le aplica el tope de 20 (ver <see cref="RazonesSocialesEmoDto.SinTopePorReemplazo"/>).
+        /// Sin él la respuesta sale con el tope puesto, que es lo seguro.
         /// </summary>
-        Task<List<RazonSocialCupoDto>> GetRazonesSociales();
+        Task<RazonesSocialesEmoDto> GetRazonesSociales(int? workerId);
         Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha);
 
         /// <summary>

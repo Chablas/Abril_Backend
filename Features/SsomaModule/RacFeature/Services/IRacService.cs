@@ -14,6 +14,5 @@ public interface IRacService
     Task<byte[]?> GetFotoBytesAsync(int fotoId);
     Task<RacDashboardDto> GetDashboardAsync(int? empresaIdContratista = null);
     Task<List<RacCategoriaDto>> GetCategoriasAsync();
-    Task<List<RacInfraccionDto>> GetInfraccionesAsync();
     Task<List<string>> GetNivelesProyectoAsync(int projectId);
 }

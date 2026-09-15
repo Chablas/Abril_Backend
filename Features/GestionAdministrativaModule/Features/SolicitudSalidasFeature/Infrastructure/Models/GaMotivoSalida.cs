@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
+﻿namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
 {
     public class GaMotivoSalida
     {
@@ -15,6 +15,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// obligatorio (ej. "Visita a obra" → a qué se va). Se guarda en
         /// <c>ga_solicitud_trayecto.motivo_adicional</c>.</summary>
         public bool RequiereMotivoAdicional { get; set; }
+        /// <summary>
+        /// Si false, al elegir este motivo la solicitud no pide horas, ni lugares, ni trayectos
+        /// adicionales: queda un único trayecto que solo lleva el motivo (ej. "Licencia sin goce
+        /// de haber", que es una ausencia de día completo y no un desplazamiento). Default true =
+        /// comportamiento normal de una salida.
+        /// </summary>
+        public bool PideHorasLugares { get; set; } = true;
+        /// <summary>
+        /// Si true, una salida con este motivo genera reembolso de movilidad. Es la primera
+        /// mitad de la regla: el trayecto elegido puede anularlo (ver
+        /// <c>GaTrayecto.EsReembolsable</c>), nunca al reves.
+        /// </summary>
+        public bool EsReembolsable { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

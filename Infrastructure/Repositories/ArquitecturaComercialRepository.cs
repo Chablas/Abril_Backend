@@ -18,6 +18,15 @@ namespace Abril_Backend.Infrastructure.Repositories
         private const string EstadoPendiente = "PENDIENTE";
         private const string EstadoVacio = "VACIO";
 
+        // Peso de carga por tipo de partida: un Hito o Entregable implica bastante más trabajo
+        // real que una Consulta puntual, así que "Distribución de Carga" pondera en vez de contar
+        // partidas 1 a 1 (evita que alguien con muchas consultas livianas salga "sobrecargado"
+        // frente a alguien con menos partidas pero todas hitos/entregables). Ajustable si el
+        // negocio define otra ponderación — hoy es un primer criterio razonable, no una medición.
+        private const decimal PesoHitoCarga = 3m;
+        private const decimal PesoEntregableCarga = 2m;
+        private const decimal PesoConsultaCarga = 1m;
+
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public ArquitecturaComercialRepository(IDbContextFactory<AppDbContext> factory)
@@ -1063,6 +1072,82 @@ namespace Abril_Backend.Infrastructure.Repositories
             };
         }
 
+        public async Task<AvanceSemanalSnapshotResultDTO> SnapshotCargaSemanal()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var semLunes = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+
+            var actividades = await ctx.AcActividad.Where(a => a.Activo).ToListAsync();
+
+            var actProjectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();
+            var proyectoResponsableMap = (await ctx.Project
+                    .Where(p => actProjectIds.Contains(p.ProjectId) && p.ResponsableArqComId != null)
+                    .ToListAsync())
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
+            int? Resp1(AcActividad a) => a.UserId ??
+                (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+
+            var workerIds = actividades
+                .SelectMany(a => new[] { Resp1(a), a.UserId2 })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var existentes = await ctx.AcCargaSemanal
+                .Where(x => x.Semana == semLunes)
+                .ToDictionaryAsync(x => x.UserId);
+
+            foreach (var uid in workerIds)
+            {
+                // Misma definición de "carga actual" que usa el dashboard en vivo (Distribución
+                // de Carga): no culminadas que ya llegaron a su fecha de inicio.
+                var tareas = actividades.Where(a => Resp1(a) == uid || a.UserId2 == uid).ToList();
+                var pendientes = tareas.Where(a => a.FinEfectivo == null
+                    && !(a.InicioEfectivo == null
+                         && a.InicioProgramado.HasValue
+                         && a.InicioProgramado.Value > today)).ToList();
+
+                var hitos       = pendientes.Count(a => a.Tipo == "HITO");
+                var entregables = pendientes.Count(a => a.Tipo == "ENTREGABLE");
+                var consultas   = pendientes.Count(a => a.Tipo == "CONSULTA");
+                var total       = pendientes.Count;
+                var totalPonderado = hitos * PesoHitoCarga + entregables * PesoEntregableCarga + consultas * PesoConsultaCarga;
+
+                if (existentes.TryGetValue(uid, out var row))
+                {
+                    row.Hitos = hitos;
+                    row.Entregables = entregables;
+                    row.Consultas = consultas;
+                    row.Total = total;
+                    row.TotalPonderado = totalPonderado;
+                }
+                else
+                {
+                    ctx.AcCargaSemanal.Add(new AcCargaSemanal
+                    {
+                        UserId = uid,
+                        Semana = semLunes,
+                        Hitos = hitos,
+                        Entregables = entregables,
+                        Consultas = consultas,
+                        Total = total,
+                        TotalPonderado = totalPonderado,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new AvanceSemanalSnapshotResultDTO
+            {
+                Total = workerIds.Count,
+                Semana = semLunes,
+                Message = $"Carga semanal generada para la semana del {semLunes:yyyy-MM-dd}.",
+            };
+        }
+
         private static async Task<PlantillaActividadDTO?> LoadPlantillaDto(AppDbContext ctx, int id)
         {
             return await (
@@ -1577,17 +1662,21 @@ namespace Abril_Backend.Infrastructure.Repositories
                     && !(a.InicioEfectivo == null
                          && a.InicioProgramado.HasValue
                          && a.InicioProgramado.Value > today)).ToList();
+                var hitos       = pendientes.Count(a => a.Tipo == "HITO");
+                var entregables = pendientes.Count(a => a.Tipo == "ENTREGABLE");
+                var consultas   = pendientes.Count(a => a.Tipo == "CONSULTA");
                 return new TareasPorArquitectoDTO
                 {
                     UserId      = uid,
                     Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
-                    Hitos       = pendientes.Count(a => a.Tipo == "HITO"),
-                    Entregables = pendientes.Count(a => a.Tipo == "ENTREGABLE"),
-                    Consultas   = pendientes.Count(a => a.Tipo == "CONSULTA"),
-                    Total       = pendientes.Count,  // carga actual sin culminadas
+                    Hitos       = hitos,
+                    Entregables = entregables,
+                    Consultas   = consultas,
+                    Total       = pendientes.Count,  // carga actual sin culminadas (conteo crudo)
+                    TotalPonderado = hitos * PesoHitoCarga + entregables * PesoEntregableCarga + consultas * PesoConsultaCarga,
                     AvancePct   = tareas.Count > 0 ? Math.Round((decimal)completadas / tareas.Count * 100, 1) : 0m,
                 };
-            }).OrderByDescending(t => t.Total).ToList();
+            }).OrderByDescending(t => t.TotalPonderado).ToList();
 
             var supervisores = workerIds
                 .Select(uid =>
@@ -1707,63 +1796,87 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Semana        = a.FinProgramado.HasValue ? ISOWeek.GetWeekOfYear(a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)) : 0,
             }).ToList();
 
-            var hace8Semanas = today.AddDays(-56);
-
-            // Curva S acumulada: para cada semana pasada se promedia el % de avance ya alcanzado
-            // (real, tomado del snapshot de esa semana) y el % que correspondía según cronograma
-            // (esperado, recalculado con las fechas VIGENTES hoy), sobre el alcance ACTIVO actual.
-            // Actividades que aún no arrancaban esa semana pesan 0% (no se excluyen del grupo), así
-            // la curva converge a 100% en la fecha actual en vez de nunca cerrar. Al recalcularse
-            // siempre sobre el alcance de hoy, absorbe altas/bajas/cierres diarios de actividades.
-            var avanceConActividad = await (
-                from s in ctx.AcAvanceSemanal
-                join a in ctx.AcActividad on s.ActividadId equals a.Id
-                where s.Semana >= hace8Semanas
-                   && a.Activo
-                   && a.InicioProgramado.HasValue && a.FinProgramado.HasValue
-                select new
+            // ── Mini-Gantt de Hitos y Entregables (todos los proyectos, próximos 3 meses) ──
+            // Reemplaza la tarjeta plana de "Hitos Críticos" por una línea de tiempo real — el
+            // pedido concreto fue "ver cuándo cae cada uno, por proyecto", no solo un contador de
+            // días. Respeta los mismos filtros (proyecto/categoría/arquitecto) que el resto del
+            // dashboard porque sale de `actividades` (ya filtrada).
+            var ganttLimite = today.AddDays(90);
+            var proyectoNombreMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription ?? "");
+            List<GanttMiniItemDTO> BuildGanttMini(string tipo) => actividades
+                .Where(a => a.Tipo == tipo
+                    && a.FinEfectivo == null
+                    && a.FinProgramado.HasValue
+                    && a.FinProgramado.Value <= ganttLimite)
+                .OrderBy(a => a.FinProgramado)
+                .Take(150)
+                .Select(a => new GanttMiniItemDTO
                 {
-                    s.ActividadId, s.Semana, s.PorcentajeAvance,
-                    InicioProgramado = a.InicioProgramado!.Value, FinProgramado = a.FinProgramado!.Value,
-                }
-            ).ToListAsync();
+                    Id               = a.Id,
+                    Nombre           = a.Nombre,
+                    Proyecto         = proyectoNombreMap.GetValueOrDefault(a.ProjectId, ""),
+                    InicioProgramado = a.InicioProgramado?.ToString("yyyy-MM-dd"),
+                    FinProgramado    = a.FinProgramado?.ToString("yyyy-MM-dd"),
+                    InicioEfectivo   = a.InicioEfectivo?.ToString("yyyy-MM-dd"),
+                    FinEfectivo      = a.FinEfectivo?.ToString("yyyy-MM-dd"),
+                    Estado           = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
+                }).ToList();
 
-            static double AvanceEsperadoAcumulado(DateOnly inicio, DateOnly fin, DateOnly asOf)
-            {
-                var dias = (fin.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
-                if (dias <= 0) return 0.0;
-                var transcurridos = (asOf.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
-                return Math.Min(100.0, Math.Max(0.0, transcurridos / dias * 100.0));
-            }
+            var ganttHitos       = BuildGanttMini("HITO");
+            var ganttEntregables = BuildGanttMini("ENTREGABLE");
 
-            var semanas = avanceConActividad
-                .GroupBy(x => x.Semana)
-                .OrderBy(g => g.Key)
-                .Select(g => new AvanceSemanalDTO
+            // ── Próximos Entregables/Hitos (próximas 2 semanas), por proyecto ──
+            // Reemplaza la antigua "Curva de Avance": un % acumulado abstracto no dice qué hacer
+            // esta semana; esto sí — qué vence, en qué proyecto, en los próximos 14 días. Respeta
+            // los mismos filtros (proyecto/categoría/arquitecto) que el resto del dashboard.
+            var proximoLimite = today.AddDays(14);
+            var proximosPorProyecto = actividades
+                .Where(a => (a.Tipo == "ENTREGABLE" || a.Tipo == "HITO")
+                    && a.FinEfectivo == null
+                    && a.FinProgramado.HasValue
+                    && a.FinProgramado.Value >= today
+                    && a.FinProgramado.Value <= proximoLimite)
+                .GroupBy(a => a.ProjectId)
+                .Select(g => new ProximoPorProyectoDTO
                 {
-                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(g.Key.ToDateTime(TimeOnly.MinValue))}",
-                    Real       = (decimal)Math.Round(g.Average(x => (double)x.PorcentajeAvance), 2),
-                    Programado = (decimal)Math.Round(
-                        g.Average(x => AvanceEsperadoAcumulado(x.InicioProgramado, x.FinProgramado, x.Semana.AddDays(6))), 2),
+                    ProyectoId     = g.Key,
+                    ProyectoNombre = proyectos.FirstOrDefault(p => p.ProjectId == g.Key)?.ProjectDescription ?? $"Proyecto {g.Key}",
+                    Entregables    = g.Count(a => a.Tipo == "ENTREGABLE"),
+                    Hitos          = g.Count(a => a.Tipo == "HITO"),
                 })
+                .OrderByDescending(p => p.Entregables + p.Hitos)
                 .ToList();
 
-            // Tendencia SPI = promedio semanal del IES ya persistido en ac_ranking_semanal, la MISMA
-            // fórmula que arma el Ranking Eficiencia (no un promedio crudo del Spi de cada actividad,
-            // que antes hacía que esta gráfica no coincidiera con el ranking mostrado al lado).
-            var rankingHistorico = await ctx.AcRankingSemanal
-                .Where(r => r.Semana >= hace8Semanas && !r.SinCompromisos)
-                .ToListAsync();
+            // ── Eficiencia en el cumplimiento de Consultas (últimas 8 semanas) ──
+            // Reemplaza la antigua "Tendencia SPI" (que en realidad mostraba el IES compuesto, no
+            // el SPI real, y mezclaba Hitos/Entregables/Consultas). Una Consulta no es lo mismo que
+            // una actividad — se mide sola: de las que vencían esa semana, ¿cuántas se cerraron?
+            var consultasFiltradas = actividades.Where(a => a.Tipo == "CONSULTA").ToList();
+            var eficienciaConsultas = new List<EficienciaConsultaSemanalDTO>();
+            for (var i = 7; i >= 0; i--)
+            {
+                var weekStart = semLunes.AddDays(-7 * i);
+                var weekEnd   = weekStart.AddDays(6);
+                var vencianEsaSemana = consultasFiltradas.Where(a =>
+                    a.FinProgramado.HasValue && a.FinProgramado.Value >= weekStart && a.FinProgramado.Value <= weekEnd).ToList();
 
-            var eficienciaSpi = rankingHistorico
-                .GroupBy(r => r.Semana)
-                .OrderBy(g => g.Key)
-                .Select(g => new EficienciaSpiDTO
+                double? tasaCierre = null;
+                double? spiProm = null;
+                if (vencianEsaSemana.Count > 0)
                 {
-                    Semana   = $"Sem {ISOWeek.GetWeekOfYear(g.Key.ToDateTime(TimeOnly.MinValue))}",
-                    Spi      = Math.Round(g.Average(x => x.Ies) / 100m, 3),
-                    Esperado = 1.0m,
-                }).ToList();
+                    tasaCierre = Math.Round((double)vencianEsaSemana.Count(a => a.FinEfectivo != null) / vencianEsaSemana.Count * 100, 1);
+                    var spiValidos = vencianEsaSemana.Where(a => a.Spi.HasValue && a.Spi.Value > 0).ToList();
+                    if (spiValidos.Count > 0)
+                        spiProm = Math.Round((double)spiValidos.Average(a => a.Spi!.Value), 2);
+                }
+
+                eficienciaConsultas.Add(new EficienciaConsultaSemanalDTO
+                {
+                    Semana      = $"Sem {ISOWeek.GetWeekOfYear(weekStart.ToDateTime(TimeOnly.MinValue))}",
+                    TasaCierre  = tasaCierre,
+                    SpiPromedio = spiProm,
+                });
+            }
 
             var categoriasRaw = await ctx.AcCategoria
                 .Select(c => new { c.Id, c.Nombre })
@@ -1830,20 +1943,11 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Label = t.Nombre.Split(' ').FirstOrDefault() ?? t.Nombre,
                     Value = (double)t.AvancePct,
                 }).ToList(),
-                TendenciaEficiencia = eficienciaSpi.Select(e => new EficienciaSemanalDTO
-                {
-                    Semana = e.Semana,
-                    Valor  = (double)e.Spi,
-                }).ToList(),
-                ProyeccionAvance = new ProyeccionAvanceDTO
-                {
-                    Labels     = semanas.Select(s => s.Semana).ToList(),
-                    Programado = semanas.Select(s => (double)s.Programado).ToList(),
-                    Real       = semanas.Select(s => (double)s.Real).ToList(),
-                },
                 TareasPorArquitectoDetalle = [.. tareasPorArquitectoDetalle],
-                AvanceSemanal              = [.. semanas],
-                EficienciaSpi              = [.. eficienciaSpi],
+                ProximosPorProyecto        = proximosPorProyecto,
+                EficienciaConsultas        = eficienciaConsultas,
+                GanttHitos                 = ganttHitos,
+                GanttEntregables           = ganttEntregables,
                 Categorias                 = categorias,
                 DistribucionPorCategoria   = distribucionPorCategoria,
                 DistribucionTipos          = new List<ArqComercialChartItemDTO>
@@ -2076,6 +2180,40 @@ namespace Abril_Backend.Infrastructure.Repositories
                 tendencia.Add(new EficienciaSemanalDTO { Semana = $"S{weekStart:dd/MM}", Valor = pct });
             }
 
+            // Tendencia de carga (últimas 8 semanas): mismo criterio de ponderación y de umbrales
+            // que "Distribución de Carga" en vivo (>1.3x del promedio del equipo esa semana =
+            // Sobrecargado, <0.7x = Disponible) — para distinguir una sobrecarga puntual de un
+            // patrón que se repite semana a semana.
+            var hace8SemanasCarga = today.AddDays(-56);
+            var cargaRows = await ctx.AcCargaSemanal
+                .Where(c => c.Semana >= hace8SemanasCarga)
+                .ToListAsync();
+
+            var promedioEquipoPorSemana = cargaRows
+                .GroupBy(c => c.Semana)
+                .ToDictionary(g => g.Key, g => (double)g.Average(c => c.TotalPonderado));
+
+            var tendenciaCarga = cargaRows
+                .Where(c => c.UserId == userId)
+                .OrderBy(c => c.Semana)
+                .Select(c =>
+                {
+                    var promedioEquipo = promedioEquipoPorSemana.GetValueOrDefault(c.Semana, 0.0);
+                    var miPonderado = (double)c.TotalPonderado;
+                    var tag = promedioEquipo <= 0 ? "NORMAL"
+                        : miPonderado > promedioEquipo * 1.3 ? "SOBRECARGADO"
+                        : miPonderado < promedioEquipo * 0.7 ? "DISPONIBLE"
+                        : "NORMAL";
+                    return new CargaSemanalDTO
+                    {
+                        Semana         = $"S{c.Semana:dd/MM}",
+                        Total          = c.Total,
+                        TotalPonderado = miPonderado,
+                        PromedioEquipo = Math.Round(promedioEquipo, 1),
+                        Tag            = tag,
+                    };
+                }).ToList();
+
             return new SupervisorHistoricoDTO
             {
                 Nombre              = nombre,
@@ -2087,6 +2225,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EficienciaHistorica = eficienciaHist,
                 SpiPromedio         = spiPromedio,
                 TendenciaSemanal    = tendencia,
+                TendenciaCarga      = tendenciaCarga,
             };
         }
     }

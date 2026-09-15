@@ -13,9 +13,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// </summary>
         public static (DateOnly Desde, DateOnly Hasta) Rango()
         {
-            var hoy              = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+            var hoy              = HoyPeru();
             var primeroMesActual = new DateOnly(hoy.Year, hoy.Month, 1);
             return (primeroMesActual.AddMonths(-1), primeroMesActual.AddDays(-1));
         }
+
+        /// <summary>
+        /// Primer y último día de un mes cualquiera. Lo usa el desplegable "Mes a rendir", que ya
+        /// no está atado al mes anterior: el usuario elige el periodo y este método lo traduce al
+        /// rango de <c>fecha_salida</c> con el que filtra el repositorio.
+        /// </summary>
+        public static (DateOnly Desde, DateOnly Hasta) RangoDe(int anio, int mes)
+        {
+            var primero = new DateOnly(anio, mes, 1);
+            return (primero, primero.AddMonths(1).AddDays(-1));
+        }
+
+        /// <summary>Hoy en hora de Perú (UTC-5). El servidor corre en UTC.</summary>
+        public static DateOnly HoyPeru() => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
     }
 }

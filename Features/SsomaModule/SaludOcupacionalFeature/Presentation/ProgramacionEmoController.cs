@@ -113,16 +113,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>
-        /// Razones sociales del grupo con sus cupos disponibles. La pide el modal "Programar EMO
-        /// con clínica" SOLO cuando el trabajador todavía no tiene razón social —el ingreso directo
-        /// FFT, que va de la solicitud al EMO sin pasar por la asignación de Reclutamiento— para
-        /// ofrecerle el desplegable en lugar del campo de solo lectura. En el caso normal la
+        /// Razones sociales del grupo con sus cupos disponibles, más si a este trabajador le aplica
+        /// el tope. La pide el modal "Programar EMO con clínica" SOLO cuando el trabajador todavía
+        /// no tiene razón social —toda ficha de pre-ingreso, que es donde se asigna— para ofrecerle
+        /// el desplegable en lugar del campo de solo lectura. Con un trabajador que ya la tiene la
         /// pantalla no la pide y no cuesta ningún roundtrip.
         /// </summary>
         [HttpGet("razones-sociales")]
-        public async Task<IActionResult> GetRazonesSociales()
+        public async Task<IActionResult> GetRazonesSociales([FromQuery] int? workerId)
         {
-            try { return Ok(await _service.GetRazonesSociales()); }
+            try { return Ok(await _service.GetRazonesSociales(workerId)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetRazonesSociales"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

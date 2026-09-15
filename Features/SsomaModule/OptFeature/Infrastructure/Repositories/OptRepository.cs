@@ -1,6 +1,8 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +17,11 @@ public class OptRepository : IOptRepository
         _factory = factory;
     }
 
+    // Devuelve TODO el catálogo activo (Abril + contratistas de cualquier proyecto)
+    // — el filtrado "solo Abril + el contratista de ESTE proyecto" lo hace el
+    // frontend según el proyecto elegido en el formulario, igual que ya hace con
+    // partidas/jefes inmediatos. Evita tener que rehacer la llamada al cambiar de
+    // proyecto en el formulario.
     public async Task<List<OptPetDto>> GetPetsAsync()
     {
         using var ctx = _factory.CreateDbContext();
@@ -26,7 +33,14 @@ public class OptRepository : IOptRepository
                 Id = p.Id,
                 Nombre = p.Nombre,
                 Codigo = p.Codigo,
-                SharepointUrl = p.SharepointUrl
+                SharepointUrl = p.SharepointUrl,
+                Origen = p.Origen,
+                ContributorId = p.ContributorId,
+                ContributorNombre = ctx.Set<Contributor>()
+                    .Where(c => c.ContributorId == p.ContributorId)
+                    .Select(c => c.ContributorNombreComercial ?? c.ContributorName)
+                    .FirstOrDefault(),
+                ProyectoId = p.ProyectoId
             })
             .ToListAsync();
     }
@@ -46,20 +60,29 @@ public class OptRepository : IOptRepository
             .ToListAsync();
     }
 
+    // Un paso "MejorPractica" cuenta como seguro para el score (el trabajador lo hizo
+    // mejor de lo esperado, no peor) — pero se distingue de "Seguro" a simple vista
+    // para poder ofrecerlo como insumo de mejora del PETS. Los ítems "no contemplados"
+    // (agregados a mano, fuera del catálogo del PETS) no entran al score: no había
+    // una expectativa previa contra la cual medirlos.
+    private static (int totalSeguros, int totalInseguros, decimal? scorePct) CalcularScore(List<OptPasoRequest> pasos)
+    {
+        var evaluables = pasos.Where(p => !p.EsNoContemplado).ToList();
+        var totalSeguros   = evaluables.Count(p => p.Resultado == "Seguro" || p.Resultado == "MejorPractica");
+        var totalInseguros = evaluables.Count(p => p.Resultado == "Inseguro");
+        var totalEvaluados = totalSeguros + totalInseguros;
+        decimal? scorePct  = totalEvaluados > 0
+            ? Math.Round((decimal)totalSeguros / totalEvaluados * 100, 2)
+            : null;
+        return (totalSeguros, totalInseguros, scorePct);
+    }
+
     public async Task<int> CrearOptAsync(CrearOptRequest request, string? firmaObservadorUrl,
         Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls, int userId = 0)
     {
         using var ctx = _factory.CreateDbContext();
 
-        var pasosEvaluados = request.Pasos
-            .Where(p => p.Resultado == "Seguro" || p.Resultado == "Inseguro")
-            .ToList();
-        var totalSeguros   = pasosEvaluados.Count(p => p.Resultado == "Seguro");
-        var totalInseguros = pasosEvaluados.Count(p => p.Resultado == "Inseguro");
-        var totalEvaluados = totalSeguros + totalInseguros;
-        decimal? scorePct  = totalEvaluados > 0
-            ? Math.Round((decimal)totalSeguros / totalEvaluados * 100, 2)
-            : null;
+        var (totalSeguros, totalInseguros, scorePct) = CalcularScore(request.Pasos);
 
         var opt = new SsomaOpt
         {
@@ -80,17 +103,38 @@ public class OptRepository : IOptRepository
             SeObtuvoCCompromiso   = request.SeObtuvoCCompromiso,
             AccionRequerida       = request.AccionRequerida,
             AccionObservacion     = request.AccionObservacion,
+            RequierePetModificacion     = request.RequierePetModificacion,
+            RequierePetModificacionNota = request.RequierePetModificacionNota,
             TotalPasos            = request.Pasos.Count,
             TotalSeguros          = totalSeguros,
             TotalInseguros        = totalInseguros,
             ScorePct              = scorePct,
-            Estado                = "Completado",
+            Estado                = request.Finalizar ? "finalizado" : "borrador",
             CreatedAt             = DateTime.UtcNow,
             CreatedBy             = userId > 0 ? userId : null
         };
 
         ctx.SsomaOpt.Add(opt);
         await ctx.SaveChangesAsync();
+
+        // El observador no modifica el PETS directamente — solo lo deja marcado para
+        // que SSOMA (coordinador/prevencionista) lo revise y, si corresponde, apruebe
+        // una versión nueva. Mismo campo que dispara un accidente/incidente enviado.
+        // Un borrador todavía puede descartarse o corregirse, así que esto solo se
+        // dispara cuando la observación queda finalizada de verdad.
+        if (request.Finalizar && request.PetId.HasValue && request.RequierePetModificacion)
+        {
+            var pet = await ctx.SsomaPet.FindAsync(request.PetId.Value);
+            if (pet != null)
+            {
+                pet.RevisionPendiente = true;
+                pet.RevisionPendienteMotivo = string.IsNullOrWhiteSpace(request.RequierePetModificacionNota)
+                    ? $"Indicado en OPT #{opt.Id} ({DateTime.UtcNow:dd/MM/yyyy})."
+                    : $"OPT #{opt.Id}: {request.RequierePetModificacionNota!.Trim()}";
+                pet.RevisionPendienteFecha = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+            }
+        }
 
         foreach (var t in request.Trabajadores)
         {
@@ -123,8 +167,11 @@ public class OptRepository : IOptRepository
                 NumeroDisplay       = p.NumeroDisplay,
                 Descripcion         = p.Descripcion,
                 Nivel               = p.Nivel,
+                Tipo                = p.Tipo,
                 Resultado           = p.Resultado,
                 DesviacionObservada = p.DesviacionObservada,
+                EsNoContemplado     = p.EsNoContemplado,
+                EsManual            = p.EsManual,
                 Orden               = p.Orden
             });
         }
@@ -142,6 +189,133 @@ public class OptRepository : IOptRepository
 
         await ctx.SaveChangesAsync();
         return opt.Id;
+    }
+
+    // Guarda un borrador ya existente (o lo finaliza) — reemplaza por completo
+    // Trabajadores/Verificaciones/Pasos con lo que venga en el request (el frontend
+    // siempre tiene el estado completo del wizard en memoria, así que no hay que
+    // diffear fila por fila), preservando las firmas de trabajador ya subidas si no
+    // llega una nueva, y SUMANDO fotos nuevas sin borrar las que ya había.
+    public async Task ActualizarOptAsync(int id, CrearOptRequest request, string? firmaObservadorUrlNueva,
+        Dictionary<int, string> firmasTrabajadorUrlsNuevas, List<string> fotosAreaUrlsNuevas)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var opt = await ctx.SsomaOpt
+            .Include(o => o.Trabajadores)
+            .Include(o => o.Verificaciones)
+            .Include(o => o.Pasos)
+            .Include(o => o.FotosArea)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new AbrilException("OPT no encontrada.", 404);
+
+        if (opt.Estado != "borrador")
+            throw new AbrilException("Esta OPT ya fue finalizada y no se puede editar.", 400);
+
+        if (request.Finalizar && (opt.FotosArea.Count + fotosAreaUrlsNuevas.Count) < 3)
+            throw new AbrilException("Debes adjuntar al menos 3 fotos de la actividad observada para finalizar.", 400);
+
+        var firmaTrabajadorPrevia = opt.Trabajadores.ToDictionary(t => t.TrabajadorId, t => t.FirmaTrabajadorUrl);
+
+        var (totalSeguros, totalInseguros, scorePct) = CalcularScore(request.Pasos);
+
+        opt.ProyectoId              = request.ProyectoId;
+        opt.PetId                   = request.PetId;
+        opt.Fecha                   = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc);
+        opt.TipoObservacion         = request.TipoObservacion;
+        opt.CuentaConPet            = request.CuentaConPet;
+        opt.Area                    = request.Area;
+        opt.SeInformaTrabajador     = request.SeInformaTrabajador;
+        opt.ObservadorId            = request.ObservadorId;
+        opt.ObservadorNombre        = request.ObservadorNombre;
+        opt.ObservadorCargo         = request.ObservadorCargo;
+        if (firmaObservadorUrlNueva != null) opt.FirmaObservadorUrl = firmaObservadorUrlNueva;
+        opt.SeFelicito              = request.SeFelicito;
+        opt.SeRecibieronComentarios = request.SeRecibieronComentarios;
+        opt.SeRetroalimento         = request.SeRetroalimento;
+        opt.SeObtuvoCCompromiso     = request.SeObtuvoCCompromiso;
+        opt.AccionRequerida         = request.AccionRequerida;
+        opt.AccionObservacion       = request.AccionObservacion;
+        opt.RequierePetModificacion     = request.RequierePetModificacion;
+        opt.RequierePetModificacionNota = request.RequierePetModificacionNota;
+        opt.TotalPasos              = request.Pasos.Count;
+        opt.TotalSeguros            = totalSeguros;
+        opt.TotalInseguros          = totalInseguros;
+        opt.ScorePct                = scorePct;
+        opt.Estado                  = request.Finalizar ? "finalizado" : "borrador";
+
+        ctx.SsomaOptTrabajador.RemoveRange(opt.Trabajadores);
+        ctx.SsomaOptVerificacion.RemoveRange(opt.Verificaciones);
+        ctx.SsomaOptPaso.RemoveRange(opt.Pasos);
+
+        foreach (var t in request.Trabajadores)
+        {
+            var firmaUrl = firmasTrabajadorUrlsNuevas.TryGetValue(t.TrabajadorId, out var nueva)
+                ? nueva
+                : firmaTrabajadorPrevia.GetValueOrDefault(t.TrabajadorId);
+            ctx.SsomaOptTrabajador.Add(new SsomaOptTrabajador
+            {
+                OptId              = id,
+                TrabajadorId       = t.TrabajadorId,
+                TipoTrabajador     = t.TipoTrabajador,
+                TiempoEnObra       = t.TiempoEnObra,
+                AniosExperiencia   = t.AniosExperiencia,
+                FirmaTrabajadorUrl = firmaUrl
+            });
+        }
+
+        foreach (var v in request.Verificaciones)
+        {
+            ctx.SsomaOptVerificacion.Add(new SsomaOptVerificacion
+            {
+                OptId      = id,
+                CriterioId = v.CriterioId,
+                Resultado  = v.Resultado
+            });
+        }
+
+        foreach (var p in request.Pasos)
+        {
+            ctx.SsomaOptPaso.Add(new SsomaOptPaso
+            {
+                OptId               = id,
+                NumeroDisplay       = p.NumeroDisplay,
+                Descripcion         = p.Descripcion,
+                Nivel               = p.Nivel,
+                Tipo                = p.Tipo,
+                Resultado           = p.Resultado,
+                DesviacionObservada = p.DesviacionObservada,
+                EsNoContemplado     = p.EsNoContemplado,
+                EsManual            = p.EsManual,
+                Orden               = p.Orden
+            });
+        }
+
+        var ordenBase = opt.FotosArea.Count;
+        for (int j = 0; j < fotosAreaUrlsNuevas.Count; j++)
+        {
+            ctx.SsomaOptFotoArea.Add(new SsomaOptFotoArea
+            {
+                OptId = id,
+                Url = fotosAreaUrlsNuevas[j],
+                Orden = ordenBase + j,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        if (request.Finalizar && request.PetId.HasValue && request.RequierePetModificacion)
+        {
+            var pet = await ctx.SsomaPet.FindAsync(request.PetId.Value);
+            if (pet != null)
+            {
+                pet.RevisionPendiente = true;
+                pet.RevisionPendienteMotivo = string.IsNullOrWhiteSpace(request.RequierePetModificacionNota)
+                    ? $"Indicado en OPT #{id} ({DateTime.UtcNow:dd/MM/yyyy})."
+                    : $"OPT #{id}: {request.RequierePetModificacionNota!.Trim()}";
+                pet.RevisionPendienteFecha = DateTime.UtcNow;
+            }
+        }
+
+        await ctx.SaveChangesAsync();
     }
 
     public async Task<OptDetalleDto?> GetDetalleAsync(int id)
@@ -207,6 +381,8 @@ public class OptRepository : IOptRepository
             SeObtuvoCCompromiso     = opt.SeObtuvoCCompromiso,
             AccionRequerida         = opt.AccionRequerida,
             AccionObservacion       = opt.AccionObservacion,
+            RequierePetModificacion     = opt.RequierePetModificacion,
+            RequierePetModificacionNota = opt.RequierePetModificacionNota,
             TotalPasos              = opt.TotalPasos,
             TotalSeguros            = opt.TotalSeguros,
             TotalInseguros          = opt.TotalInseguros,
@@ -243,8 +419,11 @@ public class OptRepository : IOptRepository
                     NumeroDisplay       = p.NumeroDisplay,
                     Descripcion         = p.Descripcion,
                     Nivel               = p.Nivel,
+                    Tipo                = p.Tipo,
                     Resultado           = p.Resultado,
                     DesviacionObservada = p.DesviacionObservada,
+                    EsNoContemplado     = p.EsNoContemplado,
+                    EsManual            = p.EsManual,
                     Orden               = p.Orden
                 }).ToList(),
             FotosArea = opt.FotosArea.OrderBy(f => f.Orden).Select(f => f.Url).ToList()
@@ -424,7 +603,10 @@ public class OptRepository : IOptRepository
         var mesActual  = DateTime.UtcNow.Month;
         var hoy = DateOnly.FromDateTime(DateTime.Today);
 
-        var q = ctx.SsomaOpt.AsQueryable();
+        // Los borradores (a medio llenar, todavía sin fotos/firmas/pasos definitivos)
+        // no entran a las estadísticas — un score a medias o un total inflado por
+        // observaciones que ni siquiera se terminaron de registrar sería engañoso.
+        var q = ctx.SsomaOpt.Where(o => o.Estado != "borrador").AsQueryable();
         if (proyectoId.HasValue) q = q.Where(o => o.ProyectoId == proyectoId.Value);
         if (empresaIdContratista.HasValue)
             q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
@@ -504,9 +686,14 @@ public class OptRepository : IOptRepository
             .Take(10)
             .ToList();
 
+        // AccionRequerida ahora puede traer varias acciones a la vez, separadas por
+        // coma (ver multi-select en el frontend) — se cuenta cada una por separado,
+        // así que un mismo OPT puede sumar a más de un tipo de acción en el resumen.
         var acciones = all
-            .Where(o => !string.IsNullOrEmpty(o.AccionRequerida) && o.AccionRequerida != "Ninguna")
-            .GroupBy(o => o.AccionRequerida!)
+            .Where(o => !string.IsNullOrEmpty(o.AccionRequerida))
+            .SelectMany(o => o.AccionRequerida!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(a => a != "Ninguna")
+            .GroupBy(a => a)
             .Select(g => new OptAccionResumenDto
             {
                 TipoAccion = g.Key,

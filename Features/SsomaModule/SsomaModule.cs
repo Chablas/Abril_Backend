@@ -55,13 +55,28 @@ using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
+using Abril_Backend.Features.Ssoma.Penalidad.Services;
+using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
+using Abril_Backend.Shared.Services;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -150,9 +165,17 @@ namespace Abril_Backend.Features.Ssoma
 
             // RAC — Reporte de Actos y Condiciones Subestándar
             services.AddScoped<IRacService, RacService>();
-            services.AddScoped<IPenalidadService, PenalidadService>();
             services.AddScoped<IRacSharePointService, RacSharePointService>();
             services.AddScoped<IRacNotificationService, RacNotificationService>();
+
+            // Penalidades — independiente de RAC (ver PenalidadFeature)
+            services.AddScoped<IProyectoResponsablesResolver, ProyectoResponsablesResolver>();
+            services.AddScoped<IPenalidadService, PenalidadService>();
+            services.AddScoped<IPenalidadNotificationService, PenalidadNotificationService>();
+            services.AddScoped<IGestionPreviaService, GestionPreviaService>();
+            // Bitácora de estados de la penalidad: registra por quién y cuándo pasó cada cambio,
+            // en el mismo SaveChanges que lo mueve. Se engancha en Program.cs (AddInterceptors).
+            services.AddSingleton<PenalidadEstadoHistorialInterceptor>();
 
             // OPT — Observación Planeada de Tarea
             services.AddScoped<IOptRepository, OptRepository>();
@@ -253,6 +276,11 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IServicioFijoService, ServicioFijoService>();
             services.AddScoped<IKitRepository, KitRepository>();
             services.AddScoped<IKitService, KitService>();
+            services.AddScoped<IPresupuestoResumenExportService, PresupuestoResumenExportService>();
+            services.AddScoped<IEpiStaffRepository, EpiStaffRepository>();
+            services.AddScoped<IEpiStaffCalculoService, EpiStaffCalculoService>();
+            services.AddScoped<ICostoFijoManualRepository, CostoFijoManualRepository>();
+            services.AddScoped<ICostoFijoManualService, CostoFijoManualService>();
             services.AddScoped<IRatioDriverRepository, RatioDriverRepository>();
             services.AddScoped<IRatioDriverService, RatioDriverService>();
             services.AddScoped<IHhCargaRepository, HhCargaRepository>();
@@ -266,11 +294,25 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IInduccionProgramacionRepository, InduccionProgramacionRepository>();
             services.AddScoped<IInduccionProgramacionService, InduccionProgramacionService>();
 
+            // Programación de Inspecciones Cruzadas (rotación mensual por anillo de proyectos)
+            services.AddScoped<IInspeccionCruzadaProgramacionRepository, InspeccionCruzadaProgramacionRepository>();
+            services.AddScoped<IInspeccionCruzadaProgramacionService, InspeccionCruzadaProgramacionService>();
+
             // PETS — catálogo de pasos, piloto para que OPT (y a futuro Estándares/IPERC)
             // jalen automáticamente la estructura en vez de tipearla a mano.
             services.AddScoped<IPetsRepository, PetsRepository>();
             services.AddScoped<IPetsService, PetsService>();
             services.AddScoped<IPetsImportService, PetsImportService>();
+
+            // Activos Rotativos — equipos que circulan entre proyectos (tambores retráctiles,
+            // frenos de cuerda, etc.). Solo visibilidad + contacto, sin flujo de aprobación.
+            services.AddScoped<IActivoRotativoRepository, ActivoRotativoRepository>();
+            services.AddScoped<IActivoRotativoService, ActivoRotativoService>();
+
+            // Cumplimiento SSOMA — guía de actividades mínimas diarias/semanales/mensuales
+            // del Coordinador SSOMA y el Prevencionista, por proyecto.
+            services.AddScoped<ICumplimientoRepository, CumplimientoRepository>();
+            services.AddScoped<ICumplimientoService, CumplimientoService>();
 
             return services;
         }

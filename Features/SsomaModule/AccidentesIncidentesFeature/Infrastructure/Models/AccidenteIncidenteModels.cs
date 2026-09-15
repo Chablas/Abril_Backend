@@ -69,6 +69,11 @@ public class SsomaAccidenteIncidente
     public int? EtapaProyectoId { get; set; }
     public int? PartidaId { get; set; }
 
+    // PETS asociado al evento (opcional) — mismo patrón que SsomaOpt.PetId. Permite
+    // saber, ante un accidente, si el trabajo contaba con un PETS y cuál, para poder
+    // marcarlo pendiente de revisión.
+    public int? PetId { get; set; }
+
     // Trabajador afectado
     public int? WorkerId { get; set; }
     public string? TrabajadorNombre { get; set; }

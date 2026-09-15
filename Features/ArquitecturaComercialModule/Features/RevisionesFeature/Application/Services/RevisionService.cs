@@ -97,11 +97,13 @@ public class RevisionService : IRevisionService
             await _repository.AgregarFoto(id, "Levantamiento", url, orden);
         }
 
-        return await _repository.LevantarObservacion(id, body.LevantaPorWorkerId);
+        return await _repository.LevantarObservacion(id, body.LevantaPorWorkerId, body.FechaLevantamiento);
     }
 
     public Task<RevisionObservacionListItemDTO?> UpdateObservacion(int id, UpdateRevisionObservacionDTO body)
         => _repository.UpdateObservacion(id, body);
+
+    public Task<bool> DeleteObservacion(int id) => _repository.DeleteObservacion(id);
 
     /// <summary>Sube la foto de "Observacion" cuando se reportó sin ella — distinto de
     /// ReemplazarFoto, que requiere una foto ya existente.</summary>

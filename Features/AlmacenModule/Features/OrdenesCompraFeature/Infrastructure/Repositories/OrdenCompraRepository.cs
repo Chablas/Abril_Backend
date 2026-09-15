@@ -72,4 +72,26 @@ public class OrdenCompraRepository : IOrdenCompraRepository
         await ctx.SaveChangesAsync();
         return entity;
     }
+
+    public async Task<AlmacenOrdenCompra> CreateOrdenCompraSinArchivo(CreateAlmacenOrdenCompraDTO body, string? subidoPor)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = new AlmacenOrdenCompra
+        {
+            ProyectoId = body.ProyectoId,
+            Numero = body.Numero,
+            Tipo = body.Tipo,
+            Proveedor = body.Proveedor,
+            ContratistaId = body.ContratistaId,
+            Monto = body.Monto,
+            Moneda = body.Moneda,
+            Fecha = body.Fecha,
+            ArchivoUrl = string.Empty,
+            ArchivoNombre = string.Empty,
+            SubidoPor = subidoPor
+        };
+        ctx.AlmacenOrdenesCompra.Add(entity);
+        await ctx.SaveChangesAsync();
+        return entity;
+    }
 }

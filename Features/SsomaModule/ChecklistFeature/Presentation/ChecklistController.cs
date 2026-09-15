@@ -27,6 +27,18 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Presentation
             return int.Parse(claim.Value);
         }
 
+        /// <summary>Proyecto actual del usuario logueado (resuelto vía su Worker), para preseleccionar en "Por Proyecto".</summary>
+        [HttpGet("mi-proyecto-actual")]
+        public async Task<IActionResult> GetMiProyectoActual()
+        {
+            try
+            {
+                var proyectoId = await _service.GetProyectoActualDeUsuarioAsync(GetUserId());
+                return Ok(new { proyectoId });
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         // PLANTILLAS (catálogo maestro)
         // ─────────────────────────────────────────────────────────────────
@@ -108,6 +120,103 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Presentation
         }
 
         // ─────────────────────────────────────────────────────────────────
+        // PARTIDAS (etapas constructivas: Muro Anclado, Excavación, etc.)
+        // ─────────────────────────────────────────────────────────────────
+
+        /// <summary>Lista todas las partidas.</summary>
+        [HttpGet("partidas")]
+        public async Task<IActionResult> GetPartidas()
+        {
+            try
+            {
+                var result = await _service.GetPartidasAsync();
+                return Ok(result);
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Crea una nueva partida.</summary>
+        [HttpPost("partidas")]
+        public async Task<IActionResult> CreatePartida([FromBody] ChecklistPartidaUpsertDto dto)
+        {
+            try
+            {
+                var result = await _service.CreatePartidaAsync(dto, GetUserId());
+                return Ok(result);
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Edita una partida existente.</summary>
+        [HttpPut("partidas/{partidaId:int}")]
+        public async Task<IActionResult> UpdatePartida(int partidaId, [FromBody] ChecklistPartidaUpsertDto dto)
+        {
+            try
+            {
+                await _service.UpdatePartidaAsync(partidaId, dto);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Elimina una partida y su(s) plantilla(s), solo si ningún proyecto tiene ya ítems completados en ellas.</summary>
+        [HttpDelete("partidas/{partidaId:int}")]
+        public async Task<IActionResult> DeletePartida(int partidaId)
+        {
+            try
+            {
+                await _service.DeletePartidaAsync(partidaId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Cambia el orden de un ítem de plantilla (para reflejar la secuencia real de avance de obra).</summary>
+        [HttpPatch("plantillas/items/{itemId:int}/orden")]
+        public async Task<IActionResult> SetOrdenItem(int itemId, [FromBody] ChecklistItemOrdenDto dto)
+        {
+            try
+            {
+                await _service.SetOrdenItemAsync(itemId, dto.Orden);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // IMÁGENES DE REFERENCIA DE UN ITEM DE PLANTILLA
+        // ─────────────────────────────────────────────────────────────────
+
+        /// <summary>Sube una foto de referencia ("cómo debe quedar") a un item. Sin límite de cantidad.</summary>
+        [HttpPost("plantillas/items/{itemId:int}/imagenes")]
+        public async Task<IActionResult> SubirImagenReferencia(int itemId, [FromForm] IFormFile file)
+        {
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var result = await _service.SubirImagenReferenciaAsync(itemId, stream, file.FileName);
+                return Ok(result);
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Elimina una foto de referencia.</summary>
+        [HttpDelete("plantillas/items/imagenes/{imagenId:int}")]
+        public async Task<IActionResult> EliminarImagenReferencia(int imagenId)
+        {
+            try
+            {
+                await _service.EliminarImagenReferenciaAsync(imagenId);
+                return NoContent();
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // CHECKLISTS DE PROYECTO
         // ─────────────────────────────────────────────────────────────────
 
@@ -145,6 +254,59 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Presentation
                 var userId = GetUserId();
                 var result = await _service.ActivarChecklistAsync(proyectoId, dto.PlantillaId, userId);
                 return Ok(result);
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Desactiva un checklist opcional de proyecto, solo si aún no tiene ítems completados.</summary>
+        [HttpDelete("{checklistProyectoId:int}")]
+        public async Task<IActionResult> DesactivarChecklist(int checklistProyectoId)
+        {
+            try
+            {
+                await _service.DesactivarChecklistAsync(checklistProyectoId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Marca un checklist como "no aplica" (proyecto avanzado que ya pasó esa etapa, u obligatorio que no le corresponde). Requiere motivo.</summary>
+        [HttpPost("{checklistProyectoId:int}/no-aplica")]
+        public async Task<IActionResult> MarcarNoAplica(int checklistProyectoId, [FromBody] ChecklistNoAplicaDto dto)
+        {
+            try
+            {
+                await _service.MarcarNoAplicaAsync(checklistProyectoId, dto.Motivo, GetUserId());
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Revierte el "no aplica" — vuelve a pendiente/en_progreso/completado según sus ítems.</summary>
+        [HttpPost("{checklistProyectoId:int}/reactivar")]
+        public async Task<IActionResult> ReactivarChecklist(int checklistProyectoId)
+        {
+            try
+            {
+                await _service.ReactivarChecklistAsync(checklistProyectoId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        /// <summary>Sube la evidencia de cumplimiento de un ítem (foto opcional). Devuelve la URL para mandarla junto con el toggle.</summary>
+        [HttpPost("items/adjunto")]
+        public async Task<IActionResult> SubirAdjuntoItem([FromForm] IFormFile file)
+        {
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var url = await _service.SubirAdjuntoItemAsync(stream, file.FileName);
+                return Ok(new { url });
             }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }

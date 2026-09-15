@@ -20,10 +20,17 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
     // ("los Coordinadores SSOMA y yo").
     private const int WorkerIdSamuel = 12305;
 
+    // James Sanchez Leveau (worker 13290), Prevencionista en 9 Nogales (project 16), funge
+    // de Coordinador SSOMA en ESE proyecto puntual. A diferencia de WorkerIdSamuel, esta
+    // excepción NO es global: solo aplica mientras se está viendo/operando el proyecto 16,
+    // en cualquier otro proyecto sigue sin el permiso.
+    private const int WorkerIdJamesSanchez = 13290;
+    private const int ProyectoIdNueveNogales = 16;
+
     /// <summary>
     /// El usuario logueado tiene permiso para ocultar/mostrar (cualquier tarjeta) si su
     /// propio worker es Coordinador SSOMA (<see cref="CategoriaIds.CoordinadorSsoma"/>),
-    /// o si es Samuel.
+    /// si es Samuel, o si es James Sanchez operando sobre el proyecto 9 Nogales.
     ///
     /// Antes esto se resolvía concatenando categoría + ocupación y buscando las palabras
     /// "Coordinador" y "SSOMA" en el texto, porque el dato no siempre vivía en el mismo
@@ -31,7 +38,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
     /// asignó a exactamente los mismos trabajadores que esa búsqueda alcanzaba, así que
     /// ahora es una comparación directa contra la categoría.
     /// </summary>
-    public async Task<bool> EsCoordinadorSsomaAsync(int userId)
+    public async Task<bool> EsCoordinadorSsomaAsync(int userId, int? proyectoId = null)
     {
         await using var ctx = await factory.CreateDbContextAsync();
         var datos = await ctx.Person
@@ -46,6 +53,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
+        if (datos.Id == WorkerIdJamesSanchez && proyectoId == ProyectoIdNueveNogales) return true;
 
         return datos.CategoriaId == CategoriaIds.CoordinadorSsoma;
     }

@@ -55,6 +55,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Inf
         /// <summary>Observación interna de GTH al abrir el onboarding (opcional).</summary>
         public string? Observacion { get; set; }
 
+        // ── Aviso al responsable de obra (fase «Correo de bienvenida») ────────
+        // El correo que le pide al coordinador administrativo del proyecto que prevea espacio y
+        // condiciones para el que entra. Lo manda GTH con un clic desde el checklist, así que hay
+        // que recordar que ya salió: es lo único que marca esa actividad como cumplida.
+
+        /// <summary>Cuándo salió el aviso (UTC). null = todavía no se envió.</summary>
+        public DateTimeOffset? AvisoObraEnviadoDateTime { get; set; }
+
+        /// <summary>
+        /// A qué buzón salió, tal como se resolvió ese día. Se guarda porque el coordinador
+        /// administrativo del proyecto puede cambiar después: sin esto, la pantalla mostraría el
+        /// correo de quien está hoy como si fuera el que recibió el aviso.
+        /// </summary>
+        public string? AvisoObraEmail { get; set; }
+
+        /// <summary>Quién lo envió.</summary>
+        public int? AvisoObraUserId { get; set; }
+
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

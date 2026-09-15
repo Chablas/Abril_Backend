@@ -147,6 +147,9 @@ public class FlashReportDetalleDto
     public int? PartidaId { get; set; }
     public string? PartidaNombre { get; set; }
 
+    public int? PetId { get; set; }
+    public string? PetNombre { get; set; }
+
     public int? WorkerId { get; set; }
     public string? TrabajadorNombre { get; set; }
     public string? PuestoTrabajo { get; set; }
@@ -210,6 +213,10 @@ public class CrearFlashReportRequest
 
     public int? EtapaProyectoId { get; set; }
     public int? PartidaId { get; set; }
+
+    // PETS asociado al evento (opcional) — al confirmar el registro, si viene con
+    // PetId, se marca ese PETS pendiente de revisión (ver Fase 3).
+    public int? PetId { get; set; }
 
     public int? WorkerId { get; set; }
     public string? TrabajadorNombre { get; set; }
@@ -409,4 +416,28 @@ public class CrearLeccionDesdeAccionRequest
     public int ProyectoId { get; set; }
     public int AreaId { get; set; }
     public string? ImpactDescription { get; set; }
+}
+
+// ── Antecedentes de eventos (búsqueda temática) ───────────────────────────────
+
+public class AntecedenteItemDto
+{
+    public int Id { get; set; }
+    public string Codigo { get; set; } = string.Empty;
+    public string TipoNombre { get; set; } = string.Empty;
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public DateTime Fecha { get; set; }
+    public string LugarExacto { get; set; } = string.Empty;
+    public string Descripcion { get; set; } = string.Empty;
+    public string? DanoProceso { get; set; }
+    public string? AccionesInmediatas { get; set; }
+    public string? Mecanismo { get; set; }
+    public string? AgenteCausante { get; set; }
+}
+
+public class ExportarAntecedentesRequest
+{
+    public string Titulo { get; set; } = string.Empty;
+    public string PalabraClave { get; set; } = string.Empty;
+    public List<int> Ids { get; set; } = [];
 }

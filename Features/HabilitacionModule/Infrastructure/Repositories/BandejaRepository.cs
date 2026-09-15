@@ -519,8 +519,14 @@ ORDER BY ec.contributor_name";
 
             var requiereVigencia = entity.Item?.RequiereVigencia ?? true;
             DateTime? nuevaVigencia;
-            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !dto.Vigencia.HasValue)
-                nuevaVigencia = entity.Vigencia; // preservar vigencia existente al aprobar sin fecha
+            // Preservar la vigencia existente solo si YA había una fecha real. Si estaba en null
+            // (ítem recién "Enviado" sin vigencia todavía), hay que dejar que ResolverVigencia
+            // calcule la fecha centinela para los ítems que no la requieren — si no, un ítem
+            // sin vigencia real (ej. Certijoven, T-Registro) queda "Aprobado" con vigencia null
+            // para siempre y el cron de vencimientos lo tumba a "Falta" al día siguiente.
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                && !dto.Vigencia.HasValue && entity.Vigencia.HasValue)
+                nuevaVigencia = entity.Vigencia;
             else
                 nuevaVigencia = HabilitacionDateHelper.ResolverVigencia(requiereVigencia, dto.Estado, dto.Vigencia);
             if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)

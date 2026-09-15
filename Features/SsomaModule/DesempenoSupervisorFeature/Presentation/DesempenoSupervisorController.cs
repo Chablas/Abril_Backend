@@ -18,13 +18,15 @@ public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) :
 
     /// <summary>
     /// Quién puede VER y USAR el botón de ocultar/mostrar (aplica a todas las tarjetas
-    /// por igual) — Coordinadores SSOMA, o administradores del sistema. No es una
+    /// por igual) — Coordinadores SSOMA, administradores del sistema, o una excepción
+    /// puntual válida solo mientras se opera sobre un proyecto específico (ver
+    /// <see cref="DesempenoSupervisorRepository.EsCoordinadorSsomaAsync"/>). No es una
     /// restricción de a quién se puede ocultar, es un permiso de quién puede hacerlo.
     /// </summary>
-    private async Task<bool> PuedeOcultarAsync()
+    private async Task<bool> PuedeOcultarAsync(int? proyectoId)
     {
         if (User.IsInRole(Roles.AdministradorSistema)) return true;
-        return await repo.EsCoordinadorSsomaAsync(GetUserId());
+        return await repo.EsCoordinadorSsomaAsync(GetUserId(), proyectoId);
     }
 
     [HttpGet]
@@ -34,7 +36,7 @@ public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) :
             return BadRequest("Mes o año inválido.");
         try
         {
-            var puedeOcultar = await PuedeOcultarAsync();
+            var puedeOcultar = await PuedeOcultarAsync(proyectoId);
             var result = await repo.GetDesempenoAsync(mes, anio, proyectoId, incluirOcultos, puedeOcultar);
             return Ok(result);
         }
@@ -45,11 +47,11 @@ public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) :
     }
 
     [HttpPatch("{workerId:int}/ocultar")]
-    public async Task<IActionResult> Ocultar(int workerId, [FromBody] OcultarSupervisorRequest? req)
+    public async Task<IActionResult> Ocultar(int workerId, [FromQuery] int? proyectoId, [FromBody] OcultarSupervisorRequest? req)
     {
         try
         {
-            if (!await PuedeOcultarAsync()) return Forbid();
+            if (!await PuedeOcultarAsync(proyectoId)) return Forbid();
             await repo.OcultarAsync(workerId, req?.Motivo, GetUserId());
             return NoContent();
         }
@@ -60,11 +62,11 @@ public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) :
     }
 
     [HttpPatch("{workerId:int}/mostrar")]
-    public async Task<IActionResult> Mostrar(int workerId)
+    public async Task<IActionResult> Mostrar(int workerId, [FromQuery] int? proyectoId)
     {
         try
         {
-            if (!await PuedeOcultarAsync()) return Forbid();
+            if (!await PuedeOcultarAsync(proyectoId)) return Forbid();
             await repo.MostrarAsync(workerId);
             return NoContent();
         }

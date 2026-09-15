@@ -96,6 +96,7 @@ public class ObservacionRepository : IObservacionRepository
                 Origen = o.Origen,
                 LevantaPorWorkerId = o.LevantaPorWorkerId,
                 LevantaPorNombre = o.LevantaPor != null && o.LevantaPor.Person != null ? o.LevantaPor.Person.FullName : null,
+                FechaLevantamiento = o.FechaLevantamiento,
                 Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
@@ -106,6 +107,7 @@ public class ObservacionRepository : IObservacionRepository
         {
             item.Fecha = AHoraLima(item.Fecha);
             item.PlazoLevantamiento = AHoraLima(item.PlazoLevantamiento);
+            item.FechaLevantamiento = AHoraLima(item.FechaLevantamiento);
         }
 
         return new ObservacionListResponseDTO { Total = total, Pagina = pagina, PorPagina = porPagina, Items = items };
@@ -137,6 +139,7 @@ public class ObservacionRepository : IObservacionRepository
             Origen = o.Origen,
             LevantaPorWorkerId = o.LevantaPorWorkerId,
             LevantaPorNombre = o.LevantaPor?.Person?.FullName,
+            FechaLevantamiento = AHoraLima(o.FechaLevantamiento),
             Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }
@@ -321,14 +324,14 @@ public class ObservacionRepository : IObservacionRepository
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId)
+    public async Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId, DateTime? fechaLevantamiento)
     {
         using var ctx = _factory.CreateDbContext();
         var o = await ctx.AcObservaciones.FirstOrDefaultAsync(x => x.Id == id);
         if (o == null) return null;
 
         o.Estado = "Completado";
-        o.FechaLevantamiento = DateTime.UtcNow;
+        o.FechaLevantamiento = fechaLevantamiento.HasValue ? AUtc(fechaLevantamiento.Value) : DateTime.UtcNow;
         if (levantaPorWorkerId.HasValue) o.LevantaPorWorkerId = levantaPorWorkerId.Value;
         await ctx.SaveChangesAsync();
 
@@ -347,6 +350,7 @@ public class ObservacionRepository : IObservacionRepository
         if (body.PartidaReportada != null) o.PartidaReportada = string.IsNullOrWhiteSpace(body.PartidaReportada) ? null : body.PartidaReportada.Trim();
         if (body.AreaResponsable != null) o.AreaResponsable = string.IsNullOrWhiteSpace(body.AreaResponsable) ? null : body.AreaResponsable.Trim();
         if (body.PersonaReporta != null) o.PersonaReporta = string.IsNullOrWhiteSpace(body.PersonaReporta) ? null : body.PersonaReporta.Trim();
+        if (body.FechaLevantamiento.HasValue) o.FechaLevantamiento = AUtc(body.FechaLevantamiento.Value);
 
         await ctx.SaveChangesAsync();
 

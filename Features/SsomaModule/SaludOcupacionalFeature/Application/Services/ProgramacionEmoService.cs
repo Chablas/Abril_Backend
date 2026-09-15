@@ -74,7 +74,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId)
             => _repo.GetDestinatarios(workerId, clinicaId);
 
-        public Task<List<RazonSocialCupoDto>> GetRazonesSociales() => _repo.GetRazonesSociales();
+        public Task<RazonesSocialesEmoDto> GetRazonesSociales(int? workerId) =>
+            _repo.GetRazonesSociales(workerId);
 
         public Task<ProgramacionInasistenciaEnviarCorreoResultDto> EnviarInasistencias(DateOnly fecha)
             => _repo.EnviarInasistencias(fecha);

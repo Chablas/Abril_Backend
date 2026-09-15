@@ -233,6 +233,27 @@ public class RevisionesController : ControllerBase
         }
     }
 
+    [HttpDelete("{id:int}")]
+    [RequireFeature("arquitectura-comercial.revisiones.eliminar")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        try
+        {
+            var eliminado = await _service.DeleteObservacion(id);
+            if (!eliminado) return NotFound(new { message = "No se encontró la observación." });
+            return Ok(new { message = "Observación eliminada." });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en RevisionesController.Delete");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
     [HttpPost("{id:int}/fotos")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> AgregarFoto(int id, IFormFile file)

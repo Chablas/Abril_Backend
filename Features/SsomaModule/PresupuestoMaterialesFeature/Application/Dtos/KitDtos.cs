@@ -40,6 +40,13 @@ public class KitCreateDto
     public List<KitItemInputDto> Items { get; set; } = [];
 }
 
+/// <summary>Reemplaza el BOM completo de un kit ya existente (cambiar cantidades, agregar o quitar
+/// materiales) — no toca nombre/tipo del kit.</summary>
+public class KitEditarDto
+{
+    public List<KitItemInputDto> Items { get; set; } = [];
+}
+
 /// <summary>Resultado de multiplicar el BOM del kit por la cantidad de kits que necesita el proyecto.
 /// PrecioUnitario/Total ya vienen poblados tanto en la vista previa (CalcularAsync, precio en vivo
 /// desde Ratios) como en lo YA GUARDADO en el presupuesto (snapshot al momento de guardar) — pueden

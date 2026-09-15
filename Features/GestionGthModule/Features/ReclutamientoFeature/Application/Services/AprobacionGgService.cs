@@ -292,25 +292,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<AprobacionGgReenvioResultDto> Reenviar(int requerimientoId, int? userId)
         {
-            if (!userId.HasValue)
-                throw new AbrilException("No se pudo identificar al usuario.", 401);
-
-            // Reenviar es mover el requerimiento, así que se pide lo mismo que para decidirlo: ser
-            // jefatura del área. La visibilidad, en cambio, ya no es del dueño sino del área.
-            var scope = await _scopesSolicitante.ResolveAsync(userId.Value);
-            if (!scope.PuedeGestionar)
-                throw new AbrilException(
-                    "Solo las jefaturas y gerencias del área pueden reenviar el correo de aprobación.", 403);
-
-            var ctx = await _repo.GetEnvioContextoByRequerimiento(requerimientoId, scope);
-            if (ctx == null)
-                throw new AbrilException("No se encontró la aprobación de esta solicitud.", 404);
-
-            // Se reenvía lo que siga esperando una firma. Con las dos rutas ya cerradas no queda
-            // nada que recordar y decirlo es mejor que mandar un correo que nadie tiene que atender.
-            var rutas = RutasAEnviar(ctx, esReenvio: true);
-            if (rutas.Count == 0)
-                throw new AbrilException("Esta solicitud ya fue decidida: no queda nada por reenviar.", 409);
+            var (ctx, rutas) = await PrepararReenvioAsync(requerimientoId, userId);
 
             // Mismos destinatarios que el primer envío, resueltos ruta por ruta.
             var principales = new List<string>();
@@ -318,10 +300,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var ruta in rutas)
             {
                 var dest = await _destinatarios.ResolverAsync(ruta.TipoCorreo, ctx.AreaScopeId);
-                if (dest.Para.Count == 0)
-                    throw new AbrilException(
-                        "No hay destinatarios activos para el correo de aprobación. " +
-                        "Revísalos en «Configuración» de Solicitud de Personal e inténtalo de nuevo.", 409);
+                if (dest.Para.Count == 0) throw SinDestinatarios();
 
                 // Reenvío bloqueante: el usuario lo pidió explícitamente, así que si falla debe saberlo.
                 try
@@ -345,16 +324,92 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             await _repo.RegistrarEnvio(ctx.AprobacionId, principales, copias, esReenvio: true, userId);
             // En el reenvío no hay correos informativos (ver RutasAEnviar), así que todos los
-            // destinatarios de acá son gente a la que se le está pidiendo una firma.
+            // destinatarios de acá son gente a la que se le está pidiendo una firma. La campanita
+            // lleva las vacantes del correo que salió, no las de toda la solicitud.
             await CrearNotificacionAprobacionAsync(
-                ctx, principales.Concat(copias).Distinct().ToList(), userId);
+                ctx, principales.Concat(copias).Distinct().ToList(), userId,
+                rutas.SelectMany(r => r.Vacantes).DistinctBy(v => v.RequerimientoId).ToList());
 
             return new AprobacionGgReenvioResultDto
             {
-                Message       = $"Correo reenviado a {string.Join(", ", principales)}.",
+                Message       = $"Correo reenviado a {FirmanteDe(rutas[0].TipoCorreo)}: {string.Join(", ", principales)}.",
                 Destinatarios = principales,
             };
         }
+
+        public async Task<AprobacionGgReenvioPreviewDto> GetReenvioPreview(int requerimientoId, int? userId)
+        {
+            var (ctx, rutas) = await PrepararReenvioAsync(requerimientoId, userId);
+
+            // Los mismos destinatarios que resolvería el reenvío. Sin nadie a quien mandarlo se
+            // corta acá, con el mismo mensaje: pedir confirmación para un correo que no va a salir
+            // sería prometer algo que la configuración no cumple.
+            var fuentes = new List<SolicitudDestinatariosDto>();
+            foreach (var ruta in rutas)
+            {
+                var dest = await _destinatarios.ResolverAsync(ruta.TipoCorreo, ctx.AreaScopeId);
+                if (dest.Para.Count == 0) throw SinDestinatarios();
+                fuentes.Add(dest);
+            }
+
+            return new AprobacionGgReenvioPreviewDto
+            {
+                Firmante      = FirmanteDe(rutas[0].TipoCorreo),
+                Destinatarios = Fusionar(fuentes.ToArray()),
+            };
+        }
+
+        /// <summary>
+        /// Lo que comparten el reenvío y su preview: el alcance del usuario, el contexto de la
+        /// solicitud y el correo que espera la firma de ESTA vacante.
+        ///
+        /// Es por vacante y no por solicitud porque el botón está en la fila de la vacante: en una
+        /// solicitud mixta, reenviar una vacante nueva le volvía a pedir su firma al gerente del
+        /// área por los reemplazos de al lado. Ahora cada fila reenvía solo lo suyo — una nueva, el
+        /// correo a Gerencia General (nunca el aviso informativo al gerente del área, que no decide
+        /// nada); un reemplazo, el del turno abierto: el gerente del área o, con su visto bueno,
+        /// GTH.
+        /// </summary>
+        private async Task<(AprobacionGgEnvioContextoDto Ctx, List<RutaCorreo> Rutas)> PrepararReenvioAsync(
+            int requerimientoId, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+
+            // Reenviar es mover el requerimiento, así que se pide lo mismo que para decidirlo: ser
+            // jefatura del área. La visibilidad, en cambio, ya no es del dueño sino del área.
+            var scope = await _scopesSolicitante.ResolveAsync(userId.Value);
+            if (!scope.PuedeGestionar)
+                throw new AbrilException(
+                    "Solo las jefaturas y gerencias del área pueden reenviar el correo de aprobación.", 403);
+
+            var ctx = await _repo.GetEnvioContextoByRequerimiento(requerimientoId, scope);
+            if (ctx == null)
+                throw new AbrilException("No se encontró la aprobación de esta solicitud.", 404);
+
+            // Se reenvía mientras la firma de esta vacante siga pendiente. Con su turno ya cerrado
+            // no queda nada que recordar, y decirlo es mejor que mandar un correo que nadie tiene
+            // que atender.
+            var rutas = RutasAEnviar(ctx, esReenvio: true)
+                .Where(r => r.Vacantes.Any(v => v.RequerimientoId == requerimientoId))
+                .ToList();
+            if (rutas.Count == 0)
+                throw new AbrilException("Esta vacante ya fue decidida: no queda nada por reenviar.", 409);
+
+            return (ctx, rutas);
+        }
+
+        private static AbrilException SinDestinatarios() => new(
+            "No hay destinatarios activos para el correo de aprobación. " +
+            "Revísalos en «Configuración» de Solicitud de Personal e inténtalo de nuevo.", 409);
+
+        /// <summary>Quién firma lo que pide cada correo de aprobación, como se lo nombra en pantalla.</summary>
+        private static string FirmanteDe(string tipoCorreo) => tipoCorreo switch
+        {
+            CorreoTipoGth.AprobacionReemplazo    => "la Gerencia del Área",
+            CorreoTipoGth.AprobacionReemplazoGth => "Gestión del Talento Humano",
+            _                                    => "Gerencia General",
+        };
 
         /// <summary>
         /// Envía el correo de UN turno, con solo las vacantes que le tocan. El registro del envío y
@@ -398,14 +453,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Solo los destinatarios de los correos que PIDEN una firma. El del aviso informativo
         /// queda fuera: para él no hay ninguna solicitud que abrir en «Aprobaciones».
         /// </param>
+        /// <param name="vacantes">
+        /// Las vacantes de las que avisa. Por defecto, las de toda la solicitud (el primer envío
+        /// avisa de todo junto); el reenvío pasa solo las del correo que salió.
+        /// </param>
         private async Task CrearNotificacionAprobacionAsync(
-            AprobacionGgEnvioContextoDto ctx, List<string> aFirmar, int? userId)
+            AprobacionGgEnvioContextoDto ctx, List<string> aFirmar, int? userId,
+            IReadOnlyList<AprobacionGgVacanteDto>? vacantes = null)
         {
             try
             {
-                var resumen = ctx.Vacantes.Count == 1
-                    ? ctx.Vacantes[0].Puesto
-                    : $"{ctx.Vacantes.Count} vacantes";
+                var lista   = vacantes ?? ctx.Vacantes;
+                var resumen = lista.Count == 1
+                    ? lista[0].Puesto
+                    : $"{lista.Count} vacantes";
                 await _notificaciones.CrearPorCorreosAsync(
                     NotificacionTipoCodigo.GthAprobacionGg,
                     aFirmar.Distinct().ToList(),

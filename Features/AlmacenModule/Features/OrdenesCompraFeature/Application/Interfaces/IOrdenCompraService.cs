@@ -5,5 +5,5 @@ namespace Abril_Backend.Features.AlmacenModule.Features.OrdenesCompraFeature.App
 public interface IOrdenCompraService
 {
     Task<AlmacenOrdenCompraListResponseDTO> GetOrdenesCompra(AlmacenOrdenCompraQueryParams query);
-    Task<AlmacenOrdenCompraListItemDTO> CreateOrdenCompra(CreateAlmacenOrdenCompraDTO body, Stream archivo, string archivoNombre, string? subidoPor);
+    Task<AlmacenOrdenCompraListItemDTO> CreateOrdenCompra(CreateAlmacenOrdenCompraDTO body, Stream? archivo, string? archivoNombre, string? subidoPor);
 }

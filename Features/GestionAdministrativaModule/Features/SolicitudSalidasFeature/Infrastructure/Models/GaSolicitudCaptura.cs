@@ -14,5 +14,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public decimal Monto { get; set; }
         public int UploadedById { get; set; }
         public DateTimeOffset UploadedAt { get; set; }
+
+        /// <summary>
+        /// Soft delete: false = eliminada. Existe porque subsanar una rendición observada a veces
+        /// es QUITAR una captura, y la fila se conserva para auditoría. Toda lectura —listados,
+        /// importe rendido y planilla— filtra <c>State</c>: una captura eliminada no se muestra
+        /// nunca ni suma al monto.
+        /// </summary>
+        public bool State { get; set; } = true;
     }
 }

@@ -31,6 +31,7 @@ using Abril_Backend.Features.Ssoma;
 using Abril_Backend.Features.GestionAdministrativa;
 using Abril_Backend.Features.GestionGthModule;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
+using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
 using Abril_Backend.Features.NotificacionesModule;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
@@ -46,6 +47,8 @@ using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
+using Abril_Backend.Shared.Services.Consolidadores.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Services;
@@ -138,6 +141,9 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     // Bitácora de fases del requerimiento de reclutamiento: registra por quién y cuándo pasó cada
     // cambio de estado, en el mismo SaveChanges que lo mueve. Se registra en AddGestionGthModule().
     options.AddInterceptors(sp.GetRequiredService<RequerimientoEstadoHistorialInterceptor>());
+
+    // Mismo patrón para la bitácora de estados de Penalidades. Se registra en AddSsomaModule().
+    options.AddInterceptors(sp.GetRequiredService<PenalidadEstadoHistorialInterceptor>());
 });
 
 // Configuración del servicio de correo. Los remitentes viven en Email:Senders indexados por
@@ -271,6 +277,12 @@ builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 // porque lo usan Gestión Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional
 // (correos de EMO e interconsultas).
 builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+
+// Consolidadores del S10 de un trabajador: el propio trabajador + los que resuelve el mismo
+// recorrido del árbol de áreas (asignados en Gestión de Rendiciones → Configuración →
+// Consolidadores, o deducidos: Jefe del área, Gerente de la gerencia, residente de la obra).
+// A diferencia del revisor, acá no gana uno solo: todos los activos quedan habilitados.
+builder.Services.AddScoped<IConsolidadorResolver, ConsolidadorResolver>();
 
 // Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
 // más el catálogo de jefes candidatos que alimenta su desplegable.

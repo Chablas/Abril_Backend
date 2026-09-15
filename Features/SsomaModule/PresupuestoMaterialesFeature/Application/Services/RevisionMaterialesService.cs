@@ -35,6 +35,9 @@ public class RevisionMaterialesService : IRevisionMaterialesService
     public async Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync() =>
         await _consumoRepo.ObtenerNoSsomaAsync();
 
+    public async Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync() =>
+        await _consumoRepo.ObtenerTodoGlobalAsync();
+
     /// <summary>
     /// Igual que <see cref="ProcesarRevisionAsync"/> pero sin exigir un solo ProjectId compartido:
     /// cada línea puede pertenecer a un proyecto distinto (vista global del Catálogo de Materiales).

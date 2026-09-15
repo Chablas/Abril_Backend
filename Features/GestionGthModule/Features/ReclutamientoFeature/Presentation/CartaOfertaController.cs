@@ -73,7 +73,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         [HttpPost]
         [RequireFeature("gestion-gth.reclutamiento")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(20 * 1024 * 1024)] // 15 MB de carta + margen
+        [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de carta + margen
         public async Task<IActionResult> Enviar(int id, [FromForm] string data, [FromForm] IFormFile? carta)
         {
             try
@@ -149,7 +149,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         [HttpPost("firmada")]
         [RequireFeature("gestion-gth.reclutamiento")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(20 * 1024 * 1024)] // 15 MB de carta + margen
+        [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de carta + margen
         public async Task<IActionResult> SubirFirmada(int id, [FromForm] IFormFile? archivo)
         {
             try

@@ -50,34 +50,59 @@
         /// moverse cuando la salida está Rendida Y tiene adjunto el Consolidado del S10, que es lo
         /// que el jefe revisa para dar el visto bueno al gasto.
         ///
-        /// Pendiente → Aprobado → Firmado → Pagado, o Rechazado (con observación) hasta que el
-        /// trabajador subsane volviendo a subir el Consolidado del S10, que lo devuelve a Pendiente.
-        /// Los ids reflejan las filas de <c>ga_estado_reembolso</c>.
+        /// Pendiente → Firmado → Proceder con el reembolso → Pagado, u Observado (con el comentario
+        /// de la jefatura) hasta que el trabajador subsane volviendo a subir el Consolidado del
+        /// S10, que lo devuelve a Pendiente. Los ids reflejan las filas de
+        /// <c>ga_estado_reembolso</c>.
         /// </summary>
         public static class Reembolso
         {
             public const int Pendiente = 1;
+            /// <summary>
+            /// Sin uso desde que aprobar el reembolso pasó a ser el mismo acto que firmarlo: la
+            /// aprobación deja la salida directamente en <see cref="Firmado"/>. La constante se
+            /// conserva para poder leer las filas viejas que quedaron acá.
+            /// </summary>
             public const int Aprobado  = 2;
-            public const int Rechazado = 3;
+            /// <summary>
+            /// La jefatura devolvió el reembolso con una observación (RG-19 / RG-20). No es un
+            /// estado terminal ni un "no": el trabajador subsana —arreglando el Consolidado del
+            /// S10 él mismo, o pidiéndole la corrección al Coordinador ERP— y al volver a
+            /// adjuntarlo la salida regresa a <see cref="Pendiente"/>.
+            ///
+            /// La fila 3 de <c>ga_estado_reembolso</c> se llamó "Rechazado" hasta el 2026-09-09;
+            /// el id no cambió, solo el nombre, porque el flujo nunca fue un rechazo.
+            /// </summary>
+            public const int Observado = 3;
             /// <summary>El jefe ya firmó la planilla de rendición de esta salida.</summary>
             public const int Firmado   = 4;
             /// <summary>Tesorería ya pagó el reembolso. Estado terminal.</summary>
             public const int Pagado    = 5;
+            /// <summary>
+            /// Tesorería ya revisó la documentación (planilla, Consolidado del S10, firma de la
+            /// jefatura y tramos) y confirmó que el reembolso puede desembolsarse (RG-26). Es el
+            /// ÚNICO estado desde el que se puede pagar: sin esa confirmación previa el pago está
+            /// bloqueado, aunque la planilla ya esté firmada.
+            /// </summary>
+            public const int PorPagar  = 6;
 
             public const string NombrePendiente = "Pendiente";
             public const string NombreAprobado  = "Aprobado";
-            public const string NombreRechazado = "Rechazado";
+            public const string NombreObservado = "Observado";
             public const string NombreFirmado   = "Firmado";
             public const string NombrePagado    = "Pagado";
+            /// <summary>El nombre es el del requerimiento funcional (RG-26 / RF-TES-07), literal.</summary>
+            public const string NombrePorPagar  = "Proceder con el reembolso";
 
             /// <summary>id → nombre para exponer en DTOs.</summary>
             public static string Nombre(int id) => id switch
             {
                 Pendiente => NombrePendiente,
                 Aprobado  => NombreAprobado,
-                Rechazado => NombreRechazado,
+                Observado => NombreObservado,
                 Firmado   => NombreFirmado,
                 Pagado    => NombrePagado,
+                PorPagar  => NombrePorPagar,
                 _         => string.Empty,
             };
 
@@ -86,16 +111,165 @@
             {
                 NombrePendiente => Pendiente,
                 NombreAprobado  => Aprobado,
-                NombreRechazado => Rechazado,
+                NombreObservado => Observado,
                 NombreFirmado   => Firmado,
                 NombrePagado    => Pagado,
+                NombrePorPagar  => PorPagar,
                 _               => null,
             };
 
             /// <summary>
-            /// Los dos estados que ve Tesorería: lo que ya firmó la jefatura y lo que ya se pagó.
+            /// Los tres estados que ve Tesorería, en el orden de su flujo: lo que la jefatura ya
+            /// firmó (por revisar), lo que ella misma confirmó (por pagar) y lo que ya pagó.
+            ///
+            /// A esta lista su bandeja le suma un cuarto caso que NO es un estado sino un par:
+            /// lo que está <see cref="Observado"/> con origen
+            /// <see cref="OrigenObservacionReembolso.Tesoreria"/>, o sea lo que ella misma devolvió
+            /// (RG-49). Lo que observó la jefatura no entra: nunca llegó a Tesorería.
             /// </summary>
-            public static readonly int[] VisiblesParaTesoreria = { Firmado, Pagado };
+            public static readonly int[] VisiblesParaTesoreria = { Firmado, PorPagar, Pagado };
+
+            /// <summary>
+            /// Los dos estados desde los que Tesorería puede observar: lo que tiene por revisar y
+            /// lo que ya revisó pero todavía no pagó (RG-49 — "antes de autorizar el pago"). Lo
+            /// pagado es terminal y no se devuelve.
+            /// </summary>
+            public static readonly int[] ObservablesPorTesoreria = { Firmado, PorPagar };
+
+            /// <summary>
+            /// Los dos estados en los que el reembolso sigue ABIERTO: se puede adjuntar o
+            /// reemplazar el Consolidado del S10 y la decisión de la jefatura todavía está por
+            /// tomarse. Está acá y no repetido en cada pantalla porque las tres del ciclo
+            /// (Mis Rendiciones, Gestión de Rendiciones y la bandeja del ERP) tienen que coincidir
+            /// en qué cuenta como abierto.
+            /// </summary>
+            public static readonly int[] Abiertos = { Pendiente, Observado };
+        }
+
+        /// <summary>
+        /// Quién devolvió el reembolso con una observación. NO es un estado: el estado es siempre
+        /// <see cref="Reembolso.Observado"/> y la subsanación es la misma (recargar el Consolidado
+        /// del S10, o pedirle la corrección al Coordinador ERP). Lo que cambia es quién está
+        /// esperando y qué correo salió.
+        ///
+        /// Existe porque la observación de Tesorería (RG-49) llega DESPUÉS de la firma, así que la
+        /// planilla tiene que seguir apareciendo en la bandeja de Tesorería para poder seguirle el
+        /// rastro — pero sin arrastrar ahí lo que observó la jefatura, que nunca llegó a Tesorería.
+        ///
+        /// Los ids reflejan las filas de <c>ga_origen_observacion_reembolso</c>.
+        /// </summary>
+        public static class OrigenObservacionReembolso
+        {
+            /// <summary>La jefatura, en la segunda revisión (RG-19 / RG-20).</summary>
+            public const int Jefatura  = 1;
+            /// <summary>Tesorería, en la revisión documental previa al pago (RG-49).</summary>
+            public const int Tesoreria = 2;
+
+            public const string NombreJefatura  = "Jefatura";
+            public const string NombreTesoreria = "Tesorería";
+
+            /// <summary>id → nombre para exponer en DTOs. Vacío si la salida no está observada.</summary>
+            public static string Nombre(int? id) => id switch
+            {
+                Jefatura  => NombreJefatura,
+                Tesoreria => NombreTesoreria,
+                _         => string.Empty,
+            };
+        }
+
+        /// <summary>
+        /// Estado de la PRIMERA revisión de una planilla de rendición — el eje que vive en
+        /// <c>ga_rendicion</c> y no en la salida, porque lo que el jefe revisa es el documento y
+        /// este cubre todas las salidas que agrupa.
+        ///
+        /// Es anterior al <see cref="Reembolso"/>: la primera revisión mira tramos, montos y
+        /// capturas registrados en Abril One, y solo con su aprobación se habilita cargar el
+        /// Consolidado del S10 (RG-35). El reembolso es la SEGUNDA revisión, la que compara el
+        /// total del consolidado contra el de la planilla.
+        ///
+        /// Borrador → EnRevision → Aprobada, u Observada (con comentario del revisor) hasta que el
+        /// trabajador corrija capturas y montos y vuelva a generar el PDF, que la devuelve a
+        /// Borrador para reenviarla. Los ids reflejan las filas de <c>ga_estado_primera_revision</c>.
+        /// </summary>
+        public static class PrimeraRevision
+        {
+            /// <summary>Recién rendida: el PDF ya está, pero el trabajador todavía no la envió.</summary>
+            public const int Borrador   = 1;
+            /// <summary>Enviada al jefe: espera que apruebe u observe.</summary>
+            public const int EnRevision = 2;
+            /// <summary>Aprobada: habilita cargar el Consolidado del S10.</summary>
+            public const int Aprobada   = 3;
+            /// <summary>Observada con comentario: el trabajador tiene que rehacer la rendición.</summary>
+            public const int Observada  = 4;
+
+            public const string NombreBorrador   = "Lista para enviar";
+            public const string NombreEnRevision = "En primera revisión";
+            public const string NombreAprobada   = "Aprobada";
+            public const string NombreObservada  = "Observada";
+
+            /// <summary>id → nombre para exponer en DTOs.</summary>
+            public static string Nombre(int id) => id switch
+            {
+                Borrador   => NombreBorrador,
+                EnRevision => NombreEnRevision,
+                Aprobada   => NombreAprobada,
+                Observada  => NombreObservada,
+                _          => string.Empty,
+            };
+
+            /// <summary>nombre (filtro del frontend) → id, o null si no corresponde a ninguno.</summary>
+            public static int? IdFromNombre(string? nombre) => nombre?.Trim() switch
+            {
+                NombreBorrador   => Borrador,
+                NombreEnRevision => EnRevision,
+                NombreAprobada   => Aprobada,
+                NombreObservada  => Observada,
+                _                => null,
+            };
+        }
+
+        /// <summary>
+        /// Estado de una SOLICITUD DE CORRECCIÓN del Consolidado del S10 al Coordinador ERP
+        /// (§10.5 del requerimiento). Vive en <c>ga_correccion_s10</c> y es un eje aparte del
+        /// <see cref="Reembolso"/>: la salida se queda en <see cref="Reembolso.Observado"/> todo
+        /// el tiempo que dure la gestión, y lo que se mueve acá es de quién es la pelota.
+        ///
+        /// Solicitada → Atendida, y ahí termina: la fila se cierra sola cuando el trabajador
+        /// vuelve a adjuntar el consolidado (eso devuelve el reembolso a
+        /// <see cref="Reembolso.Pendiente"/> y da de baja la corrección).
+        ///
+        /// Los nombres son los dos estados que el requerimiento lista en §6.1 y describen quién
+        /// tiene que actuar, no qué pasó: es lo que la pantalla muestra.
+        /// Los ids reflejan las filas de <c>ga_estado_correccion_s10</c>.
+        /// </summary>
+        public static class CorreccionS10
+        {
+            /// <summary>Esperando al Coordinador ERP: la corrección todavía no se hizo en el S10.</summary>
+            public const int Solicitada = 1;
+            /// <summary>
+            /// El ERP ya corrigió en el S10 y marcó el check: la pelota vuelve al trabajador, que
+            /// tiene que recargar el Consolidado.
+            /// </summary>
+            public const int Atendida   = 2;
+
+            public const string NombreSolicitada = "Pendiente de corrección S10";
+            public const string NombreAtendida   = "Pendiente de recarga S10";
+
+            /// <summary>id → nombre para exponer en DTOs.</summary>
+            public static string Nombre(int id) => id switch
+            {
+                Solicitada => NombreSolicitada,
+                Atendida   => NombreAtendida,
+                _          => string.Empty,
+            };
+
+            /// <summary>nombre (filtro del frontend) → id, o null si no corresponde a ninguno.</summary>
+            public static int? IdFromNombre(string? nombre) => nombre?.Trim() switch
+            {
+                NombreSolicitada => Solicitada,
+                NombreAtendida   => Atendida,
+                _                => null,
+            };
         }
 
         public static class Rendicion

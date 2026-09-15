@@ -2,6 +2,7 @@
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Dapper;
@@ -156,6 +157,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                 a.jefe_inmediato_nombre,
                 a.etapa_proyecto_id, ep.nombre AS etapa_proyecto_nombre,
                 a.partida_id, pa.partida_description AS partida_nombre,
+                a.pet_id, pet.nombre AS pet_nombre,
                 a.worker_id, a.trabajador_nombre, a.puesto_trabajo, a.edad, a.anios_experiencia, a.celular_trabajador,
                 a.parte_afectada_id, paf.nombre AS parte_afectada_nombre,
                 a.turno, a.tipo_contacto, a.danio_proceso_flag, a.atencion_medica, a.centro_atencion,
@@ -174,6 +176,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             LEFT JOIN contributor c ON c.contributor_id = a.contributor_id
             LEFT JOIN ssoma_flash_etapa_proyecto ep ON ep.id = a.etapa_proyecto_id
             LEFT JOIN partida pa ON pa.partida_id = a.partida_id
+            LEFT JOIN ssoma_pet pet ON pet.id = a.pet_id
             LEFT JOIN ssoma_flash_parte_afectada paf ON paf.id = a.parte_afectada_id
             WHERE a.id = @id;
 
@@ -248,6 +251,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             JefeInmediatoNombre = req.JefeInmediatoNombre,
             EtapaProyectoId = req.EtapaProyectoId,
             PartidaId = req.PartidaId,
+            PetId = req.PetId,
             WorkerId = req.WorkerId,
             TrabajadorNombre = req.TrabajadorNombre,
             PuestoTrabajo = req.PuestoTrabajo,
@@ -379,6 +383,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.JefeInmediatoNombre = req.JefeInmediatoNombre;
         entity.EtapaProyectoId = req.EtapaProyectoId;
         entity.PartidaId = req.PartidaId;
+        entity.PetId = req.PetId;
         entity.WorkerId = req.WorkerId;
         entity.TrabajadorNombre = req.TrabajadorNombre;
         entity.PuestoTrabajo = req.PuestoTrabajo;
@@ -457,6 +462,22 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.UrlPdfSharepoint = urlPdf;
         entity.Estado = "Enviado";
         entity.UpdatedAt = DateTime.UtcNow;
+
+        // Si el evento (accidente O incidente — aplica a ambos por igual, mismo flujo/
+        // tabla) tenía un PETS asociado, ese PETS queda marcado "pendiente de revisión"
+        // apenas se envía formalmente el reporte — no antes, mientras seguía en
+        // borrador. Se limpia solo al aprobar una versión nueva del PETS.
+        if (entity.PetId.HasValue)
+        {
+            var pet = await ctx.Set<SsomaPet>().FindAsync(entity.PetId.Value);
+            if (pet != null)
+            {
+                pet.RevisionPendiente = true;
+                pet.RevisionPendienteMotivo = $"Reportado en {entity.Codigo} ({DateTime.UtcNow:dd/MM/yyyy}).";
+                pet.RevisionPendienteFecha = DateTime.UtcNow;
+            }
+        }
+
         await ctx.SaveChangesAsync();
     }
 
@@ -740,6 +761,73 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         await ctx.SaveChangesAsync();
     }
 
+    // ── Antecedentes de eventos ──────────────────────────────────────────────
+
+    public async Task<(List<AntecedenteItemDto> Items, int Total)> BuscarAntecedentesAsync(
+        string palabraClave, int? proyectoId, int? tipoId,
+        DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize)
+    {
+        var where = new List<string>
+        {
+            "(a.descripcion ~* @kw OR a.dano_proceso ~* @kw OR a.acciones_inmediatas ~* @kw OR a.lugar_exacto ~* @kw)"
+        };
+        var p = new DynamicParameters();
+        p.Add("kw", palabraClave);
+        p.Add("offset", (page - 1) * pageSize);
+        p.Add("limit", pageSize);
+
+        if (proyectoId.HasValue) { where.Add("a.proyecto_id = @pid"); p.Add("pid", proyectoId); }
+        if (tipoId.HasValue)     { where.Add("a.tipo_id = @tid"); p.Add("tid", tipoId); }
+        if (fechaDesde.HasValue) { where.Add("a.fecha >= @fd"); p.Add("fd", fechaDesde.Value.Date); }
+        if (fechaHasta.HasValue) { where.Add("a.fecha <= @fh"); p.Add("fh", fechaHasta.Value.Date); }
+
+        var whereClause = "WHERE " + string.Join(" AND ", where);
+
+        var sql = $"""
+            SELECT
+                a.id, a.codigo, t.nombre AS tipo_nombre, p.project_description AS proyecto_nombre,
+                a.fecha, a.lugar_exacto, a.descripcion, a.dano_proceso, a.acciones_inmediatas,
+                rm.mecanismo, rm.agente_causante
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_investigacion_rm050 rm ON rm.accidente_incidente_id = a.id
+            {whereClause}
+            ORDER BY a.fecha DESC, a.id DESC
+            LIMIT @limit OFFSET @offset;
+
+            SELECT COUNT(*) FROM ss_accidente_incidente a {whereClause};
+            """;
+
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        await using var multi = await conn.QueryMultipleAsync(sql, p);
+        var items = (await multi.ReadAsync<AntecedenteItemDto>()).ToList();
+        var total = await multi.ReadSingleAsync<int>();
+        return (items, total);
+    }
+
+    public async Task<List<AntecedenteItemDto>> GetAntecedentesPorIdsAsync(List<int> ids)
+    {
+        const string sql = """
+            SELECT
+                a.id, a.codigo, t.nombre AS tipo_nombre, p.project_description AS proyecto_nombre,
+                a.fecha, a.lugar_exacto, a.descripcion, a.dano_proceso, a.acciones_inmediatas,
+                rm.mecanismo, rm.agente_causante
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_investigacion_rm050 rm ON rm.accidente_incidente_id = a.id
+            WHERE a.id = ANY(@ids)
+            ORDER BY a.fecha DESC, a.id DESC;
+            """;
+
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        var rows = await conn.QueryAsync<AntecedenteItemDto>(sql, new { ids = ids.ToArray() });
+        return rows.ToList();
+    }
+
     public async Task ReclasificarTipoAsync(int id, int tipoId, string tipoCodigo, string tipoNombre)
     {
         using var ctx = _factory.CreateDbContext();
@@ -871,8 +959,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                   -- esos tres casos se convirtieron en categorías propias, asignadas a los
                   -- mismos trabajadores que la búsqueda alcanzaba.
                   OR pu.categoria_id = ANY(@categorias)
-                  OR w.jefatura  ILIKE '%gerente%general%'
-                  OR w.jefatura  ILIKE '%gerente%administr%'
+                  -- Bug real (visto en prod): había además "OR w.jefatura ILIKE
+                  -- '%gerente%general%'" / "'%gerente%administr%'" — w.jefatura es la
+                  -- gerencia BAJO LA QUE CAE el trabajador (a quién reporta), no su propio
+                  -- puesto, así que esas dos líneas colaban a todo el equipo de Administración
+                  -- y Finanzas (coordinador contable, tesorera, asistentes, etc.) en vez de
+                  -- solo al gerente. El gerente real ya entra por pu.categoria_id arriba.
               );
             """;
         await using var conn = Conn();

@@ -174,16 +174,10 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
             if (worker.WorkersEstadoId != WorkersEstadoIds.FinalistaAprobado) return false;
             if (worker.PersonId == null) return false;
 
-            // Solo el ingreso directo llega al EMO sin razón social (el flujo normal la exige antes
-            // de publicar la vacante), y su enlace con la persona es `fft_person_id`: ese pedido no
-            // llena formulario del postulante, así que no hay otro por dónde llegar.
-            var req = await ctx.GthRequerimiento
-                .Where(r => r.State && r.EsFft
-                         && r.FftPersonId == worker.PersonId.Value
-                         && r.ContributorId == null)
-                .OrderByDescending(r => r.GthRequerimientoId)
-                .FirstOrDefaultAsync();
-            if (req == null) return false;
+            var req = await RequerimientoDeLaFichaAsync(ctx, worker.PersonId.Value);
+            // Una razón social ya escrita manda sobre esta pantalla: reprogramar el EMO no la
+            // cambia.
+            if (req == null || req.ContributorId != null) return false;
 
             req.ContributorId   = contributorId;
             req.UpdatedDateTime = DateTimeOffset.UtcNow;
@@ -195,6 +189,46 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
 
             return true;
         }
+
+        public async Task<bool> EsReemplazoAsync(AppDbContext ctx, Worker worker)
+        {
+            if (worker.WorkersEstadoId != WorkersEstadoIds.FinalistaAprobado) return false;
+            if (worker.PersonId == null) return false;
+
+            var req = await RequerimientoDeLaFichaAsync(ctx, worker.PersonId.Value);
+            if (req == null) return false;
+
+            return await ctx.GthTipoRequerimiento
+                .AnyAsync(t => t.GthTipoRequerimientoId == req.GthTipoRequerimientoId
+                            && t.Codigo == TipoRequerimientoReclutamiento.Reemplazo);
+        }
+
+        /// <summary>
+        /// El requerimiento del que salió esta ficha de pre-ingreso, cargado para escribir.
+        ///
+        /// <para>Del <c>person_id</c> al requerimiento hay <b>dos</b> caminos y hay que mirar los
+        /// dos: el <b>formulario del postulante</b>, que escribe <c>person_id</c> al aprobarse y es
+        /// por donde llega el flujo normal; y <c>gth_requerimiento.fft_person_id</c> en el
+        /// <b>ingreso directo</b>, que no pide formulario —sus datos los declaró quien pidió la
+        /// vacante—. Mirar solo uno deja fuera a la mitad de los procesos.</para>
+        ///
+        /// <para>Es la misma resolución que hace <see cref="BuscarProcesoAsync"/>, pero sin exigir
+        /// evaluación, resultado ni fase: acá la pregunta se hace mientras se le programa el EMO,
+        /// y en ese momento lo único seguro es que la ficha existe.</para>
+        ///
+        /// <para>Una persona puede haber pasado por varios procesos: manda el más reciente.</para>
+        /// </summary>
+        private static Task<GthRequerimiento?> RequerimientoDeLaFichaAsync(AppDbContext ctx, int personId) =>
+            ctx.GthRequerimiento
+                .Where(r => r.State
+                         && ((r.EsFft && r.FftPersonId == personId)
+                             || ctx.GthCandidato.Any(c => c.State
+                                 && c.GthRequerimientoId == r.GthRequerimientoId
+                                 && ctx.GthPostulanteFormulario.Any(f => f.State
+                                     && f.GthCandidatoId == c.GthCandidatoId
+                                     && f.PersonId == personId))))
+                .OrderByDescending(r => r.GthRequerimientoId)
+                .FirstOrDefaultAsync();
 
         /// <summary>
         /// El requerimiento del que esta persona es el resultado del proceso, junto con su

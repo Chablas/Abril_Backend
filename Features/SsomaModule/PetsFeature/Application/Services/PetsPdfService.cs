@@ -12,14 +12,41 @@ namespace Abril_Backend.Features.SsomaModule.PetsFeature.Application.Services;
 // esto es una vista de trabajo.
 public static class PetsPdfService
 {
+    private static readonly HttpClient _http = new();
+
     private static readonly (string Tipo, string Etiqueta)[] TiposEpp =
         [("basico", "Básico"), ("especifico", "Específico según la tarea"), ("emergencia", "Emergencia")];
 
     private static readonly (string Tipo, string Etiqueta)[] TiposRecurso =
         [("equipo", "Equipos"), ("herramienta", "Herramientas"), ("material", "Materiales")];
 
-    public static Task<byte[]> GenerarPdfAsync(PetDetalleDto pet)
+    // QuestPDF arma el layout de forma SÍNCRONA (el árbol de Column/Item de abajo), así
+    // que las imágenes de cada paso se descargan ANTES de crear el Document — mismo
+    // patrón que InspeccionPdfService. ImagenUrl ya es una URL pública (local o Azure
+    // Blob), así que basta un GET plano; si una falla (borrada, red caída) se omite esa
+    // imagen puntual en vez de tumbar el PDF entero.
+    private static async Task<byte[]?> DescargarImagenAsync(string? url)
     {
+        if (string.IsNullOrEmpty(url)) return null;
+        try { return await _http.GetByteArrayAsync(url); }
+        catch { return null; }
+    }
+
+    // "version" null -> vista previa de trabajo (marca BORRADOR, puede no coincidir
+    // con lo último aprobado). "version" presente -> PDF oficial de esa versión
+    // aprobada (el que se entrega por QR/impreso), con número/fecha/motivo visibles.
+    public static async Task<byte[]> GenerarPdfAsync(PetDetalleDto pet, PetVersionDto? version)
+    {
+        var imagenesPorUrl = new Dictionary<string, byte[]>();
+        foreach (var url in pet.Pasos.Concat(pet.Responsabilidades).Concat(pet.GestionPersonal)
+                     .SelectMany(p => p.Imagenes.Select(i => i.Url))
+                     .Where(u => !string.IsNullOrEmpty(u))
+                     .Distinct())
+        {
+            var bytes = await DescargarImagenAsync(url);
+            if (bytes != null) imagenesPorUrl[url!] = bytes;
+        }
+
         var doc = Document.Create(container =>
         {
             container.Page(page =>
@@ -33,31 +60,104 @@ public static class PetsPdfService
                     col.Item().Text(pet.Nombre).Bold().FontSize(14);
                     if (!string.IsNullOrWhiteSpace(pet.Codigo))
                         col.Item().Text($"Código: {pet.Codigo}").FontSize(9).FontColor(Colors.Grey.Darken2);
+
+                    if (version != null)
+                    {
+                        col.Item().PaddingTop(4).Text(
+                            $"Versión {version.NumeroVersion} — Aprobado el {version.CreatedAt:dd/MM/yyyy} por {version.AprobadoPorNombre} — Motivo: {version.Motivo}"
+                        ).FontSize(8).Bold().FontColor(Colors.Green.Darken2);
+                    }
+                    else
+                    {
+                        col.Item().PaddingTop(4).Text(
+                            "BORRADOR DE TRABAJO — no es la versión oficial aprobada"
+                        ).FontSize(8).Bold().FontColor(Colors.Orange.Darken2);
+                    }
                 });
 
                 page.Content().PaddingTop(12).Column(col =>
                 {
                     void Titulo(string texto) =>
-                        col.Item().PaddingTop(10).Background(Colors.Grey.Lighten3).Padding(4).Text(texto).Bold().FontSize(11);
+                        col.Item().PaddingTop(14).PaddingBottom(6).Background(Colors.Grey.Lighten3).Padding(4).Text(texto).Bold().FontSize(11);
 
+                    // "4 +" para que el nivel 0 empiece exactamente donde empieza la letra del
+                    // título (el título tiene Padding(4) por el fondo gris) — antes el contenido
+                    // arrancaba pegado al margen y el título 4px más adentro, desalineados.
                     void Parrafo(string texto, int nivel = 0) =>
-                        col.Item().PaddingLeft(nivel * 14).PaddingTop(2).Text(texto ?? string.Empty).FontSize(9);
+                        col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Text(texto ?? string.Empty).FontSize(9);
 
-                    void TextoLibre(string? texto)
+                    // Lista con viñetas — en columnas cuando es larga (catálogo de materiales
+                    // importado de un Word real, que puede traer 100-200+ ítems): una línea por
+                    // renglón para esa cantidad ocupa decenas de páginas. Listas cortas (Marco
+                    // Legal, EPP básico...) siguen igual que antes, una por renglón — partirlas
+                    // en columnas de 3-4 ítems no ahorra nada y se ve peor.
+                    const int umbralColumnas = 12;
+                    const int numColumnas = 3;
+                    void ListaEnColumnas(List<string> lineas, int nivel = 1)
+                    {
+                        if (lineas.Count == 0) { Parrafo("(Sin ítems seleccionados)", nivel); return; }
+
+                        if (lineas.Count <= umbralColumnas)
+                        {
+                            foreach (var l in lineas) Parrafo($"- {l}", nivel);
+                            return;
+                        }
+
+                        var porColumna = (int)Math.Ceiling(lineas.Count / (double)numColumnas);
+                        col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Row(row =>
+                        {
+                            for (var c = 0; c < numColumnas; c++)
+                            {
+                                var trozo = lineas.Skip(c * porColumna).Take(porColumna).ToList();
+                                if (trozo.Count == 0) continue;
+                                row.RelativeItem().PaddingRight(6).Column(colInterna =>
+                                {
+                                    foreach (var l in trozo)
+                                        colInterna.Item().PaddingBottom(3).Text($"- {l}").FontSize(9);
+                                });
+                            }
+                        });
+                    }
+
+                    // Para Definiciones: "Término: descripción" -> el término en negrita. Si la
+                    // línea no trae ":" se muestra igual, sin romper el resto del texto.
+                    void ParrafoConTerminoEnNegrita(string texto, int nivel = 0)
+                    {
+                        var separador = texto.IndexOf(':');
+                        if (separador <= 0) { Parrafo(texto, nivel); return; }
+
+                        col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Text(t =>
+                        {
+                            t.Span(texto[..(separador + 1)]).Bold().FontSize(9);
+                            t.Span(texto[(separador + 1)..]).FontSize(9);
+                        });
+                    }
+
+                    void TextoLibre(string? texto, bool negritaAntesDeDosPuntos = false)
                     {
                         if (string.IsNullOrWhiteSpace(texto)) { Parrafo("(Sin contenido)"); return; }
                         foreach (var linea in texto.Split('\n'))
                         {
-                            if (!string.IsNullOrWhiteSpace(linea)) Parrafo(linea);
+                            if (string.IsNullOrWhiteSpace(linea)) continue;
+                            if (negritaAntesDeDosPuntos) ParrafoConTerminoEnNegrita(linea);
+                            else Parrafo(linea);
                         }
                     }
 
-                    void Arbol(List<PetPasoDto> pasos)
+                    // "numeroSeccion" (ej. "6" para Responsabilidades, "8" para Procedimiento) es
+                    // el número real de la sección en ESTE pdf — antes cada árbol arrancaba su
+                    // numeración en "1" sin importar qué sección lo llamaba, así que "Residente de
+                    // obra" salía como "1." en vez de "6.1".
+                    void Arbol(List<PetPasoDto> pasos, string numeroSeccion)
                     {
                         if (pasos.Count == 0) { Parrafo("(Sin contenido)"); return; }
-                        var hijosPorPadre = pasos.GroupBy(p => p.ParentId).ToDictionary(g => g.Key, g => g.OrderBy(p => p.Orden).ToList());
+                        // "?? 0" en vez de agrupar por el int? crudo: Dictionary<int?, T> lanza
+                        // ArgumentNullException al insertar la clave null (los pasos raíz, sin
+                        // padre) aunque el tipo la permita — 0 nunca es un Id real (autoincremental
+                        // desde 1), así que sirve de centinela seguro para "sin padre".
+                        var hijosPorPadre = pasos.GroupBy(p => p.ParentId ?? 0).ToDictionary(g => g.Key, g => g.OrderBy(p => p.Orden).ToList());
 
-                        void Render(int? parentId, int nivel, string prefijoSubtitulo)
+                        void Render(int parentId, int nivel, string prefijoSubtitulo)
                         {
                             if (!hijosPorPadre.TryGetValue(parentId, out var hijos)) return;
                             var nSubtitulo = 0;
@@ -68,7 +168,7 @@ public static class PetsPdfService
                                 if (h.Tipo == "subtitulo")
                                 {
                                     nSubtitulo++;
-                                    numero = string.IsNullOrEmpty(prefijoSubtitulo) ? $"{nSubtitulo}" : $"{prefijoSubtitulo}.{nSubtitulo}";
+                                    numero = $"{prefijoSubtitulo}.{nSubtitulo}";
                                 }
                                 else if (h.Tipo == "letra")
                                 {
@@ -83,21 +183,47 @@ public static class PetsPdfService
                                     "guion" => "- ",
                                     _ => string.Empty
                                 };
-                                Parrafo($"{prefijo}{h.Descripcion}", nivel);
+                                // "medio_ambiente" (única categoría por ahora — ver Categoria en
+                                // SsomaPetPaso) se resalta en verde con un marcador simple; agregar
+                                // otra categoría más adelante es un caso nuevo en este switch, no
+                                // una migración.
+                                var esMedioAmbiente = h.Categoria == "medio_ambiente";
+                                var colorTexto = esMedioAmbiente ? Colors.Green.Darken2 : Colors.Black;
+                                var textoConMarca = esMedioAmbiente ? $"🌿 {prefijo}{h.Descripcion}" : $"{prefijo}{h.Descripcion}";
+
+                                if (h.Tipo == "subtitulo")
+                                    col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Text(textoConMarca).Bold().FontSize(9).FontColor(colorTexto);
+                                else if (esMedioAmbiente)
+                                    col.Item().PaddingLeft(4 + nivel * 14).PaddingBottom(5).Text(textoConMarca).FontSize(9).FontColor(colorTexto);
+                                else
+                                    Parrafo($"{prefijo}{h.Descripcion}", nivel);
+
+                                // Varias imágenes por paso, una debajo de otra (un párrafo del Word
+                                // puede traer 2-3 fotos juntas — antes solo se guardaba la primera).
+                                foreach (var img in h.Imagenes)
+                                {
+                                    if (imagenesPorUrl.TryGetValue(img.Url, out var imagenBytes))
+                                        col.Item().PaddingLeft(4 + (nivel + 1) * 14).PaddingBottom(6).MaxWidth(260).Image(imagenBytes).FitWidth();
+                                }
+
                                 Render(h.Id, nivel + 1, h.Tipo == "subtitulo" ? numero : prefijoSubtitulo);
                             }
                         }
-                        Render(null, 0, string.Empty);
+                        Render(0, 0, numeroSeccion);
                     }
 
-                    void CatalogoPorTipo(List<PetItemSeleccionadoDto> items, (string Tipo, string Etiqueta)[] tipos)
+                    // Numera de forma continua a través de VARIOS grupos de catálogo bajo la
+                    // MISMA sección (ej. EPP Básico=7.1, Específico=7.2, Emergencia=7.3, y si
+                    // Recursos comparte sección: Equipos=7.4, Herramientas=7.5...) — "contador"
+                    // se pasa por referencia para que el llamador siga la cuenta entre grupos.
+                    void CatalogoPorTipo(List<PetItemSeleccionadoDto> items, (string Tipo, string Etiqueta)[] tipos, string numeroSeccion, ref int contador)
                     {
                         foreach (var (tipo, etiqueta) in tipos)
                         {
-                            Parrafo($"{etiqueta}:");
+                            contador++;
+                            Parrafo($"{numeroSeccion}.{contador} {etiqueta}:");
                             var delTipo = items.Where(i => i.Tipo == tipo).ToList();
-                            if (delTipo.Count == 0) { Parrafo("(Sin ítems seleccionados)", 1); continue; }
-                            foreach (var i in delTipo) Parrafo($"- {i.Descripcion}", 1);
+                            ListaEnColumnas(delTipo.Select(i => i.Descripcion).ToList());
                         }
                     }
 
@@ -111,23 +237,25 @@ public static class PetsPdfService
                     TextoLibre(pet.SeccionesTexto.GetValueOrDefault("objetivo"));
 
                     Titulo("4. Marco Legal");
-                    if (pet.MarcoLegal.Count == 0) Parrafo("(Sin ítems seleccionados)");
-                    foreach (var m in pet.MarcoLegal) Parrafo($"- {m.Descripcion}");
+                    ListaEnColumnas(pet.MarcoLegal.Select(m => m.Descripcion).ToList(), nivel: 0);
 
                     Titulo("5. Definiciones");
-                    TextoLibre(pet.SeccionesTexto.GetValueOrDefault("definiciones"));
+                    TextoLibre(pet.SeccionesTexto.GetValueOrDefault("definiciones"), negritaAntesDeDosPuntos: true);
 
                     Titulo("6. Responsabilidades");
-                    Arbol(pet.Responsabilidades);
+                    Arbol(pet.Responsabilidades, "6");
 
-                    Titulo("7. Gestión de personal — EPP");
-                    CatalogoPorTipo(pet.Epp, TiposEpp);
-
-                    Titulo("7. Gestión de personal — Recursos");
-                    CatalogoPorTipo(pet.Recursos, TiposRecurso);
+                    Titulo("7. Gestión de personal");
+                    // "7.1 Personal" (requisitos/experiencia por rol) va primero — el árbol ya
+                    // numera sus propios subtítulos de raíz como 7.1, 7.2... así que el catálogo
+                    // de EPP/Recursos que sigue debajo arranca justo después de esos, no desde 0.
+                    Arbol(pet.GestionPersonal, "7");
+                    var contadorGestionPersonal = pet.GestionPersonal.Count(p => p.ParentId == null && p.Tipo == "subtitulo");
+                    CatalogoPorTipo(pet.Epp, TiposEpp, "7", ref contadorGestionPersonal);
+                    CatalogoPorTipo(pet.Recursos, TiposRecurso, "7", ref contadorGestionPersonal);
 
                     Titulo("8. Procedimiento de trabajo");
-                    Arbol(pet.Pasos);
+                    Arbol(pet.Pasos, "8");
 
                     Titulo("9. Restricciones");
                     TextoLibre(pet.SeccionesTexto.GetValueOrDefault("restricciones"));
@@ -154,7 +282,7 @@ public static class PetsPdfService
             });
         });
 
-        return Task.FromResult(doc.GeneratePdf());
+        return doc.GeneratePdf();
     }
 
     // a, b, c, ..., z, aa, ab, ... — igual que la numeración de letras en la pantalla.

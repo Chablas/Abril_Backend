@@ -26,10 +26,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         ///                            y a TI).
         ///   • reclutamiento      → los que salen desde la bandeja de GTH, de punta a punta del
         ///                            proceso: desde la long list hasta la carta oferta que lo cierra.
-        ///
-        /// Onboarding ya no tiene pantalla propia: sus dos únicos correos eran los de la carta
-        /// oferta, que pasó a ser el último paso de Reclutamiento. Cuando el onboarding tenga
-        /// correos suyos, vuelve como una clave más de este diccionario.
+        ///   • onboarding         → los que salen del checklist del colaborador ya contratado.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, string[]> CorreosPorPantalla =
             new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -101,6 +98,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     // botón «Finalizar» de la página pública que avisa a GTH, pero le habla al
                     // solicitante y no pide nada.
                     CorreoTipoGth.CartaOfertaFinalizada,
+                },
+                // Onboarding: el checklist del colaborador ya contratado. Los dos correos de la
+                // fase «Correo de bienvenida»: el que le abre el formulario al colaborador y el que
+                // le pide a la obra que prevea espacio para su ingreso.
+                ["onboarding"] = new[]
+                {
+                    CorreoTipoGth.OnbBienvenida,
+                    CorreoTipoGth.AvisoObra,
                 },
             };
 

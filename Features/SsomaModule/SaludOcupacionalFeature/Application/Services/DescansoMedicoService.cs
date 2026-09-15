@@ -139,7 +139,5 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public Task<List<SeguimientoTipoDto>> GetSeguimientoTipos() => _repo.GetSeguimientoTipos();
 
         public Task<List<Cie10Dto>> BuscarCie10(string? search) => _repo.BuscarCie10(search, limite: 30);
-
-        public Task Delete(int id) => _repo.Delete(id);
     }
 }

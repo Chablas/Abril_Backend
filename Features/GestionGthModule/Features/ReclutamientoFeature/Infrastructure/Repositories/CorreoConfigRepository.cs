@@ -161,7 +161,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<CorreoEnvioConfigDto> GetEnvioConfigAsync(string tipoCodigo)
         {
+            var todos = await GetEnvioConfigAsync(new[] { tipoCodigo });
+            return todos.TryGetValue(tipoCodigo, out var config) ? config : new CorreoEnvioConfigDto();
+        }
+
+        public async Task<IReadOnlyDictionary<string, CorreoEnvioConfigDto>> GetEnvioConfigAsync(
+            IReadOnlyList<string> tipoCodigos)
+        {
+            var resultado = new Dictionary<string, CorreoEnvioConfigDto>(StringComparer.OrdinalIgnoreCase);
+            if (tipoCodigos.Count == 0) return resultado;
+
             using var ctx = _factory.CreateDbContext();
+
+            var codigos = tipoCodigos.Select(c => c.ToUpperInvariant()).Distinct().ToList();
 
             // Left join en vez de dos consultas: el interruptor del principal automático vive en el
             // tipo y hay que leerlo aunque el correo esté apagado o no tenga ningún destinatario
@@ -172,12 +184,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // para no ordenar por columnas del lado nulo del join.
             var raw = await (
                 from t in ctx.GthCorreoTipo
-                where t.State && t.Codigo.ToUpper() == tipoCodigo.ToUpper()
+                where t.State && codigos.Contains(t.Codigo.ToUpper())
                 join d in ctx.GthCorreoDestinatario.Where(x => x.State && x.Active)
                     on t.GthCorreoTipoId equals d.GthCorreoTipoId into ds
                 from d in ds.DefaultIfEmpty()
                 select new
                 {
+                    TipoCodigo = t.Codigo,
                     TipoActive = t.Active,
                     t.PrincipalAutomaticoActive,
                     DestinatarioId = (int?)d.GthCorreoDestinatarioId,
@@ -190,31 +203,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .AsNoTracking()
                 .ToListAsync();
 
-            if (raw.Count == 0) return new CorreoEnvioConfigDto();
-
-            return new CorreoEnvioConfigDto
+            foreach (var grupo in raw.GroupBy(x => x.TipoCodigo, StringComparer.OrdinalIgnoreCase))
             {
-                // El maestro manda: apagado, el correo no se envía a NADIE, ni siquiera a su
-                // principal automático. Antes ese principal lo seguía recibiendo (era la única
-                // forma de no dejar sin aviso al postulante), pero ahora tiene su propio
-                // interruptor, así que "Correo desactivado" significa lo que dice.
-                PrincipalAutomaticoActivo = raw[0].TipoActive && raw[0].PrincipalAutomaticoActive,
-                // Correo apagado con el interruptor maestro → ninguno de los destinatarios
-                // configurados recibe nada (el principal automático se rige por su propio flag).
-                Filas = raw[0].TipoActive
-                    ? raw.Where(x => x.DestinatarioId.HasValue)
-                         .OrderBy(x => x.Orden).ThenBy(x => x.DestinatarioId)
-                         .Select(x => new CorreoDestinatarioEnvioDto
-                         {
-                             Codigo  = x.Codigo,
-                             Email   = x.Email,
-                             Nombre  = x.Nombre,
-                             EsCopia = x.EsCopia ?? false,
-                             Orden   = x.Orden ?? 0,
-                         })
-                         .ToList()
-                    : new List<CorreoDestinatarioEnvioDto>(),
-            };
+                var filas = grupo.ToList();
+                resultado[grupo.Key] = new CorreoEnvioConfigDto
+                {
+                    // El maestro manda: apagado, el correo no se envía a NADIE, ni siquiera a su
+                    // principal automático. Antes ese principal lo seguía recibiendo (era la única
+                    // forma de no dejar sin aviso al postulante), pero ahora tiene su propio
+                    // interruptor, así que "Correo desactivado" significa lo que dice.
+                    PrincipalAutomaticoActivo = filas[0].TipoActive && filas[0].PrincipalAutomaticoActive,
+                    // Correo apagado con el interruptor maestro → ninguno de los destinatarios
+                    // configurados recibe nada (el principal automático se rige por su propio flag).
+                    Filas = filas[0].TipoActive
+                        ? filas.Where(x => x.DestinatarioId.HasValue)
+                               .OrderBy(x => x.Orden).ThenBy(x => x.DestinatarioId)
+                               .Select(x => new CorreoDestinatarioEnvioDto
+                               {
+                                   Codigo  = x.Codigo,
+                                   Email   = x.Email,
+                                   Nombre  = x.Nombre,
+                                   EsCopia = x.EsCopia ?? false,
+                                   Orden   = x.Orden ?? 0,
+                               })
+                               .ToList()
+                        : new List<CorreoDestinatarioEnvioDto>(),
+                };
+            }
+
+            return resultado;
         }
 
         public async Task<CorreoDestinatarioResueltoDto?> GetGerenteGeneralAsync()

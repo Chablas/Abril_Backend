@@ -22,6 +22,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
+using Abril_Backend.Features.Ssoma.Penalidad.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
@@ -39,6 +40,7 @@ using Abril_Backend.Features.AlmacenModule.Features.OrdenesCompraFeature.Infrast
 using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -146,6 +148,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcActividad> AcActividad { get; set; }
         public DbSet<AcAvanceSemanal> AcAvanceSemanal { get; set; }
         public DbSet<AcRankingSemanal> AcRankingSemanal { get; set; }
+        public DbSet<AcCargaSemanal> AcCargaSemanal { get; set; }
         public DbSet<AcTareoEnrolamiento> AcTareoEnrolamiento { get; set; }
         public DbSet<AcTareoRegistro> AcTareoRegistro { get; set; }
         public DbSet<AcTareoAutorizacion> AcTareoAutorizacion { get; set; }
@@ -211,6 +214,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsInduccionRotacionProyecto> SsInduccionRotacionProyecto => Set<SsInduccionRotacionProyecto>();
         public DbSet<SsInduccionProgramacion> SsInduccionProgramacion => Set<SsInduccionProgramacion>();
         public DbSet<SsInduccionRotacionCursor> SsInduccionRotacionCursor => Set<SsInduccionRotacionCursor>();
+        public DbSet<SsInspeccionCruzadaAnillo> SsInspeccionCruzadaAnillo => Set<SsInspeccionCruzadaAnillo>();
+        public DbSet<SsInspeccionCruzadaRotacion> SsInspeccionCruzadaRotacion => Set<SsInspeccionCruzadaRotacion>();
+        public DbSet<SsInspeccionCruzadaCursor> SsInspeccionCruzadaCursor => Set<SsInspeccionCruzadaCursor>();
+        public DbSet<SsInspeccionCruzadaProgramacion> SsInspeccionCruzadaProgramacion => Set<SsInspeccionCruzadaProgramacion>();
         public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
@@ -240,19 +247,35 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
-        public DbSet<GaSalidaVisibilidadArea> GaSalidaVisibilidadArea { get; set; }
+        // Override manual de "qué áreas ve este trabajador", por ámbito (salidas / rendiciones).
+        public DbSet<GaVisibilidadAmbito> GaVisibilidadAmbito { get; set; }
+        public DbSet<GaVisibilidadArea> GaVisibilidadArea { get; set; }
         public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
         public DbSet<AreaRevisores> AreaRevisores { get; set; }
+        // Quién puede adjuntar el Consolidado del S10 por los trabajadores de un área.
+        public DbSet<AreaConsolidadores> AreaConsolidadores { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
-        public DbSet<GaSalidasWorkersProject> GaSalidasWorkersProject { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         public DbSet<GaRendicionFolder> GaRendicionFolder { get; set; }
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
+        // Qué planillas cubre cada Consolidado del S10: un consolidado puede agrupar varias.
+        public DbSet<GaConsolidadoS10Rendicion> GaConsolidadoS10Rendicion { get; set; }
+        // Solicitudes de corrección del Consolidado del S10 al Coordinador ERP (bandeja
+        // "Correcciones S10"). Van por planilla, igual que el consolidado.
+        public DbSet<GaCorreccionS10> GaCorreccionS10 { get; set; }
         // ── Configuración de correos de salidas (destinatarios por correo) ──────
+        // ga_correo_pantalla agrupa los correos por la pantalla donde se originan: cada una
+        // administra los suyos desde su propio botón «Configuración».
+        public DbSet<GaCorreoPantalla> GaCorreoPantalla { get; set; }
+        // ga_correo_grupo reparte los correos de una misma pantalla en secciones: los del flujo
+        // (CORREOS) y los que dispara el cron del plazo de rendición (RECORDATORIOS).
+        public DbSet<GaCorreoGrupo> GaCorreoGrupo { get; set; }
         public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
         public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }
         public DbSet<GaCorreoRegla> GaCorreoRegla { get; set; }
+        // Plazo de rendición configurable (fila única). Lo lee CalendarioNoLaborable.
+        public DbSet<GaRendicionConfig> GaRendicionConfig { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
@@ -264,6 +287,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType> HolidayType => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday> Holiday => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
+        // Catálogo de bancos (Configuración → Bancos): de acá sale el banco de cada razón social
+        // del grupo, que es el que el formulario de bienvenida le muestra al nuevo colaborador.
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco> Banco => Set<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder> LessonJefeReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder>();
@@ -300,6 +326,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionJefeSsoma> EvEvaluacionesJefeSsoma => Set<EvEvaluacionJefeSsoma>();
         public DbSet<EvEvaluacionJefeSsomaDetalle> EvEvaluacionesJefeSsomaDetalle => Set<EvEvaluacionJefeSsomaDetalle>();
         public DbSet<EvEvaluacionJefeSsomaCumplimiento> EvEvaluacionesJefeSsomaCumplimiento => Set<EvEvaluacionJefeSsomaCumplimiento>();
+        public DbSet<EvJefeSsomaPlanAccion> EvJefeSsomaPlanAccion => Set<EvJefeSsomaPlanAccion>();
+        public DbSet<EvGestionSsomaPlanAccion> EvGestionSsomaPlanAccion => Set<EvGestionSsomaPlanAccion>();
         public DbSet<EvPrevencionistaPlantilla> EvPrevencionistaPlantillas => Set<EvPrevencionistaPlantilla>();
         public DbSet<EvEvaluacionPrevencionista> EvEvaluacionesPrevencionista => Set<EvEvaluacionPrevencionista>();
         public DbSet<EvEvaluacionPrevencionistaDetalle> EvEvaluacionesPrevencionistaDetalle => Set<EvEvaluacionPrevencionistaDetalle>();
@@ -319,11 +347,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaUitAnio> SsomaUitAnios { get; set; }
         public DbSet<SsomaRac> SsomaRacs { get; set; }
         public DbSet<SsomaRacFoto> SsomaRacFotos { get; set; }
-        public DbSet<SsomaRacPenalidad> SsomaRacPenalidades { get; set; }
+        public DbSet<SsomaPenalidad> SsomaPenalidades { get; set; }
+        public DbSet<SsomaPenalidadEstadoHistorial> SsomaPenalidadEstadoHistorial { get; set; }
+        public DbSet<GestionPreviaEmpresa> GestionPreviaEmpresas { get; set; }
         public DbSet<SsomaOpt> SsomaOpt { get; set; }
         public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
         public DbSet<SsomaPet> SsomaPet { get; set; }
+        public DbSet<SsomaPetVersion> SsomaPetVersion { get; set; }
         public DbSet<SsomaPetPaso> SsomaPetPaso { get; set; }
+        public DbSet<SsomaPetPasoImagen> SsomaPetPasoImagen { get; set; }
         public DbSet<SsomaCatalogoItem> SsomaCatalogoItem { get; set; }
         public DbSet<SsomaPetItemSeleccionado> SsomaPetItemSeleccionado { get; set; }
         public DbSet<SsomaPetSeccionTexto> SsomaPetSeccionTexto { get; set; }
@@ -476,10 +508,21 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador> SsomaAccidenteTrabajador => Set<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador>();
 
         // Checklist SSOMA
+        public DbSet<SsChecklistPartida> SsChecklistPartida => Set<SsChecklistPartida>();
         public DbSet<SsChecklistPlantilla> SsChecklistPlantilla => Set<SsChecklistPlantilla>();
         public DbSet<SsChecklistPlantillaItem> SsChecklistPlantillaItem => Set<SsChecklistPlantillaItem>();
+        public DbSet<SsChecklistPlantillaItemImagen> SsChecklistPlantillaItemImagen => Set<SsChecklistPlantillaItemImagen>();
         public DbSet<SsChecklistProyecto> SsChecklistProyecto => Set<SsChecklistProyecto>();
         public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
+
+        // Activos Rotativos SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMaterial> SsActivoRotativoMaterial => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMaterial>();
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo> SsActivoRotativo => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento> SsActivoRotativoMovimiento => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento>();
+
+        // Cumplimiento SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad> SsCumplimientoActividad => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad>();
+        public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro> SsCumplimientoRegistro => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro>();
 
         // Habilitación de proyectos para SSOMA
         public DbSet<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado> SsProyectoHabilitado => Set<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado>();
@@ -516,6 +559,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCostoRegistro> AcCostoRegistros => Set<AcCostoRegistro>();
         public DbSet<AcCostoProyeccion> AcCostoProyecciones => Set<AcCostoProyeccion>();
         public DbSet<AcCostoMetaMensual> AcCostoMetaMensuales => Set<AcCostoMetaMensual>();
+        public DbSet<AcCostoPresupuesto> AcCostoPresupuestos => Set<AcCostoPresupuesto>();
+        public DbSet<AcCostoCierre> AcCostoCierres => Set<AcCostoCierre>();
         // ── Almacén (Logística): módulo nuevo e independiente ─────────────
         public DbSet<AlmacenMaterial> AlmacenMateriales => Set<AlmacenMaterial>();
         public DbSet<AlmacenMovimiento> AlmacenMovimientos => Set<AlmacenMovimiento>();
@@ -583,6 +628,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado> GthOnboardingEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding> GthOnboarding => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad> GthOnboardingActividad => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingActividad>();
+        // Formulario «Nuevos Talentos» del colaborador (público por token) + sus catálogos propios.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario> GthOnboardingFormulario => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado> GthOnboardingFormularioEstado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion> GthOnboardingUbicacion => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta> GthRentaQuinta => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>();
+        // Tallas: la de calzado nace con este formulario; la de camisa (`talla`) existía desde la
+        // data maestra (person.talla_id) pero nadie la leía todavía, así que no estaba mapeada.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado> TallaCalzado => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla> Talla => Set<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla>();
 
         // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
         public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
@@ -627,6 +681,13 @@ namespace Abril_Backend.Infrastructure.Data
             // inducciones, amonestaciones: ver workers_ficha_fusionada) hay que pedirlo
             // explícitamente con IgnoreQueryFilters().
             modelBuilder.Entity<Worker>().HasQueryFilter(w => w.State);
+
+            // Una captura de movilidad eliminada (al subsanar una rendición observada) no existe
+            // para nadie: no se lista, no se imprime en la planilla y no suma al importe rendido.
+            // Va como filtro global por el mismo motivo que el de Worker: la tabla se lee desde
+            // siete lugares (tres repositorios de salidas y ImporteRendidoLoader) y una captura
+            // borrada que reaparece en UNO solo descuadraría el monto contra la planilla firmada.
+            modelBuilder.Entity<GaSolicitudCaptura>().HasQueryFilter(c => c.State);
 
             modelBuilder.Entity<Person>()
                 .HasOne(p => p.User)
@@ -1029,6 +1090,16 @@ namespace Abril_Backend.Infrastructure.Data
             // snake_case (los digitos no cuentan como corte), pero el mapeo se fija a mano igual
             // para que quede explicito y no dependa de ese detalle de la convencion.
             modelBuilder.Entity<GaConsolidadoS10>().ToTable("ga_consolidado_s10");
+            // La tabla puente del consolidado (qué planillas cubre): mismo cuidado con el "S10",
+            // tabla y FK se fijan a mano.
+            modelBuilder.Entity<GaConsolidadoS10Rendicion>().ToTable("ga_consolidado_s10_rendicion");
+            modelBuilder.Entity<GaConsolidadoS10Rendicion>()
+                .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
+            // Mismo caso que el consolidado: se fija a mano para no depender de cómo la
+            // convención snake_case parte el "S10".
+            modelBuilder.Entity<GaCorreccionS10>().ToTable("ga_correccion_s10");
+            modelBuilder.Entity<GaCorreccionS10>()
+                .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
 
             modelBuilder.Entity<SsomaPasoCategoria>().ToTable("ssoma_paso_categoria");
             modelBuilder.Entity<SsomaPaso>().ToTable("ssoma_paso");
@@ -1050,36 +1121,49 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaUitAnio>().ToTable("ssoma_uit_anio");
             modelBuilder.Entity<SsomaRac>().ToTable("ssoma_rac");
             modelBuilder.Entity<SsomaRacFoto>().ToTable("ssoma_rac_foto");
-            modelBuilder.Entity<SsomaRacPenalidad>().ToTable("ssoma_rac_penalidad");
 
             modelBuilder.Entity<SsomaRac>()
                 .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId).IsRequired();
             modelBuilder.Entity<SsomaRacFoto>()
                 .HasOne(x => x.Rac).WithMany(x => x.Fotos).HasForeignKey(x => x.RacId);
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .HasOne(x => x.Rac).WithOne(x => x.Penalidad).HasForeignKey<SsomaRacPenalidad>(x => x.RacId);
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId).IsRequired(false);
 
             modelBuilder.Entity<SsomaRac>()
                 .Property(x => x.Estado).HasDefaultValue("Abierto");
-            modelBuilder.Entity<SsomaRacPenalidad>()
-                .Property(x => x.Estado).HasDefaultValue("EnEvaluacion");
             modelBuilder.Entity<SsomaRacFoto>()
                 .Property(x => x.Tipo).HasDefaultValue("Hallazgo");
             modelBuilder.Entity<SsomaRacFoto>()
                 .Property(x => x.Orden).HasDefaultValue(1);
 
+            // ── Penalidad — independiente de RAC (ver PenalidadFeature) ──────
+            modelBuilder.Entity<SsomaPenalidad>().ToTable("ssoma_penalidad");
+            modelBuilder.Entity<SsomaPenalidadEstadoHistorial>().ToTable("ssoma_penalidad_estado_historial");
+            modelBuilder.Entity<GestionPreviaEmpresa>().ToTable("ssoma_gestion_previa_empresa");
+
+            modelBuilder.Entity<SsomaPenalidad>()
+                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId);
+            modelBuilder.Entity<SsomaPenalidad>()
+                .HasMany(x => x.Historial).WithOne(x => x.Penalidad).HasForeignKey(x => x.PenalidadId);
+            modelBuilder.Entity<SsomaPenalidad>()
+                .Property(x => x.Estado).HasDefaultValue("Registrada");
+
             // ── OPT — tablas y nombres explícitos ────────────────────────────
             modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
             modelBuilder.Entity<SsomaOptTrabajador>().ToTable("ssoma_opt_trabajador");
             modelBuilder.Entity<SsomaPet>().ToTable("ssoma_pet");
+            modelBuilder.Entity<SsomaPetVersion>().ToTable("ssoma_pet_version");
+            modelBuilder.Entity<SsomaPetVersion>()
+                .HasOne(x => x.Pet).WithMany().HasForeignKey(x => x.PetId);
+            modelBuilder.Entity<SsomaPetVersion>()
+                .HasIndex(x => new { x.PetId, x.NumeroVersion }).IsUnique();
             modelBuilder.Entity<SsomaPetPaso>().ToTable("ssoma_pet_paso");
             modelBuilder.Entity<SsomaPetPaso>()
                 .HasOne(x => x.Pet).WithMany(p => p.Pasos).HasForeignKey(x => x.PetId);
             modelBuilder.Entity<SsomaPetPaso>()
                 .HasOne(x => x.Parent).WithMany(x => x.Hijos).HasForeignKey(x => x.ParentId)
                 .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SsomaPetPasoImagen>().ToTable("ssoma_pet_paso_imagen");
+            modelBuilder.Entity<SsomaPetPasoImagen>()
+                .HasOne(x => x.Paso).WithMany(x => x.Imagenes).HasForeignKey(x => x.PasoId);
             modelBuilder.Entity<SsomaCatalogoItem>().ToTable("ssoma_catalogo_item");
             modelBuilder.Entity<SsomaPetItemSeleccionado>().ToTable("ssoma_pet_item_seleccionado");
             modelBuilder.Entity<SsomaPetItemSeleccionado>()
@@ -1156,6 +1240,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(p => new { p.ProyectoId, p.Anio, p.Mes, p.Partida }).IsUnique();
             modelBuilder.Entity<AcCostoMetaMensual>()
                 .HasIndex(m => new { m.Anio, m.Mes }).IsUnique();
+            modelBuilder.Entity<AcCostoPresupuesto>()
+                .HasIndex(p => new { p.ProyectoId, p.Partida }).IsUnique();
+            modelBuilder.Entity<AcCostoCierre>()
+                .HasIndex(c => new { c.ProyectoId, c.Anio, c.Mes }).IsUnique();
 
             // ── Almacén (Logística) ──────────────────────────────────────────
             modelBuilder.Entity<AlmacenMaterial>().HasIndex(m => m.Codigo).IsUnique();
@@ -1247,6 +1335,15 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
                 entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
             });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoPresupuesto>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.CostosFeature.Infrastructure.Models.AcCostoCierre>(entity =>
+            {
+                entity.Property(e => e.CerradoEn).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
 
             modelBuilder.Entity<AlmacenMaterial>(entity =>
             {
@@ -1284,6 +1381,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionPrevencionista>(entity =>
             {
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvJefeSsomaPlanAccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvGestionSsomaPlanAccion>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
+                entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
             });
 
             modelBuilder.Entity<ProjectSubContractor>(entity =>
@@ -1456,9 +1563,10 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.FactorUit).HasColumnName("factor_uit");
             });
-            modelBuilder.Entity<SsomaRacPenalidad>(entity =>
+            modelBuilder.Entity<SsomaPenalidad>(entity =>
             {
                 entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");
+                entity.Property(e => e.PdfNotificacionUrl).HasColumnName("pdf_notificacion_url");
                 entity.Property(e => e.PdfResolucionUrl).HasColumnName("pdf_resolucion_url");
             });
 
@@ -1853,6 +1961,19 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(d => d.GthRequerimientoId).OnDelete(DeleteBehavior.Restrict);
             });
 
+            // ── Configuración · Bancos ──────────────────────────────────────────
+            // Un solo banco vivo por código, y la razón social apunta acá. La FK se declara sin
+            // navegación en Contributor a propósito: nadie necesita el objeto banco colgado de la
+            // razón social, y declararla obligaría a cargarla en todas las consultas que ya existen.
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>(e =>
+            {
+                e.HasIndex(b => b.Codigo).IsUnique().HasFilter("state = true");
+            });
+
+            modelBuilder.Entity<Contributor>()
+                .HasOne<Abril_Backend.Features.ConfigurationModule.Features.BancoFeature.Infrastructure.Models.Banco>()
+                .WithMany().HasForeignKey(c => c.BancoId).OnDelete(DeleteBehavior.Restrict);
+
             // ── Gestión GTH · Onboarding ────────────────────────────────────────
             // Catálogos: un solo registro "vivo" (state = true) por código.
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFase>()
@@ -1883,6 +2004,43 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(o => o.GthOnboardingFaseId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingEstado>()
                  .WithMany().HasForeignKey(o => o.GthOnboardingEstadoId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Catálogos propios del formulario de bienvenida: un solo registro vivo por código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+
+            // Formulario «Nuevos Talentos»: uno vivo por onboarding y token único entre los vigentes
+            // (es la única credencial de su página pública).
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormulario>(e =>
+            {
+                e.HasIndex(f => f.GthOnboardingId).IsUnique().HasFilter("state = true");
+                e.HasIndex(f => f.Token).IsUnique().HasFilter("state = true");
+
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboarding>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingFormularioEstado>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingFormularioEstadoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Puesto>()
+                 .WithMany().HasForeignKey(f => f.PuestoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthOnboardingUbicacion>()
+                 .WithMany().HasForeignKey(f => f.GthOnboardingUbicacionId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Contributor>()
+                 .WithMany().HasForeignKey(f => f.ContributorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Sexo>()
+                 .WithMany().HasForeignKey(f => f.SexoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.TallaCalzado>()
+                 .WithMany().HasForeignKey(f => f.TallaCalzadoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.Talla>()
+                 .WithMany().HasForeignKey(f => f.TallaId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.OnboardingFeature.Infrastructure.Models.GthRentaQuinta>()
+                 .WithMany().HasForeignKey(f => f.GthRentaQuintaId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ── Gestión GTH · Carta oferta (último paso de Reclutamiento) ───────

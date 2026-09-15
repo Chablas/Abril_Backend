@@ -57,15 +57,13 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces
         /// Le copia al requerimiento la razón social que se le acaba de elegir a la ficha de
         /// pre-ingreso desde el modal "Programar EMO con clínica".
         ///
-        /// Es el caso del <b>ingreso directo FFT</b>: su vacante no se aprueba ni se publica, así
-        /// que nadie pasó por la asignación interna de Reclutamiento y el requerimiento llegó al EMO
-        /// sin razón social. Quien programa la cita tiene que elegir una, y esa elección es de las
-        /// dos: la ficha (<c>workers.contributor_id</c>, que lo escribe quien llama) y el
-        /// requerimiento. Sin copiarla acá, la pantalla de Reclutamiento la seguiría mostrando
-        /// vacía y asignar otra ahí le pisaría a la ficha la que ya se eligió.
+        /// La razón social se asigna en un solo punto del proceso —la programación del EMO de
+        /// ingreso—, así que todo requerimiento llega ahí sin ninguna y esa elección es de las dos:
+        /// la ficha (<c>workers.contributor_id</c>, que lo escribe quien llama) y el requerimiento,
+        /// que es de donde la leen la carta oferta y el onboarding.
         ///
-        /// Solo escribe si el requerimiento no tiene ninguna: una razón social ya asignada por GTH
-        /// manda sobre esta pantalla.
+        /// Solo escribe si el requerimiento no tiene ninguna: reprogramar el EMO no cambia la razón
+        /// social con la que el proceso ya quedó.
         ///
         /// <b>No guarda</b> ni lanza, por el mismo motivo que
         /// <see cref="AplicarAptitudAsync"/>: los cambios entran en el <c>SaveChanges</c> de quien
@@ -74,5 +72,24 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces
         /// <returns>true si el requerimiento se actualizó.</returns>
         Task<bool> SincronizarRazonSocialAsync(
             AppDbContext ctx, Worker worker, int contributorId, int? userId);
+
+        /// <summary>
+        /// ¿La vacante de la que sale esta ficha de pre-ingreso es un <b>REEMPLAZO</b>? Es lo único
+        /// que levanta el tope de 20 trabajadores por razón social al asignarle una desde el EMO.
+        ///
+        /// <para>El motivo es de negocio y no técnico: quien reemplaza y quien se va conviven un
+        /// mes —el que entra se empalma con el que sale—, así que durante ese tiempo la razón social
+        /// tiene 21. El exceso lo cierra la baja del reemplazado en Habilitación, que devuelve la
+        /// cuenta a 20 (ver <c>HabTrabajadorRepository.BajaAsync</c>). Cortar por el tope acá
+        /// dejaría el proceso trabado justo en el caso en que el tope ya está previsto que se
+        /// pase.</para>
+        ///
+        /// <para>Vale igual para un reemplazo por ingreso directo FFT: el tipo de requerimiento y el
+        /// flujo son dos cosas distintas.</para>
+        ///
+        /// <para>false para cualquier ficha que no sea de pre-ingreso o que no venga de un
+        /// requerimiento: sin vacante de reemplazo detrás, el tope es el de siempre.</para>
+        /// </summary>
+        Task<bool> EsReemplazoAsync(AppDbContext ctx, Worker worker);
     }
 }

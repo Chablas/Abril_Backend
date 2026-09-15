@@ -147,9 +147,33 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         // ── Solicitante ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Reenvía el correo de aprobación a Gerencia General (para cuando el primer envío falló o
-        /// se corrigieron los destinatarios). Solo el solicitante dueño de la solicitud, y solo
-        /// mientras Gerencia no haya decidido. El enlace no cambia.
+        /// A quién le llegaría el reenvío del correo de aprobación de la vacante. Lo pide la
+        /// confirmación del botón para nombrar las direcciones antes de mandar nada.
+        /// </summary>
+        [HttpGet("requerimiento/{id:int}/reenviar/destinatarios")]
+        public async Task<IActionResult> GetReenvioPreview(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetReenvioPreview(id, UserId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en AprobacionGgController.GetReenvioPreview");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Reenvía el correo que espera la firma de la vacante (para cuando el primer envío falló,
+        /// se corrigieron los destinatarios o la firma se demora): el de Gerencia General en una
+        /// nueva y el del turno abierto en un reemplazo — nunca el aviso informativo al gerente del
+        /// área. Solo la jefatura del área, y solo mientras esa firma siga pendiente. El enlace no
+        /// cambia.
         /// </summary>
         [HttpPost("requerimiento/{id:int}/reenviar")]
         public async Task<IActionResult> Reenviar(int id)

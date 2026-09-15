@@ -6,5 +6,7 @@ public interface IRacSharePointService
     Task<string> SubirFotoAsync(Stream stream, string filename, int racId);
     Task<string> SubirFirmaAsync(Stream stream, string filename, int racId);
     Task<string> SubirPenalidadPdfAsync(Stream stream, string filename, int penalidadId);
+    Task<string> SubirPenalidadDescargoAsync(Stream stream, string filename, int penalidadId);
+    Task<string> SubirGestionPreviaAdjuntoAsync(Stream stream, string filename, int empresaId);
     Task<byte[]?> DescargarFotoAsync(string url);
 }

@@ -381,11 +381,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             empresaId ??= worker.ContributorId;
 
             // Sin razon social no hay cita: la programacion quedaria fuera de la pantalla de
-            // Programaciones (filtra por empresa Abril) y del correo a la clinica. Le pasa al
-            // ingreso directo FFT, que va de la solicitud al EMO sin pasar por la asignacion de
-            // Reclutamiento, y por eso el modal le ofrece un desplegable en lugar del campo de
-            // solo lectura. Se corta en vez de crearla muda: es lo unico que falta y quien programa
-            // lo puede resolver ahi mismo.
+            // Programaciones (filtra por empresa Abril) y del correo a la clinica. Le pasa a toda
+            // ficha de pre-ingreso: la razon social se asigna aca y en ningun otro punto del
+            // proceso, y por eso el modal le ofrece un desplegable en lugar del campo de solo
+            // lectura. Se corta en vez de crearla muda: es lo unico que falta y quien programa lo
+            // puede resolver ahi mismo.
             if (empresaId == null)
                 throw new AbrilException(
                     "Este trabajador no tiene razón social asignada: elígele una antes de "
@@ -401,6 +401,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // se acepta, venga de donde venga el id.
                 if (!await RazonSocialCuposHelper.EsValidaAsync(ctx, dto.EmpresaId.Value))
                     throw new AbrilException("La razón social seleccionada no es válida.", 400);
+
+                // Y con cupo libre: elegirla aca es ASIGNARSELA a la ficha, asi que una razon
+                // social llena metería un trabajador mas por encima del tope. El modal ya lo avisa
+                // y no deja guardar, pero el tope se cuenta de nuevo acá: entre que se abrio el
+                // modal y este momento otro pudo ocupar el ultimo cupo.
+                //
+                // Salvo que la vacante sea un REEMPLAZO: ahi el tope se pasa a proposito, porque el
+                // que entra y el que sale conviven un mes. Ver IReclutamientoEmoIngresoService
+                // .EsReemplazoAsync. Se pregunta solo cuando la razon social esta llena, que es el
+                // unico momento en que la respuesta cambia algo.
+                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.EmpresaId.Value) == 0
+                    && !await _reclutamiento.EsReemplazoAsync(ctx, worker))
+                {
+                    var nombre = await ctx.Contributor
+                        .Where(c => c.ContributorId == dto.EmpresaId.Value)
+                        .Select(c => c.ContributorName)
+                        .FirstOrDefaultAsync();
+                    throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
+                }
 
                 worker.ContributorId = dto.EmpresaId;
                 worker.UpdatedAt     = DateTimeOffset.UtcNow;
@@ -677,14 +696,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         var hoyNoAsistio = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
                         var emoActivo = await ctx.WorkerEmo
                             .Where(e => e.WorkerId == ent.WorkerId && e.Activo)
-                            .OrderByDescending(e => e.FechaVencimiento)
+                            .OrderByDescending(e => e.FechaVencimientoCalculada ?? e.FechaVencimiento)
                             .FirstOrDefaultAsync();
 
                         if (emoActivo == null)
                         {
                             habCert.Estado = "Falta";
                         }
-                        else if (emoActivo.FechaVencimiento < hoyNoAsistio)
+                        else if ((emoActivo.FechaVencimientoCalculada ?? emoActivo.FechaVencimiento) < hoyNoAsistio)
                         {
                             habCert.Estado = "Vencido";
                         }
@@ -763,15 +782,31 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         }
 
         /// <summary>
-        /// Razones sociales del grupo con sus cupos, para el desplegable que el modal muestra
-        /// cuando el trabajador llegó sin ninguna. La cuenta es la misma que ofrece Reclutamiento:
-        /// vive en Shared para que las dos pantallas no puedan discrepar (ver
-        /// <see cref="RazonSocialCuposHelper"/>).
+        /// Razones sociales del grupo con sus cupos para el desplegable que el modal muestra cuando
+        /// el trabajador llegó sin ninguna, y si a esa ficha le aplica el tope de 20. La cuenta vive
+        /// en Shared para que esta pantalla y Configuración → Razones Sociales no puedan discrepar
+        /// (ver <see cref="RazonSocialCuposHelper"/>).
+        ///
+        /// <para>Dos roundtrips como mucho: el de la lista y —solo si viene ficha— el que resuelve
+        /// de qué vacante sale. Sin <paramref name="workerId"/> se responde con el tope puesto, que
+        /// es lo que vale para cualquier trabajador que no venga de un reemplazo.</para>
         /// </summary>
-        public async Task<List<RazonSocialCupoDto>> GetRazonesSociales()
+        public async Task<RazonesSocialesEmoDto> GetRazonesSociales(int? workerId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await RazonSocialCuposHelper.ListarAsync(ctx);
+
+            var dto = new RazonesSocialesEmoDto
+            {
+                Razones = await RazonSocialCuposHelper.ListarAsync(ctx),
+            };
+
+            if (workerId == null) return dto;
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId.Value);
+            if (worker != null)
+                dto.SinTopePorReemplazo = await _reclutamiento.EsReemplazoAsync(ctx, worker);
+
+            return dto;
         }
 
         private async Task EnviarNotificacionCreacionAsync(
@@ -894,9 +929,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     proyecto = await ctx.Project.AsNoTracking()
                         .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
 
-                var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
-
                 var clinica = prog.ClinicaId.HasValue
                     ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
                     : null;
@@ -905,37 +937,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var fechaStr = prog.FechaProgramada.ToString("dd/MM/yyyy");
                 var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
                 var proyectoStr = proyecto?.ProjectDescription ?? "—";
-                var tipoStr = tipoEmo?.Nombre ?? "—";
                 var clinicaNombre = clinica?.Nombre ?? "—";
                 var clinicaDireccion = clinica?.Direccion;
 
-                // El logo, los íconos y la imagen de recomendaciones se sirven desde los estáticos
-                // del frontend (public/images/), no desde el wwwroot del backend: en producción
-                // intranet.abril.pe es nginx, que solo proxea /api/** al contenedor. Cualquier otra
-                // ruta cae en el fallback SPA y devolvía index.html (200 text/html) en vez de la
-                // imagen, por eso salían rotas.
-                //
-                // El origen es una clave aparte de App:FrontendUrl a propósito: Outlook no descarga
-                // las imágenes desde el cliente sino a través del proxy de imágenes de Microsoft,
-                // que nunca puede alcanzar un localhost. Con App:FrontendUrl (que en dev tiene que
-                // seguir apuntando a localhost para los links clicables de los otros correos) las
-                // imágenes salen siempre rotas al probar en local; App:EmailAssetsUrl permite
-                // apuntarlas a un host público sin tocar esos links.
-                var assetsUrl = _configuration["App:EmailAssetsUrl"]
-                    ?? _configuration["App:FrontendUrl"]
-                    ?? "https://intranet.abril.pe";
-
+                // De dónde salen el logo, los íconos y el afiche de recomendaciones lo resuelve el
+                // layout (App:EmailAssetsUrl): es una clave aparte de App:FrontendUrl porque
+                // Outlook no baja las imágenes desde el cliente sino por el proxy de imágenes de
+                // Microsoft, que nunca puede alcanzar un localhost. Ver AssetsUrl en
+                // AbrilEmailLayout.
                 var html = EmoConfirmacionEmailTemplate.Construir(
+                    SaludOcupacionalEmailLayout.Desde(_configuration),
                     new EmoConfirmacionEmailTemplate.Datos(
                         Examinado: workerNombre,
-                        TipoEmo: tipoStr,
                         Fecha: fechaStr,
                         Hora: horaStr,
                         Proyecto: proyectoStr,
                         Clinica: clinicaNombre,
                         Direccion: clinicaDireccion,
-                        EsPostulante: esPostulante),
-                    assetsUrl);
+                        EsPostulante: esPostulante));
 
                 await _emailService.SendAsync(
                     to: to,

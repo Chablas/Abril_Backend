@@ -78,3 +78,26 @@ public class MaterialNoSsomaDto
     public DateOnly FechaGuia { get; set; }
     public string? EstadoRevision { get; set; }
 }
+
+// ─── Vista general (todas las líneas de todos los proyectos, tal como llegan del S10) ────────
+
+public class MaterialGlobalDto
+{
+    public long LineaId { get; set; }
+    public int ProjectId { get; set; }
+    public string ProjectDescription { get; set; } = "";
+    public string RecursoCrudo { get; set; } = "";
+    public int? ItemId { get; set; }
+    public string? NombreItem { get; set; }
+    public int? FamiliaId { get; set; }
+    public string? NombreFamilia { get; set; }
+    public int? TipoId { get; set; }
+    public string? NombreTipo { get; set; }
+    public decimal Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
+    public decimal PrecioTotal { get; set; }
+    public bool PerteneceSsoma { get; set; }
+    /// <summary>null | PENDIENTE | AUTORIZADO | RECHAZADO</summary>
+    public string? EstadoRevision { get; set; }
+    public DateOnly FechaGuia { get; set; }
+}

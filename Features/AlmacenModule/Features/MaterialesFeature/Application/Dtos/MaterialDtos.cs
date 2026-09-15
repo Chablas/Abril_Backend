@@ -7,6 +7,21 @@ public class AlmacenMaterialDTO
     public string Nombre { get; set; } = string.Empty;
     public string UnidadMedida { get; set; } = string.Empty;
     public bool Activo { get; set; }
+    public decimal? PuntoReorden { get; set; }
+    public decimal? StockSeguridad { get; set; }
+}
+
+/// <summary>Edición de un material ya creado. Campos null = no tocar, salvo PuntoReorden y
+/// StockSeguridad que se pueden vaciar explícitamente enviando 0 (no hay forma de distinguir
+/// "no tocar" de "vaciar" en un decimal? desde este DTO, así que el front siempre manda el
+/// valor completo de ambos umbrales, igual que al crear).</summary>
+public class UpdateAlmacenMaterialDTO
+{
+    public string? Nombre { get; set; }
+    public string? UnidadMedida { get; set; }
+    public decimal? PuntoReorden { get; set; }
+    public decimal? StockSeguridad { get; set; }
+    public bool Activo { get; set; } = true;
 }
 
 public class CreateAlmacenMaterialDTO
@@ -38,6 +53,7 @@ public class CreateAlmacenMovimientoDTO
     public string Tipo { get; set; } = string.Empty;
     public decimal Cantidad { get; set; }
     public string? Origen { get; set; }
+    public string? MotivoDevolucion { get; set; }
     public string? Comentario { get; set; }
 }
 
@@ -54,6 +70,7 @@ public class AlmacenMovimientoListItemDTO
     public string Tipo { get; set; } = string.Empty;
     public decimal Cantidad { get; set; }
     public string? Origen { get; set; }
+    public string? MotivoDevolucion { get; set; }
     public string? Comentario { get; set; }
     public string? CreadoPor { get; set; }
 }
@@ -141,4 +158,16 @@ public class AlmacenDashboardDTO
     public List<AlmacenMaterialCriticoDTO> MaterialesCriticos { get; set; } = [];
     public List<AlmacenCoberturaItemDTO> Cobertura { get; set; } = [];
     public int LimiteSeguridadDias { get; set; }
+}
+
+/// <summary>Resultado de importar un Excel de movimientos — cuántas filas se dieron de alta,
+/// cuántas se descartaron por venir duplicadas (ya existentes o repetidas dentro del mismo
+/// archivo) y qué materiales nuevos se crearon en el catálogo al vuelo.</summary>
+public class ImportarMovimientosResultDTO
+{
+    public int TotalFilas { get; set; }
+    public int Importados { get; set; }
+    public int Duplicados { get; set; }
+    public int MaterialesCreados { get; set; }
+    public List<string> Errores { get; set; } = [];
 }

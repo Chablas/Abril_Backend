@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PetsFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -53,6 +54,15 @@ public class PetsController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("siguiente-codigo")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> GetSiguienteCodigo()
+    {
+        try { return Ok(new { codigo = await _service.ObtenerSiguienteCodigoAbrilAsync() }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetSiguienteCodigo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost]
     [RequireFeature("ssoma.gestion.pets")]
     public async Task<IActionResult> Crear([FromBody] CrearPetRequest request)
@@ -69,6 +79,28 @@ public class PetsController : ControllerBase
         try { await _service.ActualizarAsync(id, request); return NoContent(); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Actualizar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // Borrado REAL (no Desactivar): solo procede si nada lo referencia (OPT,
+    // Accidentes/Incidentes) — si está en uso, el service tira 409 pidiendo Desactivar.
+    [HttpDelete("{id:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Eliminar(int id)
+    {
+        try { await _service.EliminarAsync(id); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Eliminar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // Clona un PETS existente (pasos, responsabilidades, secciones narrativas y
+    // catálogo) como borrador nuevo, inactivo por defecto, para partir de él.
+    [HttpPost("{id:int}/duplicar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> Duplicar(int id)
+    {
+        try { return StatusCode(201, new { id = await _service.DuplicarAsync(id) }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.Duplicar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpPost("{id:int}/pasos")]
@@ -105,6 +137,15 @@ public class PetsController : ControllerBase
         try { await _service.ReordenarPasosAsync(id, request); return NoContent(); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ReordenarPasos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("{id:int}/pasos/{pasoId:int}/nivel")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> CambiarNivelPaso(int id, int pasoId, [FromBody] CambiarNivelPasoRequest request)
+    {
+        try { await _service.CambiarNivelPasoAsync(id, pasoId, request.NuevoParentId); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.CambiarNivelPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     // Sube un .docx de un PETS ya existente y devuelve una vista previa de los pasos
@@ -152,11 +193,29 @@ public class PetsController : ControllerBase
         try
         {
             using var stream = file.OpenReadStream();
-            var url = await _service.SubirImagenPasoAsync(id, pasoId, stream, file.FileName);
-            return Ok(new { imagenUrl = url });
+            var (imagenId, url) = await _service.SubirImagenPasoAsync(id, pasoId, stream, file.FileName);
+            return Ok(new { id = imagenId, imagenUrl = url });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.SubirImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpDelete("{id:int}/pasos/{pasoId:int}/imagen/{imagenId:int}")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> EliminarImagenPaso(int id, int pasoId, int imagenId)
+    {
+        try { await _service.EliminarImagenPasoAsync(id, pasoId, imagenId); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.EliminarImagenPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPut("{id:int}/pasos/{pasoId:int}/categoria")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ActualizarCategoriaPaso(int id, int pasoId, [FromBody] ActualizarCategoriaPasoRequest request)
+    {
+        try { await _service.ActualizarCategoriaPasoAsync(id, pasoId, request.Categoria); return NoContent(); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ActualizarCategoriaPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     // ── Secciones de texto único (Introducción / Alcance / Objetivo / Definiciones / Restricciones) ──
@@ -298,5 +357,84 @@ public class PetsController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // ── Versionado y aprobación ──────────────────────────────────────────────
+
+    // Cualquier prevencionista/coordinador SSOMA puede editar el PETS, pero solo
+    // el Jefe SSOMA (rol 9) puede aprobar la publicación de una versión oficial —
+    // ver Roles.AdministradorSsoma.
+    [HttpPost("{id:int}/versiones/aprobar")]
+    [RequireFeature("ssoma.gestion.pets")]
+    [Authorize(Roles = Roles.AdministradorSsoma)]
+    public async Task<IActionResult> AprobarVersion(int id, [FromBody] AprobarVersionRequest request)
+    {
+        try
+        {
+            var aprobadoPorId = int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+            var version = await _service.AprobarVersionAsync(id, request.Motivo, aprobadoPorId, request.AprobadoPorNombre);
+            return Ok(version);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.AprobarVersion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/versiones")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> GetVersiones(int id)
+    {
+        try { return Ok(await _service.GetVersionesAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetVersiones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/versiones/{numero:int}/pdf")]
+    [RequireFeature("ssoma.gestion.pets")]
+    public async Task<IActionResult> ExportarPdfVersion(int id, int numero)
+    {
+        try
+        {
+            var bytes = await _service.ExportarPdfVersionAsync(id, numero);
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdfVersion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    // ── Biblioteca pública (para el QR único) ───────────────────────────────
+    // Sin [RequireFeature] ni token: la escanea cualquier trabajador en campo.
+    // Solo expone PETS activos y ya aprobados (con versión vigente > 0) — un
+    // borrador nunca es visible por acá.
+
+    [HttpGet("publico")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetListaPublica()
+    {
+        try
+        {
+            var lista = await _service.GetListAsync();
+            var publicos = lista
+                .Where(p => p.Activo && p.EstadoRevision == "aprobado" && p.VersionVigente > 0)
+                .Select(p => new { p.Id, p.Nombre, p.Codigo, p.VersionVigente });
+            return Ok(publicos);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.GetListaPublica"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("publico/{id:int}/pdf")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ExportarPdfPublico(int id)
+    {
+        try
+        {
+            var pet = await _service.GetDetalleAsync(id);
+            if (!pet.Activo || pet.EstadoRevision != "aprobado" || pet.VersionVigente <= 0)
+                return NotFound(new { message = "Este PETS no tiene una versión aprobada disponible." });
+
+            var bytes = await _service.ExportarPdfVersionAsync(id, pet.VersionVigente);
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PetsController.ExportarPdfPublico"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 }

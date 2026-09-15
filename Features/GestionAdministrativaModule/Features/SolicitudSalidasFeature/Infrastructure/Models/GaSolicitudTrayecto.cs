@@ -11,7 +11,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public int SolicitudId { get; set; }
         /// <summary>Orden secuencial dentro de la solicitud (0-based).</summary>
         public int Orden { get; set; }
-        public TimeOnly HoraSalida { get; set; }
+        /// <summary>Null cuando el motivo del trayecto tiene <c>pide_horas_lugares = false</c>:
+        /// esas solicitudes no declaran horario (ver <see cref="GaMotivoSalida.PideHorasLugares"/>).</summary>
+        public TimeOnly? HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
         public int? MotivoId { get; set; }
         public string? MotivoLibre { get; set; }

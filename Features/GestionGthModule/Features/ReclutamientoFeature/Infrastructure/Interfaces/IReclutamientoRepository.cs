@@ -156,12 +156,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task SetMultitest(int candidatoId, bool realizado, int? userId);
 
         /// <summary>
-        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS. Valida los requisitos del
-        /// paso: Multitest marcado en todos los candidatos aprobados, todos sus formularios del
-        /// postulante ya revisados (aprobados o rechazados) y al menos uno aprobado. Idempotente si
-        /// ya está en Entrevistas o más adelante. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 400 si falta algún
-        /// requisito y 404 si el requerimiento no existe. Devuelve el estado resultante.
+        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS. Basta con un candidato
+        /// listo —formulario del postulante aprobado y Multitest marcado, sin resultado cerrado—:
+        /// no espera a que se decidan los formularios del resto, que se suman a las entrevistas
+        /// cuando cumplan lo mismo. Idempotente si ya está en Entrevistas o más adelante. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 400 si no hay ningún
+        /// candidato listo y 404 si el requerimiento no existe. Devuelve el estado resultante.
         /// </summary>
         Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
 
@@ -195,12 +195,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
 
         /// <summary>
-        /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO: crea o
-        /// actualiza su única fila vigente en <c>gth_entrevista</c> y resuelve el correo del
-        /// postulante al que se envía la invitación. Lanza
+        /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO y el
+        /// Multitest marcado: crea o actualiza su única fila vigente en <c>gth_entrevista</c> y
+        /// resuelve el correo del postulante al que se envía la invitación. Lanza
         /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el candidato no
-        /// existe y 400 si su formulario no está aprobado, si el lugar no es válido o si no tiene
-        /// correo. Devuelve el contexto para armar el correo.
+        /// existe y 400 si su formulario no está aprobado, si le falta el Multitest (solo al
+        /// citarlo por primera vez), si el lugar no es válido o si no tiene correo. Devuelve el
+        /// contexto para armar el correo.
         /// </summary>
         Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
             int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId,

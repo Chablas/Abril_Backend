@@ -249,17 +249,5 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.BuscarCie10"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
-
-        [HttpDelete("descansos/{id:int}")]
-        public async Task<IActionResult> Delete(int id)
-        {
-            try
-            {
-                await _service.Delete(id);
-                return Ok(new { message = "Descanso médico eliminado exitosamente." });
-            }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
-        }
     }
 }

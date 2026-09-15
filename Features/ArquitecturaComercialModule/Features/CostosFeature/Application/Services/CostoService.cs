@@ -27,12 +27,14 @@ public class CostoService : ICostoService
         return matriz;
     }
 
-    public Task UpsertRegistro(UpsertCostoRegistroDTO body, string? creadoPor)
+    public async Task UpsertRegistro(UpsertCostoRegistroDTO body, string? creadoPor)
     {
         ValidarPartida(body.Partida);
         if (body.Semana < 1 || body.Semana > 6) throw new AbrilException("Semana inválida.", 400);
         if (body.Monto < 0) throw new AbrilException("El monto no puede ser negativo.", 400);
-        return _repository.UpsertRegistro(body, creadoPor);
+        if (await _repository.EstaPeriodoCerrado(body.ProyectoId, body.Anio, body.Mes))
+            throw new AbrilException("Este periodo ya está cerrado y no se puede editar. Reábrelo primero si necesitas corregirlo.", 409);
+        await _repository.UpsertRegistro(body, creadoPor);
     }
 
     public Task UpsertProyeccion(UpsertCostoProyeccionDTO body, string? creadoPor)
@@ -44,6 +46,8 @@ public class CostoService : ICostoService
 
     public Task<CostoDashboardDTO> GetDashboard(int anio, int mes) => _repository.GetDashboard(anio, mes);
 
+    public Task<List<CostoDesviacionResumenItemDTO>> GetResumenDesviacion() => _repository.GetResumenDesviacion();
+
     public Task<CostoEvolucionDTO> GetEvolucion(int anioDesde, int mesDesde, int cantidadMeses)
     {
         if (cantidadMeses < 1 || cantidadMeses > 24) cantidadMeses = 12;
@@ -54,5 +58,38 @@ public class CostoService : ICostoService
     {
         if (body.Monto < 0) throw new AbrilException("El monto no puede ser negativo.", 400);
         return _repository.UpsertMeta(body, creadoPor);
+    }
+
+    public async Task<CostoPresupuestoResumenDTO> GetPresupuesto(int proyectoId)
+    {
+        var resumen = await _repository.GetPresupuesto(proyectoId);
+        if (resumen == null) throw new AbrilException("No se encontró el proyecto.", 404);
+        return resumen;
+    }
+
+    public Task UpsertPresupuesto(UpsertCostoPresupuestoDTO body, string? creadoPor)
+    {
+        ValidarPartida(body.Partida);
+        if (body.Monto < 0) throw new AbrilException("El monto no puede ser negativo.", 400);
+        return _repository.UpsertPresupuesto(body, creadoPor);
+    }
+
+    private static void ValidarPeriodo(CostoCierreDTO body)
+    {
+        if (body.Mes < 1 || body.Mes > 12) throw new AbrilException("Mes inválido.", 400);
+        if (body.Anio < 2020 || body.Anio > 2100) throw new AbrilException("Año inválido.", 400);
+    }
+
+    public Task CerrarPeriodo(CostoCierreDTO body, string? cerradoPor)
+    {
+        ValidarPeriodo(body);
+        return _repository.CerrarPeriodo(body, cerradoPor);
+    }
+
+    public async Task ReabrirPeriodo(CostoCierreDTO body)
+    {
+        ValidarPeriodo(body);
+        if (!await _repository.ReabrirPeriodo(body))
+            throw new AbrilException("Ese periodo no estaba cerrado.", 404);
     }
 }

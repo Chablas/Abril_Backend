@@ -133,4 +133,27 @@ public class OptController : ControllerBase
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
+
+    // Guarda un borrador ya existente, o lo finaliza (request.Finalizar = true) — solo
+    // se puede editar mientras siga en estado "borrador"; una vez finalizada, el
+    // repositorio rechaza el cambio.
+    [HttpPut("{id:int}")]
+    [RequireFeature("ssoma.gestion.opt.nuevo")]
+    public async Task<IActionResult> Actualizar(int id, [FromBody] CrearOptRequest request)
+    {
+        try
+        {
+            await _service.ActualizarOptAsync(id, request, GetUserId());
+            return NoContent();
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en OptController.Actualizar");
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
 }

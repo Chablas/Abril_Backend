@@ -16,6 +16,18 @@
         public string TipoRequerimiento { get; set; } = string.Empty;
 
         /// <summary>
+        /// Código estable del tipo (<c>NUEVO</c> / <c>REEMPLAZO</c>): el que decide cómo se pinta el
+        /// tipo en el modal. <see cref="TipoRequerimiento"/> es el nombre, que se puede renombrar.
+        /// </summary>
+        public string TipoRequerimientoCodigo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Trabajador al que reemplaza la vacante. Null en las nuevas y en los reemplazos
+        /// registrados antes de que se pidiera el dato.
+        /// </summary>
+        public string? TrabajadorReemplazado { get; set; }
+
+        /// <summary>
         /// true = ingreso directo <b>FFT</b>. La línea de tiempo de <see cref="Fases"/> ya viene sin
         /// las fases que este flujo no recorre; esto es para que la pantalla pueda decir por qué el
         /// proceso es más corto.
@@ -25,7 +37,24 @@
         /// <summary>Nombre del candidato FFT que nombró el solicitante. Null cuando no es FFT.</summary>
         public string? FftCandidatoNombre { get; set; }
 
+        /// <summary>
+        /// Documento del candidato FFT como se muestra («DNI 12345678»). Null cuando no es FFT o
+        /// cuando es un FFT anterior a que se pidiera el dato.
+        /// </summary>
+        public string? FftDocumentoTexto { get; set; }
+
+        /// <summary>Correo personal del candidato FFT que declaró el solicitante. Null cuando no es FFT.</summary>
+        public string? FftCandidatoCorreo { get; set; }
+
         public string? Area { get; set; }
+
+        /// <summary>
+        /// Área a la que entra quien ocupe el puesto (<c>puesto.area_destino_scope_id</c>). Null
+        /// cuando el puesto no la tiene —los de obra—: ahí el contratado entra al área del
+        /// solicitante.
+        /// </summary>
+        public string? AreaDestino { get; set; }
+
         public string? ProyectoObra { get; set; }
         public string? Justificacion { get; set; }
 
@@ -37,6 +66,24 @@
 
         /// <summary>Fecha de envío (created) en hora Perú (UTC-5).</summary>
         public DateTime Enviado { get; set; }
+
+        /// <summary>
+        /// Quién registró la solicitud. La lista es del área y no del usuario, así que el
+        /// seguimiento tiene que decir de quién es el pedido. Null si no tiene ficha de persona.
+        /// </summary>
+        public string? Solicitante { get; set; }
+
+        /// <summary>
+        /// Responsable de GTH que lleva el proceso (el reclutador asignado). Null mientras GTH no
+        /// lo asigne, que antes de la aprobación es siempre.
+        /// </summary>
+        public string? ResponsableGth { get; set; }
+
+        /// <summary>
+        /// Las otras vacantes que se pidieron en la misma solicitud: comparten la justificación y el
+        /// sustento. Vacía cuando la solicitud trajo una sola.
+        /// </summary>
+        public List<VacanteDeLaSolicitudDto> OtrasVacantes { get; set; } = new();
 
         // ── Estado actual ────────────────────────────────────────────────
         public string EstadoCodigo { get; set; } = string.Empty;
@@ -85,5 +132,13 @@
 
         /// <summary>Estado visual de la fase respecto a la fase actual del requerimiento: "done" | "current" | "pending".</summary>
         public string Estado { get; set; } = "pending";
+    }
+
+    /// <summary>Otra vacante de la misma solicitud, para nombrarla en el seguimiento.</summary>
+    public class VacanteDeLaSolicitudDto
+    {
+        public int RequerimientoId { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Puesto { get; set; } = string.Empty;
     }
 }

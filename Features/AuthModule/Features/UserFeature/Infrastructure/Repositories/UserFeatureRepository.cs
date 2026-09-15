@@ -1,6 +1,8 @@
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.AuthModule.Shared.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -169,6 +171,90 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                 WHERE u.state = true
                 ORDER BY c.nombre
                 """).ToListAsync();
+        }
+
+        /// <summary>
+        /// Cabecera, roles y funcionalidades del usuario en un solo viaje a la base. El acceso se
+        /// lee igual que al iniciar sesión (<c>AuthRepository.GetAllowedFeaturesAsync</c>): solo
+        /// user_role y roles vivos. Las funcionalidades llegan como una fila por funcionalidad y
+        /// rol que la da, y se juntan acá para que cada una salga una vez con todos sus roles.
+        /// </summary>
+        public async Task<UserDetailDto?> GetDetail(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            const string sql = """
+                SELECT u.user_id,
+                       u.email,
+                       u.active,
+                       p.full_name AS display_name,
+                       p.document_identity_code,
+                       CASE WHEN EXISTS (SELECT 1 FROM contractor_user cu
+                                         WHERE cu.user_id = u.user_id AND cu.state) THEN 'CONTRATISTA'
+                            WHEN p.person_id IS NOT NULL THEN 'PERSONA'
+                            ELSE 'COLABORADOR' END AS user_type
+                FROM app_user u
+                LEFT JOIN LATERAL (
+                    SELECT pe.person_id, pe.full_name, pe.document_identity_code
+                    FROM person pe
+                    WHERE pe.user_id = u.user_id AND pe.state
+                    ORDER BY pe.person_id DESC
+                    LIMIT 1
+                ) p ON true
+                WHERE u.user_id = @userId AND u.state;
+
+                SELECT r.role_id,
+                       r.role_description,
+                       (SELECT COUNT(*)::int
+                          FROM user_role x
+                          JOIN app_user xu ON xu.user_id = x.user_id AND xu.state
+                         WHERE x.role_id = r.role_id AND x.state) AS users_count,
+                       (SELECT COUNT(*)::int
+                          FROM role_feature x
+                         WHERE x.role_id = r.role_id) AS features_count
+                FROM user_role ur
+                JOIN role r ON r.role_id = ur.role_id AND r.state
+                WHERE ur.user_id = @userId
+                  AND ur.state
+                ORDER BY r.role_description;
+
+                SELECT f.feature_id,
+                       f.feature_key,
+                       f.module_id,
+                       m.module_name,
+                       r.role_id,
+                       r.role_description
+                FROM user_role ur
+                JOIN role r          ON r.role_id     = ur.role_id AND r.state
+                JOIN role_feature rf ON rf.role_id    = r.role_id
+                JOIN feature f       ON f.feature_id  = rf.feature_id
+                LEFT JOIN module m   ON m.module_id   = f.module_id
+                WHERE ur.user_id = @userId
+                  AND ur.state
+                ORDER BY m.module_name NULLS LAST, f.feature_key, r.role_description;
+                """;
+
+            var conn = ctx.Database.GetDbConnection();
+            await conn.OpenAsync();
+            using var multi = await conn.QueryMultipleAsync(sql, new { userId });
+
+            var detail = await multi.ReadSingleOrDefaultAsync<UserDetailDto>();
+            if (detail == null) return null;
+
+            detail.Roles    = (await multi.ReadAsync<AccessRoleDto>()).ToList();
+            detail.Features = (await multi.ReadAsync<FeatureRoleRow>())
+                .GroupBy(r => r.FeatureId)
+                .Select(g => new AccessFeatureDto
+                {
+                    FeatureId  = g.Key,
+                    FeatureKey = g.First().FeatureKey,
+                    ModuleId   = g.First().ModuleId,
+                    ModuleName = g.First().ModuleName,
+                    ViaRoles   = g.Select(r => new RoleRefDto { RoleId = r.RoleId, RoleDescription = r.RoleDescription }).ToList(),
+                })
+                .ToList();
+
+            return detail;
         }
 
         public async Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser()
@@ -521,6 +607,17 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             user.UpdatedUserId = updatedUserId;
             await ctx.SaveChangesAsync();
         }
+    }
+
+    /// <summary>Fila del detalle de usuario: una funcionalidad y uno de los roles que se la dan.</summary>
+    internal class FeatureRoleRow
+    {
+        public int FeatureId { get; set; }
+        public string FeatureKey { get; set; } = null!;
+        public int? ModuleId { get; set; }
+        public string? ModuleName { get; set; }
+        public int RoleId { get; set; }
+        public string RoleDescription { get; set; } = null!;
     }
 
     internal class UserBaseRow

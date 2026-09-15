@@ -347,6 +347,40 @@ public class AccidenteIncidenteController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error delete medida {AccionId}", accionId); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
+    // ── Antecedentes de eventos ──────────────────────────────────────────────
+
+    [HttpGet("antecedentes")]
+    public async Task<IActionResult> BuscarAntecedentes(
+        [FromQuery] string palabraClave,
+        [FromQuery] int? proyectoId,
+        [FromQuery] int? tipoId,
+        [FromQuery] DateTime? fechaDesde,
+        [FromQuery] DateTime? fechaHasta,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (string.IsNullOrWhiteSpace(palabraClave))
+            return StatusCode(400, new { message = "Debe ingresar una palabra clave para buscar." });
+
+        try { return Ok(await _service.BuscarAntecedentesAsync(palabraClave, proyectoId, tipoId, fechaDesde, fechaHasta, page, pageSize)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error buscando antecedentes de eventos"); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("antecedentes/pdf")]
+    public async Task<IActionResult> ExportarAntecedentesPdf([FromBody] ExportarAntecedentesRequest req)
+    {
+        try
+        {
+            var bytes = await _service.GenerarPdfAntecedentesAsync(req);
+            var fileName = $"AntecedentesSSOMA_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+            Response.Headers.Append("Content-Disposition", $"inline; filename=\"{fileName}\"");
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error generando PDF de antecedentes"); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
     private int? ObtenerUsuarioId()
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

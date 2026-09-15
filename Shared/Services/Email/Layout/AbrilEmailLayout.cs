@@ -88,16 +88,18 @@ namespace Abril_Backend.Shared.Services.Email.Layout
         /// </summary>
         protected readonly string Pie;
 
+        private readonly string _emails;
         private readonly string _iconos;
         private readonly string _logoUrl;
 
         public AbrilEmailLayout(string assetsUrl, string pie)
         {
             var baseUrl = (assetsUrl ?? "").TrimEnd('/');
-            _iconos  = $"{baseUrl}/images/emails/icons";
+            _emails  = $"{baseUrl}/images/emails";
+            _iconos  = $"{_emails}/icons";
             // images/emails/abril-logo.png y NO images/abril-logo.png (el de la app): ver la nota
             // del logo en el resumen de la clase.
-            _logoUrl = $"{baseUrl}/images/emails/abril-logo.png";
+            _logoUrl = $"{_emails}/abril-logo.png";
             Pie      = pie ?? string.Empty;
         }
 
@@ -139,8 +141,12 @@ namespace Abril_Backend.Shared.Services.Email.Layout
         /// <summary>Celda de una tabla. El color por defecto es el del texto de valor.</summary>
         public sealed record Celda(string Html, bool Negrita = false, string? Color = null, bool NoWrap = false);
 
-        /// <summary>Color de una franja de estado (el bloque con ícono redondo y fondo de color).</summary>
-        public enum Tono { Ambar, Verde, Rojo, Info }
+        /// <summary>
+        /// Color de una franja de estado (el bloque con ícono redondo y fondo de color). El tono
+        /// tiene que empatar con el aro del ícono que se le pase a <see cref="Franja"/>: ese aro
+        /// viene pintado dentro del PNG y no hay forma de recolorearlo desde el HTML.
+        /// </summary>
+        public enum Tono { Ambar, Verde, Rojo, Info, Azul }
 
         /// <summary>
         /// Cabecera del correo. <paramref name="Bajada"/> es UNA línea con lo que el destinatario
@@ -329,6 +335,10 @@ namespace Abril_Backend.Shared.Services.Email.Layout
         /// <summary>
         /// Franja de estado: ícono redondo de color y un recuadro con el resultado en una línea o
         /// dos. Es para el desenlace (aprobado, rechazado, observado), no para explicar el proceso.
+        ///
+        /// La única excepción es el tono azul, que lleva la indicación puntual que el destinatario
+        /// tiene que cumplir (presentarse tal día en tal sitio) en los correos que salen a alguien
+        /// que no entra a la app. No es la puerta para volver a meter el párrafo del flujo.
         /// </summary>
         public string Franja(string icono, Tono tono, string htmlTexto)
         {
@@ -337,6 +347,7 @@ namespace Abril_Backend.Shared.Services.Email.Layout
                 Tono.Verde => ("#F0FBF5", VerdeOk),
                 Tono.Rojo  => ("#FEF2F2", RojoNo),
                 Tono.Info  => ("#EEF7F3", "#115E4A"),
+                Tono.Azul  => ("#EEF4FA", "#0B5C97"),
                 _          => ("#FFF7E6", "#92600A"),
             };
 
@@ -404,6 +415,23 @@ namespace Abril_Backend.Shared.Services.Email.Layout
         public string Parrafo(string htmlTexto) => $@"
 <tr>
 <td style='padding:18px 34px 0 34px;font-family:{Fuente};font-size:14px;line-height:21px;color:{TextoValor}'>{htmlTexto}</td>
+</tr>";
+
+        /// <summary>
+        /// Imagen a todo el ancho útil de la tarjeta, como bloque propio. <paramref name="archivo"/>
+        /// es el nombre dentro de <c>images/emails/</c> —mismo criterio que los íconos—: el origen
+        /// lo pone el layout y no el llamador, que ni siquiera conoce el assetsUrl.
+        ///
+        /// Es para material que ya viene maquetado como imagen y no se puede rearmar en HTML (el
+        /// afiche de recomendaciones previas al EMO), no para reemplazar por una captura texto que
+        /// se puede escribir: un cliente con las imágenes bloqueadas se quedaría sin ese contenido.
+        ///
+        /// Por eso acá el <c>alt</c> SÍ lleva texto, al revés que el de los íconos decorativos: es
+        /// lo único que queda si el cliente no baja la imagen.
+        /// </summary>
+        public string Imagen(string archivo, string alt) => $@"
+<tr>
+<td align='center' style='padding:22px 30px 0 30px'><img src='{_emails}/{archivo}' width='580' alt='{Esc(alt)}' style='display:block;width:100%;max-width:580px;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none;border-radius:14px' /></td>
 </tr>";
 
         // ── Utilidades ────────────────────────────────────────────────────────

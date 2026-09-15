@@ -15,7 +15,17 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
 public class PresupuestoMaterialesController : ControllerBase
 {
     private readonly IPresupuestoService _service;
-    public PresupuestoMaterialesController(IPresupuestoService service) => _service = service;
+    private readonly IPresupuestoResumenExportService _exportService;
+    private readonly ILogger<PresupuestoMaterialesController> _logger;
+    public PresupuestoMaterialesController(
+        IPresupuestoService service,
+        IPresupuestoResumenExportService exportService,
+        ILogger<PresupuestoMaterialesController> logger)
+    {
+        _service = service;
+        _exportService = exportService;
+        _logger = logger;
+    }
 
     private int? UserId => int.TryParse(
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
@@ -33,7 +43,11 @@ public class PresupuestoMaterialesController : ControllerBase
             return Ok(resultado);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch (Exception)         { return StatusCode(500, new { message = "Error al generar presupuesto." }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al generar presupuesto del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al generar presupuesto." });
+        }
     }
 
     /// <summary>Lista todos los presupuestos generados para un proyecto (versiones).</summary>
@@ -41,7 +55,11 @@ public class PresupuestoMaterialesController : ControllerBase
     public async Task<IActionResult> ListarPorProyecto(int projectId)
     {
         try { return Ok(await _service.ObtenerPorProyectoAsync(projectId)); }
-        catch (Exception) { return StatusCode(500, new { message = "Error al obtener presupuestos." }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener presupuestos del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener presupuestos." });
+        }
     }
 
     /// <summary>Devuelve el detalle completo de un presupuesto con todas sus líneas por tipo.</summary>
@@ -89,6 +107,56 @@ public class PresupuestoMaterialesController : ControllerBase
         catch (Exception)         { return StatusCode(500, new { message = "Error al actualizar la cantidad." }); }
     }
 
+    /// <summary>Agrega una família nueva (o reutiliza una existente por nombre) directo como línea
+    /// manual del presupuesto — para materiales que todavía no están en el catálogo, sin tener que
+    /// ir primero a la pantalla de Catálogo.</summary>
+    [HttpPost("{presupuestoId}/familias-manuales")]
+    public async Task<IActionResult> AgregarFamiliaManual(int presupuestoId, [FromBody] AgregarFamiliaManualDto dto)
+    {
+        try
+        {
+            var resultado = await _service.AgregarFamiliaManualAsync(presupuestoId, dto);
+            return Ok(resultado);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al agregar família manual al presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al agregar la família." });
+        }
+    }
+
+    /// <summary>Elimina una versión de presupuesto en BORRADOR (todas sus líneas). No se puede
+    /// eliminar una versión ya APROBADA.</summary>
+    [HttpDelete("{presupuestoId}")]
+    public async Task<IActionResult> Eliminar(int presupuestoId)
+    {
+        try
+        {
+            await _service.EliminarAsync(presupuestoId);
+            return Ok(new { message = "Presupuesto eliminado." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al eliminar presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al eliminar el presupuesto." });
+        }
+    }
+
+    /// <summary>Vista previa de a quiénes se les va a avisar al aprobar — mismo resolver que usa el
+    /// envío real, para mostrarlo antes de confirmar.</summary>
+    [HttpGet("{presupuestoId}/destinatarios-aprobacion")]
+    public async Task<IActionResult> ObtenerDestinatariosAprobacion(int presupuestoId)
+    {
+        try { return Ok(await _service.ObtenerDestinatariosAprobacionAsync(presupuestoId)); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener destinatarios de aprobación del presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al obtener los destinatarios." });
+        }
+    }
+
     /// <summary>Aprueba el presupuesto (cambia estado de BORRADOR a APROBADO).</summary>
     [HttpPost("{presupuestoId}/aprobar")]
     public async Task<IActionResult> Aprobar(int presupuestoId)
@@ -99,5 +167,41 @@ public class PresupuestoMaterialesController : ControllerBase
             return Ok(new { estado });
         }
         catch (Exception) { return StatusCode(500, new { message = "Error al aprobar presupuesto." }); }
+    }
+
+    /// <summary>Resumen de recursos (Materiales + Personal + Vigilancia + Servicios fijos + Kits) del
+    /// presupuesto vigente del proyecto, en el mismo formato "Desagregado de Recursos" que usa Costos.</summary>
+    [HttpGet("proyectos/{projectId}/resumen-recursos")]
+    public async Task<IActionResult> ObtenerResumenRecursos(int projectId)
+    {
+        try
+        {
+            var resumen = await _exportService.ObtenerResumenAsync(projectId);
+            if (resumen is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return Ok(resumen);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener el resumen de recursos del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener el resumen de recursos." });
+        }
+    }
+
+    /// <summary>Exporta el resumen de recursos del proyecto a Excel (.xlsx).</summary>
+    [HttpGet("proyectos/{projectId}/resumen-recursos/exportar-excel")]
+    public async Task<IActionResult> ExportarResumenRecursosExcel(int projectId)
+    {
+        try
+        {
+            var bytes = await _exportService.ExportarExcelAsync(projectId);
+            if (bytes is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"Desagregado_Recursos_SSOMA_Proyecto_{projectId}.xlsx");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al exportar el resumen de recursos del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al exportar el resumen a Excel." });
+        }
     }
 }

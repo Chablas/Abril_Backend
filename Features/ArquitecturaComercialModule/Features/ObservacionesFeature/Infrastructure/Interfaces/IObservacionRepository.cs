@@ -14,7 +14,7 @@ public interface IObservacionRepository
     Task<AcObservacionFoto> AgregarFoto(int observacionId, string tipo, string url, int orden);
     Task<AcObservacionFoto?> GetFotoById(int fotoId);
     Task ActualizarFoto(int fotoId, string url);
-    Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId);
+    Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId, DateTime? fechaLevantamiento);
     Task<int> GetProximoCorrelativo(string prefijoProyecto, int anio);
     Task<string> GetProyectoAbbreviation(int proyectoId);
     Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body);

@@ -39,6 +39,9 @@ public interface IConsumoRepository
     Task<List<MaterialPendienteDto>> ObtenerPendientesRevisionAsync(int projectId);
     Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesRevisionGlobalAsync();
     Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync();
+    /// <summary>Todas las líneas activas de todos los proyectos, en cualquier estado (pendiente,
+    /// autorizado, rechazado) — vista consolidada para filtrar por SSOMA sí/no con cantidades y precios.</summary>
+    Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync();
     Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId);
     Task ActualizarRevisionAsync(long lineaId, string decision, int? itemIdConfirmado);
     Task<int> AsignarHitosPorFechaAsync(int projectId);

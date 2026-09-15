@@ -261,6 +261,36 @@ public class ConsumoRepository : IConsumoRepository
             .ToListAsync();
     }
 
+    public async Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => l.Activo)
+            .Include(l => l.Item).ThenInclude(i => i!.Familia)
+            .Include(l => l.Proyecto)
+            .OrderByDescending(l => l.FechaGuia)
+            .Select(l => new MaterialGlobalDto
+            {
+                LineaId = l.Id,
+                ProjectId = l.ProjectId,
+                ProjectDescription = l.Proyecto.ProjectDescription ?? string.Empty,
+                RecursoCrudo = l.RecursoCrudo,
+                ItemId = l.ItemId,
+                NombreItem = l.Item != null ? l.Item.Nombre : null,
+                FamiliaId = l.Item != null ? l.Item.Familia.Id : (int?)null,
+                NombreFamilia = l.Item != null ? l.Item.Familia.Nombre : null,
+                TipoId = l.Item != null ? l.Item.Familia.TipoId : (int?)null,
+                NombreTipo = l.Item != null ? l.Item.Familia.Tipo.Nombre : null,
+                Cantidad = l.Cantidad,
+                PrecioUnitario = l.PrecioUnitario,
+                PrecioTotal = l.PrecioTotal,
+                PerteneceSsoma = l.PerteneceSsoma,
+                EstadoRevision = l.EstadoRevision,
+                FechaGuia = l.FechaGuia,
+            })
+            .ToListAsync();
+    }
+
     public async Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId)
     {
         using var ctx = _factory.CreateDbContext();

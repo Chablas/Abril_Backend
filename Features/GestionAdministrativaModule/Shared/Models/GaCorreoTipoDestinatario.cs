@@ -5,8 +5,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
     /// <summary>
     /// Catálogo de tipos de destinatario para las reglas de correos (<see cref="GaCorreoRegla"/>):
-    /// TRABAJADOR (un worker concreto), AREA (todos los miembros de un nodo area_scope) y
-    /// CORREO (una dirección escrita a mano, ej. un grupo de correos como gthnm@abril.pe).
+    /// TRABAJADOR (un worker concreto), AREA (todos los miembros de un nodo area_scope),
+    /// CORREO (una dirección escrita a mano, ej. un grupo de correos como gthnm@abril.pe) y
+    /// ROL (todos los que hoy tengan ese rol: se resuelve por cargo, no por persona).
     /// </summary>
     [Table("ga_correo_tipo_destinatario")]
     public class GaCorreoTipoDestinatario
@@ -15,7 +16,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("id")]
         public int Id { get; set; }
 
-        /// <summary>Clave estable del tipo (TRABAJADOR, AREA, CORREO).</summary>
+        /// <summary>Clave estable del tipo (TRABAJADOR, AREA, CORREO, ROL).</summary>
         [Column("codigo")]
         public string Codigo { get; set; } = string.Empty;
 

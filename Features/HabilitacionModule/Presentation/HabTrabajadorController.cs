@@ -51,6 +51,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
         }
 
+        /// <summary>Widget "Retiros Automáticos" junto a "Interconsultas Pendientes": trabajadores
+        /// retirados por el cron de documentación vencida en los últimos <paramref name="dias"/> días.</summary>
+        [HttpGet("retiros-automaticos-recientes")]
+        public async Task<IActionResult> GetRetirosAutomaticosRecientes([FromQuery] int dias = 7)
+        {
+            try
+            {
+                return Ok(await _repo.GetRetirosAutomaticosRecientesAsync(dias));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en HabTrabajadorController.GetRetirosAutomaticosRecientes");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetWorkers(
             [FromQuery] string? search,
@@ -278,12 +295,19 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.InicializarEntregables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Puede saltarse el bloqueo de reingreso por documentación pendiente de un
+        /// retiro automático (nunca aplica a sesiones de contratista, que no cargan estos roles
+        /// internos): Administrador (de obra/UDP) o Coordinador SSOMA de Abril.</summary>
+        private static readonly string[] RolesOverrideReingreso = [Roles.AdministradorUdp, Roles.CoordinadorSsoma];
+
         [HttpPatch("{workerId:int}/reingreso")]
         public async Task<IActionResult> Reingreso(int workerId, [FromBody] WorkerReingresoDto dto)
         {
             try
             {
-                await _repo.ReingresoAsync(workerId, dto);
+                var esOverrideAutorizado = User.FindAll(ClaimTypes.Role)
+                    .Any(c => RolesOverrideReingreso.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
+                await _repo.ReingresoAsync(workerId, dto, esOverrideAutorizado);
                 return Ok(new { message = "Trabajador reingresado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

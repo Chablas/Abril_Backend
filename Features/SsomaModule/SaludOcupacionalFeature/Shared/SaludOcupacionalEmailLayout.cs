@@ -8,9 +8,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
     /// <c>Shared/Services/Email/Layout/</c>: si hay que tocar cómo se ve un correo se toca allá y
     /// cambian todos los correos brandeados a la vez.
     ///
-    /// No confundir con <see cref="EmoConfirmacionEmailTemplate"/>, que es anterior a que el
-    /// layout subiera a Shared y arma su propio HTML: ese correo se ve igual porque copió las
-    /// mismas medidas y colores, no porque comparta el código.
+    /// Lo usan los dos correos de EMO: <see cref="EmoConfirmacionEmailTemplate"/> y
+    /// <see cref="EmoResultadoEmailTemplate"/>. El de confirmación armó su propio HTML hasta que
+    /// se le pidió el título centrado como el resto: se veía parecido porque había copiado las
+    /// medidas y los colores, pero al copiarlos también se le fue una constante de fuente rota y
+    /// nadie lo notó hasta ahí. Los correos de programación creada y de rechazo de la clínica
+    /// siguen con su HTML propio, sin brandear, en el repositorio.
     /// </summary>
     public sealed class SaludOcupacionalEmailLayout : AbrilEmailLayout
     {

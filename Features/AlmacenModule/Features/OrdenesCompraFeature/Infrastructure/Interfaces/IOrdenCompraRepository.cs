@@ -7,4 +7,5 @@ public interface IOrdenCompraRepository
 {
     Task<AlmacenOrdenCompraListResponseDTO> GetOrdenesCompra(AlmacenOrdenCompraQueryParams query);
     Task<AlmacenOrdenCompra> CreateOrdenCompra(CreateAlmacenOrdenCompraDTO body, string archivoUrl, string archivoNombre, string? subidoPor);
+    Task<AlmacenOrdenCompra> CreateOrdenCompraSinArchivo(CreateAlmacenOrdenCompraDTO body, string? subidoPor);
 }

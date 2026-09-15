@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -30,6 +30,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                     RequiereAdjunto = m.RequiereAdjunto,
                     EsHoraEstimada  = m.EsHoraEstimada,
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
+                    PideHorasLugares = m.PideHorasLugares,
+                    EsReembolsable  = m.EsReembolsable,
                     CreatedAt       = m.CreatedAt,
                 })
                 .ToListAsync();
@@ -57,6 +59,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                 RequiereAdjunto = dto.RequiereAdjunto,
                 EsHoraEstimada  = dto.EsHoraEstimada,
                 RequiereMotivoAdicional = dto.RequiereMotivoAdicional,
+                PideHorasLugares = dto.PideHorasLugares,
+                EsReembolsable  = dto.EsReembolsable,
                 CreatedAt       = DateTimeOffset.UtcNow,
             });
 
@@ -97,6 +101,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
             motivo.RequiereAdjunto = dto.RequiereAdjunto;
             motivo.EsHoraEstimada  = dto.EsHoraEstimada;
             motivo.RequiereMotivoAdicional = dto.RequiereMotivoAdicional;
+            motivo.PideHorasLugares = dto.PideHorasLugares;
+            motivo.EsReembolsable  = dto.EsReembolsable;
             await ctx.SaveChangesAsync();
         }
     }

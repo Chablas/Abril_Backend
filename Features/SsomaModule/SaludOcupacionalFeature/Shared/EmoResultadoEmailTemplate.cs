@@ -107,7 +107,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Shared
             if (esRestricciones)
                 return l.Franja(FranjaRestriccion, AbrilEmailLayout.Tono.Ambar,
                     "<b>Apto con Restricciones.</b> Puede desempeñarse en el puesto respetando las "
-                    + "restricciones indicadas abajo.");
+                    + "restricciones indicadas por el centro de salud.");
 
             return l.Franja(FranjaOk, AbrilEmailLayout.Tono.Verde,
                 "<b>Apto.</b> Sin observaciones para el puesto evaluado.");

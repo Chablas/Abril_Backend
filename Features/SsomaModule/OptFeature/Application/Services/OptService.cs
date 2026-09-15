@@ -54,7 +54,10 @@ public class OptService : IOptService
 
     public async Task<int> CrearOptAsync(CrearOptRequest request, int userId = 0)
     {
-        if (request.FotosAreaBase64.Count < MinimoFotosArea)
+        // Un borrador se puede crear a medio llenar (sin fotos todavía) — el mínimo
+        // solo se exige al finalizar, que es cuando la OPT pasa a ser un registro
+        // oficial de solo lectura.
+        if (request.Finalizar && request.FotosAreaBase64.Count < MinimoFotosArea)
             throw new AbrilException($"Debes adjuntar al menos {MinimoFotosArea} fotos de la actividad observada.", 400);
 
         // 1. Crear OPT sin firmas para obtener el optId real
@@ -102,4 +105,45 @@ public class OptService : IOptService
 
     public Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null)
         => _repo.GetDashboardAsync(proyectoId, anio, empresaIdContratista);
+
+    // Mismo patrón en dos fases que CrearOptAsync (subir a SharePoint necesita el
+    // optId, que ya existe acá) — pero solo sube lo que venga NUEVO en el request:
+    // una firma/foto ya subida en un guardado de borrador anterior no se manda de
+    // nuevo en base64, así que null/vacío significa "no cambió", no "bórrala".
+    public async Task ActualizarOptAsync(int id, CrearOptRequest request, int userId = 0)
+    {
+        string? firmaObservadorUrl = null;
+        if (!string.IsNullOrEmpty(request.FirmaObservadorBase64))
+        {
+            var bytes = Convert.FromBase64String(request.FirmaObservadorBase64);
+            using var stream = new MemoryStream(bytes);
+            firmaObservadorUrl = await _sp.SubirFirmaObservadorAsync(stream, "firma_observador.png", id);
+        }
+
+        var firmasTrabajadorUrls = new Dictionary<int, string>();
+        foreach (var t in request.Trabajadores)
+        {
+            if (!string.IsNullOrEmpty(t.FirmaTrabajadorBase64))
+            {
+                var bytes = Convert.FromBase64String(t.FirmaTrabajadorBase64);
+                using var stream = new MemoryStream(bytes);
+                var url = await _sp.SubirFirmaTrabajadorAsync(
+                    stream, $"firma_trabajador_{t.TrabajadorId}.png", id, t.TrabajadorId);
+                firmasTrabajadorUrls[t.TrabajadorId] = url;
+            }
+        }
+
+        var fotosAreaUrls = new List<string>();
+        for (int j = 0; j < request.FotosAreaBase64.Count; j++)
+        {
+            var base64 = request.FotosAreaBase64[j];
+            var data = base64.Contains(",") ? base64.Split(',')[1] : base64;
+            var bytes2 = Convert.FromBase64String(data);
+            using var stream2 = new MemoryStream(bytes2);
+            var url2 = await _sp.SubirFotoAreaAsync(stream2, $"area_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", id, j);
+            fotosAreaUrls.Add(url2);
+        }
+
+        await _repo.ActualizarOptAsync(id, request, firmaObservadorUrl, firmasTrabajadorUrls, fotosAreaUrls);
+    }
 }

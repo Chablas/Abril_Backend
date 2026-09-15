@@ -15,5 +15,13 @@ namespace Abril_Backend.Shared.Constants
 
         /// <summary>Gestión de Rendiciones: qué planillas de rendición ve el trabajador.</summary>
         public const int Rendiciones = 2;
+
+        /// <summary>
+        /// Consolidados: qué Consolidados del S10 ve el trabajador. Es un tercer alcance y no el de
+        /// Rendiciones porque las dos bandejas son pasos distintos del flujo — en Gestión de
+        /// Rendiciones se revisa la planilla y se adjunta el consolidado, y en Consolidados se
+        /// decide y se firma el reembolso—, así que quién mira cada una se configura aparte.
+        /// </summary>
+        public const int Consolidados = 3;
     }
 }

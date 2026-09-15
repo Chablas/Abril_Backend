@@ -10,9 +10,9 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presentation
 {
     /// <summary>
-    /// "Gestión de Rendiciones": las planillas del alcance del revisor y todo lo que va desde el
-    /// Consolidado del S10 en adelante (adjuntarlo, decidir el reembolso, firmar). El pago es de
-    /// Tesorería y vive en Reembolsos.
+    /// "Gestión de Rendiciones": las planillas del alcance del revisor, su primera revisión y el
+    /// Consolidado del S10 que se les adjunta. Decidir y firmar el reembolso es de Consolidados; el
+    /// pago es de Tesorería y vive en Reembolsos.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/gestion-rendiciones")]
@@ -110,11 +110,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Los correos que saldrían si se toma una de las decisiones de la pantalla sobre la
-        /// selección enviada, con sus destinatarios reales. Lo piden las confirmaciones —tanto las
-        /// de los botones masivos como las del modal de detalle— para nombrar las direcciones en
-        /// vez de prometer un correo genérico. Es POST y no GET porque la selección viaja en el
-        /// cuerpo: puede ser larga y lleva dos listas de ids.
+        /// Los correos que saldrían si se decide la primera revisión de la selección enviada, con
+        /// sus destinatarios reales. Lo piden las confirmaciones —tanto las de los botones masivos
+        /// como las del modal de detalle— para nombrar las direcciones en vez de prometer un correo
+        /// genérico. Es POST y no GET porque la selección viaja en el cuerpo: puede ser larga.
         /// </summary>
         [HttpPost("correo-preview")]
         public async Task<IActionResult> GetCorreoPreview([FromBody] CorreoPreviewRequestDto dto)
@@ -208,31 +207,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             }
         }
 
-        [HttpPatch("reembolso/aprobar")]
-        public Task<IActionResult> AprobarReembolso([FromBody] ReembolsoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso));
-
-        [HttpPatch("reembolso/observar")]
-        public Task<IActionResult> ObservarReembolso([FromBody] ReembolsoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: false, nameof(ObservarReembolso));
-
-        private async Task<IActionResult> DecidirAsync(ReembolsoAccionDto dto, bool aprobar, string accion)
-        {
-            try
-            {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionRendicionController.{Accion}", accion);
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
     }
 }

@@ -9,9 +9,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Presenta
 {
     /// <summary>
     /// Override manual de visibilidad por área. El segmento <c>{ambito}</c> dice de qué bandeja se
-    /// está configurando: <c>salidas</c> (Gestión de Salidas) o <c>rendiciones</c> (Gestión de
-    /// Rendiciones). Cada una se administra desde la Configuración de su propia pantalla y las dos
-    /// conviven en la misma tabla sin pisarse.
+    /// está configurando: <c>salidas</c> (Gestión de Salidas), <c>rendiciones</c> (Gestión de
+    /// Rendiciones) o <c>consolidados</c> (Consolidados). Cada una se administra desde la
+    /// Configuración de su propia pantalla y las tres conviven en la misma tabla sin pisarse.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/configuracion/visibilidad/{ambito}")]
@@ -33,8 +33,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Presenta
         /// </summary>
         private static int AmbitoId(string ambito) => ambito?.Trim().ToLowerInvariant() switch
         {
-            "salidas"     => VisibilidadAmbitoIds.Salidas,
-            "rendiciones" => VisibilidadAmbitoIds.Rendiciones,
+            "salidas"      => VisibilidadAmbitoIds.Salidas,
+            "rendiciones"  => VisibilidadAmbitoIds.Rendiciones,
+            "consolidados" => VisibilidadAmbitoIds.Consolidados,
             _ => throw new AbrilException("Ámbito de visibilidad desconocido.", 404),
         };
 

@@ -4,10 +4,10 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces
 {
     /// <summary>
-    /// "Gestión de Rendiciones": el revisor sobre las planillas de su alcance. Acá vive todo lo que
-    /// va DESDE el Consolidado del S10 en adelante —adjuntarlo, decidir el reembolso y firmar la
-    /// planilla—; Gestión de Salidas llega hasta rendir. El pago es de Tesorería y vive en
-    /// Reembolsos.
+    /// "Gestión de Rendiciones": el revisor sobre las planillas de su alcance. Acá vive la PRIMERA
+    /// revisión de la planilla y el Consolidado del S10 que la respalda —adjuntarlo o
+    /// reemplazarlo—; Gestión de Salidas llega hasta rendir. Decidir y firmar el reembolso es de
+    /// Consolidados, y el pago de Tesorería (Reembolsos).
     ///
     /// La visibilidad es exactamente la de Gestión de Salidas: mismas salidas, agrupadas por
     /// planilla.
@@ -54,19 +54,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
         Task<ConsolidadoS10Dto> UploadConsolidadoS10(
             IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
-
-        /// <summary>
-        /// Aprueba o rechaza el reembolso de lo seleccionado. La selección puede venir por planilla
-        /// (lo normal) o por salidas sueltas (desde el detalle); en los dos casos se recorta a lo
-        /// que el usuario puede ver. Avisa al solicitante por correo (best-effort).
-        /// </summary>
-        /// <remarks>
-        /// Aprobar ES firmar: estampa la firma del revisor en todas las hojas de los documentos de
-        /// la planilla (su PDF y el Consolidado del S10) y deja las salidas en "Firmado", que es lo
-        /// que Tesorería ve como pagable. Lanza 409 si el revisor todavía no registró su firma: la
-        /// pantalla usa ese código para abrir el modal donde la dibuja y reintentar.
-        /// </remarks>
-        Task<ReembolsoBulkResultDto> DecidirReembolso(
-            ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
     }
 }

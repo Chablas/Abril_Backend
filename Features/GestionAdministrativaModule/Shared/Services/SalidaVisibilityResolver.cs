@@ -9,8 +9,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     ///
     /// Piso obligatorio: si el usuario está designado como revisor de un nodo
     /// (<c>area_revisores</c>) ve ese nodo y todo su subárbol SIEMPRE, sin importar su categoría de
-    /// trabajador; en el ámbito de RENDICIONES lo mismo vale para los nodos donde está designado
-    /// como consolidador (<c>area_consolidadores</c>). No es un caso más del algoritmo: se suma
+    /// trabajador; en los ámbitos de RENDICIONES y CONSOLIDADOS lo mismo vale para los nodos donde
+    /// está designado como consolidador (<c>area_consolidadores</c>). No es un caso más del
+    /// algoritmo: se suma
     /// tanto al override manual como al algoritmo, porque a esa persona le toca hacer un trabajo
     /// sobre toda esa rama y tiene que poder verla.
     ///
@@ -119,8 +120,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .ToListAsync();
 
             // Consolidar el S10 de una planilla exige verla, así que el consolidador de un nodo
-            // tiene el mismo piso que su revisor — pero solo en la bandeja donde consolida.
-            if (ambitoId == VisibilidadAmbitoIds.Rendiciones)
+            // tiene el mismo piso que su revisor — pero solo en las bandejas donde consolida: la
+            // que le adjunta el consolidado a la planilla y la que después lo muestra.
+            if (ambitoId == VisibilidadAmbitoIds.Rendiciones
+             || ambitoId == VisibilidadAmbitoIds.Consolidados)
                 nodosAsignados = nodosAsignados
                     .Concat(await ctx.AreaConsolidadores
                         .Where(c => c.State && c.Active && workerIds.Contains(c.ConsolidadorId))

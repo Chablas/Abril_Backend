@@ -75,7 +75,7 @@
 
         /// <summary>
         /// A Tesorería: la jefatura ya firmó una planilla y su reembolso entró a la bandeja de
-        /// pago (RF-TES-01). Se origina en Gestión de Rendiciones, que es donde se firma; el
+        /// pago (RF-TES-01). Se origina en Consolidados, que es donde se firma; el
         /// destinatario principal se resuelve por ROL (TESORERO), no por área. Quién más lo recibe
         /// —el Coordinador ERP, por ejemplo— sale de Configuración → Correos como cualquier otro
         /// destinatario, con su propio interruptor.
@@ -164,8 +164,16 @@
         /// <summary>La decisión del revisor sobre la solicitud: aprobada o rechazada.</summary>
         public const string GestionSalidas = "GESTION_SALIDAS";
 
-        /// <summary>Las dos decisiones del revisor sobre la planilla: primera revisión y reembolso.</summary>
+        /// <summary>La primera revisión de la planilla, que es lo que habilita el Consolidado del S10.</summary>
         public const string GestionRendiciones = "GESTION_RENDICIONES";
+
+        /// <summary>
+        /// La bandeja del Consolidado del S10: la decisión del reembolso (aprobar —que ES firmar— u
+        /// observar) y el aviso a Tesorería que dispara la firma. Se separó de Gestión de
+        /// Rendiciones porque lo que se decide acá es el CONSOLIDADO, que puede cubrir varias
+        /// planillas a la vez.
+        /// </summary>
+        public const string Consolidados = "CONSOLIDADOS";
 
         /// <summary>Tesorería: el aviso de pago al solicitante, que es lo que cierra el ciclo.</summary>
         public const string Reembolsos = "REEMBOLSOS";
@@ -188,6 +196,7 @@
                 "rendiciones"         => Rendiciones,
                 "gestion-salidas"     => GestionSalidas,
                 "gestion-rendiciones" => GestionRendiciones,
+                "consolidados"        => Consolidados,
                 "reembolsos"          => Reembolsos,
                 "correcciones-s10"    => CorreccionesS10,
                 _                     => null,

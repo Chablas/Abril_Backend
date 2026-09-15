@@ -6,6 +6,10 @@ using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applicatio
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Interfaces;
@@ -93,10 +97,16 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IRendicionRepository, RendicionRepository>();
             services.AddScoped<IRendicionService, RendicionService>();
 
-            // Gestión de Rendiciones (el revisor sobre las planillas de su alcance: Consolidado
-            // del S10, decisión del reembolso y firma — todo lo que va después de rendir)
+            // Gestión de Rendiciones (el revisor sobre las planillas de su alcance: la primera
+            // revisión y el Consolidado del S10 que se les adjunta)
             services.AddScoped<IGestionRendicionRepository, GestionRendicionRepository>();
             services.AddScoped<IGestionRendicionService, GestionRendicionService>();
+
+            // Consolidados (la jefatura sobre el Consolidado del S10: decidir el reembolso y
+            // firmarlo). Es su propia pantalla porque el documento puede cubrir varias planillas
+            // y se decide entero.
+            services.AddScoped<IConsolidadoRepository, ConsolidadoRepository>();
+            services.AddScoped<IConsolidadoService, ConsolidadoService>();
 
             // Reembolsos (la bandeja de Tesorería: paga lo que la jefatura ya firmó)
             services.AddScoped<IReembolsoRepository, ReembolsoRepository>();
@@ -138,9 +148,9 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
 
-            // Consolidadores de áreas (configuración: quién, además del propio trabajador, puede
-            // adjuntar el Consolidado del S10 de sus planillas). Misma pantalla que Revisores de
-            // Áreas; acá quedan vigentes todos los activos y no solo el primero.
+            // Consolidadores de áreas (Consolidados → Configuración: quién, además del propio
+            // trabajador, puede adjuntar el Consolidado del S10 de sus planillas). Misma pantalla
+            // que Revisores de Áreas; acá quedan vigentes todos los activos y no solo el primero.
             services.AddScoped<IAreaConsolidadorRepository, AreaConsolidadorRepository>();
             services.AddScoped<IAreaConsolidadorService, AreaConsolidadorService>();
 
@@ -149,8 +159,8 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<ICapturaAreaService, CapturaAreaService>();
 
             // Visibilidad por área (configuración: override manual de áreas visibles por trabajador).
-            // Sirve a los dos ámbitos —Gestión de Salidas y Gestión de Rendiciones— sobre la misma
-            // tabla, cada uno con sus propias filas.
+            // Sirve a los tres ámbitos —Gestión de Salidas, Gestión de Rendiciones y Consolidados—
+            // sobre la misma tabla, cada uno con sus propias filas.
             services.AddScoped<IVisibilidadAreaRepository, VisibilidadAreaRepository>();
             services.AddScoped<IVisibilidadAreaService, VisibilidadAreaService>();
 
@@ -181,8 +191,8 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // pantallas de salidas, de ahí que viva en el Shared del módulo.
             services.AddScoped<IConsolidadoS10Service, ConsolidadoS10Service>();
 
-            // Alcance por área de las dos bandejas (Gestión de Salidas y Gestión de Rendiciones) y
-            // de la previsualización que muestra su Configuración → Visibilidad.
+            // Alcance por área de las tres bandejas (Gestión de Salidas, Gestión de Rendiciones y
+            // Consolidados) y de la previsualización que muestra su Configuración → Visibilidad.
             services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             return services;

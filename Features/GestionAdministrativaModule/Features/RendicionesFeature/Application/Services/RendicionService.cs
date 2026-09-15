@@ -236,10 +236,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
                 MontoTotal     = planilla.MontoTotal,
             };
 
-            // El botón lleva a Gestión de Rendiciones, que es donde el revisor decide, y abre esta
-            // planilla: lo que va a mirar (el Consolidado del S10) es del documento, no de una
-            // salida suelta. Gestión de Salidas ya no llega hasta el reembolso.
-            var url  = SalidaEnlaces.GestionRendiciones(_configuration, rendicionId);
+            // El botón lleva a Consolidados y abre ESTE consolidado: es el documento que el revisor
+            // va a mirar y firmar, y puede cubrir varias planillas a la vez. Gestión de Rendiciones
+            // ya no llega hasta el reembolso.
+            var url  = SalidaEnlaces.Consolidados(_configuration, planilla.ConsolidadoS10.Id);
             var body = ReembolsoEmailTemplates.RevisionPendiente(
                 SalidaEmailLayout.Desde(_configuration), datos, url);
 

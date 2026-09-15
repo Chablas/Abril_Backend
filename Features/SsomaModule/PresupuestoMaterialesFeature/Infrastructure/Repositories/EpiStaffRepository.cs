@@ -54,7 +54,7 @@ public class EpiStaffRepository : IEpiStaffRepository
     // solo hitos críticos.
     private const string CronogramaVigenteCte = """
         cronograma_vigente AS (
-            SELECT ms.planned_start_date
+            SELECT ms.planned_start_date, ms.planned_end_date
             FROM milestone_schedule ms
             JOIN milestone_schedule_history msh
               ON msh.milestone_schedule_history_id = ms.milestone_schedule_history_id
@@ -69,9 +69,12 @@ public class EpiStaffRepository : IEpiStaffRepository
     public async Task<decimal> ObtenerMesesProyectoAsync(int projectId)
     {
         using var conn = Conn();
+        // El fin del proyecto es el fin real del último hito crítico (ej. Acabados fachada
+        // principal), no su fecha de inicio — un hito que empieza el 20/01 pero dura varios meses
+        // más estaba cortando la duración corta antes de este fix.
         var sql = $"""
             WITH {CronogramaVigenteCte}
-            SELECT (MAX(planned_start_date) - MIN(planned_start_date)) / 30.44
+            SELECT (MAX(COALESCE(planned_end_date, planned_start_date)) - MIN(planned_start_date)) / 30.44
             FROM cronograma_vigente
             WHERE planned_start_date IS NOT NULL
             """;

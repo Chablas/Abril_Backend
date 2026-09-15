@@ -264,7 +264,15 @@ public class ConsumoRepository : IConsumoRepository
     public async Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync()
     {
         using var ctx = _factory.CreateDbContext();
+        // AsNoTracking + AsSplitQuery: esta consulta trae ~88 mil filas activas de TODOS los
+        // proyectos (sin paginar) — sin esto, EF arma un solo JOIN cartesiano gigante (advertencia
+        // "MultipleCollectionIncludeWarning" en logs) y trackea cada entidad para nada (esto es
+        // de solo lectura), lo que satura la conexión a Postgres el tiempo suficiente para que
+        // OTRAS peticiones concurrentes (Milestone, Notificaciones, etc.) truenen por timeout —
+        // parecía un problema de infraestructura pero era esta query sin optimizar.
         return await ctx.SsConsumoLinea
+            .AsNoTracking()
+            .AsSplitQuery()
             .Where(l => l.Activo)
             .Include(l => l.Item).ThenInclude(i => i!.Familia)
             .Include(l => l.Proyecto)

@@ -5,6 +5,8 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
+using Dapper;
+using Npgsql;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Repositories
 {
@@ -12,11 +14,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IConfiguration _config;
 
-        public MilestoneScheduleHistoryRepository(AppDbContext context, IDbContextFactory<AppDbContext> factory)
+        public MilestoneScheduleHistoryRepository(
+            AppDbContext context, IDbContextFactory<AppDbContext> factory, IConfiguration config)
         {
             _context = context;
             _factory = factory;
+            _config = config;
         }
 
         public async Task<List<MilestoneScheduleHistoryDTO>> GetAllByProjectIdFactory(int projectId)
@@ -137,12 +142,59 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             _context.MilestoneSchedule.AddRange(milestoneSchedules);
             await _context.SaveChangesAsync();
 
+            // Presupuesto Materiales (Personal por hito / Vigilancia por hito) guarda hito_id como
+            // FK a milestone_schedule_id — un id que se regenera en CADA versión nueva de cronograma
+            // (cada guardado crea filas MilestoneSchedule nuevas). Sin este traslado, cualquier
+            // Personal/Vigilancia ya cargado quedaba huérfano apenas se subía una versión nueva del
+            // cronograma (el presupuesto mostraba todo en 0 sin haberse borrado nada realmente).
+            // Se empareja por MilestoneId (estable entre versiones) — los hitos "custom"
+            // (MilestoneId null) no tienen identidad estable y no se pueden trasladar.
+            if (lastHistory != null)
+                await TrasladarPersonalYVigilanciaAsync(lastMilestones, milestoneSchedules);
+
             var projectName = await _context.Project
                 .Where(p => p.ProjectId == dto.ProjectId)
                 .Select(p => p.ProjectDescription ?? string.Empty)
                 .FirstAsync();
 
             return new ScheduleChangeResult { ProjectName = projectName, Changes = changes };
+        }
+
+        /// <summary>Traslada Personal/Vigilancia por hito del milestone_schedule_id viejo al nuevo,
+        /// emparejando por MilestoneId. Vive en Postgres (mismas tablas que usa Presupuesto
+        /// Materiales, que ya asume ese proveedor) — ver comentario en el llamador.</summary>
+        private async Task TrasladarPersonalYVigilanciaAsync(
+            List<MilestoneSchedule> anteriores, List<MilestoneSchedule> nuevos)
+        {
+            var mapa = anteriores
+                .Where(a => a.MilestoneId.HasValue)
+                .Join(nuevos.Where(n => n.MilestoneId.HasValue),
+                    a => a.MilestoneId, n => n.MilestoneId,
+                    (a, n) => new { AnteriorId = a.MilestoneScheduleId, NuevoId = n.MilestoneScheduleId })
+                .Where(m => m.AnteriorId != m.NuevoId)
+                .ToList();
+            if (mapa.Count == 0) return;
+
+            var connectionString = _config["Database:PostgreSQL"];
+            if (string.IsNullOrEmpty(connectionString)) return;
+
+            using var conn = new NpgsqlConnection(connectionString);
+            await conn.OpenAsync();
+            foreach (var m in mapa)
+            {
+                await conn.ExecuteAsync(
+                    "UPDATE ss_presupuesto_personal_hito SET hito_id = @NuevoId WHERE hito_id = @AnteriorId",
+                    new { m.NuevoId, m.AnteriorId });
+                await conn.ExecuteAsync(
+                    "UPDATE ss_presupuesto_personal_hito SET hito_salida_id = @NuevoId WHERE hito_salida_id = @AnteriorId",
+                    new { m.NuevoId, m.AnteriorId });
+                await conn.ExecuteAsync(
+                    "UPDATE ss_presupuesto_vigilancia_hito SET hito_id = @NuevoId WHERE hito_id = @AnteriorId",
+                    new { m.NuevoId, m.AnteriorId });
+                await conn.ExecuteAsync(
+                    "UPDATE ss_presupuesto_vigilancia_hito SET hito_salida_id = @NuevoId WHERE hito_salida_id = @AnteriorId",
+                    new { m.NuevoId, m.AnteriorId });
+            }
         }
 
         public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth()

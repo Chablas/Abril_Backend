@@ -187,6 +187,25 @@ public class PresupuestoMaterialesController : ControllerBase
         }
     }
 
+    /// <summary>Resumen agregado en las ~14 partidas del presupuesto general de obra (la vista que
+    /// usa Costos) — a diferencia de resumen-recursos, no lista materiales sueltos que no pertenecen
+    /// a ninguna de esas partidas.</summary>
+    [HttpGet("proyectos/{projectId}/resumen-agregado")]
+    public async Task<IActionResult> ObtenerResumenAgregado(int projectId)
+    {
+        try
+        {
+            var resumen = await _exportService.ObtenerResumenAgregadoAsync(projectId);
+            if (resumen is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return Ok(resumen);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener el resumen agregado del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener el resumen agregado." });
+        }
+    }
+
     /// <summary>Exporta el resumen de recursos del proyecto a Excel (.xlsx).</summary>
     [HttpGet("proyectos/{projectId}/resumen-recursos/exportar-excel")]
     public async Task<IActionResult> ExportarResumenRecursosExcel(int projectId)

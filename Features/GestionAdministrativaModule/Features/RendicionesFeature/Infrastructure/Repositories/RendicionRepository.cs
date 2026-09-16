@@ -2,11 +2,9 @@
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Repositories
@@ -42,15 +40,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var montos       = await MontosPorSolicitudAsync(ctx, salidas.Select(s => s.Id).ToList(), workerId.Value);
 
             // Total de la planilla ENTERA (todas sus salidas, de todos sus trabajadores): es el
-            // importe que se registró en el S10 y contra el que tiene que cuadrar el consolidado.
-            // MontoTotal, en cambio, suma solo las salidas propias.
+            // importe que se registró en el S10. MontoTotal, en cambio, suma solo las salidas propias.
             var totalesPlanilla = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
-
-            // La corrección del S10 viva de cada planilla, si la hay. Casi ninguna la tiene: es
-            // el camino excepcional que se abre cuando la jefatura observa el reembolso.
-            var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, rendicionIds);
-
-            var compartidos = await ConsolidadosCompartidosAsync(ctx, consolidados);
 
             var porRendicion = salidas.GroupBy(s => s.RendicionId).ToDictionary(g => g.Key, g => g.ToList());
 
@@ -60,11 +51,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 if (!porRendicion.TryGetValue(planilla.Id, out var propias) || propias.Count == 0) continue;
 
                 consolidados.TryGetValue(planilla.Id, out var consolidado);
-                correcciones.TryGetValue(planilla.Id, out var correccion);
                 result.Add(Armar(
                     planilla, propias, consolidado, montos,
-                    totalesPlanilla.TryGetValue(planilla.Id, out var totalP) ? totalP : 0m,
-                    correccion, compartidos.Contains(planilla.Id)));
+                    totalesPlanilla.TryGetValue(planilla.Id, out var totalP) ? totalP : 0m));
             }
 
             // Más reciente primero: lo que se acaba de rendir es lo que tiene pasos pendientes.
@@ -87,19 +76,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
             var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, new[] { rendicionId });
             consolidados.TryGetValue(rendicionId, out var consolidado);
-            var compartidos = await ConsolidadosCompartidosAsync(ctx, consolidados);
-
-            var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, new[] { rendicionId });
-            correcciones.TryGetValue(rendicionId, out var correccion);
 
             var solicitudIds = propias.Select(s => s.Id).ToList();
             var montos       = await MontosPorSolicitudAsync(ctx, solicitudIds, workerId.Value);
             var trayectos    = await CargarTrayectosAsync(ctx, solicitudIds);
             var totalPlanilla = await TotalPlanillaLoader.LoadOneAsync(ctx, rendicionId);
 
-            var cabecera = Armar(
-                planilla, propias, consolidado, montos, totalPlanilla, correccion,
-                compartidos.Contains(rendicionId));
+            var cabecera = Armar(planilla, propias, consolidado, montos, totalPlanilla);
             var detalle  = new RendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
@@ -130,15 +113,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             return detalle;
         }
 
-        public async Task<(int? WorkerId, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId)
+        public async Task<(int? WorkerId, string? Email, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var workerId = await ResolveWorkerIdAsync(ctx, userId);
-            if (workerId == null) return (null, new());
+            // La ficha y el correo de usuario en una sola consulta: los dos los piden los correos
+            // de "Enviar a revisión". Mismo criterio de ficha que ResolveWorkerIdAsync.
+            var yo = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => new
+                {
+                    w.Id,
+                    Email = ctx.User.Where(u => u.UserId == userId).Select(u => u.Email).FirstOrDefault(),
+                })
+                .FirstOrDefaultAsync();
+            if (yo == null) return (null, null, new());
 
-            var salidas = await CargarSalidasPropiasAsync(ctx, workerId.Value);
-            if (salidas.Count == 0) return (workerId, new());
+            var workerId = yo.Id;
+            var salidas  = await CargarSalidasPropiasAsync(ctx, workerId);
+            if (salidas.Count == 0) return (workerId, yo.Email, new());
 
             // El periodo de una planilla es el mes de su salida más antigua — el mismo criterio
             // que usa la tabla, si no el filtro dejaría fuera planillas que sí muestra.
@@ -156,28 +149,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 })
                 .ToList();
 
-            return (workerId, periodos);
-        }
-
-        public async Task MarcarRevisorNotificado(int rendicionId, int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var workerId = await ResolveWorkerIdAsync(ctx, userId);
-            if (workerId == null) return;
-
-            var now = DateTimeOffset.UtcNow;
-            var propias = await ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId == rendicionId && s.WorkerId == workerId.Value)
-                .ToListAsync();
-
-            foreach (var s in propias)
-            {
-                s.RevisorNotificadoAt    = now;
-                s.RevisorNotificadoPorId = userId;
-                s.UpdatedAt              = now;
-            }
-            await ctx.SaveChangesAsync();
+            return (workerId, yo.Email, periodos);
         }
 
         public async Task MarcarEnviadaAPrimeraRevision(int rendicionId, int userId)
@@ -273,7 +245,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             public string? ObservacionReembolso { get; init; }
             /// <summary>Jefatura o Tesoreria. Ver EstadosSalida.OrigenObservacionReembolso.</summary>
             public int? ObservacionReembolsoOrigenId { get; init; }
-            public DateTimeOffset? RevisorNotificadoAt { get; init; }
         }
 
         /// <summary>Salidas rendidas del trabajador que cuelgan de una planilla.</summary>
@@ -296,7 +267,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                     EstadoReembolsoId    = s.EstadoReembolsoId,
                     ObservacionReembolso = s.ObservacionReembolso,
                     ObservacionReembolsoOrigenId = s.ObservacionReembolsoOrigenId,
-                    RevisorNotificadoAt  = s.RevisorNotificadoAt,
                 })
                 .ToListAsync();
         }
@@ -379,152 +349,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         }
 
 
-        public async Task<CorreccionS10Dto> CrearCorreccion(int rendicionId, string motivo, int userId)
-        {
-            var texto = (motivo ?? string.Empty).Trim();
-            if (texto.Length == 0)
-                throw new AbrilException(
-                    "Escribe el motivo: es lo que el Coordinador ERP va a leer para saber qué corregir.", 400);
-
-            using var ctx = _factory.CreateDbContext();
-
-            var workerId = await ResolveWorkerIdAsync(ctx, userId)
-                ?? throw new AbrilException("Tu usuario no tiene ficha de trabajador.", 409);
-
-            // Guard de propiedad: la planilla tiene que incluir alguna salida suya, igual que el
-            // resto de las acciones de esta pantalla.
-            var propias = await ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId == rendicionId && s.WorkerId == workerId)
-                .Select(s => new { s.EstadoReembolsoId, s.ObservacionReembolso, s.ObservacionReembolsoOrigenId })
-                .ToListAsync();
-
-            if (propias.Count == 0)
-                throw new AbrilException("La planilla de rendición no existe o no es tuya.", 404);
-
-            // Solo desde una observación: lo que el ERP corrige es el documento que devolvieron, así
-            // que sin observación no hay nada que pedirle. Da igual si la devolvió la jefatura en la
-            // segunda revisión o Tesorería antes de pagar (RG-49): el camino de subsanación es el
-            // mismo y este es su paso del medio.
-            var observada = propias.FirstOrDefault(
-                s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
-                  && !string.IsNullOrWhiteSpace(s.ObservacionReembolso));
-
-            if (propias.All(s => s.EstadoReembolsoId != EstadosSalida.Reembolso.Observado))
-                throw new AbrilException(
-                    "Solo se puede pedir una corrección al ERP cuando el reembolso está observado.", 400);
-
-            var consolidado = await (
-                from v in ctx.GaConsolidadoS10Rendicion
-                join c in ctx.GaConsolidadoS10 on v.ConsolidadoS10Id equals c.Id
-                where v.State && c.State && v.RendicionId == rendicionId
-                select new { c.Id, c.NumeroReembolso }
-            ).FirstOrDefaultAsync();
-
-            if (consolidado == null)
-                throw new AbrilException(
-                    "Primero adjunta el Consolidado del S10: es el documento que el ERP tiene que corregir.", 400);
-
-            // Una a la vez. El índice único parcial de la tabla también lo impide, pero acá el
-            // mensaje explica qué pasó en vez de devolver un 23505.
-            var yaHay = await ctx.GaCorreccionS10
-                .AnyAsync(c => c.State && c.RendicionId == rendicionId);
-            if (yaHay)
-                throw new AbrilException(
-                    "Ya hay una corrección en curso para esta rendición.", 409);
-
-            var now = DateTimeOffset.UtcNow;
-
-            var correccion = new GaCorreccionS10
-            {
-                RendicionId      = rendicionId,
-                ConsolidadoS10Id = consolidado.Id,
-                Motivo           = texto,
-                // La observación que devolvió el reembolso se copia acá: el ERP la necesita para
-                // contrastar, y la de la salida se pisa si vuelven a observar más adelante. Puede
-                // venir de la jefatura o de Tesorería (RG-49), así que se copia también de quién
-                // es: el texto y su origen salen de la MISMA salida o el ERP leería un motivo con
-                // el rótulo del otro.
-                MotivoJefatura   = observada?.ObservacionReembolso,
-                MotivoOrigenId   = observada?.ObservacionReembolsoOrigenId,
-                NumeroReembolso       = consolidado.NumeroReembolso,
-                EstadoId         = EstadosSalida.CorreccionS10.Solicitada,
-                SolicitadaPorId  = userId,
-                SolicitadaAt     = now,
-                State            = true,
-                CreatedDateTime  = now,
-            };
-
-            ctx.GaCorreccionS10.Add(correccion);
-            await ctx.SaveChangesAsync();
-
-            var nombres = await CorreccionS10Loader.NombresAsync(ctx, new[] { correccion });
-            return CorreccionS10Loader.ToDto(correccion, nombres);
-        }
-
-        public async Task<List<string>> GetCorreosCoordinadorErp()
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            // Por ROL, igual que el aviso a Tesorería: el responsable ERP no cuelga del organigrama
-            // del solicitante, así que no hay área desde la que resolverlo.
-            var rolErp = int.Parse(Roles.CoordinadorErp);
-            return await (
-                from w   in ctx.Worker
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
-                where ur.RoleId == rolErp && ur.State && ur.Active
-                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
-                select w.EmailCorporativo!
-            ).Distinct().ToListAsync();
-        }
-
-        /// <summary>
-        /// Planillas cuyo Consolidado del S10 es compartido con OTRAS planillas que siguen con el
-        /// reembolso por decidir: esas no se pueden reemplazar desde acá, porque el documento se
-        /// reemplaza entero (ver <see cref="ConsolidadoS10Agrupacion"/>). Las otras pueden ser de
-        /// otros trabajadores, así que se miran sin recorte.
-        /// </summary>
-        private static async Task<HashSet<int>> ConsolidadosCompartidosAsync(
-            AppDbContext ctx, IReadOnlyDictionary<int, ConsolidadoS10Dto> consolidados)
-        {
-            var otras = consolidados
-                .SelectMany(kv => kv.Value.Rendiciones.Where(r => r.Id != kv.Key).Select(r => r.Id))
-                .Distinct()
-                .ToList();
-            if (otras.Count == 0) return new();
-
-            var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, otras);
-
-            return consolidados
-                .Where(kv => ConsolidadoS10Agrupacion.Conjunto(kv.Key, kv.Value, agrupables).Count > 1)
-                .Select(kv => kv.Key)
-                .ToHashSet();
-        }
-
         private static RendicionListItemDto Armar(
             Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models.GaRendicion planilla,
             List<SalidaPropia> propias,
             ConsolidadoS10Dto? consolidado,
             Dictionary<int, decimal> montos,
-            decimal montoTotalPlanilla,
-            CorreccionS10Dto? correccion,
-            bool consolidadoCompartido)
+            decimal montoTotalPlanilla)
         {
             var desde = propias.Min(s => s.FechaSalida);
             var hasta = propias.Max(s => s.FechaSalida);
 
             var estado = PlanillaRendicionHelper.ResumirEstadoReembolso(propias.Select(s => s.EstadoReembolsoId));
-            var abierto = estado == EstadosSalida.Reembolso.NombrePendiente
-                       || estado == EstadosSalida.Reembolso.NombreObservado;
 
             // La observación vigente de la planilla, con su origen (jefatura o Tesorería).
             var observada = propias.FirstOrDefault(
                 s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
                   && !string.IsNullOrWhiteSpace(s.ObservacionReembolso));
-
-            // El Consolidado del S10 se habilita recién con la primera revisión aprobada (RG-35):
-            // antes de eso el trabajador todavía no registró nada en el S10.
-            var primeraAprobada = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada;
 
             return new RendicionListItemDto
             {
@@ -554,7 +394,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 ObservacionReembolso       = observada?.ObservacionReembolso,
                 ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
                     observada?.ObservacionReembolsoOrigenId),
-                RevisorNotificadoAt = propias.Max(s => s.RevisorNotificadoAt),
 
                 EstadoPrimeraRevision      = EstadosSalida.PrimeraRevision.Nombre(planilla.EstadoPrimeraRevisionId),
                 EnviadaRevisionAt          = planilla.EnviadaRevisionAt,
@@ -562,18 +401,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 PrimeraRevisionObservacion = planilla.PrimeraRevisionObservacion,
                 PuedeEnviarPrimeraRevision = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Borrador,
                 PuedeSubsanar              = planilla.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Observada,
-
-                PuedeAdjuntarConsolidado = primeraAprobada && abierto,
-                ConsolidadoCompartido    = consolidadoCompartido,
-                PuedeNotificarRevisor    = primeraAprobada && abierto && consolidado != null,
-
-                CorreccionS10 = correccion,
-                // Solo con el reembolso OBSERVADO y el consolidado ya adjunto: lo que el ERP
-                // corrige es ese documento, y sin observación no hay nada que corregir. Y una a
-                // la vez: mientras haya una viva, el paso siguiente es esperarla o recargar.
-                PuedeSolicitarCorreccion = estado == EstadosSalida.Reembolso.NombreObservado
-                                        && consolidado != null
-                                        && correccion == null,
             };
         }
 
@@ -599,18 +426,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             destino.ReembolsoMixto           = origen.ReembolsoMixto;
             destino.ObservacionReembolso     = origen.ObservacionReembolso;
             destino.ObservacionReembolsoOrigen = origen.ObservacionReembolsoOrigen;
-            destino.RevisorNotificadoAt      = origen.RevisorNotificadoAt;
             destino.EstadoPrimeraRevision      = origen.EstadoPrimeraRevision;
             destino.EnviadaRevisionAt          = origen.EnviadaRevisionAt;
             destino.PrimeraRevisionAt          = origen.PrimeraRevisionAt;
             destino.PrimeraRevisionObservacion = origen.PrimeraRevisionObservacion;
             destino.PuedeEnviarPrimeraRevision = origen.PuedeEnviarPrimeraRevision;
             destino.PuedeSubsanar              = origen.PuedeSubsanar;
-            destino.PuedeAdjuntarConsolidado = origen.PuedeAdjuntarConsolidado;
-            destino.ConsolidadoCompartido    = origen.ConsolidadoCompartido;
-            destino.PuedeNotificarRevisor    = origen.PuedeNotificarRevisor;
-            destino.CorreccionS10            = origen.CorreccionS10;
-            destino.PuedeSolicitarCorreccion = origen.PuedeSolicitarCorreccion;
         }
 
         private static List<RendicionListItemDto> Filtrar(

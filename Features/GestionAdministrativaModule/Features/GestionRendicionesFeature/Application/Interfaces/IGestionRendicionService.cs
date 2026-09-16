@@ -19,6 +19,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         Task<GestionRendicionDetalleDto> GetDetalle(int rendicionId, GestionRendicionFiltersDto scope);
 
         /// <summary>
+        /// El detalle de UNA salida de las planillas del alcance (el ojo de la tabla de salidas del
+        /// detalle), para que la jefatura o el consolidador vean sus capturas y montos. Es solo
+        /// consulta: 404 si la salida no está rendida o no está en su alcance.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope);
+
+        /// <summary>
         /// Qué correos saldrían si se toma una de las decisiones de la pantalla sobre la selección
         /// indicada, y a quién. Lo piden las confirmaciones —las de los botones masivos y las del
         /// modal de detalle— para nombrar las direcciones reales en vez de prometer "se le avisará
@@ -29,23 +36,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
         /// <summary>
         /// Aprueba u observa la PRIMERA revisión de las planillas seleccionadas (RG-30). Aprobar
-        /// habilita al trabajador a cargar el Consolidado del S10; observar le pide corregir las
-        /// capturas y los montos y volver a generar la rendición con el mismo código.
+        /// habilita al consolidador del área a cargar el Consolidado del S10; observar le pide al
+        /// trabajador corregir las capturas y los montos y volver a generar la rendición con el
+        /// mismo código.
         ///
         /// La decisión es por planilla y total (RG-19): no se aprueban trayectos por separado.
-        /// Avisa a los solicitantes por correo (best-effort).
+        /// Avisa a los solicitantes por correo y, al aprobar, también a los consolidadores del área
+        /// de que la rendición se suma a las disponibles para consolidar (best-effort).
         /// </summary>
         Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
         /// Adjunta (o reemplaza) UN Consolidado del S10 para las planillas indicadas: una o varias,
-        /// de uno o de varios trabajadores de una misma razón social. El consolidador lo sube en
-        /// nombre de los trabajadores y tiene que estar habilitado por TODOS los de esas planillas.
+        /// de uno o de varios trabajadores, de las razones sociales que sean. Solo lo sube el
+        /// consolidador, que tiene que estar habilitado por TODOS los trabajadores de esas planillas
+        /// (Consolidados → Configuración → Consolidadores).
         ///
-        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, una
-        /// sola razón social, el documento compartido se reemplaza entero) las valida el servicio
-        /// compartido.
+        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, el
+        /// documento compartido se reemplaza entero) las valida el servicio compartido.
         /// </summary>
         /// <param name="montoTotal">
         /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas

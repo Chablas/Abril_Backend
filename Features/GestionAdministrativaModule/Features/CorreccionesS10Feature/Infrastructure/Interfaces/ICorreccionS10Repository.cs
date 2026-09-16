@@ -22,20 +22,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         /// Marca como atendidas las correcciones indicadas (el check de RG-22 / RF-OBS-07) y
         /// devuelve los ids que efectivamente se movieron. Las que ya estaban atendidas se ignoran
         /// en silencio: en una acción masiva la selección puede traer filas que otro ya resolvió.
+        ///
+        /// Lo que se corrige es el Consolidado del S10, así que atender una planilla atiende
+        /// también las demás planillas del MISMO consolidado que siguen por atender: el pedido del
+        /// consolidador es uno solo aunque la bandeja lo muestre por planilla.
         /// </summary>
         Task<List<int>> Atender(
             IEnumerable<int> correccionIds, string? comentario, bool numeroReembolsoAnulado, int erpUserId);
 
         /// <summary>
-        /// Lo que necesitan los correos de una corrección, en una sola consulta. Null si la
-        /// corrección no existe.
+        /// Lo que necesitan los avisos de atención de esas correcciones: UNO por pedido (mismo
+        /// consolidado y mismo consolidador que lo pidió), no uno por planilla.
         /// </summary>
-        Task<CorreccionS10CorreoDatos?> GetCorreoDatos(int correccionId);
+        Task<List<CorreccionS10CorreoDatos>> GetCorreoDatosAtendidas(IReadOnlyCollection<int> correccionIds);
 
         /// <summary>
-        /// El colaborador dueño de la planilla de una corrección, con su correo. Null si la
-        /// corrección no existe o su planilla no tiene salidas.
+        /// Correos de quienes pidieron esas correcciones (y las demás por atender de sus mismos
+        /// consolidados): los consolidadores a los que les llegaría el aviso de atención.
         /// </summary>
-        Task<CorreccionS10SolicitanteDto?> GetSolicitante(int correccionId);
+        Task<List<string>> GetCorreosSolicitantes(IReadOnlyCollection<int> correccionIds);
     }
 }

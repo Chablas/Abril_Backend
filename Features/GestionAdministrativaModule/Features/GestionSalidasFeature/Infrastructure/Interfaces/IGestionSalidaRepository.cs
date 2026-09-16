@@ -28,8 +28,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>
         /// Crea un registro <c>GaRendicion</c> con la info del PDF subido y marca como rendidas
         /// todas las solicitudes elegibles vinculándolas al rendicion. Todo en una transacción.
+        /// Devuelve la planilla creada (id y código REN-AAAA-NNNN) y las solicitudes que se
+        /// rindieron: quien rinde desde Solicitud de Salidas la envía a primera revisión en el acto.
         /// </summary>
-        Task<List<int>> CrearRendicionYMarcarBulk(
+        Task<(int RendicionId, string Codigo, List<int> SolicitudIds)> CrearRendicionYMarcarBulk(
             IEnumerable<int> ids,
             int userId,
             string pdfUrl,

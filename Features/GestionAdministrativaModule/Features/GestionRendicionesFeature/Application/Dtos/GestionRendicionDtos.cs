@@ -89,12 +89,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool PuedeDecidir { get; set; } = true;
 
         /// <summary>
-        /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla en nombre de
-        /// sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado en Consolidados
-        /// → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce el
-        /// algoritmo), y hace falta poder por TODOS los trabajadores de
+        /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla: tiene que ser
+        /// consolidador de sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado
+        /// en Consolidados → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce
+        /// el algoritmo), y hace falta poder por TODOS los trabajadores de
         /// <see cref="ConsolidadoConjunto"/>: el consolidado es uno solo y cubre esos documentos
-        /// enteros, también a los trabajadores que el usuario no ve.
+        /// enteros, también a los trabajadores que el usuario no ve. El propio trabajador no
+        /// consolida lo suyo.
         ///
         /// Ver la planilla no alcanza: alguien con visibilidad amplia la ve pero no necesariamente
         /// puede hacerle el trámite. La pantalla lo usa para apagar el botón antes de que el
@@ -118,14 +119,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// consolidado.
         /// </summary>
         public List<ConsolidadoConjuntoItemDto> ConsolidadoConjunto { get; set; } = new();
-
-        /// <summary>
-        /// Razón social de los trabajadores de <see cref="ConsolidadoConjunto"/> si es una sola y
-        /// está cargada; null si se mezclan o si falta. La pantalla la usa para no ofrecer juntar en
-        /// un mismo consolidado planillas de razones sociales distintas (lo valida el backend).
-        /// </summary>
-        public int? RazonSocialId { get; set; }
-        public string? RazonSocial { get; set; }
     }
 
     /// <summary>Una planilla que cubriría un Consolidado del S10, con su monto completo.</summary>
@@ -205,8 +198,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public int PrimeraRevision { get; set; }
         /// <summary>
         /// Aprobadas en primera revisión y sin el Consolidado del S10: la pelota está en el
-        /// trabajador. Las que no pasaron la primera revisión no cuentan acá — esas están en la
-        /// tarjeta anterior y no en una espera del trabajador.
+        /// consolidador. Las que no pasaron la primera revisión no cuentan acá — esas están en la
+        /// tarjeta anterior.
         /// </summary>
         public int SinConsolidado { get; set; }
 
@@ -234,6 +227,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// <summary>Árbol area_scope (lista plana) para el filtro de área en cascada.</summary>
         public List<AreaNodeDto> AreaTree { get; set; } = new();
         public List<PeriodoRendicionOptionDto> Periodos { get; set; } = new();
+
+        /// <summary>
+        /// Razón social del usuario: es bajo la que queda el Consolidado del S10 que suba (ver
+        /// <c>RazonSocialConsolidador</c>). Null si no tiene ficha o razón social cargada.
+        /// </summary>
+        public string? RazonSocialConsolidador { get; set; }
     }
 
     public class PeriodoRendicionOptionDto
@@ -256,5 +255,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// saber qué corregir antes de volver a generar la rendición.
         /// </summary>
         public string? Observacion { get; set; }
+    }
+
+    /// <summary>
+    /// De qué personas depende el preview de la decisión de la primera revisión sobre una
+    /// selección, ya recortada como la escritura (visibles y esperando la primera revisión).
+    /// </summary>
+    public class PrimeraRevisionPreviewDatos
+    {
+        /// <summary>Correos de los solicitantes de las salidas visibles de esas planillas.</summary>
+        public List<string> CorreosSolicitantes { get; set; } = new();
+
+        /// <summary>
+        /// Trabajadores de TODAS las salidas de esas planillas, sin recorte de visibilidad: de ellos
+        /// salen los consolidadores a los que se avisa al aprobar, igual que en el envío.
+        /// </summary>
+        public List<int> WorkerIds { get; set; } = new();
     }
 }

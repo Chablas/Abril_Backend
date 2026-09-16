@@ -41,13 +41,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
-    /// Los cuatro correos de la PRIMERA revisión de una rendición, con el mismo chrome de la
-    /// intranet (<see cref="SalidaEmailLayout"/>) que el resto de los correos de salidas:
+    /// Los correos de la PRIMERA revisión de una rendición, con el mismo chrome de la intranet
+    /// (<see cref="SalidaEmailLayout"/>) que el resto de los correos de salidas:
     ///
     /// <list type="bullet">
     ///   <item>Al solicitante: su rendición quedó registrada y se envió a primera revisión.</item>
     ///   <item>Al jefe/revisor: hay una rendición esperando su decisión (aprobar u observar).</item>
-    ///   <item>Al solicitante: aprobada — ya puede cargar el Consolidado del S10.</item>
+    ///   <item>Al solicitante: aprobada — sigue con el consolidador de su área.</item>
+    ///   <item>A los consolidadores del área: aprobada — se suma a las disponibles para consolidar.</item>
     ///   <item>Al solicitante: observada, con el comentario de qué corregir.</item>
     /// </list>
     ///
@@ -132,16 +133,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     + $"<b>{AbrilEmailLayout.Esc(d.Codigo)}</b> para tu primera revisión."),
                 l.Tarjeta(Filas(d, conTrabajador: true)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
-                    "Aprobarla habilita al trabajador a cargar el Consolidado del S10; observarla le "
-                    + "pide corregir capturas y montos."),
+                    "Aprobarla habilita al consolidador a cargar el Consolidado del S10; observarla le "
+                    + "pide al trabajador corregir capturas y montos."),
                 l.BotonesRespuesta("Aprobar", urlAprobar, "Observar", urlObservar),
                 l.EnlaceDirecto(urlGestion));
 
         /// <summary>
-        /// Al solicitante: aprobada en primera revisión. El botón lo deja en Mis Rendiciones, que es
-        /// donde carga el Consolidado del S10 — el paso que esta aprobación acaba de habilitar.
+        /// Al solicitante: aprobada en primera revisión. Es informativo: lo que sigue —registrar la
+        /// rendición en el S10 y cargar su Consolidado— es del consolidador de su área, así que el
+        /// botón solo lo lleva a su planilla en Mis Rendiciones.
         /// </summary>
-        public static string Aprobada(SalidaEmailLayout l, RendicionRevisionCorreoDatos d, string urlCargarS10) =>
+        public static string Aprobada(SalidaEmailLayout l, RendicionRevisionCorreoDatos d, string urlVer) =>
             l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoAprobada,
@@ -150,12 +152,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     + $"<b>{AbrilEmailLayout.Esc(d.Codigo)}</b>."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.DecididoPor)
-                        ? "Ya puedes registrar la información en el S10 y cargar el Consolidado con su número de reembolso."
-                        : $"Aprobada por <b>{AbrilEmailLayout.Esc(d.DecididoPor)}</b>. Ya puedes cargar el "
-                          + "Consolidado del S10 con su número de reembolso."),
+                        ? "Sigue con el consolidador de tu área, que la registra en el S10."
+                        : $"Aprobada por <b>{AbrilEmailLayout.Esc(d.DecididoPor)}</b>. Sigue con el "
+                          + "consolidador de tu área, que la registra en el S10."),
                 l.Tarjeta(Filas(d, conTrabajador: false)),
-                l.Boton("Cargar el Consolidado del S10", urlCargarS10),
-                l.EnlaceDirecto(urlCargarS10));
+                l.Boton("Ver mi rendición", urlVer),
+                l.EnlaceDirecto(urlVer));
+
+        /// <summary>
+        /// A los consolidadores del área: la jefatura aprobó la primera revisión de una o varias
+        /// rendiciones, que se suman a las disponibles para el Consolidado del S10. Es informativo a
+        /// propósito: el consolidador junta varias y las consolida cuando le toca (a la quincena, a
+        /// fin de mes), así que el correo no le pide nada y el botón solo lleva a verlas.
+        ///
+        /// Con una sola rendición va la tarjeta de siempre; con varias, una fila por rendición: aprobar
+        /// en bloque no le llega repetido una vez por planilla.
+        /// </summary>
+        public static string DisponiblesParaConsolidar(
+            SalidaEmailLayout l, IReadOnlyList<RendicionRevisionCorreoDatos> rendiciones, string urlVer)
+        {
+            var una = rendiciones.Count == 1;
+            var d   = rendiciones[0];
+
+            var estado = una
+                ? "Se suma a las rendiciones disponibles para el Consolidado del S10."
+                : "Se suman a las rendiciones disponibles para el Consolidado del S10.";
+            var aprobadaPor = rendiciones
+                .Select(r => r.DecididoPor)
+                .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoAprobada,
+                    una ? "Rendición disponible para consolidar" : "Rendiciones disponibles para consolidar",
+                    una
+                        ? $"La jefatura aprobó la primera revisión de la rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>."
+                        : $"La jefatura aprobó la primera revisión de <b>{rendiciones.Count}</b> rendiciones."),
+                l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
+                    string.IsNullOrWhiteSpace(aprobadaPor)
+                        ? estado
+                        : $"{(una ? "Aprobada" : "Aprobadas")} por <b>{AbrilEmailLayout.Esc(aprobadaPor)}</b>. {estado}"),
+                una ? l.Tarjeta(Filas(d, conTrabajador: true)) : TablaRendiciones(l, rendiciones),
+                l.Boton(una ? "Ver la rendición" : "Ver las rendiciones", urlVer),
+                l.EnlaceDirecto(urlVer));
+        }
 
         /// <summary>
         /// Al solicitante: observada en primera revisión. El comentario del jefe va en la franja
@@ -234,6 +274,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 filas.Add(new(FilaObs, "Estado", AbrilEmailLayout.Esc(estado)));
 
             return filas;
+        }
+
+        /// <summary>
+        /// Una fila por rendición, para el correo que habla de varias a la vez. El dato secundario
+        /// (número de planilla, área) va debajo en gris para que cada fila se lea sin abrir nada.
+        /// </summary>
+        private static string TablaRendiciones(
+            SalidaEmailLayout l, IReadOnlyList<RendicionRevisionCorreoDatos> rendiciones)
+        {
+            // Los anchos suman el ancho interno de la tarjeta (580) para que las columnas no se
+            // aprieten — ver la nota de Columna en AbrilEmailLayout.
+            var columnas = new List<AbrilEmailLayout.Columna>
+            {
+                new("Rendición", 130),
+                new("Colaborador", 220),
+                new("Periodo", 120),
+                new("Monto", 110, AbrilEmailLayout.Alineacion.Derecha),
+            };
+
+            static string Secundario(string? valor) =>
+                string.IsNullOrWhiteSpace(valor)
+                    ? string.Empty
+                    : $"<br /><span style=\"color:#64748b;font-weight:400\">{AbrilEmailLayout.Esc(valor)}</span>";
+
+            var cuerpo = rendiciones
+                .Select(r => (IReadOnlyList<AbrilEmailLayout.Celda>)new List<AbrilEmailLayout.Celda>
+                {
+                    new(AbrilEmailLayout.Esc(r.Codigo) + Secundario(r.NumeroPlanilla), Negrita: true, NoWrap: true),
+                    new(AbrilEmailLayout.Esc(r.Trabajador) + Secundario(r.Area)),
+                    new(string.IsNullOrWhiteSpace(r.Periodo) ? "—" : AbrilEmailLayout.Esc(r.Periodo)),
+                    new($"S/ {r.MontoTotal.ToString("N2", CultureInfo.GetCultureInfo("es-PE"))}", NoWrap: true),
+                })
+                .ToList();
+
+            return l.Tabla(columnas, cuerpo);
         }
     }
 }

@@ -9,9 +9,10 @@
         public const string Rechazada = "RECHAZADA";
 
         // ── Primera revisión de la rendición ─────────────────────────────────
-        // Los cuatro correos del paso que va ANTES del Consolidado del S10: el trabajador envía la
-        // planilla, el jefe la aprueba u observa, y solo con la aprobación se habilita cargar el
-        // consolidado. Ver EstadosSalida.PrimeraRevision.
+        // Los correos del paso que va ANTES del Consolidado del S10: el trabajador envía la
+        // planilla (al rendir en Solicitud de Salidas, o desde Mis Rendiciones), el jefe la aprueba
+        // u observa, y solo con la aprobación se habilita cargar el consolidado — por eso la
+        // aprobación también le avisa al consolidador. Ver EstadosSalida.PrimeraRevision.
 
         /// <summary>
         /// Al jefe/revisor: hay una rendición esperando su primera revisión. Es el único de los
@@ -26,8 +27,16 @@
         /// </summary>
         public const string RendicionEnviada = "REN_ENVIADA";
 
-        /// <summary>Al solicitante: el jefe aprobó la primera revisión y ya puede cargar el S10.</summary>
+        /// <summary>Al solicitante: el jefe aprobó la primera revisión; sigue con el consolidador de su área.</summary>
         public const string RendicionPrimeraAprobada = "REN_PRIMERA_APROBADA";
+
+        /// <summary>
+        /// A los consolidadores del área: la rendición aprobada en primera revisión se suma a las
+        /// disponibles para el Consolidado del S10. Informativo: el consolidador junta varias y las
+        /// consolida cuando le toca, así que no le pide nada. Sale junto con
+        /// <see cref="RendicionPrimeraAprobada"/> desde Gestión de Rendiciones.
+        /// </summary>
+        public const string RendicionPrimeraAprobadaConsolidador = "REN_PRIMERA_APROBADA_CONSOLIDADOR";
 
         /// <summary>
         /// Al solicitante: el jefe observó la primera revisión, con el comentario de qué corregir
@@ -36,17 +45,19 @@
         public const string RendicionPrimeraObservada = "REN_PRIMERA_OBSERVADA";
 
         /// <summary>
-        /// Aviso al jefe/revisor de que el trabajador ya adjuntó el Consolidado del S10 y su
-        /// reembolso está esperando revisión. Lo dispara el trabajador desde el autoservicio.
+        /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y su
+        /// reembolso está esperando revisión. Lo dispara el consolidador desde Consolidados.
+        /// El código conserva su nombre de cuando lo disparaba el trabajador: es la clave del
+        /// catálogo y la configuración de destinatarios ya está cargada.
         /// </summary>
         public const string S10Revisor = "S10_REVISOR";
 
-        /// <summary>El jefe aprobó el reembolso de una salida rendida — se avisa al solicitante.</summary>
+        /// <summary>La jefatura aprobó (firmó) el reembolso de un consolidado — se avisa al consolidador.</summary>
         public const string ReembolsoAprobado = "REEMBOLSO_APROBADO";
 
         /// <summary>
-        /// La jefatura observó el reembolso — se avisa al solicitante con la observación y con
-        /// los dos caminos para subsanar (arreglar el S10 él mismo o pedírselo al Coordinador ERP).
+        /// La jefatura observó el reembolso — se avisa al consolidador con la observación y con
+        /// los dos caminos para subsanar (recargar el consolidado o pedírselo al Coordinador ERP).
         ///
         /// El código de la fila NO cambió cuando el estado pasó de llamarse "Rechazado" a
         /// "Observado": es la clave del catálogo y renombrarla habría desconectado la
@@ -55,19 +66,19 @@
         public const string ReembolsoObservado = "REEMBOLSO_RECHAZADO";
 
         // ── Subsanación con el Coordinador ERP ───────────────────────────────
-        // Los dos correos del paso del medio de la subsanación (§10.5): el trabajador le pide la
+        // Los dos correos del paso del medio de la subsanación (§10.5): el consolidador le pide la
         // corrección al ERP y el ERP le confirma que ya la hizo. Ver EstadosSalida.CorreccionS10.
 
         /// <summary>
         /// Al Coordinador ERP: hay una corrección del Consolidado del S10 esperándolo, con el
-        /// número de reembolso, la observación de la jefatura y el «MOTIVO *» del trabajador (RF-OBS-06). Lo
-        /// dispara el trabajador desde Mis Rendiciones, así que se administra ahí.
+        /// número de reembolso, la observación y el «MOTIVO *» del consolidador (RF-OBS-06). Lo
+        /// dispara el consolidador desde Consolidados, así que se administra ahí.
         /// </summary>
         public const string CorreccionS10Solicitada = "CORRECCION_S10_SOLICITADA";
 
         /// <summary>
-        /// Al solicitante: el ERP ya corrigió en el S10 y puede recargar el Consolidado
-        /// (RF-OBS-08). Se origina en la bandeja del ERP, que es su propia pantalla.
+        /// Al consolidador que la pidió: el ERP ya corrigió en el S10 y puede recargar el
+        /// Consolidado (RF-OBS-08). Se origina en la bandeja del ERP, que es su propia pantalla.
         /// </summary>
         public const string CorreccionS10Atendida = "CORRECCION_S10_ATENDIDA";
 
@@ -89,13 +100,13 @@
         public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
 
         /// <summary>
-        /// Al solicitante: Tesorería devolvió el reembolso antes de pagarlo (RG-49), con el motivo
+        /// Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49), con el motivo
         /// y los dos caminos para subsanar.
         ///
         /// Va aparte de <see cref="ReembolsoObservado"/> —el de la jefatura— porque el catálogo se
         /// reparte por la pantalla donde el correo se ORIGINA, y este sale de Reembolsos: mezclarlos
-        /// habría puesto un correo de Tesorería bajo la configuración de Gestión de Rendiciones. La
-        /// observación en sí es la misma para el trabajador; lo que cambia es quién la escribió.
+        /// habría puesto un correo de Tesorería bajo la configuración de Consolidados. La observación
+        /// en sí es la misma para el consolidador; lo que cambia es quién la escribió.
         /// </summary>
         public const string ReembolsoObservadoTesoreria = "REEMBOLSO_OBSERVADO_TESORERIA";
 
@@ -157,7 +168,8 @@
 
         /// <summary>
         /// Los que dispara el trabajador desde Mis Rendiciones: enviar la planilla a primera
-        /// revisión (con su acuse) y avisar que adjuntó el Consolidado del S10.
+        /// revisión (con su acuse). «Rendir» en Solicitud de Salidas manda esos MISMOS dos correos
+        /// —ya envía la planilla—, así que también se administran acá y no en su pantalla.
         /// </summary>
         public const string Rendiciones = "RENDICIONES";
 
@@ -168,10 +180,11 @@
         public const string GestionRendiciones = "GESTION_RENDICIONES";
 
         /// <summary>
-        /// La bandeja del Consolidado del S10: la decisión del reembolso (aprobar —que ES firmar— u
-        /// observar) y el aviso a Tesorería que dispara la firma. Se separó de Gestión de
-        /// Rendiciones porque lo que se decide acá es el CONSOLIDADO, que puede cubrir varias
-        /// planillas a la vez.
+        /// La bandeja del Consolidado del S10: el aviso del consolidador a la jefatura, la decisión
+        /// del reembolso (aprobar —que ES firmar— u observar, avisada al consolidador), el aviso a
+        /// Tesorería que dispara la firma y el pedido de corrección al Coordinador ERP. Se separó de
+        /// Gestión de Rendiciones porque lo que se decide acá es el CONSOLIDADO, que puede cubrir
+        /// varias planillas a la vez.
         /// </summary>
         public const string Consolidados = "CONSOLIDADOS";
 
@@ -180,7 +193,7 @@
 
         /// <summary>
         /// La bandeja del Coordinador ERP: el único correo que se origina acá es el aviso al
-        /// trabajador de que la corrección ya se hizo en el S10.
+        /// consolidador de que la corrección ya se hizo en el S10.
         /// </summary>
         public const string CorreccionesS10 = "CORRECCIONES_S10";
 

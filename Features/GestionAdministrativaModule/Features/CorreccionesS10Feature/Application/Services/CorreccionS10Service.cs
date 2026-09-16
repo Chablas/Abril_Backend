@@ -48,19 +48,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public async Task<CorreccionS10ListItemDto> GetDetalle(int correccionId) =>
             await _repo.GetDetalle(correccionId)
                 ?? throw new AbrilException(
-                    "La solicitud de corrección no existe o ya se cerró (el colaborador recargó el "
+                    "La solicitud de corrección no existe o ya se cerró (el consolidador recargó el "
                     + "Consolidado del S10).", 404);
 
         public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(List<int> correccionIds)
         {
             try
             {
-                var destinatarios = new List<string>();
-                foreach (var id in correccionIds.Distinct())
-                {
-                    var quien = await _repo.GetSolicitante(id);
-                    if (!string.IsNullOrWhiteSpace(quien?.Email)) destinatarios.Add(quien!.Email!);
-                }
+                var destinatarios = await _repo.GetCorreosSolicitantes(correccionIds);
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
                     CorreoEventoCodigos.CorreccionS10Atendida, destinatarios);
@@ -71,7 +66,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
                 {
                     new()
                     {
-                        Etiqueta = "Al colaborador",
+                        Etiqueta = "Al consolidador",
                         Para     = envio.Para,
                         Copia    = envio.Copia,
                     },
@@ -93,59 +88,63 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
             var atendidas = await _repo.Atender(
                 accion.CorreccionIds, accion.ComentarioAtencion, accion.NumeroReembolsoAnulado, erpUserId);
 
-            // El aviso al colaborador es best-effort: la confirmación ya está guardada y no se
-            // revierte porque un correo falle — la ve igual en Mis Rendiciones (mismo criterio que
-            // las decisiones del revisor).
-            foreach (var id in atendidas)
-                await NotificarAtencionAsync(id);
+            // El aviso al consolidador es best-effort: la confirmación ya está guardada y no se
+            // revierte porque un correo falle — la ve igual en Consolidados (mismo criterio que las
+            // decisiones de la jefatura).
+            await NotificarAtencionAsync(atendidas);
 
             return new CorreccionS10BulkResultDto
             {
                 Procesadas = atendidas.Count,
                 Message = atendidas.Count == 1
-                    ? "Corrección marcada como atendida. Le avisamos al colaborador para que recargue el Consolidado del S10."
+                    ? "Corrección marcada como atendida. Le avisamos al consolidador para que recargue el Consolidado del S10."
                     : $"{atendidas.Count} correcciones marcadas como atendidas.",
             };
         }
 
         /// <summary>
-        /// Le avisa al colaborador que el ERP ya corrigió en el S10 y puede recargar el Consolidado
-        /// (RF-OBS-08). Respeta la configuración de destinatarios y no tumba la acción si falla.
+        /// Le avisa al consolidador que pidió la corrección que el ERP ya corrigió en el S10 y puede
+        /// recargar el Consolidado (RF-OBS-08). Va UN correo por pedido (mismo consolidado y mismo
+        /// consolidador), aunque la bandeja lo muestre por planilla. Respeta la configuración de
+        /// destinatarios y no tumba la acción si falla.
         /// </summary>
-        private async Task NotificarAtencionAsync(int correccionId)
+        private async Task NotificarAtencionAsync(List<int> correccionIds)
         {
+            if (correccionIds.Count == 0) return;
+
             try
             {
-                var datos = await _repo.GetCorreoDatos(correccionId);
-                if (datos == null) return;
+                var layout = SalidaEmailLayout.Desde(_configuration);
 
-                var principal = string.IsNullOrWhiteSpace(datos.TrabajadorEmail)
-                    ? new List<string>()
-                    : new List<string> { datos.TrabajadorEmail! };
+                foreach (var datos in await _repo.GetCorreoDatosAtendidas(correccionIds))
+                {
+                    var principal = string.IsNullOrWhiteSpace(datos.SolicitadaPorEmail)
+                        ? new List<string>()
+                        : new List<string> { datos.SolicitadaPorEmail! };
 
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    CorreoEventoCodigos.CorreccionS10Atendida, principal);
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.CorreccionS10Atendida, principal);
 
-                if (!envio.Enviar || envio.Para.Count == 0) return;
+                    if (!envio.Enviar || envio.Para.Count == 0) continue;
 
-                // El botón lleva a Mis Rendiciones, que es donde recarga el Consolidado del S10:
-                // es el paso que esta confirmación acaba de habilitar.
-                var url  = SalidaEnlaces.Rendiciones(_configuration, datos.RendicionId);
-                var body = CorreccionS10EmailTemplates.Atendida(
-                    SalidaEmailLayout.Desde(_configuration), datos, url);
+                    // El botón lleva a Gestión de Rendiciones, que es donde el consolidador recarga
+                    // el Consolidado del S10: es el paso que esta confirmación acaba de habilitar.
+                    var url  = SalidaEnlaces.GestionRendiciones(_configuration, datos.RendicionId);
+                    var body = CorreccionS10EmailTemplates.Atendida(layout, datos, url);
 
-                await _emailService.SendAsync(
-                    to: envio.Para,
-                    subject: $"Corrección del S10 atendida - {datos.Codigo}",
-                    body: body,
-                    isHtml: true,
-                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: $"Corrección del S10 atendida - {datos.Codigo}",
+                        body: body,
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "Error avisando al colaborador de la atención de la corrección {CorreccionId}",
-                    correccionId);
+                    "Error avisando al consolidador de la atención de las correcciones {Ids}",
+                    string.Join(",", correccionIds));
             }
         }
     }

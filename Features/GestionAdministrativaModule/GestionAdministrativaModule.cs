@@ -92,8 +92,9 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
 
-            // Mis Rendiciones (autoservicio sobre las planillas ya rendidas: Consolidado del S10,
-            // aviso al revisor y seguimiento del reembolso — todo lo que va después de rendir)
+            // Mis Rendiciones (autoservicio sobre las planillas ya rendidas: enviarlas a primera
+            // revisión, subsanarlas y seguir su reembolso — después de la primera revisión todo es
+            // del consolidador)
             services.AddScoped<IRendicionRepository, RendicionRepository>();
             services.AddScoped<IRendicionService, RendicionService>();
 
@@ -148,9 +149,9 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
 
-            // Consolidadores de áreas (Consolidados → Configuración: quién, además del propio
-            // trabajador, puede adjuntar el Consolidado del S10 de sus planillas). Misma pantalla
-            // que Revisores de Áreas; acá quedan vigentes todos los activos y no solo el primero.
+            // Consolidadores de áreas (Consolidados → Configuración: quién hace el trámite del S10
+            // de las planillas de cada área — el propio trabajador ya no). Misma pantalla que
+            // Revisores de Áreas; acá quedan vigentes todos los activos y no solo el primero.
             services.AddScoped<IAreaConsolidadorRepository, AreaConsolidadorRepository>();
             services.AddScoped<IAreaConsolidadorService, AreaConsolidadorService>();
 

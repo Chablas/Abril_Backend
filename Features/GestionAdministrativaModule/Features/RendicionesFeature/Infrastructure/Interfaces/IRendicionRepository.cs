@@ -1,5 +1,4 @@
 using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructure.Interfaces
 {
@@ -19,17 +18,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         /// <summary>
         /// Meses con al menos una planilla propia, para el filtro de periodo, y la ficha del
-        /// trabajador que se resolvió para hallarlos. El workerId se devuelve porque el servicio
-        /// lo necesita para resolver el jefe/revisor y acá ya se consultó: pedirlo aparte sería un
-        /// roundtrip más por la misma fila. Null cuando el usuario no tiene ficha de trabajador.
+        /// trabajador que se resolvió para hallarlos, con su correo de usuario. Los dos se devuelven
+        /// porque el servicio los necesita para resolver los correos de "Enviar a revisión" (el jefe
+        /// sale de la ficha y el acuse va al correo) y acá ya se consultaron: pedirlos aparte sería
+        /// un roundtrip más por la misma fila. WorkerId null cuando el usuario no tiene ficha.
         /// </summary>
-        Task<(int? WorkerId, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId);
-
-        /// <summary>
-        /// Marca que se le avisó al revisor por esta planilla. El sello queda en TODAS las salidas
-        /// propias que cubre (la columna vive en la salida), porque el aviso es uno solo.
-        /// </summary>
-        Task MarcarRevisorNotificado(int rendicionId, int userId);
+        Task<(int? WorkerId, string? Email, List<PeriodoOptionDto> Periodos)> GetPeriodos(int userId);
 
         /// <summary>
         /// Pasa la planilla a "En primera revisión" y estampa quién y cuándo la envió. El estado es
@@ -46,23 +40,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         /// <summary>Cuántos trayectos suman las salidas propias de la planilla.</summary>
         Task<int> ContarTrayectos(int rendicionId, int userId);
-
-        /// <summary>
-        /// Registra la solicitud de corrección del Consolidado del S10 al Coordinador ERP (§10.5).
-        /// Copia la observación de la jefatura y el número de reembolso del consolidado observado: el ERP las
-        /// necesita y la observación de la salida se sobrescribe si la jefatura vuelve a observar.
-        ///
-        /// No mueve el estado del reembolso: la salida se queda Observada mientras dura la gestión.
-        /// Lo que cambia es de quién es la pelota, y eso vive en la propia corrección.
-        /// </summary>
-        /// <returns>La corrección recién creada, ya lista para exponer.</returns>
-        Task<CorreccionS10Dto> CrearCorreccion(int rendicionId, string motivo, int userId);
-
-        /// <summary>
-        /// Correos de los usuarios con el rol COORDINADOR ERP: el destinatario principal de la
-        /// solicitud de corrección. Se resuelve por ROL y no por área porque el responsable ERP no
-        /// cuelga del organigrama del solicitante — mismo criterio que el aviso a Tesorería.
-        /// </summary>
-        Task<List<string>> GetCorreosCoordinadorErp();
     }
 }

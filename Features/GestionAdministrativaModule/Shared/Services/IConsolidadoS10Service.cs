@@ -4,17 +4,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
     /// Sube y consulta el PDF "Consolidado del S10" de las planillas de rendición ya generadas.
-    /// Vive en el Shared del módulo porque lo usan Mis Rendiciones (el autoservicio, que adjunta el
-    /// de una planilla propia), Gestión de Rendiciones (los consolidadores, que además pueden
-    /// adjuntar uno solo para varias planillas) y Gestión de Salidas, que solo lo lee para saber si
-    /// ya hay algo que revisar.
+    /// Vive en el Shared del módulo porque lo usan Gestión de Rendiciones (los consolidadores, los
+    /// únicos que lo adjuntan: uno solo puede cubrir varias planillas) y Gestión de Salidas, que
+    /// solo lo lee para saber si ya hay algo que revisar.
     /// </summary>
     public interface IConsolidadoS10Service
     {
         /// <summary>
         /// Sube el PDF y lo asocia a las planillas indicadas —una o varias—: el consolidado es UN
-        /// registro en el S10 y puede cubrir planillas de varios trabajadores, siempre que sean de
-        /// una misma razón social (ver <see cref="ConsolidadoS10Agrupacion"/>). Las planillas que ya
+        /// registro en el S10 y puede cubrir planillas de varios trabajadores, de las razones
+        /// sociales que sean (ver <see cref="ConsolidadoS10Agrupacion"/>). Las planillas que ya
         /// tenían consolidado pasan al nuevo, y el anterior queda con state = false en cuanto no le
         /// queda ninguna (auditoría).
         ///
@@ -22,8 +21,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// ya tenía un consolidado compartido tienen que venir también las demás planillas abiertas
         /// de ese consolidado: el documento se reemplaza entero.
         ///
-        /// Con <paramref name="ownerUserId"/> (autoservicio) cada planilla además tiene que incluir
-        /// alguna salida del trabajador de ese usuario.
+        /// No mira permisos: quién puede consolidar lo valida la pantalla que llama.
         /// </summary>
         /// <param name="montoTotal">
         /// Importe total del consolidado. Tiene que COINCIDIR con la suma de las planillas completas
@@ -35,8 +33,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             IFormFile file,
             decimal montoTotal,
             string numeroReembolso,
-            int userId,
-            int? ownerUserId = null);
+            int userId);
 
         /// <summary>
         /// Consolidado vigente de una solicitud: el de su planilla, o el propio de la salida en los
@@ -52,8 +49,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         Task<Dictionary<int, ConsolidadoS10Dto>> GetForSolicitudes(IEnumerable<int> solicitudIds);
 
         /// <summary>
-        /// Consolidado vigente de N planillas, en lote. Es lo que consume la tabla de Mis
-        /// Rendiciones. Devuelve solo las planillas que tienen consolidado.
+        /// Consolidado vigente de N planillas, en lote. Devuelve solo las planillas que tienen
+        /// consolidado.
         /// </summary>
         Task<Dictionary<int, ConsolidadoS10Dto>> GetForRendiciones(IEnumerable<int> rendicionIds);
     }

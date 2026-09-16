@@ -210,7 +210,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Ficha del colaborador en la base maestra. Es obligatoria: la firma que dibuja en el enlace
-        /// público se guarda en <c>person.signature_image_bytes</c>, así que sin ficha no habría
+        /// público se guarda en <c>person_firma</c> (FK a <c>person</c>), así que sin ficha no habría
         /// dónde ponerla.
         /// </summary>
         public int PersonId { get; set; }

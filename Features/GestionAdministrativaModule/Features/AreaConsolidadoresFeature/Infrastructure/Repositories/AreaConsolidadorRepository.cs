@@ -105,8 +105,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
         }
 
         /// <summary>
-        /// Todos los vigentes del área/proyecto. El propio trabajador no aparece: acá no hay
-        /// trabajador, la pregunta es por el área (en la planilla sí se le suma siempre).
+        /// Todos los vigentes del área/proyecto: son exactamente los que pueden consolidar las
+        /// rendiciones de esa rama (el propio trabajador ya no consolida lo suyo).
         /// </summary>
         private static List<AreaEfectivoDto> Describir(List<ConsolidadorElegido> elegidos)
             => elegidos

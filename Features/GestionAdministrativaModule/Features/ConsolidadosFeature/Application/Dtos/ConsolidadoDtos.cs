@@ -5,10 +5,10 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructu
 namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos
 {
     /// <summary>
-    /// Un Consolidado del S10 visto por la jefatura que lo tiene que firmar. La unidad de esta
-    /// pantalla es el CONSOLIDADO y no la planilla: un mismo registro del S10 puede cubrir varias
-    /// —de uno o de varios trabajadores, siempre de una misma razón social— y la decisión del
-    /// reembolso las alcanza a todas, así que decidirlas por separado nunca tuvo sentido.
+    /// Un Consolidado del S10 visto por la jefatura que lo tiene que firmar y por el consolidador que
+    /// lo adjuntó. La unidad de esta pantalla es el CONSOLIDADO y no la planilla: un mismo registro
+    /// del S10 puede cubrir varias —de uno o de varios trabajadores, de las razones sociales que
+    /// sean— y la decisión del reembolso las alcanza a todas.
     ///
     /// Los agregados (montos, salidas, trabajadores) están acotados a lo que ESE usuario puede ver,
     /// salvo <see cref="MontoTotal"/>, que es el importe declarado en el S10 y es del documento
@@ -39,7 +39,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public string? PdfFirmadoFilename { get; set; }
         public DateTimeOffset? FirmadoAt { get; set; }
         public DateTimeOffset UploadedAt { get; set; }
-        /// <summary>Quién lo adjuntó (el trabajador o su consolidador). Null si no se pudo resolver.</summary>
+        /// <summary>Quién lo adjuntó: el consolidador. Null si no se pudo resolver.</summary>
         public string? SubidoPor { get; set; }
 
         // ── Qué cubre ────────────────────────────────────────────────────
@@ -54,7 +54,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public List<string> Trabajadores { get; set; } = new();
         public int SalidasCount { get; set; }
 
-        /// <summary>Razón social común de sus trabajadores. Null si se mezclan o si falta cargarla.</summary>
+        /// <summary>
+        /// Razón social bajo la que quedó el registro del S10: la del consolidador que lo adjuntó
+        /// (ver <c>RazonSocialConsolidador</c>), no la de los trabajadores, que pueden ser de varias.
+        /// Null si no la tiene cargada.
+        /// </summary>
         public int? RazonSocialId { get; set; }
         public string? RazonSocial { get; set; }
 
@@ -75,18 +79,47 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// </summary>
         public string ObservacionReembolsoOrigen { get; set; } = string.Empty;
 
-        // ── Qué se puede hacer con este consolidado ──────────────────────
-        /// <summary>Salidas visibles con el reembolso listo para decidir (rendidas y sin decidir).</summary>
+        // ── Qué puede hacer la jefatura ──────────────────────────────────
+        /// <summary>
+        /// Salidas del consolidado con el reembolso listo para decidir que le toca decidir a ESTE
+        /// usuario: las de los trabajadores de los que es la jefatura (el revisor que resuelve
+        /// <c>IJefeRevisorResolver</c>, ver <c>RevisorDeLaSalida</c>). 0 = no tiene nada que decidir
+        /// acá, aunque vea el consolidado: el consolidador, un gerente o GTH lo ven pero no lo
+        /// aprueban.
+        /// </summary>
         public int PorDecidirCount { get; set; }
 
+        // ── Qué puede hacer el consolidador ──────────────────────────────
         /// <summary>
-        /// True si el usuario puede decidir el reembolso de este consolidado. Es false cuando cubre
-        /// salidas SUYAS y él no es su propio revisor: nadie decide lo suyo, y la única excepción es
-        /// tener el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de Ingresos → ficha
-        /// del trabajador). La pantalla lo usa para apagar las acciones antes de que el backend las
-        /// rechace.
+        /// True si el usuario es consolidador de TODOS los trabajadores de las planillas que cubre
+        /// (Consolidados → Configuración → Consolidadores): es el dueño del trámite del S10 y las
+        /// acciones de abajo son suyas.
         /// </summary>
-        public bool PuedeDecidir { get; set; } = true;
+        public bool PuedeConsolidar { get; set; }
+
+        /// <summary>
+        /// True si el consolidador puede avisarle a la jefatura que el consolidado la está esperando:
+        /// tiene salidas con el reembolso Pendiente que decide OTRO (si el consolidador es también su
+        /// jefe, las decide él). Se puede repetir a propósito (un correo se pierde);
+        /// <see cref="JefaturaAvisadaAt"/> dice cuándo fue el último aviso.
+        /// </summary>
+        public bool PuedeAvisarJefatura { get; set; }
+
+        /// <summary>Último aviso a la jefatura por las salidas de este consolidado. Null si nunca.</summary>
+        public DateTimeOffset? JefaturaAvisadaAt { get; set; }
+
+        /// <summary>
+        /// True si el consolidador puede pedirle la corrección al Coordinador ERP: el reembolso está
+        /// observado (por la jefatura o por Tesorería) y no hay otra corrección en curso. Es un
+        /// camino ALTERNATIVO a volver a adjuntar el consolidado corregido, no un paso obligatorio.
+        /// </summary>
+        public bool PuedeSolicitarCorreccion { get; set; }
+
+        /// <summary>
+        /// La corrección con el Coordinador ERP que está viva en alguna de sus planillas. Null en el
+        /// caso normal: casi ningún consolidado pasa por el ERP. Su estado dice de quién es la pelota.
+        /// </summary>
+        public CorreccionS10Dto? CorreccionS10 { get; set; }
     }
 
     /// <summary>Una planilla cubierta por el consolidado, con lo que la pantalla muestra de ella.</summary>
@@ -177,7 +210,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     {
         /// <summary>Esperando la decisión de la jefatura: es lo que la pantalla viene a resolver.</summary>
         public int PorDecidir { get; set; }
-        /// <summary>Devueltos con una observación: la pelota está en el trabajador.</summary>
+        /// <summary>Devueltos con una observación: la pelota está en el consolidador.</summary>
         public int Observados { get; set; }
         /// <summary>
         /// Ya firmados y en manos de Tesorería (por revisar o por pagar). No cuenta por la firma
@@ -228,8 +261,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     public class ConsolidadoAccionDto
     {
         public List<int> ConsolidadoIds { get; set; } = new();
-        /// <summary>Obligatoria al observar: es lo único que el trabajador va a leer.</summary>
+        /// <summary>Obligatoria al observar: es lo que el consolidador va a leer para subsanar.</summary>
         public string? Observacion { get; set; }
+    }
+
+    /// <summary>
+    /// Cuerpo de "Solicitar corrección al ERP". Un solo campo, que es el «MOTIVO *» del
+    /// requerimiento: viaja en el cuerpo y no en la query porque es texto libre y largo.
+    /// </summary>
+    public class SolicitarCorreccionS10Dto
+    {
+        /// <summary>Qué corrección se necesita en el S10. Obligatorio (RG-21 / CA-17).</summary>
+        public string Motivo { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -242,6 +285,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public List<int> ConsolidadoIds { get; set; } = new();
         /// <summary>true = la variante que aprueba (y firma); false = la que observa.</summary>
         public bool Aprobar { get; set; }
+        /// <summary>
+        /// Qué acción se está por confirmar. Null (o <see cref="ConsolidadoCorreoAcciones.Reembolso"/>)
+        /// = la decisión de la jefatura; las otras dos son del consolidador y van sobre UN
+        /// consolidado. Ver <see cref="ConsolidadoCorreoAcciones"/>.
+        /// </summary>
+        public string? Accion { get; set; }
+    }
+
+    /// <summary>Valores de <see cref="ConsolidadoCorreoPreviewRequestDto.Accion"/>.</summary>
+    public static class ConsolidadoCorreoAcciones
+    {
+        /// <summary>La jefatura aprueba (firma) u observa el reembolso: avisa al consolidador.</summary>
+        public const string Reembolso = "REEMBOLSO";
+
+        /// <summary>El consolidador le avisa a la jefatura que el consolidado la está esperando.</summary>
+        public const string AvisoJefatura = "AVISO_JEFATURA";
+
+        /// <summary>El consolidador le pide la corrección al Coordinador ERP.</summary>
+        public const string CorreccionErp = "CORRECCION_ERP";
+    }
+
+    /// <summary>
+    /// Lo que necesita "Avisar a la jefatura" sobre un consolidado: si el usuario es su
+    /// consolidador, qué salidas están esperando a la jefatura y a quién hay que escribirle.
+    /// </summary>
+    public class AvisoJefaturaInfoDto
+    {
+        public bool PuedeConsolidar { get; set; }
+        /// <summary>Salidas visibles del consolidado con el reembolso Pendiente.</summary>
+        public List<int> SolicitudIds { get; set; } = new();
+        /// <summary>Correos de la jefatura de esas salidas (sus revisores), sin repetir.</summary>
+        public List<string> JefaturaEmails { get; set; } = new();
+        /// <summary>Nombres de esa jefatura, para el mensaje de la pantalla.</summary>
+        public List<string> JefaturaNombres { get; set; } = new();
+        /// <summary>Datos del correo. Null si no hay nada pendiente.</summary>
+        public ConsolidadoCorreoDatos? Datos { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que necesita "Solicitar corrección al ERP" sobre un consolidado: si el usuario es su
+    /// consolidador, qué planillas quedaron observadas y si ya hay una corrección en curso.
+    /// </summary>
+    public class CorreccionConsolidadoPlanDto
+    {
+        public bool PuedeConsolidar { get; set; }
+        /// <summary>Planillas del consolidado con alguna salida Observada: se pide una corrección por cada una.</summary>
+        public List<int> RendicionIdsObservadas { get; set; } = new();
+        public bool HayCorreccionEnCurso { get; set; }
+        public string? NumeroReembolso { get; set; }
+        /// <summary>Nombre de quien pide la corrección (el usuario), para el correo al ERP.</summary>
+        public string? Solicitante { get; set; }
+        /// <summary>Datos del consolidado para el correo. Null si no hay nada observado.</summary>
+        public ConsolidadoCorreoDatos? Datos { get; set; }
     }
 
     /// <summary>Un PDF que hay que firmar al aprobar el reembolso.</summary>
@@ -319,5 +415,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
         /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
         public List<string> Destinatarios { get; set; } = new();
+        /// <summary>
+        /// Consolidado del S10 que respalda a la planilla: es lo que abre el botón del correo,
+        /// porque la bandeja de Tesorería lista por documento. Null solo si la planilla no tiene
+        /// consolidado vigente, y ahí el botón lleva a la bandeja sin abrir nada.
+        /// </summary>
+        public int? ConsolidadoId { get; set; }
     }
 }

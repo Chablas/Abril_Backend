@@ -85,6 +85,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             return detalle;
         }
 
+        public async Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo una salida rendida y dentro del alcance: es la que el revisor ve en el detalle de
+            // la planilla. Mandar un id cualquiera no abre la salida de un área que no le compete.
+            var visible = await SalidasVisibles(ctx, SoloVisibilidad(scope))
+                .AnyAsync(s => s.Id == solicitudId && s.RendicionId != null);
+            if (!visible) return null;
+
+            return await SalidaDetalleLoader.LoadAsync(ctx, solicitudId, conAptitudParaRendir: false);
+        }
+
         public async Task<GestionRendicionFilterDataDto> GetFilterData(GestionRendicionFiltersDto scope)
         {
             using var ctx = _factory.CreateDbContext();
@@ -162,11 +175,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 })
                 .ToList();
 
+            // La razón social bajo la que quedaría un consolidado que suba este usuario: la suya (ver
+            // RazonSocialConsolidador). La muestra el modal del Consolidado del S10.
+            var razonSocial = uid == null
+                ? null
+                : (await RazonSocialConsolidador.LoadPorUsuarioAsync(ctx, new[] { uid.Value }))
+                    .GetValueOrDefault(uid.Value)?.Nombre;
+
             return new GestionRendicionFilterDataDto
             {
                 Trabajadores = trabajadores,
                 AreaTree     = areaTree,
                 Periodos     = periodos,
+                RazonSocialConsolidador = razonSocial,
             };
         }
 
@@ -345,8 +366,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
         // ══ Reembolso ═══════════════════════════════════════════════════════
 
-        public async Task<List<string>> GetCorreosSolicitantesPrimeraRevision(
-            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope)
+        public async Task<PrimeraRevisionPreviewDatos> GetPreviewPrimeraRevision(
+            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope, bool conTrabajadores)
         {
             var idsList = rendicionIds?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
@@ -373,7 +394,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .Select(x => x.Id)
                 .ToList();
 
-            return await CorreosSolicitantesAsync(ctx, solicitudes);
+            var datos = new PrimeraRevisionPreviewDatos
+            {
+                CorreosSolicitantes = await CorreosSolicitantesAsync(ctx, solicitudes),
+            };
+
+            // Los consolidadores se avisan por la planilla entera, como en el envío
+            // (GetPrimeraRevisionCorreoInfo no recorta por visibilidad).
+            if (conTrabajadores)
+                datos.WorkerIds = await ctx.GaSolicitudSalida
+                    .Where(s => s.RendicionId != null && enRevision.Contains(s.RendicionId.Value))
+                    .Select(s => s.WorkerId)
+                    .Distinct()
+                    .ToListAsync();
+
+            return datos;
         }
 
         /// <summary>Correos de los dueños de las salidas indicadas, sin repetir.</summary>
@@ -455,18 +490,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             public bool PuedeAdjuntar { get; init; }
             public List<ConsolidadoConjuntoItemDto> Conjunto { get; init; } = new();
             public bool PuedeConsolidar { get; init; }
-            public int? RazonSocialId { get; init; }
-            public string? RazonSocial { get; init; }
         }
 
         /// <summary>
         /// Para cada planilla de la tabla: si admite el Consolidado del S10, qué planillas cubriría
-        /// el que se adjunte desde ella (su conjunto, ver <see cref="ConsolidadoS10Agrupacion"/>),
-        /// si el usuario puede consolidar por TODOS los trabajadores de ese conjunto y bajo qué razón
-        /// social. Son las mismas reglas que valida la subida, así que la pantalla no ofrece nada
-        /// que el servidor vaya a rechazar. El permiso sale de <c>IConsolidadorResolver</c>, el
-        /// mismo que alimenta la pantalla de Consolidadores: ver una planilla no habilita a hacerle
-        /// el trámite.
+        /// el que se adjunte desde ella (su conjunto, ver <see cref="ConsolidadoS10Agrupacion"/>) y
+        /// si el usuario puede consolidar por TODOS los trabajadores de ese conjunto. Son las mismas
+        /// reglas que valida la subida, así que la pantalla no ofrece nada que el servidor vaya a
+        /// rechazar. El permiso sale de <c>IConsolidadorResolver</c>, el mismo que alimenta la
+        /// pantalla de Consolidadores: ver una planilla no habilita a hacerle el trámite, y el
+        /// propio trabajador ya no consolida lo suyo.
         ///
         /// Un número fijo de consultas para toda la tabla —incluidas las planillas de fuera de la
         /// tabla que cuelgan de un consolidado compartido— y una sola llamada al resolver.
@@ -515,13 +548,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 ? new HashSet<int>()
                 : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId.Value, workerIds);
 
-            var razones = await ConsolidadoS10Agrupacion.LoadRazonSocialAsync(ctx, workerIds);
-
             return planillas.ToDictionary(p => p.Id, p =>
             {
                 var conjunto     = conjuntos[p.Id];
                 var trabajadores = TrabajadoresDe(conjunto);
-                var razon        = ConsolidadoS10Agrupacion.RazonSocialComun(trabajadores, razones);
 
                 return new ConsolidacionFila
                 {
@@ -538,8 +568,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                     // El consolidado cubre los documentos enteros: hace falta poder por TODOS los
                     // trabajadores del conjunto, también por los que la tabla no muestra.
                     PuedeConsolidar = trabajadores.Count > 0 && trabajadores.All(habilitado.Contains),
-                    RazonSocialId   = razon?.Id,
-                    RazonSocial     = razon?.Nombre,
                 };
             });
         }
@@ -626,8 +654,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             PuedeConsolidar          = consolidacion[p.Id].PuedeConsolidar,
             PuedeAdjuntarConsolidado = consolidacion[p.Id].PuedeAdjuntar,
             ConsolidadoConjunto      = consolidacion[p.Id].Conjunto,
-            RazonSocialId            = consolidacion[p.Id].RazonSocialId,
-            RazonSocial              = consolidacion[p.Id].RazonSocial,
         };
 
         private static void CopiarCabecera(GestionRendicionListItemDto o, GestionRendicionDetalleDto d)
@@ -650,7 +676,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.PuedeDecidir = o.PuedeDecidir; d.PuedeConsolidar = o.PuedeConsolidar;
             d.PuedeAdjuntarConsolidado = o.PuedeAdjuntarConsolidado;
             d.ConsolidadoConjunto = o.ConsolidadoConjunto;
-            d.RazonSocialId = o.RazonSocialId; d.RazonSocial = o.RazonSocial;
         }
 
         /// <summary>

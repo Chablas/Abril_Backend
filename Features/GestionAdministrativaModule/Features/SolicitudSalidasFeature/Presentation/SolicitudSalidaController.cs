@@ -1,6 +1,6 @@
 ﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
-using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
@@ -17,16 +17,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
     public class SolicitudSalidaController : ControllerBase
     {
         private readonly ISolicitudSalidaService _service;
-        private readonly IGestionSalidaService _gestionSalidaService;
+        private readonly IRendicionService _rendicionService;
         private readonly ILogger<SolicitudSalidaController> _logger;
 
         public SolicitudSalidaController(
             ISolicitudSalidaService service,
-            IGestionSalidaService gestionSalidaService,
+            IRendicionService rendicionService,
             ILogger<SolicitudSalidaController> logger)
         {
             _service = service;
-            _gestionSalidaService = gestionSalidaService;
+            _rendicionService = rendicionService;
             _logger = logger;
         }
 
@@ -322,9 +322,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         /// <summary>
-        /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus capturas)
-        /// y descarga la planilla de gasto por movilidad. Reutiliza la misma lógica de Gestión de Salidas,
-        /// pero restringida a solicitudes del propio usuario (guard de propiedad).
+        /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus
+        /// capturas) y la planilla sale en el acto a la primera revisión de su jefatura, con sus dos
+        /// correos. El PDF no se descarga: queda guardado y se abre desde Mis Rendiciones. Reutiliza
+        /// la misma lógica de Gestión de Salidas, restringida a solicitudes del propio usuario.
         /// </summary>
         [HttpPatch("marcar-rendidas")]
         public async Task<IActionResult> MarcarRendidas([FromBody] MarcarRendidasBulkDto dto)
@@ -339,13 +340,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 if (dto?.Ids == null || dto.Ids.Count == 0)
                     return BadRequest(new { message = "Debes seleccionar al menos una solicitud." });
 
-                var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(dto.Ids, userId.Value, ownerUserId: userId.Value);
-
-                Response.Headers.Append("X-Rendidas-Count", count.ToString());
-                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
-
-                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
-                return File(pdfBytes, "application/pdf", filename);
+                return Ok(await _rendicionService.RendirYEnviarAPrimeraRevision(dto.Ids, userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -390,8 +385,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         /// <summary>
         /// Rinde de una vez TODAS las salidas propias del mes indicado (sin <c>anio</c>/<c>mes</c>,
         /// el anterior) que estén aptas —aprobadas, no rendidas, con las capturas de todos sus
-        /// trayectos y con un motivo reembolsable— y descarga la planilla. Es lo que la pantalla
-        /// ofrece como "seleccionar todas las del mes". Las que no cumplen se ignoran.
+        /// trayectos y con un motivo reembolsable— y envía la planilla a primera revisión, igual que
+        /// <see cref="MarcarRendidas"/>. Es lo que la pantalla ofrece como "seleccionar todas las del
+        /// mes". Las que no cumplen se ignoran.
         /// </summary>
         [HttpPatch("rendir-mes")]
         public async Task<IActionResult> RendirMes([FromQuery] int? anio = null, [FromQuery] int? mes = null)
@@ -406,14 +402,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 // Mismo camino que MarcarRendidas: el servicio del autoservicio resuelve qué entra
                 // (solo lo propio) y la planilla la genera Gestión de Salidas, con guard de propiedad.
                 var ids = await _service.GetIdsRendiblesMes(userId.Value, anio, mes);
-                var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(
-                    ids, userId.Value, ownerUserId: userId.Value);
-
-                Response.Headers.Append("X-Rendidas-Count", count.ToString());
-                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
-
-                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
-                return File(pdfBytes, "application/pdf", filename);
+                return Ok(await _rendicionService.RendirYEnviarAPrimeraRevision(ids, userId.Value));
             }
             catch (AbrilException ex)
             {

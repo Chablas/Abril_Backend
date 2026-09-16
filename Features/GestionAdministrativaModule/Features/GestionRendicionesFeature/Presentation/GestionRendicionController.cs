@@ -110,6 +110,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
+        /// El detalle de una salida de las planillas del alcance, en consulta: trayectos, capturas
+        /// con sus montos y adjuntos. Lo abre el ojo de la tabla de salidas del detalle.
+        /// </summary>
+        [HttpGet("salidas/{solicitudId:int}/detalle")]
+        public async Task<IActionResult> GetSalidaDetalle(int solicitudId)
+        {
+            try
+            {
+                return Ok(await _service.GetSalidaDetalle(solicitudId, Scope()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetSalidaDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Los correos que saldrían si se decide la primera revisión de la selección enviada, con
         /// sus destinatarios reales. Lo piden las confirmaciones —tanto las de los botones masivos
         /// como las del modal de detalle— para nombrar las direcciones en vez de prometer un correo
@@ -135,8 +157,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
 
         /// <summary>
         /// Adjunta un Consolidado del S10 que cubre las planillas indicadas: una sola (el botón de
-        /// cada fila) o varias a la vez (la selección), incluso de trabajadores distintos, porque un
-        /// registro del S10 puede agrupar varias rendiciones de una misma razón social.
+        /// cada fila) o varias a la vez (la selección), incluso de trabajadores y razones sociales
+        /// distintos. Solo lo puede subir el consolidador de esas planillas.
         /// </summary>
         [HttpPost("consolidado-s10")]
         [Consumes("multipart/form-data")]
@@ -173,7 +195,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Aprueba la primera revisión: habilita al trabajador a cargar el Consolidado del S10.
+        /// Aprueba la primera revisión: habilita al consolidador a cargar el Consolidado del S10.
         /// </summary>
         [HttpPatch("primera-revision/aprobar")]
         public Task<IActionResult> AprobarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>

@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// Resuelve en lote la solicitud de corrección del S10 VIGENTE de N planillas, para las tablas
     /// y detalles de las pantallas que la muestran (evita el N+1). Es un loader estático sobre el
     /// contexto, igual que <see cref="ConsolidadoS10Loader"/>, para que lo usen los repositorios de
-    /// Mis Rendiciones y de la bandeja del ERP sin duplicar la regla de "cuál es la vigente".
+    /// Consolidados y de la bandeja del ERP sin duplicar la regla de "cuál es la vigente".
     ///
     /// Vigente = <c>state = true</c>. Una planilla tiene como máximo una: el índice único parcial
     /// de <c>ga_correccion_s10</c> lo garantiza, y al recargar el Consolidado del S10 la corrección

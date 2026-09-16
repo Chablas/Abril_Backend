@@ -29,13 +29,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>Largo de la columna <c>ga_solicitud_salida.motivo_rechazo</c>.</summary>
         private const int MotivoRechazoMaxLength = 500;
 
-        /// <summary>
-        /// Nombre exacto del área de GTH en <c>area_item</c>. Se resuelve por texto —igual que en
-        /// <c>SalidaVisibilityResolver</c> y <c>JefeRevisorResolver</c>— porque el árbol de áreas es
-        /// administrable por UI y no hay id fijo al que agarrarse.
-        /// </summary>
-        private const string AreaGthNombre = "Gestión del Talento Humano";
-
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
 
@@ -304,13 +297,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // 4.b. Fichas, personas y áreas del usuario actual — para marcar por fila si es el
             //      revisor de esa salida (lo único que habilita Aprobar/Rechazar) y si la salida
             //      es suya (habilita Cancelar). Puede tener más de una ficha por reingreso.
-            var quienDecide = await CargarQuienDecideAsync(ctx, filters.CurrentUserId);
+            var quienDecide = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, filters.CurrentUserId);
 
             // 4.c. Área del trabajador (nodo de puesto.area_destino_scope_id, el más bajo del árbol) y
             //       jefe/revisor de cada solicitante. El revisor se resuelve en UN lote para todos
             //       los trabajadores de la lista con la misma fuente que decide a quién se le manda
             //       la solicitud a aprobar (IJefeRevisorResolver).
-            var arbolAreas = await CargarArbolAreasAsync(ctx);
+            var arbolAreas = await RevisorDeLaSalida.CargarArbolAsync(ctx);
             var revisorPorWorker = await _jefeResolver.ResolveManyAsync(
                 solicitudes.Select(s => s.WorkerInternalId).Distinct().ToList());
 
@@ -403,7 +396,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     // resolver que eligió a quién se le mandó el correo con los botones, así que la
                     // pantalla habilita exactamente a quien lo recibió — y es lo mismo que re-valida
                     // EnsureEsElRevisorAsync al aprobar/rechazar.
-                    PuedeDecidir     = EsElRevisor(quienDecide, revisor, arbolAreas),
+                    PuedeDecidir     = RevisorDeLaSalida.EsElRevisor(quienDecide, revisor, arbolAreas),
                     EsPropia         = quienDecide.WorkerIds.Contains(s.WorkerId),
 
                     EstadoReembolso      = EstadosSalida.Reembolso.Nombre(s.EstadoReembolsoId),
@@ -511,7 +504,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// decide a quién se le manda el correo con los botones, así que en la web decide
         /// exactamente quien recibe ese correo y nadie más.
         ///
-        /// Ver la resolución completa (incluido el fallback de GTH) en <see cref="EsElRevisor"/>.
+        /// Ver la resolución completa (incluido el fallback de GTH) en <see cref="RevisorDeLaSalida.EsElRevisor"/>.
         /// El alcance por área (<c>ISalidaVisibilityResolver</c>) da a VER las salidas de una rama,
         /// no a decidirlas: un gerente o recepción ven la solicitud y su detalle, pero si no son su
         /// revisor no la aprueban.
@@ -520,23 +513,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// nunca es el propio trabajador (lo descarta <c>JefeRevisorResolver</c>), así que sobre lo
         /// propio solo decide quien tenga el jefe personalizado apuntándose a sí mismo.
         ///
-        /// Ojo: la 1.ª revisión de la rendición y la decisión del reembolso
-        /// (<c>GestionRendicionRepository</c>) siguen con su propia regla (nadie decide lo suyo);
-        /// esto solo cubre aprobar/rechazar la salida. La aprobación por token desde el correo
-        /// tampoco pasa por acá: ahí autoriza el token firmado, que se emitió a ese revisor.
+        /// La decisión del reembolso en Consolidados aplica esta misma regla
+        /// (<see cref="RevisorDeLaSalida"/>); la 1.ª revisión de la rendición
+        /// (<c>GestionRendicionRepository</c>) sigue con la suya (nadie decide lo suyo). La
+        /// aprobación por token desde el correo tampoco pasa por acá: ahí autoriza el token
+        /// firmado, que se emitió a ese revisor.
         /// </summary>
         private async Task EnsureEsElRevisorAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
         {
-            var quien   = await CargarQuienDecideAsync(ctx, reviewerUserId);
+            var quien   = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, reviewerUserId);
             var revisor = await _jefeResolver.ResolveAsync(s.WorkerId);
 
             // El árbol solo hace falta cuando el revisor no es una persona (el fallback de GTH, o
             // ninguno): en el caso normal se decide sin tocar la base de nuevo.
             var arbol = revisor?.WorkerId == null
-                ? await CargarArbolAreasAsync(ctx)
+                ? await RevisorDeLaSalida.CargarArbolAsync(ctx)
                 : new Dictionary<int, (int? Padre, string Nombre)>();
 
-            if (EsElRevisor(quien, revisor, arbol)) return;
+            if (RevisorDeLaSalida.EsElRevisor(quien, revisor, arbol)) return;
 
             throw new AbrilException(
                 quien.WorkerIds.Contains(s.WorkerId)
@@ -667,7 +661,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<List<int>> CrearRendicionYMarcarBulk(
+        public async Task<(int RendicionId, string Codigo, List<int> SolicitudIds)> CrearRendicionYMarcarBulk(
             IEnumerable<int> ids,
             int userId,
             string pdfUrl,
@@ -677,7 +671,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         {
             using var ctx = _factory.CreateDbContext();
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
+            if (idsList.Count == 0)
+                throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
 
             var solicitudes = await ctx.GaSolicitudSalida
                 .Where(s => idsList.Contains(s.Id)
@@ -689,6 +684,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
 
             var now = DateTimeOffset.UtcNow;
+            GaRendicion? creada = null;
 
             var strategy = ctx.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
@@ -725,8 +721,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     RendidoPorId   = userId,
                     RendidoAt      = now,
                     NumeroPlanilla = numeroPlanilla,
-                    // Nace "Lista para enviar": el PDF ya está, pero la primera revisión arranca
-                    // recién cuando el trabajador la envía desde Mis Rendiciones.
+                    // Nace "Lista para enviar": el PDF ya está y la primera revisión arranca recién
+                    // con el envío. Rendir desde Solicitud de Salidas la envía en el acto; la que
+                    // rinde el revisor desde Gestión de Salidas la envía el trabajador desde Mis
+                    // Rendiciones.
                     EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Borrador,
                 };
                 ctx.GaRendicion.Add(rendicion);
@@ -740,9 +738,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
+                creada = rendicion;
             });
 
-            return solicitudes.Select(s => s.Id).ToList();
+            return (
+                creada!.Id,
+                PlanillaRendicionHelper.CodigoRendicion(creada.Codigo, creada.Id),
+                solicitudes.Select(s => s.Id).ToList());
         }
 
         public async Task<List<int>> GetEligibleIdsForRendicion(IEnumerable<int> ids)
@@ -1111,13 +1113,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             // Área: aquí sí va la ruta completa (la tabla muestra solo el último nodo) y el
             // jefe/revisor con su correo — el mismo que recibió la solicitud para aprobar.
-            var arbolAreas = await CargarArbolAreasAsync(ctx);
+            var arbolAreas = await RevisorDeLaSalida.CargarArbolAsync(ctx);
             var revisor    = await _jefeResolver.ResolveAsync(head.WorkerInternalId);
 
             // Y si el que está mirando el detalle es ese revisor: es lo que decide si el modal
             // muestra los botones de aprobar/rechazar. El correo al revisor lleva justamente a
             // este detalle, así que el botón aparece en el mismo lugar donde cae.
-            var quienDecide = await CargarQuienDecideAsync(ctx, currentUserId);
+            var quienDecide = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, currentUserId);
 
             // Quién decidió el reembolso, quién firmó y quién pagó: los tres son app_user, así que
             // salen de una sola consulta a person.
@@ -1145,7 +1147,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(head.EstadoRendicionId),
                 CreatedAt        = head.CreatedAt,
                 MotivoRechazo    = head.MotivoRechazo,
-                PuedeDecidir     = EsElRevisor(quienDecide, revisor, arbolAreas),
+                PuedeDecidir     = RevisorDeLaSalida.EsElRevisor(quienDecide, revisor, arbolAreas),
 
                 EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
                 ObservacionReembolso = head.ObservacionReembolso,
@@ -1348,23 +1350,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         }
 
         /// <summary>
-        /// Topología del árbol de áreas indexada por <c>area_scope_id</c>: nombre del nodo y su
-        /// padre. Es una tabla chica (decenas de filas), se trae completa y se camina en memoria.
-        /// No se filtra por <c>state</c> a propósito: un trabajador que quedó en un nodo dado de
-        /// baja igual tiene que mostrar su área en vez de una celda vacía.
-        /// </summary>
-        private static async Task<Dictionary<int, (int? Padre, string Nombre)>> CargarArbolAreasAsync(AppDbContext ctx)
-        {
-            return await (
-                from sc in ctx.AreaScope
-                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
-                select new { sc.AreaScopeId, sc.AreaScopeParentId, Nombre = it.AreaItemName }
-            ).ToDictionaryAsync(
-                x => x.AreaScopeId,
-                x => (Padre: x.AreaScopeParentId, Nombre: x.Nombre));
-        }
-
-        /// <summary>
         /// El área más baja a la que pertenece el trabajador: el nodo al que apunta directamente
         /// <c>puesto.area_destino_scope_id</c> (el último de <see cref="RutaArea"/>). Es lo único que se
         /// muestra en la tabla; el detalle muestra además la ruta completa.
@@ -1392,126 +1377,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 actual = nodo.Padre;
             }
             return ruta;
-        }
-
-        // ── Aptitud para decidir (aprobar / rechazar) ────────────────────────
-
-        /// <summary>
-        /// Lo que hay que saber del usuario logueado para responder si es el revisor de una salida:
-        /// sus fichas de <c>workers</c> (puede tener varias por reingreso), las personas de esas
-        /// fichas y los nodos de área de sus puestos. Se carga UNA vez por consulta y sirve para
-        /// todas las filas de la página.
-        /// </summary>
-        private sealed record QuienDecide(
-            HashSet<int> WorkerIds, HashSet<int> PersonIds, List<int> AreaScopeIds)
-        {
-            public static QuienDecide Nadie() => new(new(), new(), new());
-        }
-
-        private static async Task<QuienDecide> CargarQuienDecideAsync(AppDbContext ctx, int? userId)
-        {
-            if (!userId.HasValue) return QuienDecide.Nadie();
-
-            var uid = userId.Value;
-            var fichas = await (
-                from w in ctx.Worker
-                join p in ctx.Person on w.PersonId equals (int?)p.PersonId
-                where p.UserId == uid
-                select new
-                {
-                    w.Id,
-                    w.PersonId,
-                    // El área sale del puesto: workers ya no la guarda.
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
-                }
-            ).ToListAsync();
-
-            if (fichas.Count == 0) return QuienDecide.Nadie();
-
-            return new QuienDecide(
-                fichas.Select(f => f.Id).ToHashSet(),
-                fichas.Where(f => f.PersonId.HasValue).Select(f => f.PersonId!.Value).ToHashSet(),
-                fichas.Where(f => f.AreaScopeId.HasValue).Select(f => f.AreaScopeId!.Value).Distinct().ToList());
-        }
-
-        /// <summary>
-        /// Regla única de quién está APTO para aprobar o rechazar una salida: <b>solo su revisor
-        /// resuelto</b>. Ver el alcance en <see cref="EnsureEsElRevisorAsync"/>; acá está el
-        /// cálculo puro, sin ir a la base, para poder marcarlo fila por fila en el listado.
-        ///
-        /// Dos formas de revisor, según cómo lo resolvió <c>IJefeRevisorResolver</c>:
-        ///   • una PERSONA (jefe personalizado o revisor de área) → apto si es una de las fichas
-        ///     del usuario. Se compara también por <c>person_id</c>: un reingreso deja varias
-        ///     fichas de la misma persona y el revisor puede estar configurado en cualquiera.
-        ///   • un ÁREA (el fallback de GTH, que es un correo de área y no una persona) → apto
-        ///     cualquiera que cuelgue de ese nodo, o sea todo GTH. Es el mismo criterio con el que
-        ///     <c>SalidaVisibilityResolver</c> les da a ver todas las salidas: sin esto, las
-        ///     solicitudes que caen al fallback no las podría decidir nadie desde la web.
-        ///
-        /// Y un tercer caso que no es un revisor sino su ausencia: cuando el resolver no devuelve
-        /// NADA (trabajador sin área ni jefe personalizado, con el área de GTH sin correo cargado)
-        /// también decide GTH. Es el caso que el correo al solicitante ya anuncia como "sin
-        /// jefatura inmediata identificada, el equipo administrativo será notificado": sin esta
-        /// rama esas solicitudes quedarían sin nadie que las pueda aprobar ni rechazar.
-        /// </summary>
-        private static bool EsElRevisor(
-            QuienDecide quien,
-            JefeRevisorResolution? revisor,
-            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
-        {
-            if (quien.WorkerIds.Count == 0) return false;
-
-            if (revisor?.WorkerId != null)
-                return quien.WorkerIds.Contains(revisor.WorkerId.Value)
-                    || (revisor.PersonId.HasValue && quien.PersonIds.Contains(revisor.PersonId.Value));
-
-            // Revisor de ÁREA: el nodo lo dio el resolver, así que se compara por id.
-            if (revisor?.AreaScopeId != null)
-                return quien.AreaScopeIds.Any(mio => CuelgaDe(mio, revisor.AreaScopeId.Value, arbol));
-
-            // Sin revisor resuelto: decide GTH igual que en el fallback. Acá se compara por NOMBRE
-            // subiendo por la cadena (mismo criterio que SalidaVisibilityResolver) y no eligiendo
-            // un nodo llamado GTH: el árbol admite nombres repetidos, y lo que se pregunta es si el
-            // usuario pertenece a GTH, no cuál de los nodos es "el" de GTH.
-            return quien.AreaScopeIds.Any(mio => CuelgaDeAreaLlamada(mio, AreaGthNombre, arbol));
-        }
-
-        /// <summary>
-        /// True si <paramref name="nodoId"/> es <paramref name="ancestroId"/> o desciende de él.
-        /// Camina hacia la raíz y corta ciclos por si el árbol quedó mal.
-        /// </summary>
-        private static bool CuelgaDe(
-            int nodoId, int ancestroId,
-            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
-        {
-            var vistos = new HashSet<int>();
-            int? actual = nodoId;
-            while (actual.HasValue && vistos.Add(actual.Value))
-            {
-                if (actual.Value == ancestroId) return true;
-                if (!arbol.TryGetValue(actual.Value, out var nodo)) return false;
-                actual = nodo.Padre;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// True si <paramref name="nodoId"/> o alguno de sus ancestros se llama
-        /// <paramref name="nombre"/>. Corta ciclos igual que <see cref="CuelgaDe"/>.
-        /// </summary>
-        private static bool CuelgaDeAreaLlamada(
-            int nodoId, string nombre,
-            IReadOnlyDictionary<int, (int? Padre, string Nombre)> arbol)
-        {
-            var vistos = new HashSet<int>();
-            int? actual = nodoId;
-            while (actual.HasValue && vistos.Add(actual.Value)
-                   && arbol.TryGetValue(actual.Value, out var nodo))
-            {
-                if (string.Equals(nodo.Nombre, nombre, StringComparison.OrdinalIgnoreCase)) return true;
-                actual = nodo.Padre;
-            }
-            return false;
         }
 
         /// <summary>

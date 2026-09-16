@@ -332,7 +332,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public Task SetHoraRetornoReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraRetornoReal(id, hora, registradaPorUserId);
 
-        public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId, int? ownerUserId = null)
+        public async Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirYGenerarPlanilla(
+            IEnumerable<int> ids, int userId, int? ownerUserId = null)
         {
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
 
@@ -416,10 +417,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             var (pdfUrl, pdfItemId, filename) = await SubirPlanillaAsync(pdf, userId);
 
             // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
-            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
+            var (rendicionId, codigo, rendidasIds) = await _repo.CrearRendicionYMarcarBulk(
                 elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
 
-            return (pdf, rendidasIds.Count);
+            return (pdf, rendidasIds.Count, rendicionId, codigo);
         }
 
         public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
@@ -510,7 +511,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             }
         }
 
-        public async Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId)
+        public async Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirMes(
+            GestionSalidaFiltersDto filters, int? anio, int? mes, int userId)
         {
             // El estado y el rango los fija la acción; los filtros de trabajador/área/proyecto que
             // trae la pantalla se respetan tal cual (se rinde lo que el usuario está viendo).

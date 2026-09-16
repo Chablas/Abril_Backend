@@ -50,13 +50,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task Cancelar(int id, int userId);
         /// <summary>
         /// Marca solicitudes elegibles como Rendidas y genera la planilla de gasto por movilidad (PDF).
-        /// Devuelve los bytes del PDF + cuántas se procesaron.
+        /// Devuelve los bytes del PDF, cuántas se procesaron y la planilla creada (id y código
+        /// REN-AAAA-NNNN). La planilla nace "Lista para enviar": enviarla a primera revisión es de
+        /// quien llama (Solicitud de Salidas lo hace en el acto, ver
+        /// <c>IRendicionService.RendirYEnviarAPrimeraRevision</c>).
         /// </summary>
         /// <param name="ownerUserId">
         /// Si se indica, actúa como guard: todas las solicitudes deben pertenecer al trabajador de ese
         /// usuario (rendición desde el autoservicio del trabajador). Null = sin restricción (Gestión de Salidas).
         /// </param>
-        Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId, int? ownerUserId = null);
+        Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirYGenerarPlanilla(
+            IEnumerable<int> ids, int userId, int? ownerUserId = null);
 
         /// <summary>
         /// Rinde de una sola vez todas las salidas del MES ANTERIOR al actual (por fecha de salida,
@@ -69,7 +73,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// acción rinde lo que el usuario está viendo. El estado, el rango de fechas y el filtro
         /// "Hoy" los fija el propio método.
         /// </param>
-        Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
+        Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirMes(
+            GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
         /// <summary>
         /// Vuelve a generar el PDF de una planilla que YA existe, con los montos y las capturas

@@ -72,6 +72,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Notificacion> Notificacion { get; set; }
         public DbSet<NotificacionTipo> NotificacionTipo { get; set; }
         public DbSet<Person> Person { get; set; }
+        /// <summary>
+        /// La firma de cada persona, una por tipo (dibujada / subida como imagen). Sustituye a las
+        /// columnas <c>person.signature_*</c>, que solo aguantaban una firma.
+        /// </summary>
+        public DbSet<PersonFirma> PersonFirma { get; set; }
+        public DbSet<FirmaTipo> FirmaTipo { get; set; }
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}

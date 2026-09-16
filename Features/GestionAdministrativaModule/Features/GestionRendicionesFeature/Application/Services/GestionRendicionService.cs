@@ -66,6 +66,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 ?? throw new AbrilException("La planilla de rendición no existe o no está en tu alcance.", 404);
         }
 
+        public async Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope)
+        {
+            await ApplyVisibilityAsync(scope);
+            return await _repo.GetSalidaDetalle(solicitudId, scope)
+                ?? throw new AbrilException("La salida no existe o no está en tu alcance.", 404);
+        }
+
         /// <summary>
         /// Qué correos dispararía la decisión de la primera revisión sobre la selección indicada, y
         /// a quién le llegarían. Se resuelve con las MISMAS llamadas que hace el envío
@@ -88,15 +95,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             {
                 await ApplyVisibilityAsync(scope);
 
-                var solicitantes = await _repo.GetCorreosSolicitantesPrimeraRevision(
-                    request.RendicionIds, scope);
+                var preview = await _repo.GetPreviewPrimeraRevision(
+                    request.RendicionIds, scope, conTrabajadores: request.Aprobar);
 
                 var codigo = request.Aprobar
                     ? CorreoEventoCodigos.RendicionPrimeraAprobada
                     : CorreoEventoCodigos.RendicionPrimeraObservada;
 
                 var avisos = new List<CorreoAvisoPreviewDto>();
-                await AgregarAvisoAsync(avisos, "Al solicitante", codigo, solicitantes);
+                await AgregarAvisoAsync(avisos, "Al solicitante", codigo, preview.CorreosSolicitantes);
+
+                // Aprobar además les avisa a los consolidadores del área (NotificarConsolidadoresAsync).
+                // Sin planillas elegibles no sale ese correo, así que tampoco se anuncia.
+                if (request.Aprobar && preview.WorkerIds.Count > 0)
+                    await AgregarAvisoAsync(
+                        avisos, "Al consolidador", CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador,
+                        CorreosDeConsolidadores(
+                            preview.WorkerIds,
+                            await _consolidadorResolver.ResolveManyAsync(preview.WorkerIds)));
 
                 return avisos;
             }
@@ -137,10 +153,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var decididas = await _repo.DecidirPrimeraRevision(
                 accion.RendicionIds, aprobar, accion.Observacion, scope, reviewerUserId);
 
-            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
-            // porque un correo falle (mismo criterio que la decisión del reembolso).
+            // Los avisos son best-effort: la decisión ya está guardada y no se revierte porque un
+            // correo falle (mismo criterio que la decisión del reembolso). Los datos de cada planilla
+            // se cargan una vez y sirven para sus solicitantes y, al aprobar, para sus consolidadores.
+            var planillas = new List<List<PrimeraRevisionCorreoInfoDto>>(decididas.Count);
             foreach (var rendicionId in decididas)
-                await NotificarPrimeraRevisionAsync(rendicionId, aprobar);
+            {
+                var porTrabajador = await CargarCorreoInfoAsync(rendicionId);
+                planillas.Add(porTrabajador);
+                await NotificarPrimeraRevisionAsync(rendicionId, porTrabajador, aprobar);
+            }
+
+            if (aprobar)
+                await NotificarConsolidadoresAsync(planillas);
 
             return new ReembolsoBulkResultDto
             {
@@ -158,9 +183,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             if (ids.Count == 0)
                 throw new AbrilException("Selecciona al menos una rendición.", 400);
 
-            // Ver las planillas no alcanza para consolidarlas: hay que estar habilitado por TODOS
-            // sus trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
+            // Ver las planillas no alcanza para consolidarlas: hay que ser consolidador de TODOS sus
+            // trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
             // que apaga el botón en la pantalla, así que acá no puede pasar nada que la UI no muestre.
+            // El propio trabajador no consolida lo suyo: después de la primera revisión, el trámite
+            // del S10 es del consolidador de su área.
             var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
             if (workerIds.Count == 0)
                 throw new AbrilException(
@@ -174,7 +201,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     (ids.Count == 1
                         ? "No estás habilitado para adjuntar el Consolidado del S10 de esta planilla. "
                         : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
-                    + "Pueden hacerlo el propio trabajador y los consolidadores de su área.", 403);
+                    + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
 
             return await _consolidadoService.UploadParaRendiciones(
                 ids, file, montoTotal, numeroReembolso, userId);
@@ -206,19 +233,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         // ── Correos de la primera revisión ───────────────────────────────────
 
         /// <summary>
+        /// Lo que necesitan los correos de la decisión sobre una planilla, una entrada por
+        /// trabajador. Best-effort como los envíos: si no se puede cargar, esa planilla se queda sin
+        /// avisos en vez de tumbar una decisión que ya está guardada.
+        /// </summary>
+        private async Task<List<PrimeraRevisionCorreoInfoDto>> CargarCorreoInfoAsync(int rendicionId)
+        {
+            try
+            {
+                return await _repo.GetPrimeraRevisionCorreoInfo(rendicionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error cargando los datos de los correos de la primera revisión de la rendición {RendicionId}",
+                    rendicionId);
+                return new List<PrimeraRevisionCorreoInfoDto>();
+            }
+        }
+
+        /// <summary>
         /// Le avisa a cada dueño de las salidas de la planilla cómo quedó su primera revisión: si
-        /// se aprobó, que ya puede cargar el Consolidado del S10; si se observó, con qué
-        /// comentario. Respeta la configuración de correos (Gestión Administrativa →
+        /// se aprobó, que su rendición sigue con el consolidador de su área; si se observó, con qué
+        /// comentario. Respeta la configuración de correos (Gestión de Rendiciones →
         /// Configuración → Correos): si está apagado o sin destinatarios, no se envía nada.
         ///
         /// Sale un correo POR TRABAJADOR y no uno por planilla: el documento puede agrupar a varias
         /// personas y cada una tiene que ver sus propios números para poder contrastarlos.
         /// </summary>
-        private async Task NotificarPrimeraRevisionAsync(int rendicionId, bool aprobada)
+        private async Task NotificarPrimeraRevisionAsync(
+            int rendicionId, List<PrimeraRevisionCorreoInfoDto> destinatarios, bool aprobada)
         {
             try
             {
-                var destinatarios = await _repo.GetPrimeraRevisionCorreoInfo(rendicionId);
                 if (destinatarios.Count == 0) return;
 
                 var codigo = aprobada
@@ -226,8 +273,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     : CorreoEventoCodigos.RendicionPrimeraObservada;
 
                 var layout = SalidaEmailLayout.Desde(_configuration);
-                // El botón lleva a Mis Rendiciones: lo que el trabajador tiene que hacer después de
-                // la decisión —cargar el Consolidado del S10, o corregir y volver a generar— vive ahí.
+                // El botón lleva a Mis Rendiciones: es donde el trabajador sigue su planilla y, si se
+                // observó, corrige y la vuelve a generar.
                 var url = SalidaEnlaces.Rendiciones(_configuration, rendicionId);
 
                 foreach (var info in destinatarios)
@@ -288,5 +335,126 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     "Error avisando la decisión de la primera revisión de la rendición {RendicionId}", rendicionId);
             }
         }
+
+        /// <summary>
+        /// Les avisa a los consolidadores del área que las planillas aprobadas se suman a las
+        /// disponibles para el Consolidado del S10. Es informativo: el consolidador junta varias
+        /// rendiciones y las consolida cuando le toca, así que el correo no le pide nada.
+        ///
+        /// Los consolidadores salen de <see cref="IConsolidadorResolver"/> —el mismo que después lo
+        /// habilita a adjuntar el consolidado— por TODOS los trabajadores de cada planilla. Sale UN
+        /// correo por grupo de destinatarios y no uno por planilla: aprobar en bloque varias planillas
+        /// de la misma área le llegaría repetido al mismo consolidador.
+        /// </summary>
+        private async Task NotificarConsolidadoresAsync(List<List<PrimeraRevisionCorreoInfoDto>> planillas)
+        {
+            var conDatos = planillas.Where(p => p.Count > 0).ToList();
+            if (conDatos.Count == 0) return;
+
+            try
+            {
+                var consolidadores = await _consolidadorResolver.ResolveManyAsync(
+                    conDatos.SelectMany(p => p.Select(i => i.WorkerId)).Distinct().ToList());
+
+                var grupos = conDatos
+                    .Select(p => new
+                    {
+                        Datos   = DatosDePlanilla(p),
+                        Correos = CorreosDeConsolidadores(p.Select(i => i.WorkerId), consolidadores),
+                    })
+                    .GroupBy(x => string.Join(";", x.Correos.Select(c => c.ToLowerInvariant())))
+                    .ToList();
+
+                var layout = SalidaEmailLayout.Desde(_configuration);
+
+                foreach (var grupo in grupos)
+                {
+                    var rendiciones = grupo.Select(x => x.Datos).OrderBy(d => d.Codigo, StringComparer.Ordinal).ToList();
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador, grupo.First().Correos);
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para las rendiciones {Codigos}: está apagado o sin destinatarios "
+                            + "(sin consolidador resuelto ni destinatarios configurados).",
+                            CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador,
+                            string.Join(", ", rendiciones.Select(r => r.Codigo)));
+                        continue;
+                    }
+
+                    var una = rendiciones.Count == 1;
+                    var url = una
+                        ? SalidaEnlaces.GestionRendiciones(_configuration, rendiciones[0].RendicionId)
+                        : SalidaEnlaces.GestionRendiciones(_configuration);
+
+                    var subject = una
+                        ? $"Rendición disponible para consolidar - {rendiciones[0].Codigo} - {rendiciones[0].Trabajador}"
+                        : $"{rendiciones.Count} rendiciones disponibles para consolidar";
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: subject,
+                        body: RendicionRevisionEmailTemplates.DisponiblesParaConsolidar(layout, rendiciones, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando a los consolidadores la aprobación de las rendiciones {Ids}",
+                    string.Join(",", conDatos.Select(p => p[0].RendicionId)));
+            }
+        }
+
+        /// <summary>
+        /// Una planilla entera para el correo del consolidador: a él le importa el documento que va
+        /// a consolidar, no el desglose por trabajador que recibe cada solicitante.
+        /// </summary>
+        private static RendicionRevisionCorreoDatos DatosDePlanilla(List<PrimeraRevisionCorreoInfoDto> porTrabajador)
+        {
+            var primera = porTrabajador[0];
+
+            static string? Unir(IEnumerable<string?> valores)
+            {
+                var distintos = valores
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .Select(v => v!.Trim())
+                    .Distinct()
+                    .ToList();
+                return distintos.Count == 0 ? null : string.Join(", ", distintos);
+            }
+
+            return new RendicionRevisionCorreoDatos
+            {
+                RendicionId    = primera.RendicionId,
+                Codigo         = primera.Codigo,
+                NumeroPlanilla = primera.NumeroPlanilla,
+                Trabajador     = Unir(porTrabajador.Select(i => i.Trabajador)) ?? "Trabajador",
+                Area           = Unir(porTrabajador.Select(i => i.Area)),
+                Periodo        = Unir(porTrabajador.Select(i => i.Periodo)),
+                SalidasCount   = porTrabajador.Sum(i => i.SalidasCount),
+                TrayectosCount = porTrabajador.Sum(i => i.TrayectosCount),
+                MontoTotal     = porTrabajador.Sum(i => i.MontoTotal),
+                DecididoPor    = primera.DecididoPor,
+            };
+        }
+
+        /// <summary>
+        /// Correos de los consolidadores de esos trabajadores, sin repetir y en orden estable: el
+        /// orden importa porque agrupa los envíos, y lo usa también el preview para anunciarlos.
+        /// </summary>
+        private static List<string> CorreosDeConsolidadores(
+            IEnumerable<int> workerIds, IReadOnlyDictionary<int, List<ConsolidadorElegido>> consolidadores) =>
+            workerIds
+                .Distinct()
+                .SelectMany(id => consolidadores.TryGetValue(id, out var lista) ? lista : new List<ConsolidadorElegido>())
+                .Select(c => (c.Email ?? string.Empty).Trim())
+                .Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(e => e, StringComparer.OrdinalIgnoreCase)
+                .ToList();
     }
 }

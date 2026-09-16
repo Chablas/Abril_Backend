@@ -7,41 +7,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
     // la carpeta de una de ellas.
 
     /// <summary>
-    /// Lo que necesitan los correos del reembolso de UNA salida. Sale de una sola consulta para no
-    /// volver a la base por cada correo.
-    /// </summary>
-    public class ReembolsoCorreoInfoDto
-    {
-        public int SolicitudId { get; set; }
-        public int WorkerId { get; set; }
-        public string Trabajador { get; set; } = string.Empty;
-        /// <summary>
-        /// Identificador que ve el trabajador: el código SOL-AAAA-NNNN. Se resuelve igual que en
-        /// SolicitudSalidaService para que el mismo pedido no salga con dos identificadores
-        /// distintos; las solicitudes anteriores al código conservan su "#N" por trabajador.
-        /// </summary>
-        public string Codigo { get; set; } = string.Empty;
-        /// <summary>Correo del solicitante (app_user.email). Null si no tiene usuario.</summary>
-        public string? SolicitanteEmail { get; set; }
-        public string? Area { get; set; }
-        public DateOnly FechaSalida { get; set; }
-        /// <summary>Numero de planilla formateado ("TI: 000123"), o null si no tiene planilla.</summary>
-        public string? NumeroPlanilla { get; set; }
-        /// <summary>
-        /// Planilla a la que pertenece la salida. Es el destino del boton del correo: lo que el
-        /// trabajador tiene que hacer despues de una decision (subsanar volviendo a adjuntar el
-        /// Consolidado del S10) vive en Mis Rendiciones, no en la salida.
-        /// </summary>
-        public int? RendicionId { get; set; }
-        public int TrayectosCount { get; set; }
-        public decimal MontoTotal { get; set; }
-        public string EstadoReembolso { get; set; } = string.Empty;
-        public string? ObservacionReembolso { get; set; }
-        /// <summary>Nombre de quien decidio el reembolso (para mostrarlo en el correo).</summary>
-        public string? DecididoPor { get; set; }
-    }
-
-    /// <summary>
     /// Lo que necesitan los correos de la decisión de la PRIMERA revisión, por trabajador de la
     /// planilla. Sale de una sola consulta para no volver a la base por cada correo.
     ///

@@ -8,12 +8,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
     /// firmó se revisa y se paga acá. Antes vivía como un modo dentro de Gestión de Salidas; se
     /// separó porque esa pantalla ya no llega hasta el reembolso.
     ///
+    /// La unidad de la pantalla es el CONSOLIDADO del S10 y no la planilla: un mismo registro del
+    /// S10 puede cubrir varias —la jefatura ya lo decidió y lo firmó entero en Consolidados— y lo
+    /// que Tesorería revisa y desembolsa es ese documento.
+    ///
     /// El flujo son DOS pasos y no uno (RG-26): primero Tesorería confirma que la documentación
-    /// está completa —planilla, Consolidado del S10, firma de la jefatura y trayectos con sus
-    /// vouchers— y recién entonces la planilla queda habilitada para el pago.
+    /// está completa —planillas, Consolidado del S10, firma de la jefatura y trayectos con sus
+    /// vouchers— y recién entonces el consolidado queda habilitado para el pago.
     ///
     /// Y tiene un camino de vuelta (RG-49): si la revisión no cuadra, Tesorería OBSERVA con un
-    /// motivo y la planilla vuelve al flujo de subsanación que ya existe, el mismo de la
+    /// motivo y el consolidado vuelve al flujo de subsanación que ya existe, el mismo de la
     /// observación de la jefatura. Se puede observar tanto lo que está por revisar como lo ya
     /// confirmado, mientras no esté pagado.
     ///
@@ -25,7 +29,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
     {
         Task<ReembolsoListResultDto> GetAll(ReembolsoFiltersDto filters);
         Task<ReembolsoFilterDataDto> GetFilterData();
-        Task<ReembolsoDetalleDto> GetDetalle(int rendicionId);
+        Task<ReembolsoDetalleDto> GetDetalle(int consolidadoId);
+
+        /// <summary>
+        /// El detalle de UNA salida de la bandeja (el ojo de la tabla de salidas del expediente):
+        /// trayectos, vouchers, montos y adjuntos. Solo consulta: 404 si no está en la bandeja.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId);
 
         /// <summary>
         /// Confirma la revisión documental de lo seleccionado: sus salidas firmadas pasan a
@@ -42,8 +52,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
         Task<ReembolsoBulkResultDto> Observar(ReembolsoObservacionDto dto, int tesoreroUserId);
 
         /// <summary>
-        /// Marca como pagadas las salidas ya confirmadas de lo seleccionado (planillas completas o
-        /// salidas sueltas desde el detalle) y avisa a cada colaborador.
+        /// Marca como pagadas las salidas ya confirmadas de los consolidados seleccionados y avisa
+        /// a cada colaborador.
         /// </summary>
         Task<ReembolsoBulkResultDto> MarcarPagadas(ReembolsoSeleccionDto dto, int tesoreroUserId);
 
@@ -55,8 +65,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
         Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto);
 
         /// <summary>
-        /// Lo mismo para el aviso de que Tesorería devolvió el reembolso. Confirmar la revisión es
-        /// el único paso de la pantalla que no manda correo y por eso no tiene preview.
+        /// Lo mismo para el aviso de que Tesorería devolvió el reembolso, que le llega al
+        /// consolidador. Confirmar la revisión es el único paso de la pantalla que no manda correo y
+        /// por eso no tiene preview.
         /// </summary>
         Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewObservacion(ReembolsoSeleccionDto dto);
 

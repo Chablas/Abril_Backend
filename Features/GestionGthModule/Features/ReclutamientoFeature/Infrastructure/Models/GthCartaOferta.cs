@@ -36,7 +36,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// FK a <c>person</c>: la ficha de la data maestra del colaborador. Es obligatoria — la firma
-        /// que dibuja en el enlace público se guarda ahí (<c>person.signature_image_bytes</c>), así
+        /// que dibuja en el enlace público cuelga de ahí (<c>person_firma</c>), así
         /// que sin ficha el enlace llegaría a una página que no puede terminar. Se resuelve del
         /// formulario aprobado del postulante o, en el ingreso directo FFT, del propio requerimiento.
         /// </summary>

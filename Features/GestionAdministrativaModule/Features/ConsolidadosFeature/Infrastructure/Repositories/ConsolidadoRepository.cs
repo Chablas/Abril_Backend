@@ -3,34 +3,46 @@ using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Repositories
 {
     /// <summary>
-    /// Los Consolidados del S10 desde el lado de la jefatura que los firma.
+    /// Los Consolidados del S10 desde los dos lados que trabajan sobre ellos: la jefatura que decide
+    /// y firma el reembolso, y el consolidador que los adjuntó y los subsana.
     ///
     /// La fila NO se arma desde la planilla sino desde la SALIDA: el consolidado de cada salida se
     /// resuelve con la precedencia de <see cref="ConsolidadoS10Loader"/> (el propio de la salida si
     /// lo tiene —solo en registros antiguos—, y si no el de su planilla) y después se agrupan las
     /// salidas por documento. Es la misma precedencia con la que se decide si un reembolso está
     /// listo para revisar, así que ninguna salida decidible puede quedarse sin su fila acá.
+    ///
+    /// Ver no es decidir: la visibilidad (ámbito CONSOLIDADOS) da a ver el consolidado, pero su
+    /// reembolso lo decide SOLO la jefatura de los trabajadores (<see cref="RevisorDeLaSalida"/>), y
+    /// los trámites del consolidador SOLO quien es consolidador de todos sus trabajadores
+    /// (<c>IConsolidadorResolver</c>).
     /// </summary>
     public class ConsolidadoRepository : IConsolidadoRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IConsolidadorResolver _consolidadorResolver;
 
         public ConsolidadoRepository(
-            IDbContextFactory<AppDbContext> factory, IJefeRevisorResolver jefeResolver)
+            IDbContextFactory<AppDbContext> factory,
+            IJefeRevisorResolver jefeResolver,
+            IConsolidadorResolver consolidadorResolver)
         {
             _factory = factory;
             _jefeResolver = jefeResolver;
+            _consolidadorResolver = consolidadorResolver;
         }
 
         // ══ Lectura ═════════════════════════════════════════════════════════
@@ -64,6 +76,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 ? salidas
                 : new List<ConsolidadoSalidaDto>();
             return detalle;
+        }
+
+        public async Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId, ConsolidadoFiltersDto scope)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo una salida rendida y dentro del alcance: la que se ve en el detalle del
+            // consolidado. Mandar un id cualquiera no abre la salida de un área que no le compete.
+            var visible = await SalidasVisibles(ctx, SoloVisibilidad(scope))
+                .AnyAsync(s => s.Id == solicitudId && s.RendicionId != null);
+            if (!visible) return null;
+
+            return await SalidaDetalleLoader.LoadAsync(ctx, solicitudId, conAptitudParaRendir: false);
         }
 
         public async Task<ConsolidadoFilterDataDto> GetFilterData(ConsolidadoFiltersDto scope)
@@ -180,7 +205,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             // Consolidado de cada salida, con la precedencia del módulo. Las salidas sin consolidado
             // no tienen nada que mostrar acá: su planilla está en Gestión de Rendiciones esperando
-            // que alguien se lo adjunte.
+            // que el consolidador se lo adjunte.
             var rendicionPorSolicitud = planillas
                 .SelectMany(p => p.Salidas.Select(s => (SolicitudId: s.Id, RendicionId: (int?)p.Id)))
                 .ToDictionary(x => x.SolicitudId, x => x.RendicionId);
@@ -190,7 +215,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var porDecidir = await IdsConReembolsoRevisableAsync(
                 ctx, consolidadoPorSolicitud.Keys.ToList());
-            var ajenas = await MisWorkerIdsQueNoDecidoAsync(ctx, currentUserId);
+
+            // De lo que está por decidir, lo que le toca decidir a ESTE usuario: las salidas de los
+            // trabajadores de los que es la jefatura. Un número fijo de consultas para toda la tabla.
+            var decidibles = await DecidiblesPorUsuarioAsync(
+                ctx,
+                planillas.SelectMany(p => p.Salidas)
+                    .Where(s => porDecidir.Contains(s.Id))
+                    .Select(s => (s.Id, s.WorkerId))
+                    .ToList(),
+                currentUserId);
 
             // Un grupo por documento: sus planillas visibles y, dentro de cada una, las salidas que
             // ese documento cubre (en los consolidados por salida es solo una de ellas).
@@ -216,8 +250,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             if (grupos.Count == 0) return vacio;
 
             // Lo que hay que resolver mirando el documento entero y no solo lo visible: las planillas
-            // que cubre pero el usuario no ve (su monto completo) y la razón social de todos sus
-            // trabajadores.
+            // que cubre pero el usuario no ve (su monto completo) y los trabajadores de todas ellas,
+            // que son por los que hay que ser consolidador.
             var cubiertas = dtoPorConsolidado.Values
                 .SelectMany(c => c.Rendiciones.Select(r => r.Id))
                 .Concat(grupos.SelectMany(g => g.Value.Select(x => x.Planilla.Id)))
@@ -229,10 +263,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 ctx, cubiertas.Where(id => !enTabla.ContainsKey(id)).ToList());
 
             var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, cubiertas);
-            var razones    = await ConsolidadoS10Agrupacion.LoadRazonSocialAsync(
-                ctx, agrupables.Values.SelectMany(a => a.WorkerIds).Distinct().ToList());
 
+            var todosLosTrabajadores = agrupables.Values.SelectMany(a => a.WorkerIds).Distinct().ToList();
+            var puedeConsolidarPor = currentUserId == null || todosLosTrabajadores.Count == 0
+                ? new HashSet<int>()
+                : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(currentUserId.Value, todosLosTrabajadores);
+
+            // La corrección con el ERP viva de cada planilla (casi ninguna la tiene).
+            var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, cubiertas);
+
+            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador.
             var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
+            var razones   = await RazonSocialConsolidador.LoadPorUsuarioAsync(
+                ctx, subidoPor.Values.Select(x => x.UserId).Distinct().ToList());
 
             decimal MontoCompletoDe(int rendicionId) => enTabla.TryGetValue(rendicionId, out var fila)
                 ? fila.MontoTotalPlanilla
@@ -302,11 +345,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
                       && !string.IsNullOrWhiteSpace(s.ObservacionReembolso));
 
+                // El consolidado cubre los documentos enteros: el trámite es de quien puede
+                // consolidar por TODOS sus trabajadores, también por los que la tabla no muestra.
                 var trabajadoresDelDocumento = rendiciones
                     .SelectMany(r => agrupables.TryGetValue(r.Id, out var a) ? a.WorkerIds : new List<int>())
                     .Distinct()
                     .ToList();
-                var razon = ConsolidadoS10Agrupacion.RazonSocialComun(trabajadoresDelDocumento, razones);
+                var puedeConsolidar = trabajadoresDelDocumento.Count > 0
+                                   && trabajadoresDelDocumento.All(puedeConsolidarPor.Contains);
+
+                var correccion = rendiciones
+                    .Select(r => correcciones.GetValueOrDefault(r.Id))
+                    .FirstOrDefault(c => c != null);
+
+                subidoPor.TryGetValue(dto.Id, out var quienSubio);
+                var razon = quienSubio.UserId > 0 ? razones.GetValueOrDefault(quienSubio.UserId) : null;
 
                 items.Add(new ConsolidadoListItemDto
                 {
@@ -321,7 +374,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     PdfFirmadoFilename = dto.PdfFirmadoFilename,
                     FirmadoAt          = dto.FirmadoAt,
                     UploadedAt         = dto.UploadedAt,
-                    SubidoPor          = subidoPor.GetValueOrDefault(dto.Id),
+                    SubidoPor          = quienSubio.Nombre,
 
                     Rendiciones   = rendiciones,
                     Trabajadores  = visibles.Select(s => s.Trabajador).Distinct().ToList(),
@@ -340,10 +393,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
                         observada?.ObservacionReembolsoOrigenId),
 
-                    PorDecidirCount = visibles.Count(s => porDecidir.Contains(s.Id)),
-                    // Basta una salida suya que no le toque decidir para apagar el documento entero:
-                    // el reembolso se decide completo, no se puede aprobar "a medias".
-                    PuedeDecidir = !visibles.Any(s => ajenas.Contains(s.WorkerId)),
+                    // Solo lo que el usuario decide: una jefatura con trabajadores en dos
+                    // consolidados, o un consolidado con trabajadores de dos jefaturas, decide su
+                    // parte (las firmas se acumulan sobre el mismo documento).
+                    PorDecidirCount = visibles.Count(s => decidibles.Contains(s.Id)),
+
+                    // Avisar tiene sentido si algo Pendiente espera a OTRA jefatura: un consolidador
+                    // que además es el jefe de esos trabajadores lo decide él mismo.
+                    PuedeConsolidar     = puedeConsolidar,
+                    PuedeAvisarJefatura = puedeConsolidar
+                                       && visibles.Any(s => porDecidir.Contains(s.Id)
+                                                         && !decidibles.Contains(s.Id)
+                                                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente),
+                    JefaturaAvisadaAt   = visibles.Max(s => s.RevisorNotificadoAt),
+                    // Solo desde una observación y una a la vez: mientras haya una viva, lo que
+                    // sigue es esperarla o recargar el consolidado.
+                    PuedeSolicitarCorreccion = puedeConsolidar
+                                            && correccion == null
+                                            && visibles.Any(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado),
+                    CorreccionS10 = correccion,
                 });
 
                 if (conDetalle)
@@ -375,19 +443,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 salidasDelDetalle);
         }
 
-        /// <summary>Nombre de quien subió cada consolidado, para la columna «Adjuntado por».</summary>
-        private static async Task<Dictionary<int, string?>> SubidoPorAsync(
+        /// <summary>
+        /// Quién subió cada consolidado —el consolidador—: su usuario (para resolver su razón social)
+        /// y su nombre (la columna «Adjuntado por»).
+        /// </summary>
+        private static async Task<Dictionary<int, (int UserId, string? Nombre)>> SubidoPorAsync(
             AppDbContext ctx, List<int> consolidadoIds)
         {
             if (consolidadoIds.Count == 0) return new();
 
-            return await (
+            var filas = await (
                 from c   in ctx.GaConsolidadoS10
                 join per in ctx.Person on c.UploadedById equals per.UserId into perGroup
                 from per in perGroup.DefaultIfEmpty()
                 where consolidadoIds.Contains(c.Id)
-                select new { c.Id, Nombre = per != null ? per.FullName : null }
-            ).ToDictionaryAsync(x => x.Id, x => x.Nombre);
+                select new { c.Id, c.UploadedById, Nombre = per != null ? per.FullName : null }
+            ).ToListAsync();
+
+            return filas
+                .GroupBy(x => x.Id)
+                .ToDictionary(g => g.Key, g => (g.First().UploadedById, g.Select(x => x.Nombre).FirstOrDefault(n => n != null)));
         }
 
         /// <summary>
@@ -648,9 +723,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
         /// <summary>
         /// Las salidas de la selección cuyo reembolso el usuario puede decidir hoy: elegibles
-        /// (rendidas, con Consolidado del S10 y sin decidir) y ninguna suya que no le toque.
-        /// Lanza 400/403 con el mismo mensaje que veía la pantalla; la comparten la aprobación y la
-        /// observación para que las dos apliquen exactamente la misma regla.
+        /// (rendidas, con Consolidado del S10 y sin decidir) y de trabajadores de los que es la
+        /// jefatura. Lanza 400 si no hay nada por decidir y 403 si hay pero no le toca a él; la
+        /// comparten la aprobación y la observación para que las dos apliquen exactamente la misma
+        /// regla.
+        ///
+        /// Las salidas de otra jefatura que vengan en la selección se ignoran en silencio: un
+        /// consolidado puede cubrir trabajadores de varias, y cada una decide (y firma) su parte.
         /// </summary>
         private async Task<List<GaSolicitudSalida>> SalidasDecidiblesAsync(
             AppDbContext ctx, List<int> idsList, int reviewerUserId)
@@ -664,24 +743,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Where(s => elegibles.Contains(s.Id))
                 .ToListAsync();
 
-            // Nadie decide el reembolso de sus propias salidas, salvo el que es su propio revisor
-            // (jefe personalizado apuntándose a sí mismo). Ver MisWorkerIdsQueNoDecidoAsync.
-            var ajenas = await MisWorkerIdsQueNoDecidoAsync(ctx, reviewerUserId);
+            var decidibles = await DecidiblesPorUsuarioAsync(
+                ctx, solicitudes.Select(s => (s.Id, s.WorkerId)).ToList(), reviewerUserId);
 
-            if (solicitudes.Any(x => ajenas.Contains(x.WorkerId)))
+            if (decidibles.Count == 0)
                 throw new AbrilException(
-                    "No puedes decidir el reembolso de tus propias salidas — deselecciónalas primero.", 403);
+                    "Solo la jefatura de los trabajadores puede aprobar u observar el reembolso de este consolidado.",
+                    403);
 
-            return solicitudes;
+            return solicitudes.Where(s => decidibles.Contains(s.Id)).ToList();
+        }
+
+        /// <summary>
+        /// De las salidas dadas, las que decide el usuario: aquellas cuyo revisor resuelto (el mismo
+        /// que recibe los correos del flujo) es él. Ver <see cref="RevisorDeLaSalida.EsElRevisor"/>.
+        /// Un número fijo de consultas: las fichas del usuario, un lote al resolver y, solo si algún
+        /// revisor es el fallback de GTH, el árbol de áreas.
+        /// </summary>
+        private async Task<HashSet<int>> DecidiblesPorUsuarioAsync(
+            AppDbContext ctx, IReadOnlyCollection<(int Id, int WorkerId)> salidas, int? userId)
+        {
+            if (!userId.HasValue || salidas.Count == 0) return new();
+
+            var quien = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, userId);
+            if (quien.WorkerIds.Count == 0) return new();
+
+            var revisores = await _jefeResolver.ResolveManyAsync(
+                salidas.Select(s => s.WorkerId).Distinct().ToList());
+
+            var necesitaArbol = salidas.Any(s => !revisores.TryGetValue(s.WorkerId, out var r) || r.WorkerId == null);
+            var arbol = necesitaArbol
+                ? await RevisorDeLaSalida.CargarArbolAsync(ctx)
+                : new Dictionary<int, (int? Padre, string Nombre)>();
+
+            return salidas
+                .Where(s => RevisorDeLaSalida.EsElRevisor(quien, revisores.GetValueOrDefault(s.WorkerId), arbol))
+                .Select(s => s.Id)
+                .ToHashSet();
         }
 
         // ══ Correos ═════════════════════════════════════════════════════════
 
-        public async Task<List<string>> GetCorreosSolicitantesPorDecidir(
-            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope)
+        public async Task<List<string>> GetCorreosConsolidadorPorDecidir(
+            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope, int userId)
         {
-            // El recorte por visibilidad es el mismo que hace la escritura: sin esto, el preview de
-            // un consolidado delataría los correos de trabajadores de áreas que el usuario no ve.
+            // El recorte por visibilidad y por jefatura es el mismo que hace la escritura: el
+            // preview no puede anunciar un correo por un consolidado que el usuario no decide.
             var visibles = await ResolverSolicitudIds(consolidadoIds, scope);
             if (visibles.Count == 0) return new();
 
@@ -690,14 +797,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             var porDecidir = await IdsConReembolsoRevisableAsync(ctx, visibles);
             if (porDecidir.Count == 0) return new();
 
-            return await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                join u in ctx.User on (int?)per.UserId equals (int?)u.UserId
-                where porDecidir.Contains(s.Id) && u.Email != null && u.Email != ""
-                select u.Email!
-            ).Distinct().ToListAsync();
+            var salidas = await ctx.GaSolicitudSalida
+                .Where(s => porDecidir.Contains(s.Id))
+                .Select(s => new { s.Id, s.WorkerId })
+                .ToListAsync();
+
+            var decidibles = await DecidiblesPorUsuarioAsync(
+                ctx, salidas.Select(s => (s.Id, s.WorkerId)).ToList(), userId);
+            if (decidibles.Count == 0) return new();
+
+            return (await ConsolidadoCorreoLoader.LoadAsync(ctx, decidibles))
+                .Select(d => d.ConsolidadorEmail)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public async Task<List<string>> GetCorreosTesoreria()
@@ -728,74 +842,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<ReembolsoCorreoInfoDto?> GetReembolsoCorreoInfo(int solicitudId)
+        public async Task<List<ConsolidadoCorreoDatos>> GetConsolidadoCorreoDatos(IReadOnlyCollection<int> solicitudIds)
         {
             using var ctx = _factory.CreateDbContext();
-
-            var head = await (
-                from s in ctx.GaSolicitudSalida
-                join w in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                join u in ctx.User on (per != null ? per.UserId : null) equals (int?)u.UserId into uGroup
-                from u in uGroup.DefaultIfEmpty()
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId
-                select new
-                {
-                    s.Id, WorkerInternalId = w.Id,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    Email = u != null ? u.Email : null,
-                    s.FechaSalida, s.EstadoReembolsoId, s.ObservacionReembolso, s.ReembolsoDecididoPorId,
-                    s.RendicionId,
-                    NumeroPlanilla = r != null ? r.NumeroPlanilla : null,
-                    s.Codigo,
-                }
-            ).FirstOrDefaultAsync();
-
-            if (head == null) return null;
-
-            var trayectoIds = await ctx.GaSolicitudTrayecto
-                .Where(t => t.SolicitudId == solicitudId)
-                .Select(t => t.Id)
-                .ToListAsync();
-
-            var monto = trayectoIds.Count == 0
-                ? 0m
-                : await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .SumAsync(c => (decimal?)c.Monto) ?? 0m;
-
-            string? decididoPor = null;
-            if (head.ReembolsoDecididoPorId.HasValue)
-            {
-                decididoPor = await (
-                    from w in ctx.Worker
-                    join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                    where per.UserId == head.ReembolsoDecididoPorId.Value
-                    select per.FullName
-                ).FirstOrDefaultAsync();
-            }
-
-            return new ReembolsoCorreoInfoDto
-            {
-                SolicitudId          = head.Id,
-                WorkerId             = head.WorkerInternalId,
-                Codigo               = head.Codigo ?? $"#{head.Id}",
-                Trabajador           = head.Trabajador,
-                SolicitanteEmail     = head.Email,
-                Area                 = await ResolveAreaNombreAsync(ctx, head.AreaScopeId),
-                FechaSalida          = head.FechaSalida,
-                NumeroPlanilla       = PlanillaRendicionHelper.NumeroPlanilla(head.NumeroPlanilla),
-                RendicionId          = head.RendicionId,
-                TrayectosCount       = trayectoIds.Count,
-                MontoTotal           = monto,
-                EstadoReembolso      = EstadosSalida.Reembolso.Nombre(head.EstadoReembolsoId),
-                ObservacionReembolso = head.ObservacionReembolso,
-                DecididoPor          = decididoPor,
-            };
+            return await ConsolidadoCorreoLoader.LoadAsync(ctx, solicitudIds);
         }
 
         public async Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId)
@@ -874,6 +924,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             return new TesoreriaCorreoInfoDto
             {
                 Destinatarios = destinatarios,
+                ConsolidadoId = consolidado?.Id,
                 Datos = new ReembolsoPlanillaCorreoDatos
                 {
                     RendicionId    = rendicionId,
@@ -890,6 +941,214 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     FirmadoPor     = firmadoPor,
                 },
             };
+        }
+
+        // ══ Trámites del consolidador ═══════════════════════════════════════
+
+        public async Task<AvisoJefaturaInfoDto?> GetAvisoJefatura(
+            int consolidadoId, ConsolidadoFiltersDto scope, int userId)
+        {
+            var visibles = await ResolverSolicitudIds(new[] { consolidadoId }, scope);
+            if (visibles.Count == 0) return null;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var info = new AvisoJefaturaInfoDto
+            {
+                PuedeConsolidar = await PuedeConsolidarAsync(ctx, consolidadoId, userId),
+            };
+
+            // Lo que está esperando a la jefatura: rendido, con consolidado y todavía Pendiente. Lo
+            // Observado no: ahí la pelota está en el consolidador.
+            var revisables = await IdsConReembolsoRevisableAsync(ctx, visibles);
+            var pendientes = await ctx.GaSolicitudSalida
+                .Where(s => revisables.Contains(s.Id) && s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente)
+                .Select(s => new { s.Id, s.WorkerId })
+                .ToListAsync();
+            if (pendientes.Count == 0) return info;
+
+            info.SolicitudIds = pendientes.Select(p => p.Id).ToList();
+
+            // La jefatura de esas salidas: el MISMO revisor que las decide en esta pantalla.
+            var jefaturas = (await _jefeResolver.ResolveManyAsync(
+                    pendientes.Select(p => p.WorkerId).Distinct().ToList()))
+                .Values
+                .Where(r => !string.IsNullOrWhiteSpace(r.Email))
+                .ToList();
+
+            info.JefaturaEmails = jefaturas
+                .Select(r => r.Email.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            info.JefaturaNombres = jefaturas
+                .Select(r => string.IsNullOrWhiteSpace(r.Nombre) ? r.Email.Trim() : r.Nombre!)
+                .Distinct()
+                .ToList();
+
+            info.Datos = (await ConsolidadoCorreoLoader.LoadAsync(ctx, info.SolicitudIds))
+                .FirstOrDefault(d => d.ConsolidadoId == consolidadoId);
+
+            return info;
+        }
+
+        public async Task MarcarJefaturaAvisada(IReadOnlyCollection<int> solicitudIds, int userId)
+        {
+            var ids = solicitudIds.Distinct().ToList();
+            if (ids.Count == 0) return;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var now = DateTimeOffset.UtcNow;
+            var salidas = await ctx.GaSolicitudSalida
+                .Where(s => ids.Contains(s.Id))
+                .ToListAsync();
+
+            foreach (var s in salidas)
+            {
+                s.RevisorNotificadoAt    = now;
+                s.RevisorNotificadoPorId = userId;
+                s.UpdatedAt              = now;
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<CorreccionConsolidadoPlanDto?> GetCorreccionPlan(
+            int consolidadoId, ConsolidadoFiltersDto scope, int userId)
+        {
+            var visibles = await ResolverSolicitudIds(new[] { consolidadoId }, scope);
+            if (visibles.Count == 0) return null;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var consolidado = await ctx.GaConsolidadoS10
+                .Where(c => c.Id == consolidadoId && c.State)
+                .Select(c => new { c.Id, c.NumeroReembolso })
+                .FirstOrDefaultAsync();
+            if (consolidado == null) return null;
+
+            var cubiertas = await RendicionesCubiertasAsync(ctx, consolidadoId);
+
+            var observadas = await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId != null && cubiertas.Contains(s.RendicionId.Value)
+                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado)
+                .Select(s => new { s.Id, RendicionId = s.RendicionId!.Value })
+                .ToListAsync();
+
+            var plan = new CorreccionConsolidadoPlanDto
+            {
+                PuedeConsolidar        = await PuedeConsolidarAsync(ctx, consolidadoId, userId),
+                RendicionIdsObservadas = observadas.Select(o => o.RendicionId).Distinct().ToList(),
+                HayCorreccionEnCurso   = await ctx.GaCorreccionS10
+                                            .AnyAsync(c => c.State && cubiertas.Contains(c.RendicionId)),
+                NumeroReembolso        = consolidado.NumeroReembolso,
+                Solicitante            = await ctx.Person
+                                            .Where(p => p.UserId == userId && p.FullName != null)
+                                            .Select(p => p.FullName)
+                                            .FirstOrDefaultAsync(),
+            };
+
+            if (observadas.Count > 0)
+                plan.Datos = (await ConsolidadoCorreoLoader.LoadAsync(ctx, observadas.Select(o => o.Id).ToList()))
+                    .FirstOrDefault(d => d.ConsolidadoId == consolidadoId);
+
+            return plan;
+        }
+
+        public async Task<List<GaCorreccionS10>> CrearCorrecciones(
+            int consolidadoId, string? numeroReembolso, IReadOnlyCollection<int> rendicionIds,
+            string motivo, int userId)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            var texto = (motivo ?? string.Empty).Trim();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Se relee en la escritura: entre el plan y el correo pudo recargarse el consolidado o
+            // pedirse otra corrección desde otra sesión.
+            var observadas = await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId != null && ids.Contains(s.RendicionId.Value)
+                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado)
+                .Select(s => new
+                {
+                    RendicionId = s.RendicionId!.Value,
+                    s.ObservacionReembolso,
+                    s.ObservacionReembolsoOrigenId,
+                })
+                .ToListAsync();
+
+            var conCorreccion = (await ctx.GaCorreccionS10
+                    .Where(c => c.State && ids.Contains(c.RendicionId))
+                    .Select(c => c.RendicionId)
+                    .ToListAsync())
+                .ToHashSet();
+
+            var now = DateTimeOffset.UtcNow;
+
+            var nuevas = observadas
+                .GroupBy(o => o.RendicionId)
+                .Where(g => !conCorreccion.Contains(g.Key))
+                .Select(g =>
+                {
+                    // La observación y su origen salen de la MISMA salida, o el ERP leería un motivo
+                    // con el rótulo del otro (jefatura / Tesorería).
+                    var observada = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.ObservacionReembolso)) ?? g.First();
+                    return new GaCorreccionS10
+                    {
+                        RendicionId      = g.Key,
+                        ConsolidadoS10Id = consolidadoId,
+                        Motivo           = texto,
+                        MotivoJefatura   = observada.ObservacionReembolso,
+                        MotivoOrigenId   = observada.ObservacionReembolsoOrigenId,
+                        NumeroReembolso  = numeroReembolso,
+                        EstadoId         = EstadosSalida.CorreccionS10.Solicitada,
+                        SolicitadaPorId  = userId,
+                        SolicitadaAt     = now,
+                        State            = true,
+                        CreatedDateTime  = now,
+                    };
+                })
+                .ToList();
+
+            if (nuevas.Count == 0)
+                throw new AbrilException(
+                    "El consolidado ya no tiene rendiciones observadas sin una corrección en curso.", 409);
+
+            ctx.GaCorreccionS10.AddRange(nuevas);
+            await ctx.SaveChangesAsync();
+            return nuevas;
+        }
+
+        public async Task<List<string>> GetCorreosCoordinadorErp()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Por ROL, igual que el aviso a Tesorería: el responsable ERP no cuelga del organigrama,
+            // así que no hay área desde la que resolverlo.
+            var rolErp = int.Parse(Roles.CoordinadorErp);
+            return await (
+                from w   in ctx.Worker
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
+                where ur.RoleId == rolErp && ur.State && ur.Active
+                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
+                select w.EmailCorporativo!
+            ).Distinct().ToListAsync();
+        }
+
+        /// <summary>
+        /// True si el usuario es consolidador de TODOS los trabajadores de las planillas que cubre el
+        /// consolidado (sin recorte de visibilidad: el documento es uno solo). Mismo criterio que
+        /// habilita subirlo en Gestión de Rendiciones.
+        /// </summary>
+        private async Task<bool> PuedeConsolidarAsync(AppDbContext ctx, int consolidadoId, int userId)
+        {
+            var cubiertas = await RendicionesCubiertasAsync(ctx, consolidadoId);
+            var trabajadores = (await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, cubiertas))
+                .Values.SelectMany(a => a.WorkerIds).Distinct().ToList();
+            if (trabajadores.Count == 0) return false;
+
+            var habilitado = await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId, trabajadores);
+            return trabajadores.All(habilitado.Contains);
         }
 
         // ══ Helpers ═════════════════════════════════════════════════════════
@@ -923,41 +1182,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             SeesAll             = scope.SeesAll,
             VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
         };
-
-        private static async Task<HashSet<int>> MisWorkerIdsAsync(AppDbContext ctx, int? userId)
-        {
-            if (!userId.HasValue) return new();
-            var ids = await (
-                from w in ctx.Worker
-                join per in ctx.Person on w.PersonId equals per.PersonId
-                where per.UserId == userId.Value
-                select w.Id
-            ).ToListAsync();
-            return ids.ToHashSet();
-        }
-
-        /// <summary>
-        /// Fichas del usuario cuyas salidas NO le toca decidir a él: la regla es "nadie decide lo
-        /// suyo", y la única excepción es que el revisor resuelto de esa ficha sea él mismo, o sea
-        /// que tenga el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de Ingresos →
-        /// ficha del trabajador → "Jefe personalizado").
-        ///
-        /// Se pregunta al MISMO resolver que decide a quién se le manda el correo de la revisión,
-        /// así que en la web decide exactamente quien recibe ese correo.
-        /// </summary>
-        private async Task<HashSet<int>> MisWorkerIdsQueNoDecidoAsync(AppDbContext ctx, int? userId)
-        {
-            var mios = await MisWorkerIdsAsync(ctx, userId);
-            if (mios.Count == 0) return mios;
-
-            var revisores = await _jefeResolver.ResolveManyAsync(mios.ToList());
-
-            return mios
-                .Where(id => !(revisores.TryGetValue(id, out var revisor)
-                               && revisor.WorkerId != null
-                               && mios.Contains(revisor.WorkerId.Value)))
-                .ToHashSet();
-        }
 
         /// <summary>
         /// De los ids indicados, cuáles tienen un reembolso listo para decidir: rendidas, con
@@ -1007,17 +1231,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .ToDictionary(g => g.Key, g => g.Select(f => f.FirmadoPorId).ToHashSet());
         }
 
-        private static async Task<string?> ResolveAreaNombreAsync(AppDbContext ctx, int? areaScopeId)
-        {
-            if (!areaScopeId.HasValue) return null;
-            return await (
-                from sc in ctx.AreaScope
-                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
-                where sc.AreaScopeId == areaScopeId.Value
-                select it.AreaItemName
-            ).FirstOrDefaultAsync();
-        }
-
         private static void CopiarCabecera(ConsolidadoListItemDto o, ConsolidadoDetalleDto d)
         {
             d.Id = o.Id; d.NumeroReembolso = o.NumeroReembolso; d.MontoTotal = o.MontoTotal;
@@ -1031,7 +1244,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
             d.ObservacionReembolso = o.ObservacionReembolso;
             d.ObservacionReembolsoOrigen = o.ObservacionReembolsoOrigen;
-            d.PorDecidirCount = o.PorDecidirCount; d.PuedeDecidir = o.PuedeDecidir;
+            d.PorDecidirCount = o.PorDecidirCount;
+            d.PuedeConsolidar = o.PuedeConsolidar; d.PuedeAvisarJefatura = o.PuedeAvisarJefatura;
+            d.JefaturaAvisadaAt = o.JefaturaAvisadaAt; d.PuedeSolicitarCorreccion = o.PuedeSolicitarCorreccion;
+            d.CorreccionS10 = o.CorreccionS10;
         }
 
         /// <summary>

@@ -205,7 +205,44 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .ToList();
             }
 
+            data.CorreosRendir = await CorreosRendirAsync(userId);
+
             return data;
+        }
+
+        /// <summary>
+        /// A quién le llegan los correos de «Rendir»: la planilla sale en el acto a primera revisión,
+        /// así que son los dos de "Enviar a revisión" (aviso a la jefatura y acuse al trabajador),
+        /// resueltos con el mismo helper que usa Mis Rendiciones. La ficha y el correo salen con el
+        /// mismo criterio que el listado de esta pantalla, que es de donde salen las salidas que se
+        /// rinden.
+        ///
+        /// Best-effort: si no se resuelven, la confirmación sale sin la lista de correos. Un preview
+        /// no puede tumbar la pantalla.
+        /// </summary>
+        private async Task<List<CorreoAvisoPreviewDto>> CorreosRendirAsync(int userId)
+        {
+            try
+            {
+                using var ctx = _factory.CreateDbContext();
+                var yo = await ctx.Worker
+                    .Where(w => w.Person != null && w.Person.UserId == userId)
+                    .Select(w => new
+                    {
+                        w.Id,
+                        Email = ctx.User.Where(u => u.UserId == userId).Select(u => u.Email).FirstOrDefault(),
+                    })
+                    .FirstOrDefaultAsync();
+                if (yo == null) return new();
+
+                return await CorreosEnvioPrimeraRevision.ResolverAsync(
+                    _correoResolver, _revisorResolver, yo.Id, yo.Email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudieron resolver los destinatarios de Rendir para userId {UserId}", userId);
+                return new();
+            }
         }
 
         /// <summary>"Agosto 2026" — el nombre del mes en español, con la primera letra en mayúscula.</summary>

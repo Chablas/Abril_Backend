@@ -2,8 +2,9 @@
 {
     /// <summary>
     /// La solicitud de corrección del Consolidado del S10 que está viva en una planilla, tal como
-    /// la ven las DOS pantallas del paso: Mis Rendiciones (el trabajador, para saber si la pelota
-    /// sigue en el ERP o ya volvió a él) y Correcciones S10 (el Coordinador ERP, que la atiende).
+    /// la ven las DOS pantallas del paso: Consolidados (el consolidador que la pidió, para saber si
+    /// la pelota sigue en el ERP o ya volvió a él) y Correcciones S10 (el Coordinador ERP, que la
+    /// atiende).
     ///
     /// Por eso vive en el Shared del módulo y no dentro de una de las dos features.
     /// </summary>
@@ -15,7 +16,7 @@
         /// <summary>"Pendiente de corrección S10" | "Pendiente de recarga S10".</summary>
         public string Estado { get; set; } = string.Empty;
 
-        /// <summary>El «MOTIVO *» que escribió el trabajador: qué necesita del ERP.</summary>
+        /// <summary>El «MOTIVO *» que escribió el consolidador: qué necesita del ERP.</summary>
         public string Motivo { get; set; } = string.Empty;
 
         /// <summary>Con qué se observó el reembolso, copiada al solicitar.</summary>

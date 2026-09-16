@@ -35,8 +35,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             IFormFile file,
             decimal montoTotal,
             string numeroReembolso,
-            int userId,
-            int? ownerUserId = null)
+            int userId)
         {
             if (file == null || file.Length == 0)
                 throw new AbrilException("No se recibió el archivo del consolidado.", 400);
@@ -85,9 +84,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 deIds.Select(id => codigo.TryGetValue(id, out var c) ? c : $"#{id}"));
 
             // RG-35: el Consolidado del S10 se habilita SOLO después de que la jefatura apruebe la
-            // primera revisión. Vale igual para el consolidador que lo sube en nombre del
-            // trabajador: lo que falta no es el permiso, es el registro en el S10, que recién se hace
-            // con la planilla aprobada. El mensaje dice en qué estado está para no dejarlo adivinando.
+            // primera revisión: lo que falta no es el permiso, es el registro en el S10, que recién
+            // se hace con la planilla aprobada. El mensaje dice en qué estado está para no dejarlo
+            // adivinando.
             var sinAprobar = planillas
                 .Where(p => p.EstadoPrimeraRevisionId != EstadosSalida.PrimeraRevision.Aprobada)
                 .ToList();
@@ -100,25 +99,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                           + " la primera revisión aprobada: el Consolidado del S10 se habilita recién "
                           + "cuando la jefatura la aprueba.",
                     409);
-
-            // Guard de propiedad (autoservicio): cada planilla tiene que incluir alguna salida del
-            // trabajador de ese usuario. Una planilla puede agrupar a varios trabajadores cuando la
-            // genera el revisor desde Gestión de Salidas, así que basta con tener una adentro.
-            if (ownerUserId.HasValue)
-            {
-                var propias = await (
-                    from s in ctx.GaSolicitudSalida
-                    join w in ctx.Worker on s.WorkerId equals w.Id
-                    join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                    where s.RendicionId != null && ids.Contains(s.RendicionId.Value)
-                       && per.UserId == ownerUserId.Value
-                    select s.RendicionId!.Value
-                ).Distinct().ToListAsync();
-
-                if (ids.Any(id => !propias.Contains(id)))
-                    throw new AbrilException(
-                        "Solo puedes adjuntar el Consolidado del S10 de tus propias planillas.", 403);
-            }
 
             // ── Qué planillas pueden ir juntas (ver ConsolidadoS10Agrupacion) ──
             var actuales = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, ids);
@@ -154,12 +134,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     $"El Consolidado del S10 actual también cubre {ConsolidadoS10Agrupacion.Enumerar(faltantes)}, "
                     + "que " + (faltantes.Count == 1 ? "sigue" : "siguen") + " con el reembolso por decidir: "
                     + "el documento se reemplaza para todas sus rendiciones a la vez.", 409);
-
-            // Un solo registro del S10 es de una sola empresa.
-            var errorRazonSocial = await ConsolidadoS10Agrupacion.ValidarRazonSocialAsync(
-                ctx, ids, agrupables, codigo);
-            if (errorRazonSocial != null)
-                throw new AbrilException(errorRazonSocial, 400);
 
             // El consolidado es UN registro en el S10 y cubre las planillas completas, así que su
             // importe se contrasta contra el total de TODAS sus salidas —no contra el subconjunto
@@ -271,9 +245,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 State        = true,
             };
 
-            // Subsanación: si la jefatura había OBSERVADO el reembolso, adjuntar otra vez el
-            // consolidado es exactamente lo que se le pidió al trabajador, así que el reembolso
-            // vuelve a Pendiente y le reaparece al revisor. La observación NO se borra: sigue
+            // Subsanación: si la jefatura (o Tesorería) había OBSERVADO el reembolso, adjuntar otra
+            // vez el consolidado es exactamente lo que se le pidió al consolidador, así que el
+            // reembolso vuelve a Pendiente y le reaparece a la jefatura. La observación NO se borra: sigue
             // siendo lo que se observó y el jefe la necesita para contrastar.
             //
             // El archivo cubre las planillas enteras, así que reabre todas sus salidas observadas.
@@ -313,7 +287,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 // subsanación — dejar la corrección viva sobre un reembolso ya Pendiente
                 // bloquearía la próxima si la jefatura vuelve a observar.
                 //
-                // Se cierra incluso si el ERP todavía no la había atendido: el trabajador puede
+                // Se cierra incluso si el ERP todavía no la había atendido: el consolidador puede
                 // haber resuelto el S10 por otro lado, y en ese caso el pedido ya no tiene sentido
                 // (desaparece de la bandeja del ERP en vez de quedar ahí sin dueño).
                 foreach (var c in correcciones)

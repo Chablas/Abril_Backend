@@ -1,4 +1,5 @@
-﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces
 {

@@ -3,8 +3,9 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
     /// <summary>
-    /// Consolidadores del S10 por área: quién, además del propio trabajador, puede adjuntar el
-    /// Consolidado del S10 de sus planillas de rendición.
+    /// Consolidadores del S10 por área: quién hace el trámite del S10 de las planillas de rendición
+    /// de esa rama —adjuntar el Consolidado, avisar a la jefatura y pedir la corrección al ERP—. El
+    /// propio trabajador no consolida lo suyo.
     ///
     /// Es el espejo de <see cref="AreaRevisores"/> —misma forma, mismo árbol, misma posibilidad de
     /// asignar por proyecto cuando el área filtra por proyecto— y se resuelve con el mismo

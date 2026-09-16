@@ -299,12 +299,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             using var ctx = _factory.CreateDbContext();
 
             // Solo las que están por atender: en una acción masiva la selección puede traer filas
-            // que otro Coordinador ya resolvió, y volver a marcarlas pisaría su rastro.
-            var filas = await ctx.GaCorreccionS10
-                .Where(c => c.State
-                         && ids.Contains(c.Id)
-                         && c.EstadoId == EstadosSalida.CorreccionS10.Solicitada)
-                .ToListAsync();
+            // que otro Coordinador ya resolvió, y volver a marcarlas pisaría su rastro. Y con ellas
+            // las demás planillas de su mismo consolidado: el S10 se corrige una sola vez.
+            var filas = await PorAtenderConSuConsolidadoAsync(ctx, ids);
 
             if (filas.Count == 0)
                 throw new AbrilException(
@@ -327,112 +324,148 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             return filas.Select(c => c.Id).ToList();
         }
 
-        public async Task<CorreccionS10CorreoDatos?> GetCorreoDatos(int correccionId)
+        public async Task<List<CorreccionS10CorreoDatos>> GetCorreoDatosAtendidas(IReadOnlyCollection<int> correccionIds)
         {
+            var ids = correccionIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
             using var ctx = _factory.CreateDbContext();
 
-            var c = await ctx.GaCorreccionS10.FirstOrDefaultAsync(x => x.Id == correccionId);
-            if (c == null) return null;
-
-            var p = await ctx.GaRendicion
-                .Where(r => r.Id == c.RendicionId)
-                .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla })
-                .FirstOrDefaultAsync();
-            if (p == null) return null;
-
-            var quien = await GetSolicitanteDeRendicion(ctx, c.RendicionId);
-
-            var fechas = await ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId == c.RendicionId)
-                .Select(s => s.FechaSalida)
+            var correcciones = await ctx.GaCorreccionS10
+                .Where(c => ids.Contains(c.Id))
                 .ToListAsync();
+            if (correcciones.Count == 0) return new();
 
-            var nombres = await CorreccionS10Loader.NombresAsync(ctx, new[] { c });
+            var rendicionIds = correcciones.Select(c => c.RendicionId).Distinct().ToList();
 
-            return new CorreccionS10CorreoDatos
-            {
-                CorreccionId   = c.Id,
-                RendicionId    = c.RendicionId,
-                Codigo         = PlanillaRendicionHelper.CodigoRendicion(p.Codigo, p.Id),
-                NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(p.NumeroPlanilla),
-                Trabajador     = quien?.Trabajador ?? "Colaborador",
-                TrabajadorEmail = quien?.Email,
-                Area           = quien?.Area,
-                Periodo        = fechas.Count == 0
-                                    ? null
-                                    : PlanillaRendicionHelper.EtiquetaPeriodo(fechas.Min(), fechas.Max()),
-                NumeroReembolso     = c.NumeroReembolso,
-                MontoTotal     = await TotalPlanillaLoader.LoadOneAsync(ctx, c.RendicionId),
-                Motivo         = c.Motivo,
-                MotivoJefatura = c.MotivoJefatura,
-                MotivoOrigen   = EstadosSalida.OrigenObservacionReembolso.Nombre(c.MotivoOrigenId),
-                AtendidaPor    = c.AtendidaPorId != null && nombres.TryGetValue(c.AtendidaPorId.Value, out var erp)
-                                    ? erp : null,
-                ComentarioAtencion = c.ComentarioAtencion,
-                NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
-            };
-        }
+            var planillas = await ctx.GaRendicion
+                .Where(r => rendicionIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla })
+                .ToDictionaryAsync(r => r.Id, r => r);
 
-        public async Task<CorreccionS10SolicitanteDto?> GetSolicitante(int correccionId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var rendicionId = await ctx.GaCorreccionS10
-                .Where(c => c.Id == correccionId)
-                .Select(c => (int?)c.RendicionId)
-                .FirstOrDefaultAsync();
-
-            return rendicionId == null ? null : await GetSolicitanteDeRendicion(ctx, rendicionId.Value);
-        }
-
-        /// <summary>
-        /// El colaborador dueño de una planilla, con su correo y su área. Cuando la planilla agrupa
-        /// a varias personas gana la que tiene más salidas — la misma regla que usa el listado, así
-        /// que el correo le llega a quien la bandeja muestra como dueño.
-        /// </summary>
-        private static async Task<CorreccionS10SolicitanteDto?> GetSolicitanteDeRendicion(
-            AppDbContext ctx, int rendicionId)
-        {
-            var candidatos = await (
+            var salidas = await (
                 from s   in ctx.GaSolicitudSalida
                 join w   in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                join u   in ctx.User on (int?)per.UserId equals (int?)u.UserId into uGroup
-                from u   in uGroup.DefaultIfEmpty()
-                where s.RendicionId == rendicionId
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where s.RendicionId != null && rendicionIds.Contains(s.RendicionId.Value)
                 select new
                 {
-                    WorkerId    = w.Id,
-                    Trabajador  = per.FullName ?? "Colaborador",
-                    Email       = u != null ? u.Email : null,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
+                    RendicionId = s.RendicionId!.Value,
+                    Trabajador  = per != null ? (per.FullName ?? "Colaborador") : "Colaborador",
+                    s.FechaSalida,
                 }
             ).ToListAsync();
 
-            if (candidatos.Count == 0) return null;
+            var totales = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
+            var nombres = await CorreccionS10Loader.NombresAsync(ctx, correcciones);
 
-            var dueno = candidatos
-                .GroupBy(x => new { x.WorkerId, x.Trabajador, x.Email, x.AreaScopeId })
-                .OrderByDescending(g => g.Count())
-                .ThenBy(g => g.Key.Trabajador)
-                .First().Key;
+            // El aviso va a quien PIDIÓ la corrección —el consolidador—, no al dueño de la planilla.
+            var solicitantes = correcciones.Select(c => c.SolicitadaPorId).Distinct().ToList();
+            var correoDe = await ctx.User
+                .Where(u => solicitantes.Contains(u.UserId) && u.Email != null && u.Email != "")
+                .ToDictionaryAsync(u => u.UserId, u => u.Email!);
 
-            string? area = null;
-            if (dueno.AreaScopeId != null)
-                area = await (
-                    from sc in ctx.AreaScope
-                    join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
-                    where sc.AreaScopeId == dueno.AreaScopeId.Value
-                    select it.AreaItemName
-                ).FirstOrDefaultAsync();
+            return correcciones
+                .GroupBy(c => (Consolidado: c.ConsolidadoS10Id ?? -c.Id, c.SolicitadaPorId))
+                .Select(g =>
+                {
+                    var lista   = g.OrderBy(c => c.Id).ToList();
+                    var primera = lista[0];
+                    var rids    = lista.Select(c => c.RendicionId).Distinct().ToList();
 
-            return new CorreccionS10SolicitanteDto
-            {
-                WorkerId   = dueno.WorkerId,
-                Trabajador = dueno.Trabajador,
-                Email      = dueno.Email,
-                Area       = area,
-            };
+                    var codigos = rids
+                        .Select(id => planillas.TryGetValue(id, out var p)
+                            ? PlanillaRendicionHelper.CodigoRendicion(p.Codigo, p.Id)
+                            : $"#{id}")
+                        .OrderBy(c => c, StringComparer.Ordinal)
+                        .ToList();
+
+                    var suyas = salidas.Where(s => rids.Contains(s.RendicionId)).ToList();
+
+                    return new CorreccionS10CorreoDatos
+                    {
+                        CorreccionId       = primera.Id,
+                        RendicionId        = primera.RendicionId,
+                        Codigo             = string.Join(", ", codigos),
+                        RendicionesCount   = codigos.Count,
+                        Trabajador         = string.Join(", ", suyas.Select(s => s.Trabajador).Distinct().OrderBy(n => n)),
+                        SolicitadaPor      = nombres.GetValueOrDefault(primera.SolicitadaPorId),
+                        SolicitadaPorEmail = correoDe.GetValueOrDefault(primera.SolicitadaPorId),
+                        NumeroPlanilla     = rids.Count == 1 && planillas.TryGetValue(rids[0], out var una)
+                                                ? PlanillaRendicionHelper.NumeroPlanilla(una.NumeroPlanilla)
+                                                : null,
+                        Periodo            = suyas.Count == 0
+                                                ? null
+                                                : PlanillaRendicionHelper.EtiquetaPeriodo(
+                                                    suyas.Min(s => s.FechaSalida), suyas.Max(s => s.FechaSalida)),
+                        NumeroReembolso    = primera.NumeroReembolso,
+                        MontoTotal         = rids.Sum(id => totales.GetValueOrDefault(id)),
+                        Motivo             = primera.Motivo,
+                        MotivoJefatura     = primera.MotivoJefatura,
+                        MotivoOrigen       = EstadosSalida.OrigenObservacionReembolso.Nombre(primera.MotivoOrigenId),
+                        AtendidaPor        = primera.AtendidaPorId != null
+                                                ? nombres.GetValueOrDefault(primera.AtendidaPorId.Value)
+                                                : null,
+                        ComentarioAtencion = primera.ComentarioAtencion,
+                        NumeroReembolsoAnulado = lista.Any(c => c.NumeroReembolsoAnulado),
+                    };
+                })
+                .ToList();
+        }
+
+        public async Task<List<string>> GetCorreosSolicitantes(IReadOnlyCollection<int> correccionIds)
+        {
+            var ids = correccionIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Mismo conjunto que va a marcar Atender: la selección y sus hermanas del mismo consolidado.
+            var solicitantes = (await PorAtenderConSuConsolidadoAsync(ctx, ids))
+                .Select(c => c.SolicitadaPorId)
+                .Distinct()
+                .ToList();
+            if (solicitantes.Count == 0) return new();
+
+            return await ctx.User
+                .Where(u => solicitantes.Contains(u.UserId) && u.Email != null && u.Email != "")
+                .Select(u => u.Email!)
+                .Distinct()
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Las correcciones por atender de la selección y las demás por atender de sus mismos
+        /// consolidados. El consolidador pide la corrección del documento entero y la bandeja la
+        /// muestra por planilla: confirmar una sola dejaría a las otras esperando un arreglo que ya
+        /// se hizo.
+        /// </summary>
+        private static async Task<List<GaCorreccionS10>> PorAtenderConSuConsolidadoAsync(
+            AppDbContext ctx, List<int> ids)
+        {
+            var seleccion = await ctx.GaCorreccionS10
+                .Where(c => c.State
+                         && ids.Contains(c.Id)
+                         && c.EstadoId == EstadosSalida.CorreccionS10.Solicitada)
+                .ToListAsync();
+
+            var consolidadoIds = seleccion
+                .Where(c => c.ConsolidadoS10Id != null)
+                .Select(c => c.ConsolidadoS10Id!.Value)
+                .Distinct()
+                .ToList();
+            if (consolidadoIds.Count == 0) return seleccion;
+
+            var hermanas = await ctx.GaCorreccionS10
+                .Where(c => c.State
+                         && c.EstadoId == EstadosSalida.CorreccionS10.Solicitada
+                         && c.ConsolidadoS10Id != null
+                         && consolidadoIds.Contains(c.ConsolidadoS10Id.Value)
+                         && !ids.Contains(c.Id))
+                .ToListAsync();
+
+            return seleccion.Concat(hermanas).ToList();
         }
     }
 }

@@ -197,19 +197,4 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     {
         public List<int> CorreccionIds { get; set; } = new();
     }
-
-    /// <summary>
-    /// El colaborador dueño de una corrección, con lo que necesitan sus dos correos. Se resuelve en
-    /// una consulta: el correo no vuelve a la base a buscar nada.
-    /// </summary>
-    public class CorreccionS10SolicitanteDto
-    {
-        /// <summary>Ficha del colaborador (<c>workers.id</c>).</summary>
-        public int WorkerId { get; set; }
-        public string Trabajador { get; set; } = "Colaborador";
-        /// <summary>Correo del usuario del colaborador. Null si su persona no tiene usuario.</summary>
-        public string? Email { get; set; }
-        /// <summary>Nombre del área a la que entra por su puesto. Null si no se resuelve.</summary>
-        public string? Area { get; set; }
-    }
 }

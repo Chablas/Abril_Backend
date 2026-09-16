@@ -11,6 +11,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// <summary>Una planilla con el desglose de sus salidas visibles. Null si no ve ninguna.</summary>
         Task<GestionRendicionDetalleDto?> GetDetalle(int rendicionId, GestionRendicionFiltersDto scope);
 
+        /// <summary>
+        /// El detalle de UNA salida rendida de su alcance —trayectos, capturas, montos y adjuntos—,
+        /// en consulta: es el mismo modal que ve el trabajador en Solicitud de Salidas. Null si la
+        /// salida no está rendida o no está en su alcance.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope);
+
         /// <summary>Opciones de los filtros (trabajadores, árbol de áreas y periodos) del alcance.</summary>
         Task<GestionRendicionFilterDataDto> GetFilterData(GestionRendicionFiltersDto scope);
 
@@ -38,13 +45,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         Task<List<PrimeraRevisionCorreoInfoDto>> GetPrimeraRevisionCorreoInfo(int rendicionId);
 
         /// <summary>
-        /// Correos de los solicitantes a los que llegaría el aviso de la decisión de la PRIMERA
-        /// REVISIÓN de las planillas seleccionadas. Mismo criterio que
-        /// <see cref="GetCorreosSolicitantesPorDecidir"/>: recorta por visibilidad y por la
-        /// elegibilidad de la escritura (solo planillas esperando la primera revisión).
+        /// A quiénes les llegarían los avisos de la decisión de la PRIMERA REVISIÓN de las planillas
+        /// seleccionadas: los correos de sus solicitantes y los trabajadores de los que salen sus
+        /// consolidadores. Mismo criterio que la escritura: recorta por visibilidad y por
+        /// elegibilidad (solo planillas esperando la primera revisión).
         /// </summary>
-        Task<List<string>> GetCorreosSolicitantesPrimeraRevision(
-            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope);
+        /// <param name="conTrabajadores">
+        /// true solo al aprobar, que es la decisión que también les avisa a los consolidadores.
+        /// </param>
+        Task<PrimeraRevisionPreviewDatos> GetPreviewPrimeraRevision(
+            IEnumerable<int> rendicionIds, GestionRendicionFiltersDto scope, bool conTrabajadores);
 
         /// <summary>
         /// Trabajadores de las salidas de las planillas indicadas, SIN recortar por visibilidad. Lo

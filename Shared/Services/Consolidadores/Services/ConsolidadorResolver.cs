@@ -32,16 +32,12 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
 
             using var ctx = _factory.CreateDbContext();
 
-            // Ficha de cada trabajador: su nodo de área (sale del puesto, workers ya no lo guarda),
-            // su persona y su correo — el propio trabajador entra siempre en su lista.
+            // Nodo de área de cada trabajador: sale del puesto, workers ya no lo guarda.
             var fichas = await ctx.Worker.AsNoTracking()
                 .Where(w => ids.Contains(w.Id))
                 .Select(w => new
                 {
                     w.Id,
-                    w.PersonId,
-                    w.EmailCorporativo,
-                    Nombre = w.Person != null ? w.Person.FullName : null,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                 })
                 .ToListAsync();
@@ -65,12 +61,6 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
             foreach (var ficha in fichas)
             {
                 var lista = new List<ConsolidadorElegido>();
-
-                // El propio trabajador va primero: consolidar lo suyo es el caso normal.
-                if (!string.IsNullOrWhiteSpace(ficha.EmailCorporativo))
-                    lista.Add(new ConsolidadorElegido(
-                        ficha.Id, ficha.PersonId, ficha.EmailCorporativo!.Trim(), ficha.Nombre,
-                        ConsolidadorOrigen.Propio));
 
                 if (ficha.AreaScopeId != null
                     && contexto.CadenaPorNodo.TryGetValue(ficha.AreaScopeId.Value, out var cadena))

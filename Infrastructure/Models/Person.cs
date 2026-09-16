@@ -50,10 +50,9 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
-        /// <summary>Bytes de la firma (PNG) dibujada por esta persona en Configuración.</summary>
-        public byte[]? SignatureImageBytes {get; set;}
-        public string? SignatureMime {get; set;}
-        public DateTimeOffset? SignatureUpdatedDateTime {get; set;}
+        // La firma ya no vive acá: se mudó a `person_firma` (una fila por tipo — dibujada con el
+        // mouse y/o subida como imagen) porque estas tres columnas solo aguantaban UNA firma.
+        // Ver Shared/Models/PersonFirma.cs y Shared/Services/Firma/.
         public User User { get; set; }
     }
 }

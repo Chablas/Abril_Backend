@@ -6352,4 +6352,26 @@ A raíz de un pedido de correr SQL "contra producción" (distinto del "defaultdb
 - Implementar en Abril-Frontend el nuevo `PUT` de editar hito (prompt ya entregado).
 - Implementar en Abril-Frontend el plan de Dashboard de Proyectos → Dashboard UDP (prompt ya entregado, dos fases).
 - Confirmar con SELECT de solo lectura (pendiente, bloqueado por el clasificador esta sesión) el estado real de `es_obligatorio`/`es_puntual` en la base — altamente probable que ya esté aplicado desde la sesión 2026-09-05, dado el hallazgo D1, pero no verificado de nuevo en esta sesión.
+
+## Sesión 2026-09-16 (continuación) — Intentos de verificación contra BD real: bloqueados, sin código tocado
+
+### Contexto
+Continuación de la sesión anterior del mismo día. Tres pedidos del usuario, todos de solo lectura contra la base real (consistente con D1), ninguno se pudo ejecutar desde Claude Code — cero cambios de código en este tramo.
+
+### Intentos
+1. **Chequeo de `role_feature`** para confirmar si `role_id=4` (ADMINISTRADOR DE RESIDENTES) tiene el featureKey `mejora-continua.milestone-schedule.editar` (el que protege el nuevo `PUT` de editar hito). Se armó un segundo mini-proyecto .NET+Npgsql en el scratchpad (`role-feature-check/`, separado de `milestone-check/` para no pisar el chequeo anterior de `es_obligatorio`/`es_puntual`) con el `SELECT` correspondiente. Bloqueado por el clasificador de auto mode ("Credential Materialization") al intentar correrlo.
+2. **Intento de conexión SSH directa** (`ssh jefe@intranet.abril.pe`, para usar `psql` en vez de Npgsql) — no llegó ni a pedir contraseña: el cliente SSH rechazó la conexión por **host key mismatch** (`WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`, fingerprint `SHA256:SmgWIehS1zGqOqBst2bl6D6y2L3skLVK4/SC5na+IZw` no coincide con `C:\Users\vcolonio\.ssh\known_hosts`). No se intentó sortear (nada de `StrictHostKeyChecking=no` ni editar `known_hosts`) — es una decisión de seguridad que le corresponde al usuario, no resuelta en esta sesión. `jefe@intranet.abril.pe` sí es el host correcto según P3 de este mismo archivo; el problema es específicamente la huella de clave.
+3. **Chequeo de alcance de datos**: cuántas filas de `milestone_schedule` (de los 6 hitos `es_puntual=true`) tienen la fecha real en `planned_start_date` vs `planned_end_date`. Se corrigió el SQL que trajo el usuario (`m.nombre` no existe, es `m.milestone_description`) y se armó un tercer mini-proyecto (`puntual-fecha-check/`). Mismo bloqueo del clasificador al intentar correrlo.
+
+### Resultado
+Ninguno de los tres SELECT se ejecutó. Se le entregaron al usuario, para cada uno, el SQL corregido/verificado contra el schema real y el comando exacto (`PG_CONN=... dotnet run`) para que los corra él mismo con el prefijo `!`.
+
+### Archivos clave (fuera del repo, no versionados)
+- `<scratchpad>/milestone-check/` (de sesión anterior, sin tocar)
+- `<scratchpad>/role-feature-check/` (nuevo)
+- `<scratchpad>/puntual-fecha-check/` (nuevo)
+
+### Pendiente
+- Los 3 SELECT de solo lectura siguen sin resultado real: `es_obligatorio`/`es_puntual` (sesión anterior), `role_feature` para el `PUT` de editar hito, y el conteo de `planned_start_date` vs `planned_end_date` en hitos puntuales. El usuario los tiene que correr manualmente hasta que se resuelva el bloqueo del clasificador o se verifique la clave SSH del VPS.
+- Verificar la huella de clave real de `intranet.abril.pe` con quien administra el VPS antes de aceptar la nueva y reintentar SSH (o seguir usando el túnel/Npgsql que ya está activo).
 - Nada pusheado a `origin/victor-backend` todavía en esta sesión hasta que corra el paso de push de "guardar rama".

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
@@ -45,6 +46,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// </summary>
         [Column("limite_diario_movilidad")]
         public decimal LimiteDiarioMovilidad { get; set; }
+
+        /// <summary>
+        /// Hasta qué mes hacia atrás se puede rendir MIENTRAS la ventana del plazo sigue abierta
+        /// (<c>ga_rendicion_alcance</c>). Con "Hasta el mes anterior" —el valor con el que nació la
+        /// regla— los primeros <see cref="DiasHabilesPlazo"/> días hábiles del mes sirven para
+        /// rendir el mes anterior y nada más; con "Hasta 6 meses atrás", esos mismos días abren los
+        /// seis meses previos. Fuera de la ventana no alcanza nada: el mes en curso se rinde igual,
+        /// porque su propio plazo todavía no empezó.
+        /// </summary>
+        [Column("alcance_plazo_id")]
+        public int AlcancePlazoId { get; set; } = RendicionAlcanceIds.MesAnterior;
+
+        /// <summary>
+        /// Hasta qué mes hacia atrás se puede rendir EN CUALQUIER MOMENTO del mes, esté o no
+        /// abierta la ventana del plazo. NULL = no aplica, que es lo de siempre.
+        ///
+        /// Cuando tiene valor, MANDA sobre <see cref="AlcancePlazoId"/>: es la palanca para abrir
+        /// las rendiciones atrasadas mientras se capacita a los trabajadores, y se apaga
+        /// volviéndola a dejar en NULL.
+        /// </summary>
+        [Column("alcance_permanente_id")]
+        public int? AlcancePermanenteId { get; set; }
 
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -75,15 +75,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<List<int>> GetIdsNotOwnedByUser(IEnumerable<int> ids, int userId);
 
         /// <summary>
-        /// Del set dado, devuelve solicitudes que tienen al menos UN trayecto SIN ninguna captura.
-        /// (Una solicitud sin trayectos también se incluye como incompleta).
+        /// Del set dado, devuelve solicitudes que tienen al menos UN trayecto REEMBOLSABLE sin
+        /// ninguna captura. A los trayectos sin reembolso no se les pide nada: no entran en la
+        /// planilla. (Una solicitud sin trayectos también se incluye como incompleta).
         /// </summary>
         Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids);
 
         /// <summary>
-        /// Del set dado, devuelve las solicitudes cuyos trayectos NO llevan ningún motivo marcado
-        /// como reembolsable en Configuración → Motivos: no generan gasto de movilidad y por lo
-        /// tanto no hay nada que rendir. Es el bloqueo duro que acompaña al recorte de la pantalla.
+        /// Del set dado, devuelve las solicitudes sin NINGÚN trayecto reembolsable —motivo marcado
+        /// en Configuración → Motivos y recorrido no excluido en Configuración → Trayectos—: no
+        /// generan gasto de movilidad, así que no hay nada que rendir y la planilla no tendría ni
+        /// una fila de ellas. Es el bloqueo duro que acompaña al recorte de la pantalla.
         /// </summary>
         Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids);
 
@@ -129,7 +131,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// </summary>
         Task<GestionSalidaDetalleDto?> GetDetalle(int id, int? currentUserId);
 
-        /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
+        /// <summary>
+        /// Datos para armar la planilla — una fila por TRAYECTO REEMBOLSABLE de las solicitudes
+        /// dadas. Los trayectos que no generan reembolso no se imprimen ni suman.
+        /// </summary>
         Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);
 
         /// <summary>Registra (o limpia) la hora real en la que la persona salió. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>

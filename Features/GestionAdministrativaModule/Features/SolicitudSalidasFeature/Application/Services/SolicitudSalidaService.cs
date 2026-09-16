@@ -1131,7 +1131,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (MesAnteriorPeru.HoyPeru() > limite)
                 throw new AbrilException(
                     $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
-                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+                    $"({calendario.TextoDelLimite}). Ya no se pueden rendir.", 400);
 
             // GetByUserId ya acota al worker del usuario y calcula AptaParaRendir (captura por
             // trayecto, catálogo para TI, área con capturas opcionales y motivo reembolsable), así
@@ -1148,7 +1148,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No tienes salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de sus trayectos reembolsables y con al menos un trayecto reembolsable.", 400);
 
             return ids;
         }

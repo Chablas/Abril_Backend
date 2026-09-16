@@ -178,9 +178,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     g => g.Key,
                     g => g.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m));
 
+            // Se cuentan los trayectos que se rindieron, no los de la salida: los que no generan
+            // reembolso no salen impresos en la planilla, así que contarlos acá haría que la fila
+            // anuncie más recorridos de los que el PDF muestra.
             var trayectosPorSolicitud = trayectos
                 .GroupBy(t => t.SolicitudId)
-                .ToDictionary(g => g.Key, g => g.Count());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Count(t => importes.TryGetValue(t.Id, out var imp) && imp.EsReembolsable));
 
             var detalle = conDetalle
                 ? await CargarDetalleTrayectosAsync(ctx, solicitudIds)
@@ -302,6 +307,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 orderby t.SolicitudId, t.Orden
                 select new
                 {
+                    t.Id,
                     t.SolicitudId,
                     t.Orden,
                     Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
@@ -314,6 +320,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 }
             ).ToListAsync();
 
+            // El recorrido que se resume es el RENDIDO: es la planilla lo que estas pantallas
+            // muestran, y los trayectos sin reembolso no están en ella.
+            var rendibles = await ReembolsoTrayectoRule.CargarRendiblesAsync(
+                ctx, filas.Select(t => t.Id).ToList());
+
             return filas
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(
@@ -321,7 +332,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     g =>
                     {
                         var ordenados = g.OrderBy(x => x.Orden).ToList();
-                        return (ordenados[0].Motivo, ordenados[0].LugarOrigen, ordenados[^1].LugarDestino);
+                        var rendidos  = ordenados.Where(x => rendibles.Contains(x.Id)).ToList();
+
+                        // Si el catálogo cambió después de rendir y no queda ninguno, se resume el
+                        // recorrido completo: la fila igual tiene que ser identificable.
+                        var visibles = rendidos.Count > 0 ? rendidos : ordenados;
+                        return (visibles[0].Motivo, visibles[0].LugarOrigen, visibles[^1].LugarDestino);
                     });
         }
     }

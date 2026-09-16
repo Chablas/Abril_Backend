@@ -314,9 +314,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var montoPorSolicitud = trayectos
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.Sum(t => importes.TryGetValue(t.Id, out var i) ? i.Importe : 0m));
+            // Se cuentan los trayectos rendidos, no los de la salida: los que no generan reembolso
+            // no salen impresos en la planilla que el trabajador tiene delante.
             var conteoPorSolicitud = trayectos
                 .GroupBy(t => t.SolicitudId)
-                .ToDictionary(g => g.Key, g => g.Count());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Count(t => importes.TryGetValue(t.Id, out var i) && i.EsReembolsable));
 
             string? decididoPor = null;
             if (planilla.PrimeraRevisionPorId.HasValue)

@@ -247,6 +247,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     EsHoraEstimada = m != null && m.EsHoraEstimada,
                     // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
                     // motivo libre no tiene el flag y por eso no concede nada.
+                    EsMotivoDeCatalogo = m != null,
                     EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -273,6 +274,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // 4. Catálogo si hay al menos un trabajador TI sin todas sus capturas — para evaluar la regla relajada.
             var hayWorkerTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayWorkerTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            // 4.bis. Qué trayectos generan reembolso (motivo + par origen-destino excluido). Son los
+            //        únicos que se rinden: solo a ellos se les exige captura y solo ellos hacen que
+            //        la salida tenga algo que rendir.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+            var trayectosRendibles = trayectos
+                .Where(t => ReembolsoTrayectoRule.Resolver(
+                    t.EsMotivoDeCatalogo, t.EsReembolsable,
+                    t.LugarOrigenId, t.LugarDestinoId, excluidosReembolso) == true)
+                .Select(t => t.Id)
+                .ToHashSet();
 
             // 4.a. Áreas con capturas OPCIONALES (Configuración → Capturas): las salidas de sus
             //      trabajadores se pueden rendir sin ninguna captura.
@@ -346,11 +358,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     if (t.LugarOrigenId == null || t.LugarDestinoId == null) return false;
                     return catalogoMap.ContainsKey(((int)t.LugarOrigenId, (int)t.LugarDestinoId));
                 }
-                var puedeRendir = trList.Count > 0 && trList.All(t => trayectoCubierto(t));
+                // Solo se exige sustento de lo que se va a rendir: al trayecto sin reembolso no se
+                // le pide captura porque no entra en la planilla.
+                var puedeRendir = trList.Count > 0
+                    && trList.Where(t => trayectosRendibles.Contains(t.Id)).All(t => trayectoCubierto(t));
 
-                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
-                // gasto de movilidad y tiene algo que rendir.
-                var esReembolsable = trList.Any(t => t.EsReembolsable);
+                // Basta un trayecto reembolsable: una salida mixta sigue generando gasto de
+                // movilidad y tiene algo que rendir (solo ese trayecto).
+                var esReembolsable = trList.Any(t => trayectosRendibles.Contains(t.Id));
 
                 // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
                 // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).
@@ -816,6 +831,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     .Distinct()
                     .ToListAsync()).ToHashSet();
 
+            // Solo se exige sustento de lo que se va a rendir: al trayecto sin reembolso no se le
+            // pide captura porque no entra en la planilla. Una salida cuyos trayectos son TODOS sin
+            // reembolso no queda "incompleta" acá — la corta el guard del motivo reembolsable, que
+            // es el que dice la verdad de por qué no se puede rendir.
+            var rendibles = await ReembolsoTrayectoRule.CargarRendiblesAsync(ctx, trayectoIds);
+
             // Catálogo (cargado solo si algún worker es TI)
             var hayTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
@@ -838,7 +859,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     continue;
 
                 var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
-                bool todosCubiertos = trList.All(t =>
+                bool todosCubiertos = trList.Where(t => rendibles.Contains(t.Id)).All(t =>
                 {
                     if (conCapturas.Contains(t.Id)) return true;
                     if (!esTI) return false;
@@ -858,16 +879,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
-            // Con un solo trayecto de motivo reembolsable ya hay gasto que rendir. El motivo libre
-            // (motivo_id NULL) no concede: el flag vive en el catálogo y arranca en false.
-            var conMotivoReembolsable = await ctx.GaSolicitudTrayecto
-                .Where(t => idsList.Contains(t.SolicitudId)
-                         && ctx.GaMotivoSalida.Any(m => m.Id == t.MotivoId && m.EsReembolsable))
+            // Con un solo trayecto reembolsable ya hay gasto que rendir. Se pregunta por la regla
+            // completa (motivo + par origen-destino) y no solo por el flag del motivo: los
+            // trayectos sin reembolso no entran en la planilla, así que una salida cuyo único
+            // motivo reembolsable va por un recorrido excluido no tendría ni una fila que imprimir.
+            // El motivo libre (motivo_id NULL) tampoco concede: el flag vive en el catálogo.
+            var excluidos = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+
+            var trayectos = await (
+                from t in ctx.GaSolicitudTrayecto
+                join m in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
+                from m in mGroup.DefaultIfEmpty()
+                where idsList.Contains(t.SolicitudId)
+                select new
+                {
+                    t.SolicitudId,
+                    EsMotivoDeCatalogo   = m != null,
+                    MotivoEsReembolsable = m != null && m.EsReembolsable,
+                    t.LugarOrigenId,
+                    t.LugarDestinoId,
+                }
+            ).ToListAsync();
+
+            var conTrayectoReembolsable = trayectos
+                .Where(t => ReembolsoTrayectoRule.Resolver(
+                    t.EsMotivoDeCatalogo, t.MotivoEsReembolsable,
+                    t.LugarOrigenId, t.LugarDestinoId, excluidos) == true)
                 .Select(t => t.SolicitudId)
                 .Distinct()
-                .ToListAsync();
+                .ToList();
 
-            return idsList.Except(conMotivoReembolsable).ToList();
+            return idsList.Except(conTrayectoReembolsable).ToList();
         }
 
         public async Task<List<string>> GetCorreosSolicitantes(
@@ -1252,14 +1294,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 rowsRaw.Select(r => new ImporteRendidoLoader.TrayectoParaImporte(
                     r.Item.Id, r.Subarea, r.LugarOrigenId, r.LugarDestinoId)).ToList());
 
+            // Una fila de la planilla = un trayecto CON reembolso. Los que no lo generan (motivo no
+            // reembolsable, motivo libre o par origen-destino excluido del catálogo) no se imprimen:
+            // no son gasto de movilidad, así que tampoco consumen el tope diario al repartir fechas
+            // ni suman al monto que se contrasta contra el Consolidado del S10. La salida los sigue
+            // mostrando en su detalle con el pill SIN REEMBOLSO.
+            var filas = new List<RendicionItemDto>(rowsRaw.Count);
             foreach (var r in rowsRaw)
             {
                 if (!importes.TryGetValue(r.Item.Id, out var imp)) continue;
+                if (!imp.EsReembolsable) continue;
+
                 r.Item.Importe    = imp.Importe;
                 r.Item.EsCatalogo = imp.EsCatalogo;
+                filas.Add(r.Item);
             }
 
-            return rowsRaw.Select(r => r.Item).ToList();
+            return filas;
         }
 
         public async Task SetHoraSalidaReal(int solicitudId, TimeOnly? hora, int registradaPorUserId)

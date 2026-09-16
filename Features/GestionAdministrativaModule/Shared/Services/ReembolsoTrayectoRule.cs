@@ -14,6 +14,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// Extraída acá porque la aplican los detalles de Solicitud de Salidas y de Gestión de
     /// Salidas para pintar el pill del trayecto: son features distintas del mismo módulo y no
     /// pueden mostrar respuestas distintas del mismo gasto.
+    ///
+    /// La misma regla decide qué entra en la RENDICIÓN: un trayecto sin reembolso no genera gasto
+    /// de movilidad, así que no se le exigen capturas, no sale impreso en la planilla y no suma a
+    /// su monto (ver <see cref="CargarRendiblesAsync"/>).
     /// </summary>
     public static class ReembolsoTrayectoRule
     {
@@ -55,6 +59,49 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (lugarOrigenId is null || lugarDestinoId is null) return true;
 
             return !excluidos.Contains((lugarOrigenId.Value, lugarDestinoId.Value));
+        }
+
+        /// <summary>
+        /// De los trayectos pedidos, cuáles SÍ generan reembolso — o sea, los únicos que entran en
+        /// la rendición: se les exige captura, se imprimen en la planilla y su importe suma al
+        /// total que se contrasta contra el Consolidado del S10. Los que quedan fuera (motivo no
+        /// reembolsable, motivo libre, o par origen-destino excluido del catálogo) se siguen viendo
+        /// en el detalle de la salida con su pill SIN REEMBOLSO, pero no son gasto que rendir.
+        ///
+        /// Son dos consultas fijas —los pares excluidos y el motivo de cada trayecto—, no una por
+        /// trayecto: la pide en lote quien arma la planilla o decide si una salida es apta.
+        /// </summary>
+        public static async Task<HashSet<int>> CargarRendiblesAsync(
+            AppDbContext ctx, IReadOnlyCollection<int> trayectoIds)
+        {
+            var ids = trayectoIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
+            var excluidos = await CargarExcluidosAsync(ctx);
+
+            var trayectos = await (
+                from t in ctx.GaSolicitudTrayecto
+                join m in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
+                from m in mGroup.DefaultIfEmpty()
+                where ids.Contains(t.Id)
+                select new
+                {
+                    t.Id,
+                    // El motivo libre (sin fila en el catálogo) no tiene el flag configurado: por
+                    // eso se distingue del motivo que lo tiene en false.
+                    EsMotivoDeCatalogo   = m != null,
+                    MotivoEsReembolsable = m != null && m.EsReembolsable,
+                    t.LugarOrigenId,
+                    t.LugarDestinoId,
+                }
+            ).ToListAsync();
+
+            return trayectos
+                .Where(t => Resolver(
+                    t.EsMotivoDeCatalogo, t.MotivoEsReembolsable,
+                    t.LugarOrigenId, t.LugarDestinoId, excluidos) == true)
+                .Select(t => t.Id)
+                .ToHashSet();
         }
     }
 }

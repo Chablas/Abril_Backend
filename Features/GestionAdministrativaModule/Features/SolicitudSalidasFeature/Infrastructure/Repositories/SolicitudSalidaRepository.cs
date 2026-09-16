@@ -178,6 +178,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                     // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
                     // motivo libre no tiene el flag y por eso no concede nada.
+                    EsMotivoDeCatalogo = m != null,
                     EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -205,6 +206,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             // (origen, destino) está en el catálogo ga_trayecto.
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            // Qué trayectos generan reembolso (motivo + par origen-destino excluido). Son los únicos
+            // que se rinden: solo a ellos se les exige captura y solo ellos hacen que la salida
+            // tenga algo que rendir.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+            var trayectosRendibles = trayectos
+                .Where(t => ReembolsoTrayectoRule.Resolver(
+                    t.EsMotivoDeCatalogo, t.EsReembolsable,
+                    t.LugarOrigenId, t.LugarDestinoId, excluidosReembolso) == true)
+                .Select(t => t.Id)
+                .ToHashSet();
 
             // Capturas opcionales por área (Configuración → Capturas): si el área del trabajador
             // está marcada como opcional, sus salidas se pueden rendir sin subir ninguna captura.
@@ -245,12 +257,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     if (!origenId.HasValue || !destinoId.HasValue) return false;
                     return catalogoMap.ContainsKey((origenId.Value, destinoId.Value));
                 }
+                // Solo se exige sustento de lo que se va a rendir: al trayecto sin reembolso no se
+                // le pide captura porque no entra en la planilla.
                 var puedeRendir = trList.Count > 0
-                    && trList.All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
+                    && trList.Where(t => trayectosRendibles.Contains(t.Id))
+                             .All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
 
-                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
-                // gasto de movilidad y tiene algo que rendir.
-                var esReembolsable = trList.Any(t => t.EsReembolsable);
+                // Basta un trayecto reembolsable: una salida mixta sigue generando gasto de
+                // movilidad y tiene algo que rendir (solo ese trayecto).
+                var esReembolsable = trList.Any(t => trayectosRendibles.Contains(t.Id));
 
                 // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
                 // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).

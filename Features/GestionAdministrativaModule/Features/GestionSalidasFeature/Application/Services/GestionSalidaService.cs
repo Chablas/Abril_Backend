@@ -351,7 +351,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (elegiblesIds.Count == 0)
                 throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
 
-            // 1.b. Bloqueo: cada trayecto de cada solicitud debe estar cubierto.
+            // 1.b. Bloqueo: cada trayecto REEMBOLSABLE de cada solicitud debe estar cubierto (los
+            //       que no generan reembolso no entran en la planilla, así que no se les pide nada).
             //       Regla normal: trayecto con al menos 1 captura.
             //       Área con capturas opcionales (Configuración → Capturas): no se exige ninguna.
             //       Regla TI (Tecnología de la Información): captura O match contra ga_trayecto.
@@ -359,7 +360,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (sinCapturas.Count > 0)
                 throw new AbrilException(
                     $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin cubrir (IDs: {string.Join(", ", sinCapturas)}). " +
-                    "Cada trayecto debe tener al menos una captura con monto, salvo que el área del trabajador tenga las capturas en opcional " +
+                    "Cada trayecto reembolsable debe tener al menos una captura con monto, salvo que el área del trabajador tenga las capturas en opcional " +
                     "(o, para trabajadores de Tecnología de la Información, que el trayecto esté registrado en el catálogo).",
                     400);
 
@@ -378,7 +379,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros días
             //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
             //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados
-            //          de Configuración → Feriados. Vencido, la salida solo se puede ver.
+            //          de Configuración → Feriados. Hasta cuántos meses hacia atrás llega ese
+            //          plazo, y si además hay un alcance que vale todo el mes, sale de esa misma
+            //          configuración. Vencido, la salida solo se puede ver.
             // El calendario se carga una sola vez: lo usan el plazo del mes y, más abajo, el
             // reparto de fechas de la planilla (que además necesita el tope que viene con él).
             var calendario = await _repo.GetCalendarioNoLaborable();
@@ -389,24 +392,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 if (MesAnteriorPeru.HoyPeru() > limite)
                     throw new AbrilException(
                         $"El plazo para rendir las salidas de {meses[0].Mes:D2}/{meses[0].Anio} venció el " +
-                        $"{limite:dd/MM/yyyy} ({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+                        $"{limite:dd/MM/yyyy} ({calendario.TextoDelLimite}). Ya no se pueden rendir.", 400);
             }
 
-            // 1.c. Bloqueo: la salida tiene que llevar al menos un motivo marcado como reembolsable
-            //       en Configuración → Motivos. Sin eso no hay gasto de movilidad que rendir, y la
-            //       planilla saldría con filas que nadie va a reembolsar.
+            // 1.c. Bloqueo: la salida tiene que llevar al menos un trayecto reembolsable. Sin eso no
+            //       hay gasto de movilidad que rendir y la planilla saldría sin una sola fila de esa
+            //       salida, porque los trayectos sin reembolso no se imprimen.
             var noReembolsables = await _repo.GetIdsNoReembolsables(elegiblesIds);
             if (noReembolsables.Count > 0)
                 throw new AbrilException(
-                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún motivo reembolsable " +
-                    $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden las salidas cuyo motivo está marcado " +
-                    "como reembolsable en Configuración → Motivos.",
+                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún trayecto reembolsable " +
+                    $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden los trayectos cuyo motivo está marcado " +
+                    "como reembolsable en Configuración → Motivos y cuyo recorrido no está excluido en Configuración → Trayectos.",
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
             //    Las fechas que imprime el PDF no son la fecha_salida cruda: lo que un día no
             //    aguanta se imputa al siguiente (RG-42). La solicitud no se toca.
             var datos          = await _repo.GetRendicionData(elegiblesIds);
+
+            // Red de seguridad: GetRendicionData solo devuelve trayectos reembolsables, así que si
+            // no queda ninguno no hay planilla que generar. Los guards de arriba ya lo impiden —
+            // esto evita subir un PDF en blanco a SharePoint si alguna vez discreparan.
+            if (datos.Count == 0)
+                throw new AbrilException(
+                    "No se puede rendir: ninguna de las salidas seleccionadas tiene trayectos reembolsables que imprimir.", 400);
+
             var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId: null);
             var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
             var numeroLabel    = $"TI: {numeroPlanilla:D6}";
@@ -445,6 +456,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "trabajador tenga las capturas en opcional.", 400);
 
             var datos = await _repo.GetRendicionData(planilla.SolicitudIds);
+
+            // Igual que al rendir: sin trayectos reembolsables no hay papel que regenerar. Pasa si
+            // el catálogo cambió después de rendir (un motivo dejó de ser reembolsable), y es mejor
+            // decirlo que reemplazar la planilla observada por un PDF vacío.
+            if (datos.Count == 0)
+                throw new AbrilException(
+                    "No se puede volver a generar: las salidas de esta planilla ya no tienen trayectos reembolsables.", 409);
 
             // Las fechas se vuelven a repartir con los montos corregidos: si la subsanación bajó
             // un importe, lo que se había ido al día siguiente puede volver a caber en el suyo.
@@ -527,7 +545,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (MesAnteriorPeru.HoyPeru() > limite)
                 throw new AbrilException(
                     $"El plazo para rendir las salidas de {desde:MM/yyyy} venció el {limite:dd/MM/yyyy} " +
-                    $"({calendario.DiasHabilesDePlazoTexto}). Ya no se pueden rendir.", 400);
+                    $"({calendario.TextoDelLimite}). Ya no se pueden rendir.", 400);
 
             filters.SoloHoy          = false;
             filters.RendicionAnio    = null;
@@ -544,7 +562,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (ids.Count == 0)
                 throw new AbrilException(
                     $"No hay salidas listas para rendir entre el {desde:dd/MM/yyyy} y el {hasta:dd/MM/yyyy}. " +
-                    "Deben estar aprobadas, sin rendir, con las capturas de todos sus trayectos y con un motivo reembolsable.", 400);
+                    "Deben estar aprobadas, sin rendir, con las capturas de sus trayectos reembolsables y con al menos un trayecto reembolsable.", 400);
 
             return await RendirYGenerarPlanilla(ids, userId);
         }

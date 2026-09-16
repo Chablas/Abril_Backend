@@ -202,14 +202,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await (
+            var trayectoIds = await (
                 from t in ctx.GaSolicitudTrayecto
                 join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 where s.RendicionId == rendicionId && per.UserId == userId
                 select t.Id
-            ).CountAsync();
+            ).ToListAsync();
+
+            // Solo los trayectos que se rindieron: el número viaja en el correo a la jefatura y
+            // tiene que cuadrar con las filas que trae la planilla adjunta.
+            return (await ReembolsoTrayectoRule.CargarRendiblesAsync(ctx, trayectoIds)).Count;
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
@@ -303,6 +307,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         private sealed class TrayectoResumen
         {
+            public int Id { get; init; }
             public int SolicitudId { get; init; }
             public int Orden { get; init; }
             public string Motivo { get; init; } = string.Empty;
@@ -331,6 +336,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 orderby t.SolicitudId, t.Orden
                 select new TrayectoResumen
                 {
+                    Id           = t.Id,
                     SolicitudId  = t.SolicitudId,
                     Orden        = t.Orden,
                     Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
@@ -343,7 +349,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                 }
             ).ToListAsync();
 
+            // Esta pantalla muestra la PLANILLA, no la salida: se queda con los trayectos que se
+            // rindieron. Los que no generan reembolso no están impresos en el PDF, así que anunciar
+            // su recorrido acá haría dudar de un monto que no los incluye. La salida completa se
+            // sigue viendo en su detalle.
+            var rendibles = await ReembolsoTrayectoRule.CargarRendiblesAsync(
+                ctx, filas.Select(t => t.Id).ToList());
+
             return filas
+                .Where(t => rendibles.Contains(t.Id))
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
         }

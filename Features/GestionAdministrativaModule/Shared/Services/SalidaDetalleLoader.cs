@@ -212,19 +212,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 && trayectosRaw.Count > 0
                 && solicitud.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
                 && solicitud.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                // Basta un trayecto con motivo del catálogo marcado como reembolsable: es la misma
-                // regla que aplica GetIdsNoReembolsables al rendir. El par (origen, destino)
-                // excluido apaga el pill del trayecto, pero no la aptitud de la salida.
-                && trayectosRaw.Any(t => t.MotivoEsReembolsable))
+                // Basta un trayecto reembolsable: es la misma regla que aplica GetIdsNoReembolsables
+                // al rendir, con el par (origen, destino) excluido incluido — lo que el pill del
+                // trayecto marca SIN REEMBOLSO no entra en la planilla y no vuelve apta a la salida.
+                && trayectosRaw.Any(t => t.Dto.EsReembolsable == true))
             {
                 var calendario   = await CalendarioNoLaborable.CargarAsync(ctx);
                 var plazoVencido = MesAnteriorPeru.HoyPeru()
                                  > calendario.LimiteDeRendicion(solicitud.FechaSalida.Year, solicitud.FechaSalida.Month);
 
                 // Cobertura de los trayectos: captura propia o, para TI, match contra el catálogo
-                // (que es justo lo que dejó puesto MontoCatalogo unas líneas más arriba). El área
-                // con las capturas en OPCIONAL solo se consulta si quedó alguno sin cubrir.
-                var todosCubiertos = trayectosRaw.All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
+                // (que es justo lo que dejó puesto MontoCatalogo unas líneas más arriba). Solo se
+                // le exige sustento a lo que se va a rendir: el trayecto sin reembolso no entra en
+                // la planilla, así que no necesita captura. El área con las capturas en OPCIONAL
+                // solo se consulta si quedó alguno sin cubrir.
+                var todosCubiertos = trayectosRaw
+                    .Where(t => t.Dto.EsReembolsable == true)
+                    .All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
 
                 aptaParaRendir = !plazoVencido
                     && (todosCubiertos

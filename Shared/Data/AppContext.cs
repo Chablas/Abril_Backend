@@ -282,6 +282,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaCorreoRegla> GaCorreoRegla { get; set; }
         // Plazo de rendición configurable (fila única). Lo lee CalendarioNoLaborable.
         public DbSet<GaRendicionConfig> GaRendicionConfig { get; set; }
+        public DbSet<GaRendicionAlcance> GaRendicionAlcance { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
@@ -649,6 +650,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<LearningCategory> LearningCategory => Set<LearningCategory>();
         public DbSet<LearningVideo> LearningVideo => Set<LearningVideo>();
         public DbSet<LearningCategoryRole> LearningCategoryRole => Set<LearningCategoryRole>();
+        public DbSet<LearningVideoFolder> LearningVideoFolder => Set<LearningVideoFolder>();
 
         // ── Planeamiento BIM ──────────────────────────────────────────────────
         public DbSet<BimMacroActividad> BimMacroActividad => Set<BimMacroActividad>();

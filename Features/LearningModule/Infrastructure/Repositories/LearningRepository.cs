@@ -31,7 +31,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 {
                     Id = c.LearningCategoryId,
                     Nombre = c.Name,
-                    AccentColor = c.AccentColor,
                     Videos = c.Videos
                         .Where(v => v.State && v.Active)
                         .OrderBy(v => v.DisplayOrder).ThenBy(v => v.LearningVideoId)
@@ -47,7 +46,7 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
 
             // /inicio requiere sesión: una categoría es visible si es "pública interna"
             // (todo Abril) o si el usuario tiene alguno de sus roles autorizados.
-            // Se muestran todos los grupos visibles aunque no tengan videos asociados
+            // Se muestran todos los grupos visibles aunque no tengan videos ni manuales
             // (los encabezados vacíos son intencionales, igual que en la superficie LOGIN).
             return await ctx.LearningCategory
                 .Where(c => c.State && c.Active && c.Surface!.Code == "INICIO"
@@ -57,7 +56,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 {
                     Id = c.LearningCategoryId,
                     Nombre = c.Name,
-                    AccentColor = c.AccentColor,
                     Videos = c.Videos
                         .Where(v => v.State && v.Active)
                         .OrderBy(v => v.DisplayOrder).ThenBy(v => v.LearningVideoId)
@@ -80,7 +78,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 {
                     Id = c.LearningCategoryId,
                     Nombre = c.Name,
-                    AccentColor = c.AccentColor,
                     Orden = c.DisplayOrder,
                     SurfaceId = c.LearningSurfaceId,
                     SurfaceCode = c.Surface!.Code,
@@ -99,6 +96,7 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                             Img = v.ThumbnailUrl,
                             Orden = v.DisplayOrder,
                             Activo = v.Active,
+                            ArchivoNombre = v.FileName,
                         }).ToList(),
                 })
                 .ToListAsync();
@@ -138,7 +136,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
             {
                 Name = nombre,
                 LearningSurfaceId = dto.SurfaceId,
-                AccentColor = string.IsNullOrWhiteSpace(dto.AccentColor) ? null : dto.AccentColor.Trim(),
                 DisplayOrder = dto.Orden,
                 EsPublicoInterno = dto.EsPublicoInterno,
                 Active = true,
@@ -165,9 +162,20 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 .FirstOrDefaultAsync(c => c.LearningCategoryId == id && c.State)
                 ?? throw new AbrilException("Grupo no encontrado.", 404);
 
-            var superficieExiste = await ctx.LearningSurface.AnyAsync(s => s.LearningSurfaceId == dto.SurfaceId);
-            if (!superficieExiste)
+            var surfaceCode = await ctx.LearningSurface
+                .Where(s => s.LearningSurfaceId == dto.SurfaceId)
+                .Select(s => s.Code)
+                .FirstOrDefaultAsync();
+            if (surfaceCode == null)
                 throw new AbrilException("La superficie indicada no existe.", 400);
+
+            // El login es público y un archivo subido a SharePoint solo se abre con cuenta de Abril:
+            // un grupo con archivos no puede pasar al login (el alta de archivos ya lo bloquea ahí).
+            if (surfaceCode == "LOGIN" && cat.LearningSurfaceId != dto.SurfaceId
+                && await ctx.LearningVideo.AnyAsync(v => v.LearningCategoryId == id && v.State && v.ItemId != null))
+                throw new AbrilException(
+                    "El grupo tiene archivos subidos, que no se abren sin cuenta de Abril. " +
+                    "Cámbialos a enlace para mostrar el grupo en el login.", 409);
 
             var duplicado = await ctx.LearningCategory.AnyAsync(c =>
                 c.State && c.LearningCategoryId != id
@@ -177,7 +185,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
 
             cat.Name = nombre;
             cat.LearningSurfaceId = dto.SurfaceId;
-            cat.AccentColor = string.IsNullOrWhiteSpace(dto.AccentColor) ? null : dto.AccentColor.Trim();
             cat.DisplayOrder = dto.Orden;
             cat.EsPublicoInterno = dto.EsPublicoInterno;
             cat.UpdatedDateTime = DateTimeOffset.UtcNow;
@@ -210,7 +217,7 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 .FirstOrDefaultAsync(c => c.LearningCategoryId == id && c.State)
                 ?? throw new AbrilException("Grupo no encontrado.", 404);
 
-            // Soft delete del grupo y de sus videos (auditoría: nada se borra físicamente).
+            // Soft delete del grupo y de sus videos y manuales (auditoría: nada se borra físicamente).
             cat.State = false;
             cat.UpdatedDateTime = DateTimeOffset.UtcNow;
             foreach (var v in cat.Videos.Where(v => v.State))
@@ -221,16 +228,16 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<int> CreateVideo(LearningVideoCreateDto dto)
+        public async Task<int> CreateVideo(LearningVideoCreateDto dto, LearningVideoArchivoDto? archivo)
         {
             using var ctx = _factory.CreateDbContext();
 
             var titulo = (dto.Titulo ?? string.Empty).Trim();
-            var url = (dto.Url ?? string.Empty).Trim();
+            var url = archivo?.Url ?? (dto.Url ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(titulo))
-                throw new AbrilException("El título del video no puede estar vacío.", 400);
+                throw new AbrilException("El título no puede estar vacío.", 400);
             if (string.IsNullOrWhiteSpace(url))
-                throw new AbrilException("El enlace del video no puede estar vacío.", 400);
+                throw new AbrilException("El enlace no puede estar vacío.", 400);
 
             var catExiste = await ctx.LearningCategory.AnyAsync(c => c.LearningCategoryId == dto.CategoriaId && c.State);
             if (!catExiste)
@@ -241,6 +248,9 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                 LearningCategoryId = dto.CategoriaId,
                 Title = titulo,
                 Url = url,
+                FileName = archivo?.FileName,
+                DriveId = archivo?.DriveId,
+                ItemId = archivo?.ItemId,
                 ThumbnailUrl = string.IsNullOrWhiteSpace(dto.Img) ? null : dto.Img.Trim(),
                 DisplayOrder = dto.Orden,
                 Active = true,
@@ -253,22 +263,43 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
             return video.LearningVideoId;
         }
 
-        public async Task EditVideo(int id, LearningVideoEditDto dto)
+        public async Task EditVideo(int id, LearningVideoEditDto dto, LearningVideoArchivoDto? archivo)
         {
             using var ctx = _factory.CreateDbContext();
 
             var titulo = (dto.Titulo ?? string.Empty).Trim();
             var url = (dto.Url ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(titulo))
-                throw new AbrilException("El título del video no puede estar vacío.", 400);
-            if (string.IsNullOrWhiteSpace(url))
-                throw new AbrilException("El enlace del video no puede estar vacío.", 400);
+                throw new AbrilException("El título no puede estar vacío.", 400);
+            if (archivo == null && !dto.EsArchivo && string.IsNullOrWhiteSpace(url))
+                throw new AbrilException("El enlace no puede estar vacío.", 400);
 
             var video = await ctx.LearningVideo.FirstOrDefaultAsync(v => v.LearningVideoId == id && v.State)
-                ?? throw new AbrilException("Video no encontrado.", 404);
+                ?? throw new AbrilException("Video o manual no encontrado.", 404);
+
+            if (archivo != null)
+            {
+                // Archivo nuevo (reemplazo, o de enlace a archivo). El anterior se queda en SharePoint.
+                video.Url = archivo.Url;
+                video.FileName = archivo.FileName;
+                video.DriveId = archivo.DriveId;
+                video.ItemId = archivo.ItemId;
+            }
+            else if (dto.EsArchivo)
+            {
+                // Sigue siendo archivo y no se eligió otro: se conserva el que ya tenía.
+                if (video.ItemId == null)
+                    throw new AbrilException("Selecciona el archivo.", 400);
+            }
+            else
+            {
+                video.Url = url;
+                video.FileName = null;
+                video.DriveId = null;
+                video.ItemId = null;
+            }
 
             video.Title = titulo;
-            video.Url = url;
             video.ThumbnailUrl = string.IsNullOrWhiteSpace(dto.Img) ? null : dto.Img.Trim();
             video.DisplayOrder = dto.Orden;
             video.UpdatedDateTime = DateTimeOffset.UtcNow;
@@ -280,7 +311,7 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var video = await ctx.LearningVideo.FirstOrDefaultAsync(v => v.LearningVideoId == id && v.State)
-                ?? throw new AbrilException("Video no encontrado.", 404);
+                ?? throw new AbrilException("Video o manual no encontrado.", 404);
 
             video.Active = !video.Active;
             video.UpdatedDateTime = DateTimeOffset.UtcNow;
@@ -293,12 +324,50 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var video = await ctx.LearningVideo.FirstOrDefaultAsync(v => v.LearningVideoId == id && v.State)
-                ?? throw new AbrilException("Video no encontrado.", 404);
+                ?? throw new AbrilException("Video o manual no encontrado.", 404);
 
             video.State = false;
             video.UpdatedDateTime = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
+
+        public async Task<LearningVideoDestinoDto?> GetDestinoPorCategoria(int categoriaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Una sola consulta: la superficie del grupo y, como subconsulta, el link de la carpeta.
+            var folderLink = CarpetaVigente(ctx);
+            return await ctx.LearningCategory
+                .Where(c => c.LearningCategoryId == categoriaId && c.State)
+                .Select(c => new LearningVideoDestinoDto
+                {
+                    EsLogin = c.Surface!.Code == "LOGIN",
+                    FolderLink = folderLink.FirstOrDefault(),
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<LearningVideoDestinoDto?> GetDestinoPorVideo(int videoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var folderLink = CarpetaVigente(ctx);
+            return await ctx.LearningVideo
+                .Where(v => v.LearningVideoId == videoId && v.State)
+                .Select(v => new LearningVideoDestinoDto
+                {
+                    EsLogin = v.Category!.Surface!.Code == "LOGIN",
+                    FolderLink = folderLink.FirstOrDefault(),
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        /// <summary>Link de la fila vigente de learning_video_folder (singleton), para usar como subconsulta.</summary>
+        private static IQueryable<string> CarpetaVigente(AppDbContext ctx) =>
+            ctx.LearningVideoFolder
+                .Where(f => f.State && f.Active)
+                .OrderBy(f => f.LearningVideoFolderId)
+                .Select(f => f.LinkUrl);
 
         /// <summary>
         /// Construye las filas de rol para una categoría. Si es pública interna, no se

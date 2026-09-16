@@ -1175,9 +1175,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .Where(h => h.WorkerId == workerId && itemsToRestore.Contains(h.ItemId))
                     .ToListAsync();
 
+                // Sin esto, el ítem quedaba "Aprobado" con Vigencia null — un estado que
+                // VigenciaRevisionService (cron diario) trata como bug y tumba a "Falta" al día
+                // siguiente, aunque el trabajador sí haya inducido antes en este proyecto (caso
+                // Monteza Fuentes / Hernández Vilca / Gonzales Naupari, incidencia 2026-09-16).
+                var sentinelRestore = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
                 foreach (var e in entregables)
                 {
                     e.Estado = "Aprobado";
+                    e.Vigencia = sentinelRestore;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
             }
@@ -1298,12 +1304,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         UpdatedAt = DateTimeOffset.UtcNow
                     });
 
+                    // La convalidación previa certificó al trabajador para este destino, pero no
+                    // congela su vigencia para siempre: si el EMO de origen ya venció desde
+                    // entonces, reafirmar "Aprobado" a ciegas dejaría a alguien con la aptitud
+                    // médica caducada mostrando habilitado. Mismo criterio que el caso "Descartada"
+                    // de ConvalidacionRepository.SincronizarHabilitacionAsync — se recalcula contra
+                    // el vencimiento REAL del EMO en vez de asumir que sigue vigente.
+                    var vencimientoRealDestino = ultimoEmo.FechaVencimientoCalculada ?? ultimoEmo.FechaVencimiento;
+                    var vigenteReal = vencimientoRealDestino.HasValue
+                        && vencimientoRealDestino.Value.ToDateTime(TimeOnly.MinValue) > DateTime.UtcNow;
+
                     if (habCert != null)
                     {
-                        habCert.Estado = "Aprobado";
+                        habCert.Estado = vigenteReal ? "Aprobado" : "Vencido";
+                        habCert.Vigencia = vencimientoRealDestino.HasValue
+                            ? DateTime.SpecifyKind(vencimientoRealDestino.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
+                            : null;
                         habCert.UpdatedAt = DateTime.UtcNow;
                     }
-                    ultimoEmo.Estado = "Convalidado";
+                    ultimoEmo.Estado = vigenteReal ? "Convalidado" : "Vencido";
                     ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
                 }
                 else if (ultimoEmo != null)
@@ -1720,12 +1739,22 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             UpdatedAt = DateTimeOffset.UtcNow
                         });
 
+                        // Mismo criterio que en CambiarObraAsync: la convalidación previa no
+                        // congela la vigencia para siempre — se recalcula contra el vencimiento
+                        // REAL del EMO en vez de reafirmar "Aprobado" a ciegas.
+                        var vencimientoRealDestino = ultimoEmo.FechaVencimientoCalculada ?? ultimoEmo.FechaVencimiento;
+                        var vigenteReal = vencimientoRealDestino.HasValue
+                            && vencimientoRealDestino.Value.ToDateTime(TimeOnly.MinValue) > DateTime.UtcNow;
+
                         if (habCert != null)
                         {
-                            habCert.Estado = "Aprobado";
+                            habCert.Estado = vigenteReal ? "Aprobado" : "Vencido";
+                            habCert.Vigencia = vencimientoRealDestino.HasValue
+                                ? DateTime.SpecifyKind(vencimientoRealDestino.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
+                                : null;
                             habCert.UpdatedAt = DateTime.UtcNow;
                         }
-                        ultimoEmo.Estado = "Convalidado";
+                        ultimoEmo.Estado = vigenteReal ? "Convalidado" : "Vencido";
                         ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
                     }
                     else

@@ -15,7 +15,7 @@ public class PersonalHitoRepository : IPersonalHitoRepository
     private const string CronogramaVigenteCte = """
         cronograma_vigente AS (
             SELECT ms.milestone_schedule_id, ms.milestone_id, ms.custom_description,
-                   ms.planned_start_date, ms.es_hito_critico
+                   ms.planned_start_date, ms.planned_end_date, ms.es_hito_critico
             FROM milestone_schedule ms
             JOIN milestone_schedule_history msh
               ON msh.milestone_schedule_history_id = ms.milestone_schedule_history_id
@@ -34,7 +34,8 @@ public class PersonalHitoRepository : IPersonalHitoRepository
             WITH {CronogramaVigenteCte}
             SELECT cv.milestone_schedule_id AS HitoId,
                    COALESCE(m.milestone_description, cv.custom_description, 'Hito') AS HitoDescripcion,
-                   cv.planned_start_date AS HitoFecha
+                   cv.planned_start_date AS HitoFecha,
+                   cv.planned_end_date AS HitoFechaFin
             FROM cronograma_vigente cv
             LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
             ORDER BY cv.planned_start_date NULLS LAST
@@ -60,7 +61,7 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                        WHEN ph.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
-                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       THEN ROUND(GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0), 4)
                        ELSE ph.semanas
                    END AS Semanas,
                    ph.costo_mensual AS CostoMensual,
@@ -68,13 +69,17 @@ public class PersonalHitoRepository : IPersonalHitoRepository
                    -- salida) después de guardar, "Semanas" ya se recalculaba acá pero "Total" se
                    -- quedaba con el valor viejo — quedaba desalineado con la Cantidad/Semanas que
                    -- se veían en pantalla.
-                   ph.cantidad * ph.costo_mensual * (CASE
+                   -- ROUND(...) acota la escala del numeric antes de que Dapper lo mapee a decimal:
+                   -- sin esto, GREATEST(.../7.0) arrastra escala ilimitada y al multiplicarse se pasa
+                   -- de los ~28 dígitos que soporta System.Decimal, tirando OverflowException (500
+                   -- silencioso, sin loguear, porque el catch genérico del controller no loguea).
+                   ROUND(ph.cantidad * ph.costo_mensual * (CASE
                        WHEN ph.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
                        THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
                        ELSE ph.semanas
-                   END) AS Total
+                   END), 2) AS Total
             FROM ss_presupuesto_personal_hito ph
             JOIN ss_presupuesto p ON p.id = ph.presupuesto_id
             JOIN cronograma_vigente cv ON cv.milestone_schedule_id = ph.hito_id

@@ -85,6 +85,12 @@ public class PresupuestoLineaDto
     public decimal  PrecioUnitario     { get; set; }
     public decimal  TotalEstimado      { get; set; }
     public bool     TieneHistoria      { get; set; }
+    /// <summary>Si la família sigue activa en Catálogo — esta línea puede seguir "true" (venir
+    /// de una versión de presupuesto vieja) aunque la família ya se haya desactivado después de
+    /// generarla; se guarda tal cual para no reescribir el histórico de versiones ya generadas.
+    /// Los consumidores que solo quieren el estado ACTUAL del catálogo (como el export a Excel)
+    /// deben filtrar por este campo ellos mismos.</summary>
+    public bool     Activo             { get; set; } = true;
     // Overrides manuales
     public decimal? CantidadManual     { get; set; }
     public decimal? PrecioManual       { get; set; }

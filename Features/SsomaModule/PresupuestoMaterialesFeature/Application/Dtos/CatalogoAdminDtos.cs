@@ -101,3 +101,9 @@ public class MaterialGlobalDto
     public string? EstadoRevision { get; set; }
     public DateOnly FechaGuia { get; set; }
 }
+
+public class ProyectoActualDto
+{
+    public int ProjectId { get; set; }
+    public string ProjectDescription { get; set; } = "";
+}

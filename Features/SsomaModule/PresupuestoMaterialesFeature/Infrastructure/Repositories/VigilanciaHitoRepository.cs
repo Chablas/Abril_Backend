@@ -62,7 +62,7 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
                        WHEN vh.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
-                       THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
+                       THEN ROUND(GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0), 4)
                        ELSE vh.semanas
                    END AS Semanas,
                    vh.precio_unitario AS PrecioUnitario,
@@ -70,13 +70,15 @@ public class VigilanciaHitoRepository : IVigilanciaHitoRepository
                    -- desalineado con "Semanas" cuando el cronograma cambia después de guardar.
                    -- precio_unitario es mensual, por eso se prorratea /4.345 semanas-por-mes (mismo
                    -- factor que usa GuardarAsync).
-                   vh.cantidad_puntos * vh.precio_unitario * (CASE
+                   -- ROUND(...) acota la escala del numeric antes de mapear a decimal (ver comentario
+                   -- extendido en PersonalHitoRepository) — mismo bug de OverflowException silencioso.
+                   ROUND(vh.cantidad_puntos * vh.precio_unitario * (CASE
                        WHEN vh.hito_salida_id IS NOT NULL
                             AND cv.planned_start_date IS NOT NULL
                             AND cv2.planned_start_date IS NOT NULL
                        THEN GREATEST(0, (cv2.planned_start_date - cv.planned_start_date) / 7.0)
                        ELSE vh.semanas
-                   END / 4.345) AS Total
+                   END / 4.345), 2) AS Total
             FROM ss_presupuesto_vigilancia_hito vh
             JOIN ss_presupuesto p ON p.id = vh.presupuesto_id
             JOIN cronograma_vigente cv ON cv.milestone_schedule_id = vh.hito_id

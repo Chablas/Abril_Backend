@@ -984,7 +984,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             return hab;
         }
 
-        private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
+        internal static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
         {
             var hab = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.CertAptitud);
 

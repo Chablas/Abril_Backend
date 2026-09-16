@@ -451,6 +451,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     {
                         emo.InterconsultaResuelta = true;
                         emo.UpdatedAt = DateTimeOffset.UtcNow;
+
+                        // SincronizarEntregableEmoAsync había dejado el Certificado de Aptitud en
+                        // "Falta" mientras esta interconsulta estaba pendiente (EmoRepository
+                        // línea ~1010). Resolverla acá no volvía a correr esa sincronización, así
+                        // que el certificado se quedaba en "Falta" para siempre aunque el EMO ya
+                        // estuviera Apto/Vigente — contradicción real: MUÑOZ MIDEIROS DELIA (worker
+                        // 44735768) aparecía "Falta" en Gestión de Ingresos con el EMO Vigente/Apto
+                        // en Control de EMOs.
+                        var workerEmo = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId);
+                        if (workerEmo != null)
+                            await EmoRepository.SincronizarEntregableEmoAsync(ctx, emo, workerEmo);
                     }
                 }
 

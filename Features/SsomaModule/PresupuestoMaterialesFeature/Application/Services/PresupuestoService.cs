@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
@@ -17,17 +19,23 @@ public class PresupuestoService : IPresupuestoService
     private readonly IEmailService _emailService;
     private readonly ILogger<PresupuestoService> _logger;
     private readonly ICatalogoMaterialesService _catalogoService;
+    private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
+    private readonly IPresupuestoResumenExportService _resumenExportService;
 
     public PresupuestoService(
         IPresupuestoRepository repo, IDbContextFactory<AppDbContext> factory,
         IEmailService emailService, ILogger<PresupuestoService> logger,
-        ICatalogoMaterialesService catalogoService)
+        ICatalogoMaterialesService catalogoService,
+        ICostosPresupuestosEmailService costosPresupuestosEmailService,
+        IPresupuestoResumenExportService resumenExportService)
     {
         _repo            = repo;
         _factory         = factory;
         _emailService    = emailService;
         _logger          = logger;
         _catalogoService = catalogoService;
+        _costosPresupuestosEmailService = costosPresupuestosEmailService;
+        _resumenExportService = resumenExportService;
     }
 
     public async Task<PresupuestoDetalleDto> GenerarAsync(int projectId, GenerarPresupuestoDto dto, int? userId)
@@ -146,6 +154,20 @@ public class PresupuestoService : IPresupuestoService
         return estado;
     }
 
+    /// <summary>Reenvía el correo de aprobación de un presupuesto YA aprobado (ej. se corrigió algo
+    /// en el Resumen después de aprobar, o el correo original no llegó) — a diferencia del envío
+    /// automático al aprobar, este SÍ propaga el error si algo falla, para que quien lo pide sepa
+    /// que no se mandó.</summary>
+    public async Task ReenviarNotificacionAprobacionAsync(int presupuestoId)
+    {
+        var estado = await _repo.ObtenerEstadoAsync(presupuestoId)
+            ?? throw new AbrilException("Presupuesto no encontrado.", 404);
+        if (estado != "APROBADO")
+            throw new AbrilException("Solo se puede reenviar la notificación de un presupuesto ya aprobado.", 400);
+
+        await EnviarNotificacionAprobacionAsync(presupuestoId, propagarError: true);
+    }
+
     /// <summary>Mismo resolver que usa el envío real (ver <see cref="EnviarNotificacionAprobacionAsync"/>)
     /// — expuesto aparte para que el frontend pueda mostrar "a quiénes se les va a avisar" ANTES de
     /// aprobar, sin duplicar la lógica (así la vista previa nunca puede mentir sobre el envío real).</summary>
@@ -183,38 +205,34 @@ public class PresupuestoService : IPresupuestoService
             .FirstOrDefaultAsync();
         Agregar("Jefe SSOMA", jefeSsomaEmail);
 
-        var gerenteInmobiliarioEmail = await ctx.Worker.AsNoTracking()
-            .Where(w => w.PuestoCatalogo != null && w.PuestoCatalogo.Nombre.ToUpper() == "GERENTE INMOBILIARIO"
-                     && w.WorkersEstadoId == WorkersEstadoIds.Activo)
-            .Select(w => w.EmailCorporativo)
-            .FirstOrDefaultAsync();
-        Agregar("Gerente Inmobiliario", gerenteInmobiliarioEmail);
-
-        var costosEmails = await ctx.Worker.AsNoTracking()
-            .Where(w => w.PuestoCatalogo != null && w.PuestoCatalogo.AreaDestinoScopeId == AreaScopeIds.CostosYPresupuestos
-                     && w.WorkersEstadoId == WorkersEstadoIds.Activo)
-            .Select(w => w.EmailCorporativo)
-            .ToListAsync();
-        foreach (var e in costosEmails) Agregar("Costos y Presupuestos", e);
-
+        // Oficina Técnica DEL PROYECTO — solo el rol de Oficina Técnica en sí (Ingeniero/Asistente),
+        // no cualquier "Staff" destacado en obra (eso incluía Administrador de Obra, Producción,
+        // Calidad, Prevencionista... nada que ver con Oficina Técnica).
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
         var oficinaTecnicaEmails = await ctx.Worker.AsNoTracking()
-            .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
-                     && w.WorkersEstadoId == WorkersEstadoIds.Activo
+            .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo
+                     && w.PuestoCatalogo != null && w.PuestoCatalogo.Nombre.ToUpper().Contains("OFICINA TECNICA")
                      && ctx.WorkerVinculacion.Any(v => v.WorkerId == w.Id && v.ProyectoId == detalle.ProjectId
                             && (v.FechaFin == null || v.FechaFin >= hoy)))
             .Select(w => w.EmailCorporativo)
             .ToListAsync();
         foreach (var e in oficinaTecnicaEmails) Agregar("Oficina Técnica", e);
 
+        // Costos y Presupuestos de oficina central — lista curada a mano (mismo mecanismo que ya
+        // usan Adjudicaciones/Contratistas), no un query por puesto/área que podía traer gente que
+        // no correspondía.
+        var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+        foreach (var e in costosEmails) Agregar("Costos y Presupuestos", e);
+
         return lista;
     }
 
     /// <summary>Notifica al aprobar el presupuesto usando <see cref="ObtenerDestinatariosAprobacionAsync"/>
-    /// (Residente, Coordinador SSOMA, Jefe SSOMA, Gerente Inmobiliario, Costos y Presupuestos, Oficina
-    /// Técnica del proyecto). Nunca revienta la aprobación: si algo falla acá, solo queda logueado — la
+    /// (Residente, Coordinador SSOMA del proyecto, Jefe SSOMA, Oficina Técnica del proyecto, Costos y
+    /// Presupuestos de oficina central) — adjunta el Excel del Resumen y detalla las partidas en el
+    /// cuerpo del correo. Nunca revienta la aprobación: si algo falla acá, solo queda logueado — la
     /// aprobación en sí ya se guardó.</summary>
-    private async Task EnviarNotificacionAprobacionAsync(int presupuestoId)
+    private async Task EnviarNotificacionAprobacionAsync(int presupuestoId, bool propagarError = false)
     {
         try
         {
@@ -225,6 +243,11 @@ public class PresupuestoService : IPresupuestoService
             var to = destinatarios.Select(d => d.Email).Distinct().ToList();
             if (to.Count == 0) return;
 
+            var resumen = await _resumenExportService.ObtenerResumenAgregadoAsync(detalle.ProjectId);
+            var filasHtml = resumen is null ? "" : string.Join("", resumen.Lineas.Select(l =>
+                $"<tr><td style='padding:4px 12px;border-bottom:1px solid #eee'>{l.Descripcion}</td>" +
+                $"<td style='padding:4px 12px;border-bottom:1px solid #eee;text-align:right'>S/ {l.CostoDirecto:N2}</td></tr>"));
+
             var html = $@"<h2>Presupuesto de Materiales SSOMA aprobado</h2>
 <p>Se aprobó el presupuesto del proyecto <strong>{detalle.ProjectDescription}</strong>:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
@@ -232,17 +255,39 @@ public class PresupuestoService : IPresupuestoService
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Versión</td><td style='padding:6px 12px'>v{detalle.Version}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Total estimado</td><td style='padding:6px 12px'>S/ {detalle.TotalEstimado:N2}</td></tr>
 </table>
-<p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
+{(filasHtml.Length == 0 ? "" : $@"<h3 style='margin-top:20px;font-family:Arial,sans-serif'>Detalle por partida</h3>
+<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;width:100%;max-width:560px'>
+{filasHtml}
+</table>")}
+<p style='font-size:12px;color:#666;margin-top:24px;'>Se adjunta el Excel completo con el detalle. Esta notificación se generó automáticamente por el sistema Abril.</p>";
+
+            List<EmailAttachment>? attachments = null;
+            var excelBytes = await _resumenExportService.ExportarExcelAsync(detalle.ProjectId);
+            if (excelBytes is not null)
+            {
+                attachments =
+                [
+                    new EmailAttachment
+                    {
+                        FileName = $"Resumen_Presupuesto_SSOMA_{detalle.ProjectDescription}_v{detalle.Version}.xlsx",
+                        ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        Content = excelBytes,
+                    }
+                ];
+            }
 
             await _emailService.SendAsync(
                 to: to,
                 subject: $"[Presupuesto de Materiales Aprobado] {detalle.ProjectDescription} — v{detalle.Version}",
                 body: html,
-                isHtml: true);
+                isHtml: true,
+                attachments: attachments);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "No se pudo enviar la notificación de aprobación del presupuesto {PresupuestoId}.", presupuestoId);
+            if (propagarError)
+                throw new AbrilException("No se pudo enviar el correo. Revisa los destinatarios e intenta de nuevo.", 500);
         }
     }
 

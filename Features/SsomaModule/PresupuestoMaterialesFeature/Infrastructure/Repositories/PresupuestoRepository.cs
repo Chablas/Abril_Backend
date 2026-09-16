@@ -198,6 +198,7 @@ public class PresupuestoRepository : IPresupuestoRepository
             SELECT
               l.id AS LineaId, l.familia_id AS FamiliaId,
               f.nombre AS NombreFamilia, t.nombre AS NombreTipo, t.id AS TipoId,
+              f.activo AS Activo,
               l.variable_base AS VariableBase, l.ratio_recomendado AS RatioRecomendado,
               l.n_proyectos_base AS NProyectosBase, l.valor_driver AS ValorDriver,
               l.cantidad_estimada AS CantidadEstimada, l.precio_unitario AS PrecioUnitario,

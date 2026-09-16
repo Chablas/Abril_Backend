@@ -105,5 +105,30 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>Edita los campos de un hito ya guardado (descripción/orden/fechas/crítico) sin
+        /// tener que subir una versión nueva completa del cronograma — solo ADMINISTRADOR DE
+        /// RESIDENTES, en cualquier proyecto (mismo alcance que Delete en
+        /// MilestoneScheduleHistoryController).</summary>
+        [Authorize(Roles = Roles.AdministradorResidentes)]
+        [HttpPut("{milestoneScheduleId:int}")]
+        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        public async Task<IActionResult> Editar(int milestoneScheduleId, [FromBody] MilestoneScheduleCreateDTO dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                await _service.EditAsync(milestoneScheduleId, dto, userId);
+                return Ok(new { message = "Hito actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

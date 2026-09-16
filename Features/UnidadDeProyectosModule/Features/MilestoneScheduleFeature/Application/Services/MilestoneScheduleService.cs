@@ -113,5 +113,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 await ValidarResidenteDelProyectoAsync(milestoneScheduleId, userId);
             await _repository.MarcarCriticoAsync(milestoneScheduleId, esHitoCritico, userId);
         }
+
+        /// <summary>Editar un hito ya guardado es exclusivo de ADMINISTRADOR DE RESIDENTES (igual que
+        /// DeleteAsync en MilestoneScheduleHistoryService) — el [Authorize(Roles=...)] en el
+        /// controller ya filtra el acceso, no hace falta el chequeo por proyecto de
+        /// ValidarResidenteDelProyectoAsync porque un RESIDENTE normal nunca llega hasta acá.</summary>
+        public Task EditAsync(int milestoneScheduleId, MilestoneScheduleCreateDTO dto, int userId)
+            => _repository.EditAsync(milestoneScheduleId, dto, userId);
     }
 }

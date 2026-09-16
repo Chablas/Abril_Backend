@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         Task<List<MilestoneScheduleFakeDataDTO>> BuildFakeSchedule();
         Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId, bool esAdminResidentes);
         Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId, bool esAdminResidentes);
+        Task EditAsync(int milestoneScheduleId, MilestoneScheduleCreateDTO dto, int userId);
     }
 }

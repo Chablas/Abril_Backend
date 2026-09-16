@@ -127,5 +127,48 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
             await ctx.SaveChangesAsync();
         }
+
+        /// <summary>Edita un hito ya guardado sin necesidad de subir una versión nueva completa del
+        /// cronograma (eso es Create, en MilestoneScheduleHistoryRepository) — solo llamado para
+        /// ADMINISTRADOR DE RESIDENTES, ver el [Authorize(Roles=...)] en el controller.</summary>
+        public async Task EditAsync(int milestoneScheduleId, MilestoneScheduleCreateDTO dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ms = await ctx.MilestoneSchedule
+                .FirstOrDefaultAsync(x => x.MilestoneScheduleId == milestoneScheduleId && x.State);
+            if (ms == null)
+                throw new AbrilException("Hito no encontrado.", 404);
+
+            // Misma regla que ValidarHitosObligatoriosAsync en MilestoneScheduleHistoryRepository:
+            // un hito de catálogo marcado es_obligatorio=true debe traer PlannedEndDate, salvo
+            // "Inicio de obra" (su fecha única va en PlannedStartDate).
+            if (dto.MilestoneId.HasValue)
+            {
+                var milestone = await ctx.Milestone
+                    .Where(m => m.MilestoneId == dto.MilestoneId.Value)
+                    .Select(m => new { m.EsObligatorio, m.MilestoneDescription })
+                    .FirstOrDefaultAsync();
+
+                if (milestone != null && milestone.EsObligatorio
+                    && milestone.MilestoneDescription != "Inicio de obra"
+                    && dto.PlannedEndDate == null)
+                {
+                    throw new AbrilException(
+                        $"El hito \"{milestone.MilestoneDescription}\" es obligatorio y debe tener una fecha.");
+                }
+            }
+
+            ms.MilestoneId = dto.MilestoneId;
+            ms.CustomDescription = dto.CustomDescription;
+            ms.Order = dto.Order;
+            ms.PlannedStartDate = dto.PlannedStartDate;
+            ms.PlannedEndDate = dto.PlannedEndDate;
+            ms.EsHitoCritico = dto.EsHitoCritico;
+            ms.UpdatedDateTime = DateTime.UtcNow;
+            ms.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
     }
 }

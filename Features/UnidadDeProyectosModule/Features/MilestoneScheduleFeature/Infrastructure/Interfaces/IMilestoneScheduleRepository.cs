@@ -9,5 +9,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         Task<int?> GetProjectIdByMilestoneScheduleId(int milestoneScheduleId);
         Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId);
         Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId);
+        Task EditAsync(int milestoneScheduleId, MilestoneScheduleCreateDTO dto, int userId);
     }
 }

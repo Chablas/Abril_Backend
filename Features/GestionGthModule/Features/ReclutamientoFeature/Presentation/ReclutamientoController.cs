@@ -407,9 +407,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Vista de GTH: retoma el proceso con un candidato del historial de rechazados y devuelve
-        /// el requerimiento a la fase en la que se lo descartó. Solo tiene sentido —y solo se
-        /// acepta— con el requerimiento en EMO_NO_APTO, la fase a la que llega cuando el EMO de
-        /// ingreso del seleccionado sale No Apto.
+        /// el requerimiento a la fase en la que se lo descartó. Solo se acepta con el proceso sin
+        /// nadie con quien seguir: en EMO_NO_APTO (el EMO del seleccionado salió No Apto) o cuando
+        /// ya no queda ningún candidato en carrera porque los descartaron a todos.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/retomar-candidato/{candidatoId:int}")]
@@ -442,18 +442,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Vista de GTH: la otra salida de EMO_NO_APTO — descartar a los rechazados y volver a
-        /// LONG_LIST para preparar una long list nueva.
+        /// Vista de GTH: la otra salida del proceso sin candidatos — dejar atrás a los rechazados y
+        /// volver a LONG_LIST para preparar una long list nueva. Mismas fases y misma condición que
+        /// retomar a un rechazado.
         /// </summary>
         /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/nueva-long-list")]
         [RequireFeature("gestion-gth.reclutamiento")]
-        public async Task<IActionResult> VolverALongListDesdeEmoNoApto(int id)
+        public async Task<IActionResult> VolverALongList(int id)
         {
             try
             {
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
-                var estado = await _service.VolverALongListDesdeEmoNoApto(id, userId);
+                var estado = await _service.VolverALongList(id, userId);
                 return Ok(new
                 {
                     message = "El proceso volvió a Long list. Carga los CVs de la nueva long list y envíasela al área solicitante.",
@@ -467,7 +468,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en ReclutamientoController.VolverALongListDesdeEmoNoApto");
+                _logger.LogError(ex, "Error en ReclutamientoController.VolverALongList");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

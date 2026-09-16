@@ -446,8 +446,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "req-candidatos", "Proceso retomado",
                     $"<b>{nombre}</b> vuelve al proceso de <b>{Layout.Esc(ctx.Puesto)}</b>."),
                 l.Franja("req-aviso", Layout.Tono.Info,
-                    $"El candidato seleccionado no pasó su examen médico de ingreso. El proceso se retoma "
-                    + $"desde la etapa <b>{Layout.Esc(res.EtapaNombre)}</b>."),
+                    (ctx.DesdeEmoNoApto
+                        ? "El candidato seleccionado no pasó su examen médico de ingreso. "
+                        : "El proceso se había quedado sin candidatos. ")
+                    + $"Se retoma desde la etapa <b>{Layout.Esc(res.EtapaNombre)}</b>."),
                 l.Tarjeta(datos),
                 l.Boton("Ver el requerimiento", link),
                 l.EnlaceDirecto(link));
@@ -466,9 +468,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return $"{frontendUrl}/gestion-gth/solicitud-personal/seguimiento/{requerimientoId}";
         }
 
-        public Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
+        public Task<EstadoRequerimientoResultDto> VolverALongList(
             int requerimientoId, int? userId) =>
-            _repo.VolverALongListDesdeEmoNoApto(requerimientoId, userId);
+            _repo.VolverALongList(requerimientoId, userId);
 
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
@@ -1220,8 +1222,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             res.Message = res.Aprobado
                 ? $"{res.CandidatoNombre} quedó seleccionado. GTH le programará su examen médico de ingreso y el proceso se cierra cuando el examen salga apto.{otros}"
                 : res.TodosRechazados
-                    ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
-                    : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso.";
+                    ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso. Al no quedar candidatos, GTH retomará a uno de los rechazados o preparará una nueva long list."
+                    : res.ContinuaConRezagados
+                        ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso. El proceso sigue con los candidatos que GTH todavía está evaluando."
+                        : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de fin de proceso.";
 
             return res;
         }
@@ -1325,8 +1329,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var siguiente = res.Aprobado
                 ? "El seleccionado pasa a la programación de su EMO."
                 : res.TodosRechazados
-                    ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs."
-                    : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
+                    ? "No queda ningún candidato en carrera: el requerimiento volvió a Long list / CVs. "
+                      + "Desde el detalle se puede retomar a un rechazado o cargar una long list nueva."
+                    : res.ContinuaConRezagados
+                        ? "No quedan finalistas por decidir, pero el proceso sigue con los candidatos "
+                          + "que aún están en evaluación: el requerimiento volvió a Entrevistas."
+                        : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
 
             var programarEmo = res.Aprobado && res.WorkerId.HasValue;
             var link = programarEmo

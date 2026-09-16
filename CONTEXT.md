@@ -6311,3 +6311,45 @@ También se armó (y luego se revirtió a pedido del usuario) un tercer enfoque 
 ### Pendiente
 - Implementar en Abril-Frontend el manejo del nuevo mensaje/flag `ConfirmarHitosSinFecha` (prompt ya entregado al usuario para una sesión de Claude Code en ese repo).
 - No se tocó el chequeo duro de hitos obligatorios ni se implementó la opción 2 (mismos hitos para todos) — descartada explícitamente por el usuario.
+
+## Sesión 2026-09-16 — Editar hito individual (ADMIN), reglas D1-D5 de BD, hallazgo local=prod
+
+### Contexto
+Sesión iniciada con "actualizar rama" (trae `origin/master`), seguida de varios pedidos encadenados: análisis de qué del merge necesitaba trabajo en frontend, análisis de duplicación entre "Dashboard de Proyectos" y "Dashboard UDP", una feature nueva de edición de hitos para ADMINISTRADOR DE RESIDENTES, y — a raíz de un pedido de correr SQL "en producción" — la confirmación (ya no solo documentada, sino re-verificada) de que este proyecto no tiene separación real entre entorno local y producción.
+
+### Cambios
+
+**1) `actualizar rama`** — merge de `origin/master` a `victor-backend` (commit `9b1d0f41`). Un conflicto real en `MilestoneScheduleHistoryRepository.cs`: ambos lados agregaron métodos privados nuevos en el mismo punto del archivo sin solapamiento lógico (mis validaciones de hitos + `DeleteAsync` vs. `TrasladarPersonalYVigilanciaAsync` de master) — resuelto conservando ambos bloques. Build limpio. Trajo 6 commits de master (Reclutamiento, correo de aprobación Presupuesto Materiales, Resumen SSOMA/Ratios).
+
+**2) Prompts entregados para Abril-Frontend (sin código tocado en ese repo desde acá)**:
+- Cambios de API de Unidad de Proyectos que quedaban pendientes de reflejar: `ConfirmarHitosSinFecha`, nuevas restricciones 403 en Crear/Culminar/MarcarCritico, nuevo `DELETE` de versión de cronograma, lookup `PlaneamientoUdp`.
+- Análisis "Dashboard de Proyectos" vs "Dashboard UDP" (ambas leen `Project`+`ProjectActivity`, mismo rol asignado en BD, se solapan pero cada una tiene piezas únicas — Gantt/heatmap/ranking en una, KPIs/SPI en la otra). Se armó un plan de dos fases (migrar lo único a Dashboard UDP, después eliminar Dashboard de Proyectos) y se entregó como prompt.
+
+**3) Nuevo feature backend: editar hito individual ya guardado (commit `0866eb2c`)** — pedido explícito: "que ADMINISTRADOR DE RESIDENTES pueda editar los hitos internos de cada cronograma subido".
+- Nuevo `PUT api/v1/milestoneSchedule/{milestoneScheduleId}`, body = `MilestoneScheduleCreateDTO` (reusado, sin DTO nuevo). Edita en el lugar `MilestoneId`, `CustomDescription`, `Order`, `PlannedStartDate`, `PlannedEndDate`, `EsHitoCritico` de un hito de una versión YA subida, sin crear una versión nueva (eso sigue siendo el `POST` de `MilestoneScheduleHistory`).
+- Restringido con `[Authorize(Roles = Roles.AdministradorResidentes)]` — exclusivo del admin, en cualquier proyecto (mismo alcance que el `DELETE` de versión de cronograma que ya existía). No se extendió al RESIDENTE asignado normal (decisión explícita: solo lo pedido).
+- Repite la validación de hito obligatorio de catálogo (`PlannedEndDate` requerido salvo "Inicio de obra") ya usada en `Create`.
+- Se entregó prompt para el frontend: nuevo método en `MilestoneScheduleService` (core), botón "Editar hito" admin-only en el modal de detalle del modo "Ver cronograma" (gateado por `hasRole(ADMINISTRADOR_RESIDENTES)`, NO por `puedeEditarCronograma` que incluye RESIDENTE normal), modal nuevo con orden/fechas/descripción-si-personalizado/crítico. **No implementado en frontend todavía.**
+
+**4) Hallazgo re-verificado: no hay separación local/producción**
+A raíz de un pedido de correr SQL "contra producción" (distinto del "defaultdb_local" que el usuario asumía), se encontró que ese hallazgo ya estaba documentado en sesiones previas (2026-08-30, 2026-09-05) pero se **re-verificó en el momento**, no solo citado: `appsettings.Development.json` y `appsettings.Production.json` tienen el mismo `PostgreSQL` connection string byte por byte (mismo túnel SSH `localhost:5544`, misma base `abril`). El intento de correr un `SELECT` de solo lectura contra esa base fue bloqueado por el clasificador de auto mode de Claude Code (motivo: "Credential Materialization", al pasar la contraseña por variable de entorno) — no se llegó a ejecutar ningún query, se le devolvió al usuario el mini-proyecto .NET+Npgsql armado en el scratchpad para que lo corra él mismo con `!`.
+
+**5) `CLAUDE.md`: nueva sección "## Reglas de base de datos" (D1-D5)** (commit `e14f53ce`) — a pedido del usuario, quien dictó el texto completo de las 5 reglas. No existía una sección "B1-B10" de reglas de backend en el archivo (se buscó a fondo en ambos repos y en la memoria de Claude Code antes de confirmarlo), así que se agregó al final del archivo:
+- **D1**: no hay separación local/producción real (el hallazgo de arriba) — mostrar SQL completo antes de correrlo, verificar con SELECT de solo lectura cuando se pueda, doble confirmación para cambios destructivos.
+- **D2**: `ON CONFLICT DO NOTHING` en INSERTs de `feature`/`role_feature`.
+- **D3**: usar SELECT para resolver `feature_id` en vez de hardcodearlo (el ID difiere entre entornos... aunque D1 aclara que para datos de negocio como `milestone` no aplica esa variación).
+- **D4**: tras aplicar SQL de features, el usuario debe cerrar sesión y volver a entrar (refresca `allowed_features` en `localStorage`).
+- **D5**: connection string va en `appsettings.Development.json` (gitignored), nunca en `appsettings.json`.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/{Application,Infrastructure,Presentation}/...` (5 archivos del nuevo `PUT` de editar hito).
+- `CLAUDE.md` (nueva sección Reglas de base de datos).
+
+### Verificado
+`dotnet build` → 0 errores de código en ambos commits (solo warnings preexistentes + el error de copia del `.exe` por tener el backend corriendo en paralelo, no relacionado al código).
+
+### Pendiente
+- Implementar en Abril-Frontend el nuevo `PUT` de editar hito (prompt ya entregado).
+- Implementar en Abril-Frontend el plan de Dashboard de Proyectos → Dashboard UDP (prompt ya entregado, dos fases).
+- Confirmar con SELECT de solo lectura (pendiente, bloqueado por el clasificador esta sesión) el estado real de `es_obligatorio`/`es_puntual` en la base — altamente probable que ya esté aplicado desde la sesión 2026-09-05, dado el hallazgo D1, pero no verificado de nuevo en esta sesión.
+- Nada pusheado a `origin/victor-backend` todavía en esta sesión hasta que corra el paso de push de "guardar rama".

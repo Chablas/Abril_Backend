@@ -56,5 +56,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? SolicitanteEmail { get; set; }
 
         public string? SolicitanteNombre { get; set; }
+
+        /// <summary>
+        /// true si se retomó desde EMO_NO_APTO (el seleccionado no pasó el examen médico) y false
+        /// si el proceso se había quedado sin candidatos porque los descartaron a todos. Es lo
+        /// único que cambia en el aviso al solicitante: el motivo por el que se vuelve atrás.
+        /// </summary>
+        public bool DesdeEmoNoApto { get; set; }
     }
 }

@@ -169,6 +169,24 @@ public class PresupuestoMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al aprobar presupuesto." }); }
     }
 
+    /// <summary>Reenvía el correo de aprobación de un presupuesto YA aprobado (ej. no llegó, o se
+    /// corrigió algo en el Resumen después de aprobar).</summary>
+    [HttpPost("{presupuestoId}/reenviar-notificacion")]
+    public async Task<IActionResult> ReenviarNotificacion(int presupuestoId)
+    {
+        try
+        {
+            await _service.ReenviarNotificacionAprobacionAsync(presupuestoId);
+            return Ok(new { message = "Correo reenviado." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al reenviar la notificación del presupuesto {PresupuestoId}", presupuestoId);
+            return StatusCode(500, new { message = "Error al reenviar el correo." });
+        }
+    }
+
     /// <summary>Resumen de recursos (Materiales + Personal + Vigilancia + Servicios fijos + Kits) del
     /// presupuesto vigente del proyecto, en el mismo formato "Desagregado de Recursos" que usa Costos.</summary>
     [HttpGet("proyectos/{projectId}/resumen-recursos")]
@@ -184,6 +202,25 @@ public class PresupuestoMaterialesController : ControllerBase
         {
             _logger.LogError(ex, "Error al obtener el resumen de recursos del proyecto {ProjectId}", projectId);
             return StatusCode(500, new { message = "Error al obtener el resumen de recursos." });
+        }
+    }
+
+    /// <summary>Resumen agregado en las ~14 partidas del presupuesto general de obra (la vista que
+    /// usa Costos) — a diferencia de resumen-recursos, no lista materiales sueltos que no pertenecen
+    /// a ninguna de esas partidas.</summary>
+    [HttpGet("proyectos/{projectId}/resumen-agregado")]
+    public async Task<IActionResult> ObtenerResumenAgregado(int projectId)
+    {
+        try
+        {
+            var resumen = await _exportService.ObtenerResumenAgregadoAsync(projectId);
+            if (resumen is null) return NotFound(new { message = "El proyecto todavía no tiene ningún presupuesto generado." });
+            return Ok(resumen);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener el resumen agregado del proyecto {ProjectId}", projectId);
+            return StatusCode(500, new { message = "Error al obtener el resumen agregado." });
         }
     }
 

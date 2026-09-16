@@ -73,7 +73,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? PagadoPor { get; set; }
     }
 
-    /// <summary>Una captura de movilidad (el voucher) de un tramo, para verla antes de pagar.</summary>
+    /// <summary>Una captura de movilidad (el voucher) de un trayecto, para verla antes de pagar.</summary>
     public class ReembolsoCapturaDto
     {
         public int Id { get; set; }
@@ -82,7 +82,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public decimal Monto { get; set; }
     }
 
-    /// <summary>Documento adjunto de un tramo (los motivos que exigen sustento documental).</summary>
+    /// <summary>Documento adjunto de un trayecto (los motivos que exigen sustento documental).</summary>
     public class ReembolsoAdjuntoDto
     {
         public string Url { get; set; } = string.Empty;
@@ -90,11 +90,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     }
 
     /// <summary>
-    /// Un tramo de una salida rendida, con lo que el requerimiento le pide mostrar a Tesorería:
+    /// Un trayecto de una salida rendida, con lo que el requerimiento le pide mostrar a Tesorería:
     /// fecha, motivo, origen, destino, horario, monto y los adjuntos asociados (RF-TES-05,
     /// RG-32). El monto sale de la misma regla que imprime la columna IMPORTE de la planilla.
     /// </summary>
-    public class ReembolsoTramoDto
+    public class ReembolsoTrayectoDto
     {
         public int Id { get; set; }
         public int Orden { get; set; }
@@ -107,7 +107,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public decimal Monto { get; set; }
         /// <summary>
         /// true si el monto salió del catálogo <c>ga_trayecto</c> (tarifario de TI) y no de
-        /// capturas: sin ese aviso, un tramo con importe y sin voucher parece un sustento perdido.
+        /// capturas: sin ese aviso, un trayecto con importe y sin voucher parece un sustento perdido.
         /// </summary>
         public bool MontoDeCatalogo { get; set; }
         public List<ReembolsoCapturaDto> Capturas { get; set; } = new();
@@ -128,8 +128,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public int TrayectosCount { get; set; }
         public decimal Monto { get; set; }
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombreFirmado;
-        /// <summary>Los tramos que componen la salida, con sus vouchers.</summary>
-        public List<ReembolsoTramoDto> Tramos { get; set; } = new();
+        /// <summary>Los trayectos que componen la salida, con sus vouchers.</summary>
+        public List<ReembolsoTrayectoDto> Trayectos { get; set; } = new();
     }
 
     public class ReembolsoDetalleDto : ReembolsoListItemDto

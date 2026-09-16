@@ -32,7 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// habilita al trabajador a cargar el Consolidado del S10; observar le pide corregir las
         /// capturas y los montos y volver a generar la rendición con el mismo código.
         ///
-        /// La decisión es por planilla y total (RG-19): no se aprueban tramos por separado.
+        /// La decisión es por planilla y total (RG-19): no se aprueban trayectos por separado.
         /// Avisa a los solicitantes por correo (best-effort).
         /// </summary>
         Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(

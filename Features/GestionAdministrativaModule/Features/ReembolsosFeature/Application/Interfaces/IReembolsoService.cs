@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
     /// separó porque esa pantalla ya no llega hasta el reembolso.
     ///
     /// El flujo son DOS pasos y no uno (RG-26): primero Tesorería confirma que la documentación
-    /// está completa —planilla, Consolidado del S10, firma de la jefatura y tramos con sus
+    /// está completa —planilla, Consolidado del S10, firma de la jefatura y trayectos con sus
     /// vouchers— y recién entonces la planilla queda habilitada para el pago.
     ///
     /// Y tiene un camino de vuelta (RG-49): si la revisión no cuadra, Tesorería OBSERVA con un

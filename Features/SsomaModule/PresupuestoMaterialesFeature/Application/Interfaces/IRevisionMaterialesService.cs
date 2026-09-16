@@ -11,4 +11,9 @@ public interface IRevisionMaterialesService
     Task<RevisionResultDto> ProcesarRevisionGlobalAsync(List<RevisionDecisionDto> decisiones, int usuarioId);
     Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync();
     Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync();
+
+    /// <summary>Proyecto actual del usuario logueado (por su email corporativo, workers.project_id)
+    /// — para preseleccionar el filtro de Proyecto en la vista "General" del Catálogo en vez de
+    /// arrancar mostrando los ~88 mil registros de todos los proyectos de una vez.</summary>
+    Task<ProyectoActualDto?> ObtenerProyectoActualAsync(string email);
 }

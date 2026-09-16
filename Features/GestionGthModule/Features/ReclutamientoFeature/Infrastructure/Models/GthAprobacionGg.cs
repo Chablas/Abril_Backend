@@ -77,7 +77,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public DateTimeOffset? GthDecididoDateTime { get; set; }
 
-        /// <summary>Usuario del área de GTH que registró la decisión.</summary>
+        /// <summary>Usuario de la jefatura de GTH que registró la decisión.</summary>
         public int? GthDecididoUserId { get; set; }
 
         /// <summary>Comentario opcional de GTH.</summary>

@@ -293,7 +293,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
             if (salidas.Count == 0) return new();
 
-            // Monto y tramos con la misma regla que imprime la columna IMPORTE de la planilla: si
+            // Monto y trayectos con la misma regla que imprime la columna IMPORTE de la planilla: si
             // el correo dijera otro total, el trabajador no podría contrastarlo con su PDF.
             var solicitudIds = salidas.Select(x => x.Id).ToList();
             var trayectos = await ctx.GaSolicitudTrayecto
@@ -315,7 +315,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var montoPorSolicitud = trayectos
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.Sum(t => importes.TryGetValue(t.Id, out var i) ? i.Importe : 0m));
-            var tramosPorSolicitud = trayectos
+            var conteoPorSolicitud = trayectos
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
@@ -356,7 +356,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                                             && areaPorScope.TryGetValue(primera.AreaScopeId.Value, out var a) ? a : null,
                         Periodo          = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                         SalidasCount     = g.Count(),
-                        TramosCount      = g.Sum(x => tramosPorSolicitud.TryGetValue(x.Id, out var tc) ? tc : 0),
+                        TrayectosCount   = g.Sum(x => conteoPorSolicitud.TryGetValue(x.Id, out var tc) ? tc : 0),
                         MontoTotal       = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
                         DecididoPor      = decididoPor,
                         Observacion      = planilla.PrimeraRevisionObservacion,

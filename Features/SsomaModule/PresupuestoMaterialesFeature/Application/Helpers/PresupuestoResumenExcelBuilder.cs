@@ -13,16 +13,19 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applic
 public static class PresupuestoResumenExcelBuilder
 {
     private static readonly string[] Headers =
-        ["Item", "Fuente", "Descripción", "Unidad", "Cantidad", "MO", "MAT", "EQU", "SC", "HER", "PU", "Costo Directo"];
+        ["Item", "Fuente", "Descripción", "Unidad", "Cantidad", "MO", "MAT", "EQU", "SC", "HER", "PU", "Costo Directo",
+         "Valor Recuperable (Reventa)", "Costo Neto (No Recuperable)"];
 
     private const string Money = "#,##0.00";
     private const int ColCostoDirecto = 12;
+    private const int ColValorRecuperable = 13;
+    private const int ColCostoNeto = 14;
 
-    public static void Build(IXLWorksheet ws, PresupuestoResumenRecursosDto data)
+    public static void Build(IXLWorksheet ws, PresupuestoResumenRecursosDto data, string titulo = "DESAGREGADO DE RECURSOS SSOMA")
     {
         var row = 1;
 
-        ws.Cell(row, 1).Value = "DESAGREGADO DE RECURSOS SSOMA";
+        ws.Cell(row, 1).Value = titulo;
         var tituloRange = ws.Range(row, 1, row, Headers.Length).Merge();
         tituloRange.Style.Font.Bold = true;
         tituloRange.Style.Font.FontSize = 14;
@@ -63,6 +66,14 @@ public static class PresupuestoResumenExcelBuilder
             ws.Cell(row, 11).Value = linea.Pu;
             ws.Cell(row, ColCostoDirecto).Value = linea.CostoDirecto;
             ws.Range(row, 5, row, ColCostoDirecto).Style.NumberFormat.Format = Money;
+            // Solo materiales recuperables (se revenden al terminar la obra, ej. Barandas FRP) traen
+            // estas 2 columnas — el resto queda en blanco.
+            if (linea.ValorRecuperable.HasValue)
+            {
+                ws.Cell(row, ColValorRecuperable).Value = linea.ValorRecuperable.Value;
+                ws.Cell(row, ColCostoNeto).Value = linea.CostoNeto!.Value;
+                ws.Range(row, ColValorRecuperable, row, ColCostoNeto).Style.NumberFormat.Format = Money;
+            }
             row++;
         }
         var ultimaFila = row - 1;

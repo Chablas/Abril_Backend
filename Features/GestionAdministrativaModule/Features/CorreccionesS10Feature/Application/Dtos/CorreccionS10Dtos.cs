@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     /// para hacer su trabajo sin abrir nada más: el número de reembolso con el que ubica el registro en el S10,
     /// qué observó la jefatura y qué le pide el colaborador.
     ///
-    /// No trae la planilla ni los tramos: el ERP no revisa el gasto —eso ya lo hizo la jefatura—,
+    /// No trae la planilla ni los trayectos: el ERP no revisa el gasto —eso ya lo hizo la jefatura—,
     /// solo corrige el documento del S10. Sí trae los dos PDF por si necesita contrastarlos.
     /// </summary>
     public class CorreccionS10ListItemDto

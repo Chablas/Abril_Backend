@@ -24,6 +24,13 @@ public class RecursoResumenLineaDto
     public decimal Her { get; set; }
     public decimal Pu => Mo + Mat + Equ + Sc + Her;
     public decimal CostoDirecto { get; set; }
+
+    /// <summary>Solo para materiales recuperables (se revenden al terminar la obra — ej. Barandas
+    /// FRP, Equipo de Monitoreo de Gases): % del costo que se recupera por la reventa (0.85 = 85%).
+    /// Null para todo lo demás — no se recupera nada, no se muestran las columnas extra en el Excel.</summary>
+    public decimal? PctRecuperacion { get; set; }
+    public decimal? ValorRecuperable => PctRecuperacion.HasValue ? Math.Round(CostoDirecto * PctRecuperacion.Value, 2) : null;
+    public decimal? CostoNeto => PctRecuperacion.HasValue ? Math.Round(CostoDirecto * (1 - PctRecuperacion.Value), 2) : null;
 }
 
 public class PresupuestoResumenRecursosDto

@@ -117,6 +117,87 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Max(x => x.NumeroLongList));
 
         /// <summary>
+        /// Cuántos candidatos de la long list vigente siguen en carrera: aprobados por el
+        /// solicitante y sin un resultado que cierre su participación
+        /// (<see cref="ResultadoCandidato.Cerrados"/>). Cero significa que el proceso se quedó sin
+        /// candidatos —el área los rechazó a todos en la long list, GTH los descartó en el
+        /// formulario o en la entrevista, o el área rechazó a los finalistas— y es la condición
+        /// que habilita las dos salidas de GTH: retomar a un rechazado del historial o preparar
+        /// una long list nueva (ver <see cref="RetomarCandidatoRechazado"/> y
+        /// <see cref="VolverALongList"/>).
+        ///
+        /// El formulario rechazado NO saca a nadie de la cuenta: mientras GTH no le mande el
+        /// correo de fin de proceso (<see cref="RegistrarRechazoPostulante"/>, que es lo que lo
+        /// deja en NO_PASO) el postulante sigue pudiendo corregirlo, y darlo por perdido acá
+        /// dejaría arrancar una long list nueva por encima de alguien que todavía está en carrera.
+        /// </summary>
+        private static async Task<int> ContarCandidatosEnCarrera(AppDbContext ctx, int requerimientoId)
+        {
+            // El resultado cerrado va como EXISTS proyectado a bool y la cuenta se hace sobre las
+            // filas ya traídas: es el mismo patrón de ContinuarAEntrevistas, que valida justo esto
+            // mismo. Un left join encadenado candidato→evaluación→resultado EF Core no lo
+            // materializa bien (ver GetDetalleGth), y son las filas de una sola long list.
+            var cerrados = ResultadoCandidato.Cerrados.ToArray();
+            var candidatos = await (
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado
+                select (
+                    from ev in ctx.GthCandidatoEvaluacion
+                    where ev.GthCandidatoId == c.GthCandidatoId && ev.State
+                    join res in ctx.GthCandidatoResultado
+                        on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                    where cerrados.Contains(res.Codigo)
+                    select ev.GthCandidatoEvaluacionId).Any()
+                ).ToListAsync();
+
+            return candidatos.Count(resultadoCerrado => !resultadoCerrado);
+        }
+
+        /// <summary>
+        /// Fases del pipeline en las que GTH puede retomar a un rechazado o arrancar una long list
+        /// nueva sin que el EMO haya fallado. Solo cuando ya no queda ningún candidato en carrera
+        /// (ver <see cref="ContarCandidatosEnCarrera"/>), que es cuando el proceso se queda sin
+        /// nada que hacer.
+        ///
+        /// LONG_LIST entra por el caso en que el área rechazó toda la long list: el requerimiento
+        /// vuelve solo a esa fase y GTH puede cargar una nueva, pero también recuperar a uno de los
+        /// rechazados en vez de empezar de cero. No entra LONG_LIST_ENVIADA: ahí el área está
+        /// decidiendo y todavía no hay nada que rehacer.
+        /// </summary>
+        private static readonly HashSet<string> FasesSinCandidatos = new()
+        {
+            EstadoReclutamiento.LongList,
+            EstadoReclutamiento.LongListAprobada,
+            EstadoReclutamiento.Entrevistas,
+            EstadoReclutamiento.SeleccionJefatura,
+        };
+
+        /// <summary>
+        /// Valida que el requerimiento esté en una fase desde la que GTH puede rehacer el proceso
+        /// (retomar a un rechazado o preparar una long list nueva) y, en las fases intermedias,
+        /// que no le quede ningún candidato en carrera. EMO_NO_APTO pasa siempre: el seleccionado
+        /// quedó fuera por el examen médico y no hay nadie más en juego.
+        /// </summary>
+        private static async Task ValidarProcesoSinCandidatos(
+            AppDbContext ctx, int requerimientoId, string? estadoActual, string accion)
+        {
+            if (estadoActual == EstadoReclutamiento.EmoNoApto) return;
+
+            if (estadoActual == null || !FasesSinCandidatos.Contains(estadoActual))
+                throw new AbrilException(
+                    $"En esta fase del proceso no se puede {accion}: solo se puede cuando el EMO de "
+                    + "ingreso salió No Apto o cuando el proceso se quedó sin candidatos.", 409);
+
+            var enCarrera = await ContarCandidatosEnCarrera(ctx, requerimientoId);
+            if (enCarrera > 0)
+                throw new AbrilException(
+                    $"Este proceso todavía tiene {enCarrera} candidato(s) en carrera: solo se puede "
+                    + $"{accion} cuando ya no queda ninguno.", 409);
+        }
+
+        /// <summary>
         /// Portafolio/anexos vivos de los candidatos indicados, agrupados por candidato y en orden
         /// de carga. Una sola consulta para toda la long list (nunca una por candidato). Vacío si
         /// no hay candidatos.
@@ -925,6 +1006,156 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 MisSolicitudes    = misSolicitudes,
                 PuedeGestionar    = scope.PuedeGestionar,
             };
+        }
+
+        /// <summary>
+        /// Da de baja una vacante que todavía no decidió nadie, con todo lo que cuelga de ella.
+        ///
+        /// Es la versión en código de la limpieza que hasta ahora se hacía por SQL a mano cuando una
+        /// solicitud se registraba por error: no alcanza con bajar <c>gth_requerimiento</c>. Si la
+        /// aprobación sobrevive, el enlace del correo sigue llevando a «Aprobaciones» y ahí responde
+        /// <b>403 «no está dentro de tu alcance»</b> —que se lee como un problema de permisos— y la
+        /// campanita le sigue pidiendo firmar algo que ya no existe. Por eso se bajan también el
+        /// detalle de la aprobación, su historial de fases y, cuando la vacante era la última viva
+        /// de la solicitud, la aprobación, la solicitud y las notificaciones que la nombran.
+        ///
+        /// Todo es soft delete (<c>state = false</c>): las filas quedan para auditoría, nadie las
+        /// vuelve a ver. El correlativo REQ **no** se libera — el índice único de <c>codigo</c> y
+        /// <c>SiguienteNumeroLibre</c> no filtran por <c>state</c>, así que la siguiente solicitud
+        /// salta ese número. Es a propósito: un código ya salió por correo.
+        /// </summary>
+        public async Task<AnularVacanteResultDto> AnularRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Todo lo que hace falta para decidir —y casi todo lo que hay que bajar— en un
+            // roundtrip. Las entidades salen rastreadas (sin AsNoTracking) porque son las mismas
+            // que se van a modificar.
+            var data = await (
+                from r in EnScope(ctx.GthRequerimiento, scope)
+                where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
+                join e in ctx.GthEstadoRequerimiento
+                    on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    Requerimiento = r,
+                    Solicitud     = r.Solicitud!,
+                    EstadoCodigo  = e.Codigo,
+                    EstadoNombre  = e.Nombre,
+                    Detalle       = DetallesAprobacionVivos(ctx)
+                                        .FirstOrDefault(d => d.GthRequerimientoId == r.GthRequerimientoId),
+                    Aprobacion    = ctx.GthAprobacionGg
+                                        .FirstOrDefault(a => a.State && a.GthSolicitudId == r.GthSolicitudId),
+                    // Hermanas vivas: deciden si la solicitud se va con esta vacante o sobrevive.
+                    Hermanas      = ctx.GthRequerimiento
+                                        .Where(o => o.State && o.GthSolicitudId == r.GthSolicitudId
+                                                    && o.GthRequerimientoId != r.GthRequerimientoId)
+                                        .Count(),
+                }).FirstOrDefaultAsync();
+
+            if (data == null)
+                throw new AbrilException(
+                    "La solicitud de vacante no existe o no está dentro de tu alcance.", 404);
+
+            // Las mismas dos condiciones con las que la fila mostró el botón (ver PuedeAnular). Se
+            // revalidan acá porque entre que se pintó la tabla y se apretó el botón, el gerente pudo
+            // haber firmado: el mensaje dice exactamente qué cambió.
+            if (data.EstadoCodigo != EstadoReclutamiento.AprobacionGg)
+                throw new AbrilException(
+                    $"Esta vacante ya avanzó a «{data.EstadoNombre}»: solo se puede anular mientras "
+                    + "espera su aprobación.", 409);
+
+            var d = data.Detalle;
+            if (d != null && (d.AprobadoGerenteGeneral != null
+                              || d.AprobadoGerenteArea != null
+                              || d.AprobadoGth != null))
+                throw new AbrilException(
+                    "Esta vacante ya fue decidida por alguien: no se puede anular.", 409);
+
+            // Recién acá, con las guardas ya pasadas: es una colección y va en su propia consulta
+            // (mezclarla en la proyección de arriba complica la traducción sin ganar nada, y así ni
+            // se paga cuando la anulación se rechaza).
+            var historial = await ctx.GthRequerimientoEstadoHistorial
+                .Where(h => h.State && h.GthRequerimientoId == requerimientoId)
+                .ToListAsync();
+
+            var now = DateTimeOffset.UtcNow;
+
+            // El estado NO se toca: el interceptor de historial escribe una fila por cada cambio de
+            // gth_estado_requerimiento_id, y anular no es una fase más del proceso — es sacar el
+            // requerimiento de la vista. Ver RequerimientoEstadoHistorialInterceptor.
+            data.Requerimiento.State           = false;
+            data.Requerimiento.UpdatedDateTime = now;
+            data.Requerimiento.UpdatedUserId   = userId;
+
+            if (d != null)
+            {
+                d.State           = false;
+                d.UpdatedDateTime = now;
+                d.UpdatedUserId   = userId;
+            }
+
+            // El historial de fases se va con el requerimiento: son las mediciones de demora que usa
+            // GTH y un proceso anulado las ensuciaría. La tabla no tiene updated_*.
+            foreach (var h in historial) h.State = false;
+
+            var solicitudDadaDeBaja = data.Hermanas == 0;
+            if (solicitudDadaDeBaja)
+            {
+                data.Solicitud.State           = false;
+                data.Solicitud.UpdatedDateTime = now;
+                data.Solicitud.UpdatedUserId   = userId;
+
+                if (data.Aprobacion != null)
+                {
+                    data.Aprobacion.State           = false;
+                    data.Aprobacion.UpdatedDateTime = now;
+                    data.Aprobacion.UpdatedUserId   = userId;
+                }
+
+                await ApagarNotificacionesDeLaVacante(ctx, data.Requerimiento.Codigo, userId, now);
+            }
+
+            // Un solo SaveChanges: o se va el árbol entero o no se va nada.
+            await ctx.SaveChangesAsync();
+
+            return new AnularVacanteResultDto
+            {
+                Codigo              = data.Requerimiento.Codigo,
+                SolicitudDadaDeBaja = solicitudDadaDeBaja,
+                VacantesRestantes   = data.Hermanas,
+            };
+        }
+
+        /// <summary>
+        /// Baja las campanitas que apuntan a una solicitud que acaba de desaparecer. Solo se llama
+        /// cuando la solicitud entera se dio de baja: mientras le quede una vacante viva, el aviso
+        /// de «solicitud por aprobar» sigue siendo cierto.
+        ///
+        /// La notificación de aprobación es UNA por solicitud y guarda en <c>referencia</c> los
+        /// códigos de todas sus vacantes separados por coma, así que no hay FK que seguir: se
+        /// prefiltra con un LIKE y se confirma en memoria comparando token por token. El match
+        /// exacto importa — con un <c>Contains</c> a secas, anular REQ-2026-001 apagaría también la
+        /// campanita de REQ-2026-0010.
+        /// </summary>
+        private static async Task ApagarNotificacionesDeLaVacante(
+            AppDbContext ctx, string codigo, int userId, DateTimeOffset now)
+        {
+            var candidatas = await ctx.Notificacion
+                .Where(n => n.State && n.Referencia != null && n.Referencia.Contains(codigo))
+                .ToListAsync();
+
+            foreach (var n in candidatas)
+            {
+                var codigos = n.Referencia!.Split(',', StringSplitOptions.TrimEntries
+                                                      | StringSplitOptions.RemoveEmptyEntries);
+                if (!codigos.Contains(codigo, StringComparer.OrdinalIgnoreCase)) continue;
+
+                n.State           = false;
+                n.UpdatedDateTime = now;
+                n.UpdatedUserId   = userId;
+            }
         }
 
         /// <summary>
@@ -2630,17 +2861,40 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Aprobar ya NO cierra el proceso: lo deja en EMO_INGRESO, la fase en la que GTH le
             // programa el examen medico de ingreso al seleccionado. Cierra recien cuando el EMO sale
             // APTO, y si sale NO APTO vuelve para atras (ver ReclutamientoEmoIngresoService).
-            // Rechazar al último finalista en carrera devuelve el requerimiento a LONG_LIST para que
-            // GTH prepare y envíe una nueva long list; los rechazados quedan grabados como historial.
-            // Si aún quedan finalistas por decidir, se queda en SELECCION_JEFATURA.
+            // Al rechazar, el requerimiento va a donde esté el trabajo que queda:
+            //
+            //   • Quedan finalistas por decidir → sigue en SELECCION_JEFATURA (la pelota es del área).
+            //   • No quedan finalistas pero sí rezagados → vuelve a ENTREVISTAS, que es donde GTH
+            //     los termina de evaluar. Antes iba derecho a LONG_LIST y esos candidatos se
+            //     perdían: la long list nueva los deja fuera por ser de una vuelta anterior.
+            //   • No queda nadie → LONG_LIST, para que GTH prepare y envíe una long list nueva
+            //     (los rechazados quedan grabados como historial y se pueden retomar).
             var quedanEnCarrera = finalistas.Any(f =>
                 f.GthCandidatoId != candidatoId
                 && !ResultadoCandidato.Cerrados.Contains(f.ResultadoCodigo));
-            var todosRechazados = !aprobado && !quedanEnCarrera;
+
+            // Rezagados: candidatos que el área aprobó en la long list y que todavía no llegaron a
+            // tener evaluación (les falta el formulario, el Multitest o la entrevista). No son
+            // finalistas, pero siguen en carrera: pasar a entrevistas no espera a toda la long
+            // list, así que se suman al proceso cuando cumplen lo suyo aunque los primeros ya hayan
+            // sido enviados al área. Los que sí tienen evaluación ya vienen en `finalistas`. Solo
+            // se consulta cuando puede cambiar el destino (un rechazo que se queda sin finalistas).
+            var rezagadosEnCarrera = aprobado || quedanEnCarrera ? 0 : await (
+                from c in CandidatosVigentes(ctx)
+                where c.GthRequerimientoId == requerimientoId
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado
+                      && !ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId && ev.State)
+                select c.GthCandidatoId).CountAsync();
+
+            var sinFinalistas         = !aprobado && !quedanEnCarrera;
+            var continuaConRezagados  = sinFinalistas && rezagadosEnCarrera > 0;
+            var todosRechazados       = sinFinalistas && rezagadosEnCarrera == 0;
 
             var codigoEstado = aprobado ? EstadoReclutamiento.EmoIngreso
-                             : todosRechazados ? EstadoReclutamiento.LongList
-                             : EstadoReclutamiento.SeleccionJefatura;
+                             : quedanEnCarrera ? EstadoReclutamiento.SeleccionJefatura
+                             : rezagadosEnCarrera > 0 ? EstadoReclutamiento.Entrevistas
+                             : EstadoReclutamiento.LongList;
             var estadoDestino = await ctx.GthEstadoRequerimiento
                 .FirstOrDefaultAsync(e => e.Codigo == codigoEstado && e.State)
                 ?? throw new AbrilException($"No está configurado el estado {codigoEstado} de reclutamiento.", 500);
@@ -2672,6 +2926,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoNombre    = estadoDestino.Nombre,
                     Aprobado        = aprobado,
                     TodosRechazados = todosRechazados,
+                    ContinuaConRezagados = continuaConRezagados,
                     CandidatoNombre = elegido.Nombre,
                     WorkerId        = fichaFinalista?.Id,
                 },
@@ -2765,15 +3020,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(r => new { r.GthCandidatoResultadoId, r.Codigo })
                 .ToListAsync();
 
-            // Retomar es una salida de EMO_NO_APTO y de ninguna otra fase: en cualquier otra el
-            // proceso está en curso y devolverlo a una fase anterior sería pisar el trabajo que se
-            // esté haciendo (una long list a medio revisar, un finalista esperando decisión).
+            // Retomar es una salida para un proceso que se quedó sin con quién seguir: el EMO del
+            // seleccionado salió No Apto, o ya no queda ningún candidato en carrera (los
+            // descartaron a todos). Con alguien todavía en carrera no se retoma: devolver el
+            // requerimiento a una fase anterior pisaría el trabajo que se esté haciendo con él.
             var estadoActual = estadosReq
                 .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
-            if (estadoActual != EstadoReclutamiento.EmoNoApto)
-                throw new AbrilException(
-                    "Solo se puede retomar a un candidato rechazado cuando el EMO de ingreso del "
-                    + "seleccionado salió No Apto.", 409);
+            await ValidarProcesoSinCandidatos(
+                ctx, requerimientoId, estadoActual, "retomar a un candidato rechazado");
 
             var cand = await ctx.GthCandidato
                 .FirstOrDefaultAsync(c => c.GthCandidatoId == candidatoId
@@ -2922,6 +3176,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra      = cabecera?.ProyectoObra,
                 SolicitanteEmail  = cabecera?.SolicitanteEmail,
                 SolicitanteNombre = cabecera?.SolicitanteNombre,
+                DesdeEmoNoApto    = estadoActual == EstadoReclutamiento.EmoNoApto,
             };
         }
 
@@ -2945,7 +3200,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             evaluacion.UpdatedUserId           = userId;
         }
 
-        public async Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(
+        public async Task<EstadoRequerimientoResultDto> VolverALongList(
             int requerimientoId, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -2955,18 +3210,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ?? throw new AbrilException("Requerimiento no encontrado.", 404);
 
             var estados = await ctx.GthEstadoRequerimiento
-                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.EmoNoApto
-                                        || e.Codigo == EstadoReclutamiento.LongList
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongList
                                         || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
                 .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
                 .ToListAsync();
 
+            // La otra salida del proceso que se quedó sin candidatos (ver
+            // RetomarCandidatoRechazado): en vez de recuperar a uno del historial, empezar de cero
+            // con una long list nueva.
             var actual = estados
                 .FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)?.Codigo;
-            if (actual != EstadoReclutamiento.EmoNoApto)
-                throw new AbrilException(
-                    "Solo se puede preparar una nueva long list cuando el EMO de ingreso del "
-                    + "seleccionado salió No Apto.", 409);
+            await ValidarProcesoSinCandidatos(
+                ctx, requerimientoId, actual, "preparar una nueva long list");
 
             var longList = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList)
                 ?? throw new AbrilException("No está configurado el estado LONG_LIST de reclutamiento.", 500);
@@ -3641,6 +3896,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     TieneDetalle = d != null,
                     AprobadoGerenteArea = d != null ? d.AprobadoGerenteArea : null,
                     AprobadoGth = d != null ? d.AprobadoGth : null,
+                    // La tercera casilla no se usa para la etiqueta del estado (la ruta GG no tiene
+                    // turnos), pero sí para saber si la vacante todavía se puede anular.
+                    AprobadoGerenteGeneral = d != null ? d.AprobadoGerenteGeneral : null,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
@@ -3661,8 +3919,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 TipoRequerimiento       = x.Tipo,
                 TipoRequerimientoCodigo = x.TipoCodigo,
                 EsFft           = x.EsFft,
+                PuedeAnular     = PuedeAnular(
+                                      x.EstadoCodigo, x.AprobadoGerenteGeneral,
+                                      x.AprobadoGerenteArea, x.AprobadoGth),
             }).ToList();
         }
+
+        /// <summary>
+        /// ¿La vacante se puede dar de baja desde «Solicitud de Personal»? Solo mientras espera su
+        /// aprobación y con las TRES casillas en blanco. El corte es "nadie decidió todavía", no
+        /// "nadie aprobó": un rechazo también cierra la puerta, porque ya salieron los correos de
+        /// la decisión y esa postura tiene que quedar registrada.
+        ///
+        /// Los ingresos directos FFT quedan fuera solos: nacen en <c>EMO_INGRESO</c>, con candidato
+        /// seleccionado y ficha de pre-ingreso abierta, así que nunca pasan por este estado.
+        /// </summary>
+        private static bool PuedeAnular(
+            string estadoCodigo, bool? aprobadoGerenteGeneral, bool? aprobadoGerenteArea,
+            bool? aprobadoGth) =>
+            estadoCodigo == EstadoReclutamiento.AprobacionGg
+            && aprobadoGerenteGeneral == null
+            && aprobadoGerenteArea == null
+            && aprobadoGth == null;
 
         /// <summary>
         /// Filas de <c>gth_aprobacion_gg_detalle</c> que cuentan: las vivas de una aprobación viva.

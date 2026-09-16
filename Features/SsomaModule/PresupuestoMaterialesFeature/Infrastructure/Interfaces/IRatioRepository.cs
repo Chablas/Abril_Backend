@@ -40,6 +40,6 @@ public interface IRatioRepository
     /// <summary>Activa/desactiva una familia directamente desde la pantalla de Ratios — mismo flag
     /// que el toggle "Activo" de Catálogo, sin tener que reenviar el DTO completo de la familia.</summary>
     Task ActualizarActivoFamiliaAsync(int familiaId, bool activo);
-    Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync();
+    Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync(bool soloActivos = true);
     Task<List<ResumenProyectoRatioDto>> ObtenerResumenAsync();
 }

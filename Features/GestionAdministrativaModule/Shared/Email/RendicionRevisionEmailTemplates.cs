@@ -24,8 +24,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>Cuántas salidas agrupa la planilla.</summary>
         public int SalidasCount { get; set; }
 
-        /// <summary>Cuántos tramos (trayectos) suman esas salidas — es lo que el jefe revisa.</summary>
-        public int TramosCount { get; set; }
+        /// <summary>Cuántos trayectos suman esas salidas — es lo que el jefe revisa.</summary>
+        public int TrayectosCount { get; set; }
 
         /// <summary>Suma de lo rendido en la planilla, en soles.</summary>
         public decimal MontoTotal { get; set; }
@@ -54,7 +54,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// El del revisor es el único con DOS botones. A diferencia del correo de aprobación de la
     /// SALIDA (que resuelve desde el propio correo con un token firmado), acá los dos botones
     /// llevan a la pantalla: observar exige escribir un comentario, y aprobar a ciegas sin ver los
-    /// tramos ni las capturas sería justamente saltarse la revisión que este paso agrega.
+    /// trayectos ni las capturas sería justamente saltarse la revisión que este paso agrega.
     ///
     /// Criterio editorial heredado de <see cref="AbrilEmailLayout"/>: el correo lleva datos y un
     /// acceso, no explicaciones. La bajada es UNA línea y las franjas son de estado.
@@ -77,7 +77,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaTrabajador = "req-solicitante";
         private const string FilaArea       = "req-area";
         private const string FilaPeriodo    = "req-fecha";
-        private const string FilaTramos     = "req-lugar";
+        private const string FilaTrayectos  = "req-lugar";
         private const string FilaMonto      = "req-sustento";
         private const string FilaPlanilla   = "req-ti";
         private const string FilaDecision   = "req-vistobueno";
@@ -214,11 +214,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (!string.IsNullOrWhiteSpace(d.Periodo))
                 filas.Add(new(FilaPeriodo, "Periodo", AbrilEmailLayout.Esc(d.Periodo)));
 
-            // Los tramos son lo que se revisa; las salidas, cómo vienen agrupados. Van juntos
+            // Los trayectos son lo que se revisa; las salidas, cómo vienen agrupados. Van juntos
             // porque por separado ninguno de los dos números se entiende solo.
-            var tramos  = d.TramosCount == 1 ? "1 tramo" : $"{d.TramosCount} tramos";
-            var salidas = d.SalidasCount == 1 ? "1 salida" : $"{d.SalidasCount} salidas";
-            filas.Add(new(FilaTramos, "Tramos", $"{tramos} · {salidas}"));
+            var trayectos = d.TrayectosCount == 1 ? "1 trayecto" : $"{d.TrayectosCount} trayectos";
+            var salidas   = d.SalidasCount == 1 ? "1 salida" : $"{d.SalidasCount} salidas";
+            filas.Add(new(FilaTrayectos, "Trayectos", $"{trayectos} · {salidas}"));
 
             if (d.MontoTotal > 0m)
                 filas.Add(new(FilaMonto, "Monto total",

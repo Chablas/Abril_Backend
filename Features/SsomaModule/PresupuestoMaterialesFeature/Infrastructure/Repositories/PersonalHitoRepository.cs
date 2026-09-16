@@ -15,7 +15,7 @@ public class PersonalHitoRepository : IPersonalHitoRepository
     private const string CronogramaVigenteCte = """
         cronograma_vigente AS (
             SELECT ms.milestone_schedule_id, ms.milestone_id, ms.custom_description,
-                   ms.planned_start_date, ms.es_hito_critico
+                   ms.planned_start_date, ms.planned_end_date, ms.es_hito_critico
             FROM milestone_schedule ms
             JOIN milestone_schedule_history msh
               ON msh.milestone_schedule_history_id = ms.milestone_schedule_history_id
@@ -34,7 +34,8 @@ public class PersonalHitoRepository : IPersonalHitoRepository
             WITH {CronogramaVigenteCte}
             SELECT cv.milestone_schedule_id AS HitoId,
                    COALESCE(m.milestone_description, cv.custom_description, 'Hito') AS HitoDescripcion,
-                   cv.planned_start_date AS HitoFecha
+                   cv.planned_start_date AS HitoFecha,
+                   cv.planned_end_date AS HitoFechaFin
             FROM cronograma_vigente cv
             LEFT JOIN milestone m ON m.milestone_id = cv.milestone_id
             ORDER BY cv.planned_start_date NULLS LAST

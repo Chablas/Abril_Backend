@@ -44,8 +44,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         /// </summary>
         Task<RendicionSolicitanteDto?> GetSolicitante(int rendicionId, int userId);
 
-        /// <summary>Cuántos tramos (trayectos) suman las salidas propias de la planilla.</summary>
-        Task<int> ContarTramos(int rendicionId, int userId);
+        /// <summary>Cuántos trayectos suman las salidas propias de la planilla.</summary>
+        Task<int> ContarTrayectos(int rendicionId, int userId);
 
         /// <summary>
         /// Registra la solicitud de corrección del Consolidado del S10 al Coordinador ERP (§10.5).

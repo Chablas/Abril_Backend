@@ -8,7 +8,7 @@
 --    Hasta ahora Tesorería pagaba directo lo que la jefatura firmaba. El
 --    requerimiento funcional (RG-26 / RF-TES-06 / RF-TES-07) exige un paso
 --    previo: Tesorería revisa la planilla, el Consolidado del S10, la firma de
---    la jefatura y los tramos con sus vouchers, y recién al CONFIRMAR esa
+--    la jefatura y los trayectos con sus vouchers, y recién al CONFIRMAR esa
 --    revisión el reembolso queda habilitado para pago. El flujo pasa a ser
 --        Firmado (4) → Proceder con el reembolso (6) → Pagado (5)
 --    y el pago desde Firmado deja de estar permitido.

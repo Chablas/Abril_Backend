@@ -83,11 +83,12 @@ public class RatioMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al obtener ratios." }); }
     }
 
-    /// <summary>Lista las familias que ya tienen algún ratio calculado, para elegir cuál comparar.</summary>
+    /// <summary>Lista las familias que ya tienen algún ratio calculado, para elegir cuál comparar.
+    /// Por defecto solo las activas — pasar soloActivos=false para ver también las desactivadas.</summary>
     [HttpGet("familias")]
-    public async Task<IActionResult> ListarFamilias()
+    public async Task<IActionResult> ListarFamilias([FromQuery] bool soloActivos = true)
     {
-        try { return Ok(await _ratioService.ListarFamiliasConRatioAsync()); }
+        try { return Ok(await _ratioService.ListarFamiliasConRatioAsync(soloActivos)); }
         catch (Exception) { return StatusCode(500, new { message = "Error al listar familias." }); }
     }
 

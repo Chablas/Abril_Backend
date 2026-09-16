@@ -43,7 +43,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
 
         // ── Primera revisión ─────────────────────────────────────────────
-        // El paso que va ANTES del Consolidado del S10: el revisor mira tramos, montos y capturas
+        // El paso que va ANTES del Consolidado del S10: el revisor mira trayectos, montos y capturas
         // y decide. Es de la PLANILLA, así que no se resume de las salidas como el reembolso.
 
         /// <summary>"Lista para enviar" | "En primera revisión" | "Aprobada" | "Observada".</summary>

@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         Task<List<ReembolsoListItemDto>> GetAll(ReembolsoFiltersDto filters);
 
         /// <summary>
-        /// Una planilla con el desglose de sus salidas y los tramos de cada una (con sus vouchers).
+        /// Una planilla con el desglose de sus salidas y los trayectos de cada una (con sus vouchers).
         /// Null si no está en la bandeja.
         /// </summary>
         Task<ReembolsoDetalleDto?> GetDetalle(int rendicionId);

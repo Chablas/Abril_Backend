@@ -129,6 +129,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<SolicitantePanelDto> GetSolicitantePanel(SolicitudPersonalScope scope);
 
         /// <summary>
+        /// Da de baja (soft delete) una vacante que todavía no decidió nadie y todo lo que cuelga
+        /// de ella: su detalle de aprobación, su historial de fases y —solo si era la última viva de
+        /// su solicitud— la solicitud, la aprobación y las campanitas que la nombran.
+        /// </summary>
+        /// <exception cref="Abril_Backend.Application.Exceptions.AbrilException">
+        /// 404 si no existe o está fuera del alcance; 409 si ya avanzó de fase o si alguien ya firmó.
+        /// </exception>
+        Task<AnularVacanteResultDto> AnularRequerimiento(
+            int requerimientoId, SolicitudPersonalScope scope, int userId);
+
+        /// <summary>
         /// Revisión de la long list de un requerimiento (cabecera + candidatos con su CV), en 1
         /// roundtrip. Devuelve null si el requerimiento no existe, queda fuera del alcance del
         /// usuario o su long list aún no fue enviada.
@@ -171,11 +182,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// revisión de CVs o en su formulario), entrevistas (descartado por GTH tras la cita) o
         /// selección de jefatura (rechazado por el solicitante en la decisión final).
         ///
-        /// Es la salida de la fase EMO_NO_APTO, a la que se llega cuando el EMO de ingreso del
-        /// seleccionado sale No Apto. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/>
-        /// 409 si el requerimiento no está en esa fase, 404 si el candidato no es de este
-        /// requerimiento y 400 si no está rechazado o su rechazo fue el del propio EMO (a ese no se
-        /// lo puede retomar: el examen médico no se revierte volviendo a elegirlo).
+        /// Es una de las dos salidas de un proceso que se quedó sin con quién seguir: el EMO de
+        /// ingreso del seleccionado salió No Apto (fase EMO_NO_APTO), o ya no queda ningún
+        /// candidato en carrera porque los descartaron a todos (fases LONG_LIST, LONG_LIST_APROBADA,
+        /// ENTREVISTAS o SELECCION_JEFATURA). La otra es preparar una long list nueva —que en
+        /// LONG_LIST no hace falta, porque ya es el paso de esa fase.
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 409 si el
+        /// requerimiento no está en una de esas fases o si todavía tiene candidatos en carrera,
+        /// 404 si el candidato no es de este requerimiento y 400 si no está rechazado o su rechazo
+        /// fue el del propio EMO (a ese no se lo puede retomar: el examen médico no se revierte
+        /// volviendo a elegirlo).
         /// </summary>
         /// <remarks>
         /// Devuelve además los datos del requerimiento y de su solicitante: el servicio le avisa a
@@ -186,13 +202,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             int requerimientoId, int candidatoId, int? userId);
 
         /// <summary>
-        /// La otra salida de EMO_NO_APTO: descartar a todos los rechazados y volver a LONG_LIST para
-        /// armar una long list nueva. No toca a los candidatos —siguen siendo el historial que GTH
-        /// mira para no repetirlos— y la próxima carga de CVs entra como una vuelta nueva. Lanza
-        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 409 si el requerimiento
-        /// no está en esa fase.
+        /// La otra salida del proceso que se quedó sin candidatos: dejar atrás a los rechazados y
+        /// volver a LONG_LIST para armar una long list nueva. No toca a los candidatos —siguen
+        /// siendo el historial que GTH mira para no repetirlos y desde el que puede retomar a uno—
+        /// y la próxima carga de CVs entra como una vuelta nueva. Mismas fases y misma condición
+        /// que <see cref="RetomarCandidatoRechazado"/>. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 409 si el
+        /// requerimiento no está en una de esas fases o si todavía tiene candidatos en carrera.
         /// </summary>
-        Task<EstadoRequerimientoResultDto> VolverALongListDesdeEmoNoApto(int requerimientoId, int? userId);
+        Task<EstadoRequerimientoResultDto> VolverALongList(int requerimientoId, int? userId);
 
         /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO y el

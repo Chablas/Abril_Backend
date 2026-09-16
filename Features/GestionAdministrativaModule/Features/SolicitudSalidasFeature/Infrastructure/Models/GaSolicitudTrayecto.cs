@@ -1,7 +1,7 @@
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models
 {
     /// <summary>
-    /// Un tramo individual de una solicitud de salida — una solicitud puede tener N trayectos
+    /// Un trayecto individual de una solicitud de salida — una solicitud puede tener N trayectos
     /// (encadenados: el origen del trayecto N+1 suele ser el destino del N, pero se almacena
     /// independientemente para flexibilidad).
     /// </summary>

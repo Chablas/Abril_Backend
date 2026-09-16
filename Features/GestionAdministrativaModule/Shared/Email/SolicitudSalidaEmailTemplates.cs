@@ -2,7 +2,7 @@ using Abril_Backend.Shared.Services.Email.Layout;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 {
-    /// <summary>Un tramo de la solicitud tal como se imprime en el correo, ya resuelto a texto.</summary>
+    /// <summary>Un trayecto de la solicitud tal como se imprime en el correo, ya resuelto a texto.</summary>
     /// <param name="Orden">Número visible del trayecto (1-based).</param>
     /// <param name="HoraSalida">"HH:mm", o vacío cuando el motivo no pide horario.</param>
     /// <param name="HoraRetorno">"HH:mm", "Sin retorno", o vacío cuando el motivo no pide horario.</param>
@@ -170,7 +170,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         /// <summary>
         /// El detalle de la solicitud. Con un solo trayecto (el caso normal) todo entra en una
-        /// tarjeta; con varios, la tarjeta se queda con la cabecera y los tramos pasan a una tabla,
+        /// tarjeta; con varios, la tarjeta se queda con la cabecera y los trayectos pasan a una tabla,
         /// que es donde se leen comparados. Los dos bloques se devuelven juntos porque
         /// <c>Documento</c> los concatena igual.
         /// </summary>

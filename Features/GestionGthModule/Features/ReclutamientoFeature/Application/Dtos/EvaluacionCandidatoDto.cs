@@ -252,10 +252,18 @@
         public bool Aprobado { get; set; }
 
         /// <summary>
-        /// true si con este rechazo ya no queda ningún finalista en carrera: el requerimiento
-        /// vuelve a LONG_LIST para que GTH envíe una nueva long list.
+        /// true si con este rechazo el requerimiento se quedó sin ningún candidato: vuelve a
+        /// LONG_LIST para que GTH envíe una nueva long list (o retome a alguien del historial).
         /// </summary>
         public bool TodosRechazados { get; set; }
+
+        /// <summary>
+        /// true si con este rechazo ya no queda ningún finalista por decidir, pero el proceso sí
+        /// sigue con candidatos que todavía no llegaron a ser finalistas (formulario, Multitest o
+        /// entrevista pendientes): el requerimiento vuelve a ENTREVISTAS, del lado de GTH. Al
+        /// solicitante ya no le queda nada que revisar en este requerimiento.
+        /// </summary>
+        public bool ContinuaConRezagados { get; set; }
 
         /// <summary>Nombre del finalista decidido (para el mensaje al usuario).</summary>
         public string CandidatoNombre { get; set; } = string.Empty;

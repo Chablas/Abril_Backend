@@ -95,7 +95,7 @@
 
         /// <summary>
         /// FK a <c>app_user.user_id</c> del tesorero que confirmó la revisión documental (RG-26):
-        /// miró la planilla, el Consolidado del S10, la firma de la jefatura y los tramos, y dejó
+        /// miró la planilla, el Consolidado del S10, la firma de la jefatura y los trayectos, y dejó
         /// el reembolso en <see cref="EstadosSalida.Reembolso.PorPagar"/>. Es el paso que habilita
         /// el pago — sin él la salida sigue Firmada y no se puede desembolsar.
         /// </summary>

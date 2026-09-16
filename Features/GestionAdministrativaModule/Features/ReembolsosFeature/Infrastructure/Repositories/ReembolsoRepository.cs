@@ -80,8 +80,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             var detalle  = new ReembolsoDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
-            // Los tramos con sus vouchers: es lo que Tesorería revisa antes de confirmar (RF-TES-05).
-            var tramosPorSalida = await CargarTramosAsync(
+            // Los trayectos con sus vouchers: es lo que Tesorería revisa antes de confirmar (RF-TES-05).
+            var trayectosPorSalida = await CargarTrayectosAsync(
                 ctx, planilla.Salidas.Select(s => s.Id).ToList());
 
             detalle.Salidas = planilla.Salidas
@@ -98,7 +98,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     TrayectosCount  = s.TrayectosCount,
                     Monto           = s.Monto,
                     EstadoReembolso = s.EstadoReembolso,
-                    Tramos          = tramosPorSalida.TryGetValue(s.Id, out var t) ? t : new(),
+                    Trayectos       = trayectosPorSalida.TryGetValue(s.Id, out var t) ? t : new(),
                 })
                 .ToList();
 
@@ -570,14 +570,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         }
 
         /// <summary>
-        /// Los tramos de cada salida con su importe y sus sustentos. Es el mismo criterio de
+        /// Los trayectos de cada salida con su importe y sus sustentos. Es el mismo criterio de
         /// importe que imprime la planilla (<see cref="ImporteRendidoLoader"/>) para que Tesorería
         /// no vea un número distinto del que está firmado en el papel.
         /// </summary>
-        private static async Task<Dictionary<int, List<ReembolsoTramoDto>>> CargarTramosAsync(
+        private static async Task<Dictionary<int, List<ReembolsoTrayectoDto>>> CargarTrayectosAsync(
             AppDbContext ctx, List<int> solicitudIds)
         {
-            var result = new Dictionary<int, List<ReembolsoTramoDto>>();
+            var result = new Dictionary<int, List<ReembolsoTrayectoDto>>();
             if (solicitudIds.Count == 0) return result;
 
             var trayectos = await (
@@ -689,7 +689,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
                         importes.TryGetValue(t.Id, out var importe);
 
-                        return new ReembolsoTramoDto
+                        return new ReembolsoTrayectoDto
                         {
                             Id              = t.Id,
                             Orden           = t.Orden,

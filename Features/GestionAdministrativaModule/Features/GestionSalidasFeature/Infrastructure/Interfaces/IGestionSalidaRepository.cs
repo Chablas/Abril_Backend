@@ -106,7 +106,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<CalendarioNoLaborable> GetCalendarioNoLaborable();
 
         /// <summary>
-        /// Tramos que cada trabajador ya rindió en OTRAS planillas dentro del rango dado, tomados
+        /// Periodos que cada trabajador ya rindió en OTRAS planillas dentro del rango dado, tomados
         /// del alcance real de cada una (su primera y su última <c>fecha_salida</c>).
         ///
         /// Solo lo necesita el último recurso de <see cref="ImputacionMovilidadPlanilla"/>: cuando

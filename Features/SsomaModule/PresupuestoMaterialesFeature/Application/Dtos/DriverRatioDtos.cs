@@ -82,4 +82,9 @@ public class RatiosDriversRecomendadosDto
 {
     public RatioDriverRecomendadoDto? Hh { get; set; }
     public RatioDriverRecomendadoDto? Trabajadores { get; set; }
+    /// <summary>Dos señales independientes para estimar StaffHeadcount — se muestran ambas para
+    /// que el responsable las cruce (si difieren mucho, es señal de dato sucio en algún proyecto,
+    /// no de que el método esté mal), no se promedian automáticamente.</summary>
+    public RatioDriverRecomendadoDto? StaffCasco { get; set; }
+    public RatioDriverRecomendadoDto? StaffOrejera { get; set; }
 }

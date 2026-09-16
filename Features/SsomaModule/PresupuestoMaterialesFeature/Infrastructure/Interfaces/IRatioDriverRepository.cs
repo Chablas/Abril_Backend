@@ -40,6 +40,18 @@ public class ProyectoTrabajadoresRealRow
     public int TotalTrabajadoresDistintos { get; set; }
 }
 
+/// <summary>Cantidad de EPP staff consumida por proyecto (casco blanco/ingeniero, u orejera 3M)
+/// — proxy de "cuántos miembros de Staff hubo", porque son ítems que se entregan una sola vez
+/// por persona (a diferencia de zapatos/guantes/lentes, que rotan varias veces en el proyecto y
+/// no sirven como proxy de headcount). Dos señales independientes para poder cruzarlas: si
+/// difieren mucho en un proyecto puntual, es señal de dato sucio en ese proyecto, no de que el
+/// método esté mal.</summary>
+public class ProyectoStaffSignalRow
+{
+    public int ProjectId { get; set; }
+    public decimal Cantidad { get; set; }
+}
+
 public class RatioDriverUpsertItem
 {
     public string TipoDriver { get; set; } = null!;
@@ -89,6 +101,8 @@ public interface IRatioDriverRepository
     Task<List<ProyectoAreaRow>> ObtenerProyectosConAreaAsync();
     Task<List<ProyectoHhRealRow>> ObtenerHhRealPorProyectoAsync(List<int> projectIds);
     Task<List<ProyectoTrabajadoresRealRow>> ObtenerTrabajadoresRealPorProyectoAsync(List<int> projectIds);
+    Task<List<ProyectoStaffSignalRow>> ObtenerStaffCascoPorProyectoAsync(List<int> projectIds);
+    Task<List<ProyectoStaffSignalRow>> ObtenerStaffOrejeraPorProyectoAsync(List<int> projectIds);
     Task UpsertRatiosBulkAsync(List<RatioDriverUpsertItem> items);
     Task<List<RatioDriverOutlierRow>> ObtenerTodosParaOutlierAsync();
     Task ActualizarOutliersBulkAsync(List<RatioDriverOutlierUpdate> updates);

@@ -170,6 +170,49 @@ public class RatioDriverRepository : IRatioDriverRepository
         return resultado;
     }
 
+    /// <summary>Cantidad de "CASCO TIPO JOCKEY BLANCO..." / "CASCO PARA INGENIEROS Y TECNICOS"
+    /// consumida por proyecto — el blanco es el color usado por Staff/supervisión en obra (los
+    /// colores son por cuadrilla/especialidad de obrero). Va contra recurso_crudo (texto original
+    /// del S10) y no contra la família estandarizada: la estandarización agrupó todos los colores
+    /// de casco bajo una sola família ("CASCO"), perdiendo la distinción que sí sobrevive en el
+    /// texto crudo de cada línea.</summary>
+    public async Task<List<ProyectoStaffSignalRow>> ObtenerStaffCascoPorProyectoAsync(List<int> projectIds)
+    {
+        if (projectIds.Count == 0) return [];
+        using var conn = Conn();
+        const string sql = """
+            SELECT project_id AS ProjectId, SUM(cantidad) AS Cantidad
+            FROM ss_consumo_linea
+            WHERE project_id = ANY(@projectIds)
+              AND recurso_crudo ILIKE 'CASCO%'
+              AND (recurso_crudo ILIKE '%BLANCO%' OR recurso_crudo ILIKE '%INGENIER%')
+            GROUP BY project_id
+            """;
+        var result = await conn.QueryAsync<ProyectoStaffSignalRow>(sql, new { projectIds });
+        return result.ToList();
+    }
+
+    /// <summary>Cantidad de "OREJERA PARA CASCO 3M" consumida por proyecto — misma lógica que el
+    /// casco blanco (se entrega una sola vez por persona), pero con la marca 3M como señal en vez
+    /// del color: es la única variante de orejera con precio consistentemente más alto (65-76
+    /// soles) en múltiples proyectos, contra la "MARCA CLUTE"/"TIPO COPA" de obrero (10-32
+    /// soles). Segunda señal independiente para cruzar contra ObtenerStaffCascoPorProyectoAsync.</summary>
+    public async Task<List<ProyectoStaffSignalRow>> ObtenerStaffOrejeraPorProyectoAsync(List<int> projectIds)
+    {
+        if (projectIds.Count == 0) return [];
+        using var conn = Conn();
+        const string sql = """
+            SELECT project_id AS ProjectId, SUM(cantidad) AS Cantidad
+            FROM ss_consumo_linea
+            WHERE project_id = ANY(@projectIds)
+              AND recurso_crudo ILIKE '%OREJERA%'
+              AND recurso_crudo ILIKE '%3M%'
+            GROUP BY project_id
+            """;
+        var result = await conn.QueryAsync<ProyectoStaffSignalRow>(sql, new { projectIds });
+        return result.ToList();
+    }
+
     public async Task UpsertRatiosBulkAsync(List<RatioDriverUpsertItem> items)
     {
         if (items.Count == 0) return;

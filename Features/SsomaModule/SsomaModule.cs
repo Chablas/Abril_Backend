@@ -276,6 +276,11 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IServicioFijoService, ServicioFijoService>();
             services.AddScoped<IKitRepository, KitRepository>();
             services.AddScoped<IKitService, KitService>();
+            services.AddScoped<IPresupuestoResumenExportService, PresupuestoResumenExportService>();
+            services.AddScoped<IEpiStaffRepository, EpiStaffRepository>();
+            services.AddScoped<IEpiStaffCalculoService, EpiStaffCalculoService>();
+            services.AddScoped<ICostoFijoManualRepository, CostoFijoManualRepository>();
+            services.AddScoped<ICostoFijoManualService, CostoFijoManualService>();
             services.AddScoped<IRatioDriverRepository, RatioDriverRepository>();
             services.AddScoped<IRatioDriverService, RatioDriverService>();
             services.AddScoped<IHhCargaRepository, HhCargaRepository>();

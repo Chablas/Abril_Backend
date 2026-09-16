@@ -85,6 +85,7 @@ public class FamiliaConRatioDto
     public string VariableBase { get; set; } = null!;
     public int NProyectos { get; set; }
     public int NOutliers { get; set; }
+    public bool Activo { get; set; }
 }
 
 // ─── Resumen general ──────────────────────────────────────────────────────────

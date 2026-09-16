@@ -124,5 +124,20 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
             try { return Ok(await _revisionService.ObtenerTodoGlobalAsync()); }
             catch (Exception) { return StatusCode(500, new { message = "Error al obtener la vista general de materiales." }); }
         }
+
+        /// <summary>Proyecto vigente del usuario logueado — para preseleccionar el filtro de
+        /// Proyecto en la vista "General" en vez de arrancar mostrando todos los proyectos.</summary>
+        [HttpGet("mi-proyecto-actual")]
+        public async Task<IActionResult> ObtenerMiProyectoActual()
+        {
+            try
+            {
+                var email = User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+                var proyecto = await _revisionService.ObtenerProyectoActualAsync(email);
+                if (proyecto is null) return NotFound(new { message = "No se encontró un proyecto vigente para tu usuario." });
+                return Ok(proyecto);
+            }
+            catch (Exception) { return StatusCode(500, new { message = "Error al obtener el proyecto actual." }); }
+        }
     }
 }

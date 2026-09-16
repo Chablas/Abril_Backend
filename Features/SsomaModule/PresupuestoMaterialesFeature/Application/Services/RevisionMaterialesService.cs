@@ -38,6 +38,24 @@ public class RevisionMaterialesService : IRevisionMaterialesService
     public async Task<List<MaterialGlobalDto>> ObtenerTodoGlobalAsync() =>
         await _consumoRepo.ObtenerTodoGlobalAsync();
 
+    /// <summary>Proyecto vigente del worker asociado a ese email: la vinculación ABIERTA más
+    /// reciente (fecha_fin null o futura) — mismo criterio que ya usa PresupuestoService para
+    /// "Oficina Técnica del proyecto". "workers.project_id" existe en la tabla pero no está
+    /// mapeado en el modelo EF y no es la fuente confiable de la asignación vigente.</summary>
+    public async Task<ProyectoActualDto?> ObtenerProyectoActualAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return null;
+        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Worker.AsNoTracking()
+            .Where(w => w.EmailCorporativo != null && w.EmailCorporativo.ToLower() == email.Trim().ToLower())
+            .Join(ctx.WorkerVinculacion.AsNoTracking().Where(v => v.FechaFin == null || v.FechaFin >= hoy),
+                w => w.Id, v => v.WorkerId, (w, v) => v.ProyectoId)
+            .Join(ctx.Project.AsNoTracking(), proyectoId => proyectoId, p => p.ProjectId,
+                (proyectoId, p) => new ProyectoActualDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription ?? "" })
+            .FirstOrDefaultAsync();
+    }
+
     /// <summary>
     /// Igual que <see cref="ProcesarRevisionAsync"/> pero sin exigir un solo ProjectId compartido:
     /// cada línea puede pertenecer a un proyecto distinto (vista global del Catálogo de Materiales).

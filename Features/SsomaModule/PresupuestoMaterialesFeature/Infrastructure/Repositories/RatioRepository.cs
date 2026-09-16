@@ -165,19 +165,20 @@ public class RatioRepository : IRatioRepository
             new { familiaId, activo });
     }
 
-    public async Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync()
+    public async Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync(bool soloActivos = true)
     {
         using var conn = Conn();
-        const string sql = """
+        var sql = $"""
             SELECT f.id AS FamiliaId, f.nombre AS NombreFamilia, t.nombre AS TipoMaterial,
                    f.variable_base AS VariableBase,
                    COUNT(r.id) AS NProyectos,
-                   COUNT(r.id) FILTER (WHERE r.es_outlier) AS NOutliers
+                   COUNT(r.id) FILTER (WHERE r.es_outlier) AS NOutliers,
+                   f.activo AS Activo
             FROM ss_material_familia f
             JOIN ss_material_tipo t ON t.id = f.tipo_id
             JOIN ss_ratio_proyecto r ON r.familia_id = f.id
-            WHERE f.pertenece_ssoma = true AND f.activo = true
-            GROUP BY f.id, f.nombre, t.nombre, f.variable_base
+            WHERE f.pertenece_ssoma = true {(soloActivos ? "AND f.activo = true" : "")}
+            GROUP BY f.id, f.nombre, t.nombre, f.variable_base, f.activo
             ORDER BY t.nombre, f.nombre
             """;
         var result = await conn.QueryAsync<FamiliaConRatioDto>(sql);

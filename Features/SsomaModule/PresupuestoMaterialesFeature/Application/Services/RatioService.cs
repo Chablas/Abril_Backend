@@ -191,8 +191,8 @@ public class RatioService : IRatioService
     public Task ActualizarActivoFamiliaAsync(int familiaId, bool activo) =>
         _repo.ActualizarActivoFamiliaAsync(familiaId, activo);
 
-    public Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync() =>
-        _repo.ListarFamiliasConRatioAsync();
+    public Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync(bool soloActivos = true) =>
+        _repo.ListarFamiliasConRatioAsync(soloActivos);
 
     public async Task<ResumenRatiosDto> ObtenerResumenAsync()
     {

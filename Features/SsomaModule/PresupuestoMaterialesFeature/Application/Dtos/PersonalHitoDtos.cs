@@ -27,6 +27,10 @@ public class HitoCriticoDisponibleDto
     public int HitoId { get; set; }
     public string HitoDescripcion { get; set; } = "";
     public DateOnly? HitoFecha { get; set; }
+    /// <summary>Fin propio del hito — el último hito crítico del cronograma no tiene un hito
+    /// posterior para usar como "etapa de salida", así que su propia duración (Fin - Fecha) es la
+    /// única forma de sugerir semanas por defecto en vez de dejarlas siempre en 0/manual.</summary>
+    public DateOnly? HitoFechaFin { get; set; }
 }
 
 public class PersonalHitoItemInputDto

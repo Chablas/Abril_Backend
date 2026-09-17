@@ -6,8 +6,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     /// <summary>
     /// Catálogo de tipos de destinatario para las reglas de correos (<see cref="GaCorreoRegla"/>):
     /// TRABAJADOR (un worker concreto), AREA (todos los miembros de un nodo area_scope),
-    /// CORREO (una dirección escrita a mano, ej. un grupo de correos como gthnm@abril.pe) y
-    /// ROL (todos los que hoy tengan ese rol: se resuelve por cargo, no por persona).
+    /// CORREO (una dirección escrita a mano, ej. un grupo de correos como gthnm@abril.pe),
+    /// ROL (todos los que hoy tengan ese rol: se resuelve por cargo, no por persona) y
+    /// JEFE_AREA (el jefe del área del solicitante: se resuelve por CONTEXTO en cada envío, así que
+    /// la fila no guarda a quién apunta y solo tiene destinatario cuando el revisor de ese
+    /// trabajador es un residente).
     /// </summary>
     [Table("ga_correo_tipo_destinatario")]
     public class GaCorreoTipoDestinatario

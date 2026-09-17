@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         private const string TipoArea = CorreoTipoCodigos.Area;
         private const string TipoCorreo = CorreoTipoCodigos.Correo;
         private const string TipoRol = CorreoTipoCodigos.Rol;
+        private const string TipoJefeArea = CorreoTipoCodigos.JefeArea;
 
         public CorreoSalidaRecipientResolver(
             IDbContextFactory<AppDbContext> factory,
@@ -31,10 +32,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public async Task<CorreoSalidaEnvioDto> ResolveEnvioAsync(
             string eventoCodigo,
             IEnumerable<string>? destinatarioPrincipal = null,
-            IEnumerable<string>? baseCc = null)
+            IEnumerable<string>? baseCc = null,
+            IEnumerable<string>? jefeArea = null)
         {
             var principal = (destinatarioPrincipal ?? Enumerable.Empty<string>()).ToList();
             var copiaBase = (baseCc ?? Enumerable.Empty<string>()).ToList();
+            // El jefe del área no se consulta: lo trae quien envía, porque depende del solicitante.
+            var jefes = (jefeArea ?? Enumerable.Empty<string>())
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .ToList();
 
             try
             {
@@ -171,6 +178,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         case TipoRol:
                             if (r.RoleId.HasValue && emailsByRoleId.TryGetValue(r.RoleId.Value, out var rolEmails))
                                 foreach (var em in rolEmails) target.Add(em.Trim());
+                            break;
+                        case TipoJefeArea:
+                            // Sin jefe resuelto la regla no suma a nadie: es lo correcto, no un
+                            // error. Pasa siempre que el revisor del solicitante no sea residente.
+                            foreach (var em in jefes) target.Add(em);
                             break;
                     }
                 }

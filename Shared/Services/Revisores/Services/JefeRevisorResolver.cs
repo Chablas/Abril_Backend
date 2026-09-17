@@ -69,17 +69,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
             // Ficha de cada trabajador pedido: su persona (para descartarse a sí mismo como jefe)
             // y su nodo de área (paso 2). Se trae una sola vez y la usan los dos pasos.
-            var fichas = (await ctx.Worker.AsNoTracking()
-                    .Where(w => ids.Contains(w.Id))
-                    // El nodo de área sale del puesto: workers ya no lo guarda.
-                    .Select(w => new
-                    {
-                        w.Id,
-                        w.PersonId,
-                        AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
-                    })
-                    .ToListAsync())
-                .ToDictionary(w => w.Id, w => (w.PersonId, w.AreaScopeId));
+            var fichas = await CargarFichasAsync(ctx, ids);
 
             // ── Paso 1: jefe personalizado (workers_revisores) ─────────────────────
             var directos = await (
@@ -97,6 +87,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                     RevisorPersonId = w.PersonId,
                     w.EmailCorporativo,
                     Nombre = w.Person != null ? w.Person.FullName : null,
+                    CategoriaId = w.PuestoCatalogo != null ? (int?)w.PuestoCatalogo.CategoriaId : null,
                 }
             ).ToListAsync();
 
@@ -112,7 +103,8 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                 if (elegido != null)
                     resultado[grupo.Key] = new JefeRevisorResolution(
                         elegido.RevisorWorkerId, null, elegido.EmailCorporativo!.Trim(),
-                        elegido.Nombre, elegido.RevisorPersonId);
+                        elegido.Nombre, elegido.RevisorPersonId,
+                        CategoriaId: elegido.CategoriaId);
             }
 
             var pendientes = ids.Where(id => !resultado.ContainsKey(id)).ToList();
@@ -133,6 +125,47 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
             return resultado;
         }
+
+        public async Task<JefeRevisorResolution?> ResolveJefeDeAreaAsync(int workerId)
+        {
+            var resueltos = await ResolveJefeDeAreaManyAsync(new[] { workerId });
+            return resueltos.TryGetValue(workerId, out var jefe) ? jefe : null;
+        }
+
+        public async Task<Dictionary<int, JefeRevisorResolution>> ResolveJefeDeAreaManyAsync(
+            IReadOnlyCollection<int> workerIds)
+        {
+            var resultado = new Dictionary<int, JefeRevisorResolution>();
+
+            var ids = workerIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return resultado;
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo el paso 2, y con el proyecto fuera de juego: el jefe del ÁREA es el que sale
+            // cuando el nodo no filtra por obra. Sin paso 1 ni fallback de GTH — ver la interfaz.
+            var fichas = await CargarFichasAsync(ctx, ids);
+            await ResolveByAreaAsync(ctx, ids, fichas, resultado, ignorarProyecto: true);
+
+            return resultado;
+        }
+
+        /// <summary>
+        /// Ficha de cada trabajador pedido: su persona (para descartarse a sí mismo como jefe) y su
+        /// nodo de área, que sale del puesto porque <c>workers</c> ya no lo guarda.
+        /// </summary>
+        private static async Task<Dictionary<int, (int? PersonId, int? AreaScopeId)>> CargarFichasAsync(
+            AppDbContext ctx, List<int> ids)
+            => (await ctx.Worker.AsNoTracking()
+                    .Where(w => ids.Contains(w.Id))
+                    .Select(w => new
+                    {
+                        w.Id,
+                        w.PersonId,
+                        AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+                    })
+                    .ToListAsync())
+                .ToDictionary(w => w.Id, w => (w.PersonId, w.AreaScopeId));
 
         public async Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
             IReadOnlyCollection<int> areaScopeIds, int? workerId = null)
@@ -231,6 +264,11 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         // (ResolveByAreaScopeManyAsync, la que pinta el campo "Jefe / revisor del área" en la
         // ficha del trabajador). Antes eran dos implementaciones paralelas de las mismas
         // reglas y se desfasaron en silencio.
+        //
+        // También pasa por acá el "jefe del área" del aviso informativo de Solicitud de Salidas
+        // (ResolveJefeDeAreaManyAsync): es la MISMA ruta, con el único cambio de no pasarle la
+        // obra del trabajador. Que sea el mismo ranking es lo que garantiza que el jefe al que se
+        // le informa sea exactamente el que la sección Revisores muestra en la fila del área.
         //
         // Si hay que cambiar una regla —el orden de preferencia, el desempate, el trato de los
         // nodos que filtran por proyecto, quién queda descartado— se cambia acá y las dos
@@ -343,7 +381,8 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                 : RevisorOrigen.Algoritmo;
 
             return new JefeRevisorResolution(
-                c.RevisorWorkerId, null, c.EmailCorporativo.Trim(), c.Nombre, c.RevisorPersonId, origen);
+                c.RevisorWorkerId, null, c.EmailCorporativo.Trim(), c.Nombre, c.RevisorPersonId, origen,
+                c.CategoriaId);
         }
 
         /// <summary>
@@ -358,12 +397,13 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         /// <param name="AreaScopeId">Nodo del que sale; solo importa para el origen relativo de lo asignado a mano.</param>
         private sealed record RevisorCandidato(
             int AreaScopeId, int RevisorWorkerId, int? RevisorPersonId, string EmailCorporativo, string? Nombre,
-            RevisorOrigen Origen);
+            RevisorOrigen Origen, int? CategoriaId);
 
         /// <summary>Una persona de la jefatura de un nodo, como candidato del ranking.</summary>
         private static RevisorCandidato Candidato(
             int areaScopeId, EstructuraAreaLoader.PersonaDeArea persona, RevisorOrigen origen)
-            => new(areaScopeId, persona.WorkerId, persona.PersonId, persona.Email, persona.Nombre, origen);
+            => new(areaScopeId, persona.WorkerId, persona.PersonId, persona.Email, persona.Nombre, origen,
+                   persona.CategoriaId);
 
         // ── El algoritmo ────────────────────────────────────────────────────────
         //
@@ -411,12 +451,20 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         /// prioridad, "nadie es su propio jefe", subir por el árbol) están descritas ahí y no se
         /// repiten acá: es el mismo código que usa la previsualización de la ficha del trabajador.
         /// Escribe en <paramref name="resultado"/> solo los que resuelve.
+        ///
+        /// Con <paramref name="ignorarProyecto"/> en true se resuelve el jefe del ÁREA y no el
+        /// revisor: la obra del trabajador no se pide ni se pasa, así que los nodos que filtran por
+        /// proyecto se comportan como cualquier otro —lo asignado a nivel de área y, detrás, el
+        /// Jefe/Gerente— y el residente de la obra queda fuera. Es la MISMA elección de la fila sin
+        /// proyecto de la sección Revisores, hecha con el mismo ranking: la única diferencia con el
+        /// revisor es el contexto que se le arma.
         /// </summary>
         private static async Task ResolveByAreaAsync(
             AppDbContext ctx,
             List<int> workerIds,
             IReadOnlyDictionary<int, (int? PersonId, int? AreaScopeId)> fichas,
-            Dictionary<int, JefeRevisorResolution> resultado)
+            Dictionary<int, JefeRevisorResolution> resultado,
+            bool ignorarProyecto = false)
         {
             var areaScopePorWorker = workerIds
                 .Where(id => fichas.TryGetValue(id, out var ficha) && ficha.AreaScopeId != null)
@@ -442,20 +490,30 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             // orden que usa la ficha del trabajador para previsualizar su revisor, para que las dos
             // pantallas no puedan mostrar jefes distintos. Un trabajador retirado no tiene
             // vinculación vigente y cae al revisor a nivel de área, que es lo correcto.
-            var proyectoPorWorker = await ctx.WorkerVinculacion.AsNoTracking()
-                .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
-                .OrderByDescending(v => v.CreatedAt)
-                .ThenByDescending(v => v.Id)
-                .Select(v => new { v.WorkerId, v.ProyectoId })
-                .ToListAsync();
-            var proyectoDe = proyectoPorWorker
-                .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First().ProyectoId);
+            // Con ignorarProyecto no se consulta: sin obra, Ranking trata a todos los nodos como
+            // si no filtraran y el residente nunca entra al ranking.
+            var proyectoDe = new Dictionary<int, int?>();
+            if (!ignorarProyecto)
+            {
+                var proyectoPorWorker = await ctx.WorkerVinculacion.AsNoTracking()
+                    .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .Select(v => new { v.WorkerId, v.ProyectoId })
+                    .ToListAsync();
+                proyectoDe = proyectoPorWorker
+                    .GroupBy(v => v.WorkerId)
+                    .ToDictionary(g => g.Key, g => g.First().ProyectoId);
+            }
 
-            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig.AsNoTracking()
-                .Where(f => f.State && f.FiltraPorProyecto && nodos.Contains(f.AreaScopeId))
-                .Select(f => f.AreaScopeId)
-                .ToListAsync()).ToHashSet();
+            // Sin proyecto la bandera no cambia nada (Ranking solo filtra cuando hay obra), así que
+            // esa consulta no se hace.
+            var nodosFiltranProyecto = ignorarProyecto
+                ? new HashSet<int>()
+                : (await ctx.GaSalidasAreaConfig.AsNoTracking()
+                    .Where(f => f.State && f.FiltraPorProyecto && nodos.Contains(f.AreaScopeId))
+                    .Select(f => f.AreaScopeId)
+                    .ToListAsync()).ToHashSet();
 
             // La jefatura de cualquier nodo involucrado: los revisores vivos + activos con correo
             // válido fijados en Revisores y la estructura de la que el algoritmo deduce el resto. Sin

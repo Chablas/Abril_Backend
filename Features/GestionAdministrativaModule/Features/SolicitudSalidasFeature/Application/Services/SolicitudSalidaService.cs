@@ -10,6 +10,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -100,15 +101,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                             data.CorreoRevisorCopia = envioRevisor.Copia;
                         }
 
+                        // 1b) Aviso informativo al jefe del área, que solo existe cuando quien
+                        //     aprueba es un residente. Mismas llamadas que el envío real, para no
+                        //     anunciar un correo que después no sale.
+                        var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
+                        if (jefeArea != null)
+                        {
+                            var envioJefeArea = await _correoResolver.ResolveEnvioAsync(
+                                CorreoEventoCodigos.RevisorJefeArea,
+                                new List<string> { jefeArea.Email.Trim() });
+                            if (envioJefeArea.Enviar)
+                            {
+                                data.CorreoJefeAreaPara  = envioJefeArea.Para;
+                                data.CorreoJefeAreaCopia = envioJefeArea.Copia;
+                            }
+                        }
+
                         // 2) Confirmación informativa al solicitante, con el CC de recepción
-                        //    (rol 52) de base. Sin correo del usuario el envío se corta antes de
-                        //    mirar la configuración, así que acá tampoco se anuncia nada.
+                        //    (rol 52) de base y el jefe del área para las reglas que lo pidan.
+                        //    Sin correo del usuario el envío se corta antes de mirar la
+                        //    configuración, así que acá tampoco se anuncia nada.
                         if (!string.IsNullOrWhiteSpace(solicitante.EmailUsuario))
                         {
                             var envioConfirmacion = await _correoResolver.ResolveEnvioAsync(
                                 CorreoEventoCodigos.Confirmacion,
                                 new List<string> { solicitante.EmailUsuario },
-                                await GetRecepcionRole52Async(ctx));
+                                await GetRecepcionRole52Async(ctx),
+                                JefeAreaParaCorreo(jefeArea));
                             if (envioConfirmacion.Enviar)
                             {
                                 data.CorreoConfirmacionPara  = envioConfirmacion.Para;
@@ -375,12 +394,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var enviadoRevisorA = await SendNotificacionAprobadorAsync(
                     solicitud, trayectosResueltos, mostrarRecordatorio, aprobadorEmail, nombreSolicitante, adjuntos);
 
-                // 5b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
+                // 5a-bis. El jefe del área, que solo entra en juego cuando quien aprueba es un
+                //         RESIDENTE: en las áreas que filtran por proyecto la salida la decide el
+                //         residente de la obra y el jefe no se enteraba de las salidas de su gente.
+                //         Se resuelve UNA vez y lo usan los dos correos que siguen.
+                var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
+
+                // El aviso informativo va aparte y no como copia del correo del revisor a propósito:
+                // el contenido es otro (sin botones de decisión ni adjuntos) y se administra con su
+                // propio interruptor en Configuración → Correos.
+                if (jefeArea != null)
+                {
+                    try
+                    {
+                        await SendAvisoJefeAreaAsync(
+                            solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante,
+                            jefeArea, revisor!);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error enviando el aviso al jefe del área para solicitud {SolicitudId}", solicitud.Id);
+                    }
+                }
+
+                // 5b. Email de confirmación al solicitante (al mismo usuario que registró la
+                //     solicitud). El jefe del área se le suma si su fila está activa en
+                //     Configuración → Correos → Confirmación.
                 if (userId.HasValue)
                 {
                     try
                     {
-                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante, userId.Value, aprobadorEmail, enviadoRevisorA);
+                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante, userId.Value, aprobadorEmail, enviadoRevisorA, jefeArea);
                     }
                     catch (Exception ex)
                     {
@@ -692,6 +736,95 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return envio.Para;
         }
 
+        // ── Aviso informativo al jefe del área ───────────────────────────────
+        //
+        // Cuando el revisor de la solicitud es un RESIDENTE, el jefe del área del solicitante
+        // recibe un correo que le cuenta la salida sin pedirle nada: la aprueba el residente. La
+        // condición es la CATEGORÍA del revisor y no cómo se resolvió, así que también alcanza al
+        // residente puesto a mano en Revisores o como jefe personalizado del trabajador.
+
+        /// <summary>Si el revisor resuelto es un trabajador de categoría Residente.</summary>
+        private static bool EsResidente(JefeRevisorResolution? revisor)
+            => revisor?.CategoriaId == CategoriaIds.Residente;
+
+        /// <summary>
+        /// El jefe del área al que hay que informar de esta salida, o null si no hay ninguno. Se
+        /// resuelve UNA vez por solicitud y lo comparten los dos correos que lo usan: el aviso
+        /// informativo y la confirmación al solicitante.
+        ///
+        /// Devuelve null cuando:
+        ///
+        ///   • el revisor no es un residente — es el caso normal y entonces no hay nada que informar;
+        ///   • el área no resuelve ningún jefe —sin jefatura no hay a quién informar, y el fallback
+        ///     de GTH está fuera a propósito (ver <c>IJefeRevisorResolver</c>);
+        ///   • el jefe resuelto ES el revisor. Pasa cuando el residente está cargado a nivel de
+        ///     ÁREA en Revisores: ahí gana también sin proyecto, así que el aviso sería una segunda
+        ///     copia del correo que acaba de recibir con los botones.
+        /// </summary>
+        private async Task<JefeRevisorResolution?> ResolveJefeAInformarAsync(
+            int solicitanteWorkerId, JefeRevisorResolution? revisor)
+        {
+            if (!EsResidente(revisor)) return null;
+
+            var jefeArea = await _revisorResolver.ResolveJefeDeAreaAsync(solicitanteWorkerId);
+            if (jefeArea == null || string.IsNullOrWhiteSpace(jefeArea.Email)) return null;
+
+            var esElRevisor =
+                (jefeArea.PersonId != null && jefeArea.PersonId == revisor!.PersonId)
+                || (jefeArea.WorkerId != null && jefeArea.WorkerId == revisor!.WorkerId)
+                || string.Equals(jefeArea.Email.Trim(), (revisor!.Email ?? "").Trim(),
+                                 StringComparison.OrdinalIgnoreCase);
+
+            return esElRevisor ? null : jefeArea;
+        }
+
+        /// <summary>
+        /// El jefe del área como lo espera <c>ICorreoSalidaRecipientResolver</c>: una lista con su
+        /// correo, o null si no hay jefe a quien informar. Es lo que alimenta a las reglas de tipo
+        /// <see cref="CorreoTipoCodigos.JefeArea"/> de la confirmación.
+        /// </summary>
+        private static List<string>? JefeAreaParaCorreo(JefeRevisorResolution? jefeArea)
+            => jefeArea == null ? null : new List<string> { jefeArea.Email.Trim() };
+
+        /// <summary>
+        /// Envía el aviso informativo al jefe del área del solicitante. Mismo detalle que el correo
+        /// del revisor pero sin los botones de decisión y sin los documentos adjuntos: la salida no
+        /// la decide él. Best-effort como el resto de los correos del alta.
+        /// </summary>
+        private async Task SendAvisoJefeAreaAsync(
+            GaSolicitudSalida solicitud,
+            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio,
+            string nombreSolicitante,
+            JefeRevisorResolution jefeArea,
+            JefeRevisorResolution revisor)
+        {
+            var envio = await _correoResolver.ResolveEnvioAsync(
+                CorreoEventoCodigos.RevisorJefeArea,
+                new List<string> { jefeArea.Email.Trim() });
+
+            if (!envio.Enviar)
+            {
+                _logger.LogInformation(
+                    "Aviso al jefe del área no enviado para solicitud {SolicitudId}: el correo está apagado o no quedó ningún destinatario configurado.",
+                    solicitud.Id);
+                return;
+            }
+
+            var datos = DatosCorreo(solicitud.Id, solicitud.Codigo, nombreSolicitante,
+                                    solicitud.FechaSalida, trayectos, mostrarRecordatorio);
+            var body    = SolicitudSalidaEmailTemplates.InformativaJefeArea(
+                SalidaEmailLayout.Desde(_configuration), datos, revisor.Nombre);
+            var subject = $"Salida registrada en tu área - {datos.Codigo} - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
+
+            await _emailService.SendAsync(
+                to: envio.Para,
+                subject: subject,
+                body: body,
+                isHtml: true,
+                cc: envio.Copia.Count > 0 ? envio.Copia : null);
+        }
+
         /// <summary>
         /// Convierte los documentos adjuntos de la solicitud (motivos con requiere_adjunto)
         /// en adjuntos de correo. Null si la solicitud no trae ninguno.
@@ -729,7 +862,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             string nombreSolicitante,
             int userId,
             string? aprobadorEmail,
-            List<string> enviadoRevisorA)
+            List<string> enviadoRevisorA,
+            JefeRevisorResolution? jefeArea)
         {
             var emailSolicitante = await ctx.User
                 .Where(u => u.UserId == userId)
@@ -747,7 +881,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var envio = await _correoResolver.ResolveEnvioAsync(
                 CorreoEventoCodigos.Confirmacion,
                 new List<string> { emailSolicitante },
-                await GetRecepcionRole52Async(ctx));
+                await GetRecepcionRole52Async(ctx),
+                JefeAreaParaCorreo(jefeArea));
 
             if (!envio.Enviar)
             {

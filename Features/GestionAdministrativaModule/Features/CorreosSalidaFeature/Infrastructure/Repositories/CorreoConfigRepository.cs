@@ -226,6 +226,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                                 fila.SinCorreo = (fila.Miembros ?? 0) == 0;
                                 break;
 
+                            case CorreoTipoCodigos.JefeArea:
+                                // Ni nombre ni "a cuántos llega": depende del solicitante de cada
+                                // solicitud, así que no hay un número que mostrar acá. Tampoco se
+                                // marca SinCorreo: que hoy no le toque a nadie no es un problema de
+                                // configuración, es que ese trabajador no tiene revisor residente.
+                                fila.Nombre = "El jefe del área del solicitante";
+                                break;
+
                             default: // CORREO
                                 fila.Nombre = r.Correo ?? string.Empty;
                                 fila.Email = r.Correo;
@@ -285,9 +293,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             var evento = await BuscarEventoAsync(ctx, pantallaCodigo, eventoCodigo);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
+            ValidarTipoAdmitido(tipoCodigo, evento.Codigo);
             var (workerId, areaScopeId, correo, roleId) = await NormalizarAsync(ctx, tipoCodigo, dto);
 
-            await ValidarNoDuplicadoAsync(ctx, evento.Id, null, tipoCodigo, workerId, areaScopeId, correo, roleId);
+            await ValidarNoDuplicadoAsync(ctx, evento.Id, null, tipoCodigo, tipoId, workerId, areaScopeId, correo, roleId);
 
             var now = DateTimeOffset.UtcNow;
             var ultimoOrden = await ctx.GaCorreoRegla
@@ -322,9 +331,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             var regla = await BuscarReglaAsync(ctx, pantallaCodigo, id);
 
             var (tipoId, tipoCodigo) = await ResolverTipoAsync(ctx, dto.TipoCodigo);
+            ValidarTipoAdmitido(tipoCodigo, await CodigoDelEventoAsync(ctx, regla.EventoId));
             var (workerId, areaScopeId, correo, roleId) = await NormalizarAsync(ctx, tipoCodigo, dto);
 
-            await ValidarNoDuplicadoAsync(ctx, regla.EventoId, id, tipoCodigo, workerId, areaScopeId, correo, roleId);
+            await ValidarNoDuplicadoAsync(ctx, regla.EventoId, id, tipoCodigo, tipoId, workerId, areaScopeId, correo, roleId);
 
             regla.TipoId = tipoId;
             regla.WorkerId = workerId;
@@ -421,6 +431,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
             return regla;
         }
 
+        /// <summary>
+        /// El jefe del área solo se puede poner en los correos que se envían con él resuelto
+        /// (<see cref="CorreoTipoCodigos.CorreosConJefeArea"/>). En el resto la fila quedaría
+        /// prendida sin mandarle nada a nadie y nadie se enteraría: mejor un 400 que lo diga.
+        /// </summary>
+        private static void ValidarTipoAdmitido(string tipoCodigo, string eventoCodigo)
+        {
+            if (tipoCodigo != CorreoTipoCodigos.JefeArea) return;
+            if (CorreoTipoCodigos.CorreosConJefeArea.Contains(eventoCodigo)) return;
+
+            throw new AbrilException(
+                "El jefe del área solo se puede agregar a la confirmación al solicitante: es el único "
+                + "correo que se envía sabiendo quién es. Para avisarle de una salida que aprueba un "
+                + "residente ya existe el correo «Al crear · Aviso al jefe del área».", 400);
+        }
+
+        private static async Task<string> CodigoDelEventoAsync(AppDbContext ctx, int eventoId)
+            => await ctx.GaCorreoEvento
+                .Where(e => e.Id == eventoId)
+                .Select(e => e.Codigo)
+                .FirstOrDefaultAsync() ?? string.Empty;
+
         private static async Task<(int TipoId, string TipoCodigo)> ResolverTipoAsync(AppDbContext ctx, string? codigo)
         {
             var buscado = (codigo ?? string.Empty).Trim().ToUpperInvariant();
@@ -464,6 +496,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                         throw new AbrilException("El rol seleccionado no existe.", 400);
                     return (null, null, null, dto.RoleId);
 
+                case CorreoTipoCodigos.JefeArea:
+                    // No hay nada que elegir ni que validar: a quién apunta lo decide el envío,
+                    // según el solicitante de cada solicitud.
+                    return (null, null, null, null);
+
                 default: // CORREO
                     var correo = (dto.Correo ?? string.Empty).Trim();
                     if (string.IsNullOrWhiteSpace(correo))
@@ -481,7 +518,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
         /// </summary>
         private static async Task ValidarNoDuplicadoAsync(
             AppDbContext ctx, int eventoId, int? excluirReglaId,
-            string tipoCodigo, int? workerId, int? areaScopeId, string? correo, int? roleId)
+            string tipoCodigo, int tipoId, int? workerId, int? areaScopeId, string? correo, int? roleId)
         {
             var query = ctx.GaCorreoRegla.Where(r => r.EventoId == eventoId && r.State);
             if (excluirReglaId.HasValue) query = query.Where(r => r.Id != excluirReglaId.Value);
@@ -491,6 +528,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
                 CorreoTipoCodigos.Trabajador => await query.AnyAsync(r => r.WorkerId == workerId),
                 CorreoTipoCodigos.Area => await query.AnyAsync(r => r.AreaScopeId == areaScopeId),
                 CorreoTipoCodigos.Rol => await query.AnyAsync(r => r.RoleId == roleId),
+                // El jefe del área no lleva a quién apunta en la fila, así que dos filas iguales se
+                // reconocen por el tipo: una alcanza.
+                CorreoTipoCodigos.JefeArea => await query.AnyAsync(r => r.TipoId == tipoId),
                 _ => await query.AnyAsync(r => r.Correo != null && r.Correo.ToLower() == correo!.ToLower()),
             };
 

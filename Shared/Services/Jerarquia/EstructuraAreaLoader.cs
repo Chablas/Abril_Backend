@@ -41,7 +41,15 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         /// Persona (<c>workers.person_id</c>). Hace falta para comparar por persona y no por ficha:
         /// un reingreso deja varias filas en <c>workers</c> para la misma persona.
         /// </param>
-        public sealed record PersonaDeArea(int WorkerId, int? PersonId, string Email, string? Nombre);
+        /// <param name="CategoriaId">
+        /// Categoría del puesto de esa persona (<c>workers.puesto_id → puesto.categoria_id</c>), null
+        /// si su ficha no tiene puesto. Viaja con la persona porque hay reglas que miran QUÉ es el
+        /// que salió elegido y no solo de dónde salió: el aviso informativo al jefe del área de
+        /// Solicitud de Salidas se dispara cuando el revisor es <c>CategoriaIds.Residente</c>, venga
+        /// del algoritmo o asignado a mano. Sacarla acá evita una consulta extra por cada resolución.
+        /// </param>
+        public sealed record PersonaDeArea(
+            int WorkerId, int? PersonId, string Email, string? Nombre, int? CategoriaId = null);
 
         /// <summary>
         /// Una fila viva y activa de <c>area_revisores</c>: la jefatura que alguien fijó a mano para
@@ -137,6 +145,7 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                     w.PersonId,
                     w.EmailCorporativo,
                     Nombre = w.Person != null ? w.Person.FullName : null,
+                    CategoriaId = w.PuestoCatalogo != null ? (int?)w.PuestoCatalogo.CategoriaId : null,
                 }
             ).ToListAsync();
 
@@ -144,7 +153,7 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 r => r.AreaScopeId,
                 r => new RevisorAsignado(
                     r.AreaScopeId, r.ProjectId, r.OrdenPrioridad, r.AreaRevisoresId,
-                    new PersonaDeArea(r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre)));
+                    new PersonaDeArea(r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre, r.CategoriaId)));
 
             // Las dos categorías se traen juntas y se filtra por tipo de nodo al armar el lookup:
             // una sola consulta en vez de dos.
@@ -184,7 +193,8 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 .OrderBy(j => j.Id)
                 .ToLookup(
                     j => j.AreaScopeId,
-                    j => new PersonaDeArea(j.Id, j.PersonId, j.EmailCorporativo!, j.Nombre));
+                    j => new PersonaDeArea(
+                        j.Id, j.PersonId, j.EmailCorporativo!, j.Nombre, j.CategoriaId));
 
             var residentes = await (
                 from p in ctx.Project.AsNoTracking()
@@ -199,12 +209,14 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 {
                     p.ProjectId, w.Id, w.PersonId, w.EmailCorporativo,
                     Nombre = w.Person != null ? w.Person.FullName : null,
+                    CategoriaId = w.PuestoCatalogo != null ? (int?)w.PuestoCatalogo.CategoriaId : null,
                 }
             ).ToListAsync();
 
             var residentePorProyecto = residentes.ToDictionary(
                 r => r.ProjectId,
-                r => new PersonaDeArea(r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre));
+                r => new PersonaDeArea(
+                    r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre, r.CategoriaId));
 
             return new EstructuraArea(revisoresPorNodo, jefePorNodo, residentePorProyecto);
         }

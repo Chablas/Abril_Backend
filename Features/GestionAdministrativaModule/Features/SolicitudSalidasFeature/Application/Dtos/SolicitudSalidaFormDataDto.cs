@@ -19,6 +19,17 @@
         public List<string> CorreoRevisorCopia { get; set; } = new();
 
         /// <summary>
+        /// Lo mismo para el aviso informativo al jefe del área, que solo sale cuando el revisor de
+        /// este trabajador es un residente: la salida la aprueba el residente de la obra y el jefe
+        /// del área se entera. Vacío en el caso normal (revisor que no es residente), y también si
+        /// el correo está apagado o el área no resuelve jefe.
+        /// </summary>
+        public List<string> CorreoJefeAreaPara { get; set; } = new();
+
+        /// <summary>Los que van en copia de ese aviso informativo. Puede quedar vacío.</summary>
+        public List<string> CorreoJefeAreaCopia { get; set; } = new();
+
+        /// <summary>
         /// Lo mismo para el OTRO correo que sale al registrar la solicitud: la confirmación
         /// informativa (sin botones), configurable en Configuración → Correos → Confirmación. Su
         /// destinatario principal es el propio solicitante y lleva de base el CC de recepción

@@ -98,6 +98,7 @@ WHERE ht.estado = 'Enviado'
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
   AND (@AreaScopeIds::int[] IS NULL OR wpu.area_destino_scope_id = ANY(@AreaScopeIds::int[]))
+  AND (@NombreEntregable IS NULL OR i.nombre = @NombreEntregable)
 
 UNION ALL
 
@@ -149,6 +150,7 @@ WHERE he.estado = 'Enviado'
   -- Entregable a nivel empresa, no de un trabajador puntual: no tiene área propia,
   -- así que se excluye del listado en cuanto se filtra por área.
   AND @AreaScopeIds::int[] IS NULL
+  AND (@NombreEntregable IS NULL OR i.nombre = @NombreEntregable)
 
 UNION ALL
 
@@ -186,6 +188,7 @@ WHERE heq.estado = 'Enviado'
   AND (@Search IS NULL OR CONCAT(te.nombre, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
   -- Entregable de un equipo, no de un trabajador: sin área propia.
   AND @AreaScopeIds::int[] IS NULL
+  AND (@NombreEntregable IS NULL OR i.nombre = @NombreEntregable)
 
 UNION ALL
 
@@ -223,12 +226,13 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
   AND (@AreaScopeIds::int[] IS NULL OR wpu.area_destino_scope_id = ANY(@AreaScopeIds::int[]))
+  AND (@NombreEntregable IS NULL OR @NombreEntregable = 'Inducción de Obra')
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, int page, int pageSize,
-            int? areaScopeId = null)
+            int? areaScopeId = null, string? nombreEntregable = null)
         {
             var areaScopeIds = await ResolverAreaScopeIdsAsync(areaScopeId);
 
@@ -240,6 +244,7 @@ WHERE i.estado = 'PROGRAMADA'
                 Responsable = responsable,
                 Search = search,
                 AreaScopeIds = areaScopeIds,
+                NombreEntregable = nombreEntregable,
                 PageSize = pageSize,
                 Offset = (page - 1) * pageSize
             };
@@ -262,7 +267,7 @@ LIMIT @PageSize OFFSET @Offset";
         public async Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
             string? responsable, string? search, string? cursor, int pageSize,
-            int? areaScopeId = null)
+            int? areaScopeId = null, string? nombreEntregable = null)
         {
             var areaScopeIds = await ResolverAreaScopeIdsAsync(areaScopeId);
             DateTime? cursorFecha = null;
@@ -292,6 +297,7 @@ LIMIT @PageSize OFFSET @Offset";
                 Responsable = responsable,
                 Search = search,
                 AreaScopeIds = areaScopeIds,
+                NombreEntregable = nombreEntregable,
                 CursorFecha = cursorFecha,
                 CursorId = cursorId,
                 PageSize = pageSize + 1
@@ -315,7 +321,8 @@ LIMIT @PageSize";
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
-                AreaScopeIds = areaScopeIds
+                AreaScopeIds = areaScopeIds,
+                NombreEntregable = nombreEntregable
             });
 
             var hasMore = rows.Count > pageSize;
@@ -492,17 +499,72 @@ ORDER BY Nombre";
             return result.ToList();
         }
 
-        public async Task<List<string>> GetEmpresasUnicasAsync()
+        public async Task<List<string>> GetEntregablesUnicosAsync()
         {
             const string sql = @"
-SELECT DISTINCT ec.contributor_name
-FROM ss_hab_empresa he
-JOIN contributor ec ON ec.contributor_id = he.empresa_id
-WHERE he.estado = 'Enviado'
-ORDER BY ec.contributor_name";
+SELECT DISTINCT nombre FROM (
+    SELECT i.nombre
+    FROM ss_hab_trabajador ht
+    JOIN ss_item_trabajador i ON i.id = ht.item_id
+    WHERE ht.estado = 'Enviado'
+    UNION
+    SELECT i.nombre
+    FROM ss_hab_empresa he
+    JOIN ss_item_empresa i ON i.id = he.item_id
+    WHERE he.estado = 'Enviado'
+    UNION
+    SELECT i.nombre
+    FROM ss_hab_equipo heq
+    JOIN ss_item_equipo i ON i.id = heq.item_id
+    WHERE heq.estado = 'Enviado'
+    UNION
+    SELECT 'Inducción de Obra'
+    WHERE EXISTS (SELECT 1 FROM ss_induccion WHERE estado = 'PROGRAMADA')
+) t
+WHERE nombre IS NOT NULL
+ORDER BY nombre";
 
             using var conn = CreateConnection();
             var result = await conn.QueryAsync<string>(sql);
+            return result.ToList();
+        }
+
+        public async Task<List<ProyectoSimpleDto>> GetEmpresasUnicasAsync()
+        {
+            const string sql = @"
+SELECT DISTINCT empresa_id as Id, contributor_name as Nombre FROM (
+    SELECT wv.empresa_id, ec.contributor_name
+    FROM ss_hab_trabajador ht
+    JOIN workers w ON w.id = ht.worker_id AND w.state
+    LEFT JOIN LATERAL (
+        SELECT empresa_id FROM worker_vinculaciones
+        WHERE worker_id = w.id AND fecha_fin IS NULL
+        ORDER BY created_at DESC, id DESC LIMIT 1
+    ) wv ON TRUE
+    LEFT JOIN contributor ec ON ec.contributor_id = wv.empresa_id
+    WHERE ht.estado = 'Enviado'
+    UNION
+    SELECT he.empresa_id, ec.contributor_name
+    FROM ss_hab_empresa he
+    JOIN contributor ec ON ec.contributor_id = he.empresa_id
+    WHERE he.estado = 'Enviado'
+    UNION
+    SELECT eq.propietario_empresa_id, ec.contributor_name
+    FROM ss_hab_equipo heq
+    JOIN ss_equipo eq ON eq.id = heq.equipo_id
+    LEFT JOIN contributor ec ON ec.contributor_id = eq.propietario_empresa_id
+    WHERE heq.estado = 'Enviado'
+    UNION
+    SELECT i.empresa_id, ec.contributor_name
+    FROM ss_induccion i
+    JOIN contributor ec ON ec.contributor_id = i.empresa_id
+    WHERE i.estado = 'PROGRAMADA'
+) t
+WHERE empresa_id IS NOT NULL AND contributor_name IS NOT NULL
+ORDER BY contributor_name";
+
+            using var conn = CreateConnection();
+            var result = await conn.QueryAsync<ProyectoSimpleDto>(sql);
             return result.ToList();
         }
 

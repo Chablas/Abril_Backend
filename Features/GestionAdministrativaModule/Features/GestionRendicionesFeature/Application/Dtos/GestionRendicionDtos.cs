@@ -91,8 +91,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// <summary>
         /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla: tiene que ser
         /// consolidador de sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado
-        /// en Consolidados → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce
-        /// el algoritmo), y hace falta poder por TODOS los trabajadores de
+        /// en Consolidados → Configuración → Consolidadores o, si no hay, la jefatura del área: la
+        /// de Revisores o el Jefe/Gerente/residente que deduce el algoritmo), y hace falta poder por
+        /// TODOS los trabajadores de
         /// <see cref="ConsolidadoConjunto"/>: el consolidado es uno solo y cubre esos documentos
         /// enteros, también a los trabajadores que el usuario no ve. El propio trabajador no
         /// consolida lo suyo.

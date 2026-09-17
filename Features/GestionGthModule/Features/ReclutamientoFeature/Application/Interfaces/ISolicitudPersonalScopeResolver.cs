@@ -11,14 +11,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// de área o su ficha se haya quedado sin ninguna.
     /// </param>
     /// <param name="VeTodo">
-    /// true para el Gerente General y para GTH: no se filtra por área. Cuando es true,
-    /// <paramref name="AreaScopeIds"/> viene vacío (no hay nada que filtrar).
+    /// true para el Gerente General y para GTH, o para quien tiene marcadas TODAS las áreas en su
+    /// configuración propia: no se filtra por área. Cuando es true, <paramref name="AreaScopeIds"/>
+    /// viene vacío (no hay nada que filtrar).
     /// </param>
     /// <param name="AreaScopeIds">
-    /// Nodos de <c>area_scope</c> cuyos requerimientos ve: el área de su ficha y todo el subárbol
+    /// Nodos de <c>area_scope</c> cuyos requerimientos ve: los de su configuración propia
+    /// (Configuración → Visibilidad) si la tiene y, si no, el área de su ficha y todo el subárbol
     /// que cuelga de ella. Por eso alguien de una gerencia alcanza lo que pidieron sus áreas hijas,
-    /// y no al revés. Vacío cuando <paramref name="VeTodo"/> es true o cuando la ficha no tiene
-    /// área (entonces solo ve lo suyo).
+    /// y no al revés. Vacío cuando <paramref name="VeTodo"/> es true o cuando no hay de dónde
+    /// sacar un área (entonces solo ve lo suyo).
     /// </param>
     /// <param name="PuedeGestionar">
     /// true para JEFE, GERENTE y GERENTE GENERAL —las categorías que registran solicitudes y
@@ -44,13 +46,35 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
+    /// Lo que ve UNA ficha en «Solicitud de Personal», para Configuración → Visibilidad: ahí
+    /// cada fila es un trabajador y la configuración propia se guarda por <c>worker_id</c>.
+    /// </summary>
+    /// <param name="Asignadas">
+    /// Áreas de su configuración propia (filas vivas). Vacío = lo resuelve el algoritmo.
+    /// </param>
+    /// <param name="VeTodo">true = no se le filtra por área.</param>
+    /// <param name="Efectivas">
+    /// Nodos que ve hoy. A diferencia de <see cref="SolicitudPersonalScope.AreaScopeIds"/>, cuando
+    /// <paramref name="VeTodo"/> es true trae el árbol entero: es lo que el modal muestra marcado.
+    /// </param>
+    public record SolicitudPersonalVisibilidadFicha(
+        List<int> Asignadas, bool VeTodo, HashSet<int> Efectivas);
+
+    /// <summary>
     /// Resuelve el alcance de un usuario en «Solicitud de Personal» a partir de su ficha de
-    /// trabajador (área y categoría del puesto). El acceso a la pantalla lo da el rol
-    /// (<c>role_feature</c>); esto decide qué requerimientos ve dentro de ella y cuáles puede
-    /// mover.
+    /// trabajador (área y categoría del puesto) y de su configuración propia de visibilidad, si
+    /// la tiene. El acceso a la pantalla lo da el rol (<c>role_feature</c>); esto decide qué
+    /// requerimientos ve dentro de ella y cuáles puede mover.
     /// </summary>
     public interface ISolicitudPersonalScopeResolver
     {
         Task<SolicitudPersonalScope> ResolveAsync(int userId);
+
+        /// <summary>
+        /// Lo que ve una ficha, por el MISMO recorrido que <see cref="ResolveAsync"/>: el modal
+        /// de Visibilidad no puede mostrar un alcance que después la pantalla no cumpla. null =
+        /// la ficha no existe o no está activa (una ficha que no está activa no aporta alcance).
+        /// </summary>
+        Task<SolicitudPersonalVisibilidadFicha?> ResolveByWorkerAsync(int workerId);
     }
 }

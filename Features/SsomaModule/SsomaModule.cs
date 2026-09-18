@@ -72,6 +72,10 @@ using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Se
 using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
+using Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.EppFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Features.Ssoma.Penalidad.Services;
@@ -313,6 +317,14 @@ namespace Abril_Backend.Features.Ssoma
             // del Coordinador SSOMA y el Prevencionista, por proyecto.
             services.AddScoped<ICumplimientoRepository, CumplimientoRepository>();
             services.AddScoped<ICumplimientoService, CumplimientoService>();
+
+            // EPP — Catálogo Autorizado (SSOMA + Logística)
+            services.AddScoped<IEppRepository, EppRepository>();
+            services.AddScoped<IEppService, EppService>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Interfaces.IEppPedidoRepository,
+                Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories.EppPedidoRepository>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces.IEppPedidoService,
+                Abril_Backend.Features.SsomaModule.EppFeature.Application.Services.EppPedidoService>();
 
             return services;
         }

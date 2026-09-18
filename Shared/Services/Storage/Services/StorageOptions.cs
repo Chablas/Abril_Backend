@@ -23,6 +23,8 @@ namespace Abril_Backend.Infrastructure.Services
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
         public string TareosContainer { get; set; } = "tareos";
+        public string EppImagenesContainer { get; set; } = "epp-imagenes";
+        public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
     }
 
     public class LocalStorageOptions
@@ -40,5 +42,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
         public string TareosContainer { get; set; } = "tareos";
+        public string EppImagenesContainer { get; set; } = "epp-imagenes";
+        public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
     }
 }

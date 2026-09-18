@@ -20,6 +20,11 @@ public class SsomaRacInfraccion
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
+
+    /// <summary>Falta | Menor | Moderada | Grave | MuyGrave — tipificación fija del Anexo 4.
+    /// Determina el % de UIT y reemplaza el antiguo campo libre "Severidad" del formulario de
+    /// alta: la severidad ya no la elige el usuario, la trae el catálogo.</summary>
+    public string? Categoria { get; set; }
     public decimal? FactorUit { get; set; }
     public decimal? MontoFijo { get; set; }
     public string? Descripcion { get; set; }

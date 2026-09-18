@@ -680,6 +680,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
+            // Un entregable "Enviado" sin archivo es un fantasma que se queda pegado en Bandeja
+            // para siempre (no tiene cómo revisarse, ni el cron de vencimientos lo toca porque
+            // no tiene vigencia). El archivo puede venir en este mismo request (dto.ArchivoUrl)
+            // o ya estar en el registro de un envío anterior.
+            if (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(dto.ArchivoUrl)
+                && string.IsNullOrWhiteSpace(entregable.ArchivoUrl))
+                throw new AbrilException("No se puede enviar este documento sin un archivo adjunto.", 400);
+
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
             if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)

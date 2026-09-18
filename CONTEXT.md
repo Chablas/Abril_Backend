@@ -6177,3 +6177,62 @@ Se empezó investigando un 500 en `personal-hitos` (`OverflowException` real, ve
   - Definir si "Monitores" va como una sola línea agregada o separada en Etapa 1/Etapa 2 (¿corte en qué hito? ¿"Casco Torre" en adelante?).
   - Definir destino de los materiales que no caen en ninguna de las ~14 partidas del modelo (alcohol, cintas, clavos, botiquín suelto, etc.) — ¿"Varios Seguridad", se omiten del Resumen, o una línea catch-all nueva?
 - Confirmar en producción que las dos migraciones manuales de esta sesión ya se corrieron antes de que alguien use el export (si no, 500 con relation ... does not exist).
+
+## Sesión 2026-09-16 — Bug "entregables desaparecen de Bandeja" + fichas duplicadas por DNI
+
+### Contexto
+Arrancó de un reporte del usuario: al aprobar un entregable de Warayana, la empresa dejó de aparecer en el filtro de empresas de Bandeja aunque le quedaban pendientes de tipo trabajador. Se fue destapando una cadena de bugs relacionados, todos en `Features/HabilitacionModule`.
+
+### Bug 1 — filtros de Bandeja filtraban solo la página cargada, no el total
+`GetEmpresasUnicasAsync` armaba el dropdown de empresas leyendo solo `ss_hab_empresa` (entregables tipo EMPRESA), sin mirar `ss_hab_trabajador`/`ss_hab_equipo`/`ss_induccion` — una empresa con pendientes solo de tipo trabajador desaparecía del filtro apenas se aprobaba su último entregable de empresa. Corregido con `UNION` sobre las 4 tablas, mismo patrón que ya usaba `GetProyectosUnicosAsync`.
+
+Además, tanto el filtro de empresa como el de entregable (`filtroEntregable` en el frontend) filtraban en memoria sobre `this.items` (los 20 registros de la página actual), no contra el total real — por eso con "Todos" (854 registros) el filtro daba 0 resultados aunque el dato sí existiera en otra página. Se movió todo a server-side:
+- `GetPendientesAsync`/`GetPendientesCursorAsync` suman el parámetro `nombreEntregable`.
+- Nuevo endpoint `GET bandeja/entregables` (`GetEntregablesUnicosAsync`).
+- `GetEmpresasUnicasAsync` devuelve `{id, nombre}` (antes solo el nombre) para poder filtrar por `empresaId`, no por substring de texto.
+- Frontend (`bandeja.ts`/`.html`): combobox de empresa reemplazado por `app-search-select`; ambos filtros ahora disparan `loadItems(1)` contra el backend.
+
+### Bug 2 — fichas de `workers` duplicadas por DNI mal normalizado
+Un "Certificado de Aptitud (EMO)" aparecía en Bandeja como "Enviado, sin archivo" pese a que el trabajador ya lo tenía Aprobado en Trabajadores. Causa: dos `person_id` distintos para la misma persona (DNI cargado una vez como `6132703` y otra como `06132703`), cada uno con su propio `worker_id` — la migración `2026-08-25_workers_fusion_fichas_duplicadas.sql` no los agarró porque agrupa por `person_id`, y acá el duplicado es a nivel `person`, no `workers`.
+
+Se aplicó el mismo patrón de esa migración (tabla `workers_ficha_fusionada`, que no existía en esta base y se creó) a 11 pares confirmados (uno Activo + uno Retirado cada uno, worker real conservado, el otro con `state = false`). Quedan **4 casos sin tocar, pendientes de que GTH/SSOMA los revise uno por uno**: `7894012`/`9579138`/`9656741` (ambos lados Activos a la vez) y `9629614` (ambos Retirado).
+
+Aparte, se identificaron y borraron ~190 registros de `person` — duplicados de DNI sin ninguna ficha (`workers`) ni ninguna otra referencia (verificado contra las 8 tablas que tienen FK a `person`) — puro dato huérfano.
+
+### Bug 3 — entregables quedaban "Enviado" sin archivo adjunto
+`HabTrabajadorRepository.UpdateEntregableAsync` no exigía `ArchivoUrl` para aceptar `Estado = "Enviado"`, dejando entregables fantasma (CarnetRetcc/T-Registro/SCTR/Vida ley, 7 casos encontrados) pegados en Bandeja para siempre, sin archivo ni vigencia. Se agregó validación (`AbrilException` 400 si no hay archivo nuevo ni existente) y se revirtieron los 7 casos existentes a `"Falta"` (su estado real) vía SQL manual.
+
+### Archivos clave
+- `Features/HabilitacionModule/Infrastructure/Repositories/BandejaRepository.cs`, `Interfaces/IBandejaRepository.cs`, `Presentation/BandejaController.cs`
+- `Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs` (validación en `UpdateEntregableAsync`)
+
+### Pendiente
+- Los 4 casos de ficha duplicada con estados simétricos (ambos Activo o ambos Retirado) — decisión de GTH/SSOMA, no técnica.
+- No se corrió `dotnet build` en esta sesión (regla del proyecto); falta reiniciar el backend en el entorno del usuario para que tomen efecto estos cambios.
+
+## Sesión 2026-09-18 — Nuevo módulo Catálogo de EPP (SSOMA + Logística)
+
+### Contexto
+Pedido de SSOMA: catálogo autorizado de Equipo de Protección Personal, visible también para Logística, para estandarizar qué EPP/marca/modelo se puede comprar y agilizar la generación de pedidos.
+
+### Cambios
+- Nueva feature `Features/SsomaModule/EppFeature/`, permiso `ssoma.gestion.epp` en módulo SSOMA.
+- Jerarquía: `SsEppCategoria` → `SsEppFamilia` → `SsEppItem` (nombre técnico + nombre comercial + descripción + imagen + ficha técnica PDF) → `SsEppModelo` (marca/modelo/código/imagen). `SsEppAuditoria` registra quién y cuándo creó/editó/activó/desactivó cada ítem o modelo.
+- `SsEppPedido`/`SsEppPedidoLinea`: pedidos con código correlativo (`PED-EPP-{año}-{id}`, generado post-insert con el propio Id), proyecto, usuario que lo generó, fecha, y snapshot de cada línea (no referencia en vivo al catálogo, para que un pedido histórico no cambie si luego se edita el ítem).
+- Dos contenedores de storage nuevos: `epp-imagenes` y `epp-fichas-tecnicas` (`IStorageContainerResolver`, `StorageOptions`).
+- Controllers: `EppController` (`/api/v1/ssoma/epp`) y `EppPedidoController` (`/api/v1/ssoma/epp/pedidos`), mismo `[RequireFeature("ssoma.gestion.epp")]`.
+- Migraciones en `_sql_prod/`: `ssoma_epp_feature.sql` (feature + categorías + tabla item/modelo inicial), `ssoma_epp_familia.sql` (agrega nivel Familia, migra ítems existentes), `ssoma_epp_ficha_tecnica.sql`, `ssoma_epp_pedido.sql`, y `ssoma_epp_seed_excel.sql` (carga inicial: 54 EPP / 43 modelos desde el Excel "EPPS AUTORIZADO SSOMA ACTUALIZADO ACTUAL.xls", hoja "EPP Aprobado", reorganizados en Familias reales).
+
+### Archivos clave
+- `Features/SsomaModule/EppFeature/**` (Application/Infrastructure/Presentation completos).
+- `Shared/Data/AppContext.cs` — DbSets nuevos.
+- `Shared/Services/Storage/**` — contenedores `epp-imagenes`/`epp-fichas-tecnicas`.
+- `Features/SsomaModule/SsomaModule.cs` — registro DI.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi, ya existente). Migraciones SQL ejecutadas y verificadas en vivo por el usuario durante toda la sesión (catálogo, imágenes, ficha técnica, pedido guardado con código correlativo).
+
+### Pendiente
+- Completar modelos/marcas de los ítems que en el Excel decían "Según estándar de logística" (quedaron sin modelo específico).
+- Evaluar si el Pedido necesita un flujo de aprobación (hoy `Estado = "Generado"` es solo informativo).

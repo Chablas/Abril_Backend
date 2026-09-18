@@ -527,6 +527,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo> SsActivoRotativo => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo>();
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento> SsActivoRotativoMovimiento => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento>();
 
+        // EPP — Catálogo Autorizado (SSOMA + Logística)
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppCategoria> SsEppCategoria => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppCategoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppFamilia> SsEppFamilia => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppFamilia>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppItem> SsEppItem => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppItem>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppModelo> SsEppModelo => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppModelo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppAuditoria> SsEppAuditoria => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppAuditoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedido> SsEppPedido => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedido>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedidoLinea> SsEppPedidoLinea => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedidoLinea>();
+
         // Cumplimiento SSOMA
         public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad> SsCumplimientoActividad => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad>();
         public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro> SsCumplimientoRegistro => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro>();

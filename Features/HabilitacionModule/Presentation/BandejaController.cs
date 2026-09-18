@@ -42,6 +42,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] string? responsable,
             [FromQuery] string? search,
             [FromQuery] int? areaScopeId,
+            [FromQuery] string? entregable,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize, areaScopeId);
+                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize, areaScopeId, entregable);
 
                 var result = new PagedResult<BandejaItemDto>
                 {
@@ -103,6 +104,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetEmpresasUnicas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("entregables")]
+        public async Task<IActionResult> GetEntregablesUnicos()
+        {
+            try
+            {
+                if (EsContratista()) return Forbid();
+                return Ok(await _repo.GetEntregablesUnicosAsync());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetEntregablesUnicos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("cursor")]
         public async Task<IActionResult> GetPendientesCursor(
             [FromQuery] string? tipo,
@@ -112,6 +125,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] string? search,
             [FromQuery] int? areaScopeId,
             [FromQuery] string? cursor,
+            [FromQuery] string? entregable,
             [FromQuery] int pageSize = 20)
         {
             try
@@ -129,7 +143,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize, areaScopeId);
+                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize, areaScopeId, entregable);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

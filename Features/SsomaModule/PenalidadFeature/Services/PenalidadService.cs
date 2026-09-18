@@ -240,31 +240,37 @@ public class PenalidadService : IPenalidadService
         }
     }
 
-    /// <summary>Todos los correos de contacto reales de una empresa contratista: el
-    /// "administrador responsable" (contributor.email_administrador, solo se llena si alguien
-    /// lo asignó explícitamente en Gestión de Responsables) MÁS los correos de contacto
-    /// registrados en el alta de la contratista (contractor_email, vía contractor.contributor_id
-    /// = empresaId) -- que es donde en la práctica suele estar cargado el correo real. Sin este
-    /// segundo origen, una empresa con contractor_email pero sin "responsable" asignado
-    /// aparecía como "sin correo" aunque sí tuviera uno.</summary>
+    /// <summary>Correo del contacto PRINCIPAL de la empresa contratista para notificaciones
+    /// formales de penalidad -- deliberadamente UN solo destinatario, no todos los correos de
+    /// contacto (producción, comercial, técnico, etc.), para no diluir de quién es la
+    /// responsabilidad de responder. Prioridad en cascada:
+    /// 1. Usuario TITULAR del portal de la contratista (contractor_user → app_user.email) --
+    ///    por regla de negocio (ContractorAccountEmailPolicy) es un solo correo por empresa,
+    ///    el más autorizado porque es quien realmente opera la cuenta.
+    /// 2. contributor.email_administrador -- el "responsable" asignado a mano en Gestión de
+    ///    Responsables, cuando no hay usuario titular.
+    /// 3. El primer correo de contacto activo (contractor_email) más antiguo, como último
+    ///    recurso, para no dejar la notificación sin ningún destinatario.</summary>
     private static async Task<List<string>> ResolverCorreosContratistaAsync(AppDbContext ctx, int empresaId)
     {
-        var correos = new List<string>();
+        var titular = await ctx.ContractorUser
+            .Where(cu => cu.Active && cu.State)
+            .Join(ctx.Contractor.Where(ct => ct.ContributorId == empresaId), cu => cu.ContractorId, ct => ct.ContractorId, (cu, ct) => cu.UserId)
+            .Join(ctx.User, userId => userId, u => u.UserId, (userId, u) => u.Email)
+            .FirstOrDefaultAsync();
+        if (!string.IsNullOrWhiteSpace(titular)) return new List<string> { titular };
 
         var emailAdmin = await ctx.Contributor.Where(c => c.ContributorId == empresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
-        if (!string.IsNullOrWhiteSpace(emailAdmin)) correos.Add(emailAdmin);
+        if (!string.IsNullOrWhiteSpace(emailAdmin)) return new List<string> { emailAdmin };
 
-        var emailsContacto = await ctx.ContractorEmail
+        var contacto = await ctx.ContractorEmail
             .Join(ctx.Contractor, ce => ce.ContractorId, ct => ct.ContractorId, (ce, ct) => new { ce, ct })
             .Where(x => x.ct.ContributorId == empresaId && x.ct.Active && x.ce.Active && x.ce.State)
+            .OrderBy(x => x.ce.CreatedDateTime)
             .Select(x => x.ce.Email)
-            .ToListAsync();
+            .FirstOrDefaultAsync();
 
-        foreach (var e in emailsContacto)
-            if (!string.IsNullOrWhiteSpace(e) && !correos.Contains(e, StringComparer.OrdinalIgnoreCase))
-                correos.Add(e);
-
-        return correos;
+        return string.IsNullOrWhiteSpace(contacto) ? new List<string>() : new List<string> { contacto };
     }
 
     public async Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId)

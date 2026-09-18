@@ -237,6 +237,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     }
 
     /// <summary>
+    /// Resultado de «Volver a generar» en Mis Rendiciones: cómo salió el reenvío a la primera
+    /// revisión, que va pegado al mismo paso — la planilla se regenera justamente para que el jefe
+    /// la vuelva a mirar, así que generar y avisarle son una sola acción.
+    ///
+    /// El PDF no viaja de vuelta: queda guardado y la planilla ya apunta al nuevo, así que la
+    /// pantalla lo abre con su botón «Planilla» cuando hace falta verlo.
+    ///
+    /// Regenerar y enviar son dos escrituras: si el envío falla, el PDF nuevo igual quedó guardado,
+    /// la planilla queda «Lista para enviar» y <see cref="Message"/> dice por qué.
+    /// </summary>
+    public class RegenerarPlanillaResultDto
+    {
+        /// <summary>
+        /// true = quedó en primera revisión y salieron los correos del paso; false = quedó «Lista
+        /// para enviar» y hay que enviarla a mano desde Mis Rendiciones.
+        /// </summary>
+        public bool EnviadaARevision { get; set; }
+
+        public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// El trabajador dueño de las salidas propias de una planilla, con lo que necesitan los correos
     /// de la primera revisión. Se resuelve en una consulta: el correo no vuelve a la base.
     /// </summary>

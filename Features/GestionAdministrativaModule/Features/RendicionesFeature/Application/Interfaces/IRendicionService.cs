@@ -50,11 +50,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.I
 
         /// <summary>
         /// Vuelve a generar el PDF de una planilla OBSERVADA en primera revisión, con las capturas
-        /// y los montos como quedaron después de corregirlos. La rendición es la misma —conserva su
-        /// código REN-AAAA-NNNN y su número de planilla— y queda "Lista para enviar" para que el
-        /// trabajador la reenvíe.
+        /// y los montos como quedaron después de corregirlos, y la reenvía en el acto a la primera
+        /// revisión con <see cref="EnviarAPrimeraRevision"/>. La rendición es la misma —conserva su
+        /// código REN-AAAA-NNNN y su número de planilla—.
+        ///
+        /// Los dos pasos van juntos porque una planilla se subsana para que el jefe la vuelva a
+        /// mirar: dejarla en «Lista para enviar» obligaba a apretar «Enviar a revisión» después, y
+        /// la que se quedaba a medio camino no le llegaba a nadie.
+        ///
+        /// Si regenerar falla no se escribe nada (lanza como siempre). Si lo que falla es el envío,
+        /// el PDF nuevo igual quedó guardado, la planilla queda «Lista para enviar» y el resultado
+        /// lo dice.
         /// </summary>
-        /// <returns>Los bytes del PDF nuevo, para descargarlo desde la pantalla.</returns>
-        Task<byte[]> RegenerarPlanilla(int rendicionId, int userId);
+        /// <returns>El PDF nuevo —para descargarlo desde la pantalla— y cómo salió el reenvío.</returns>
+        Task<RegenerarPlanillaResultDto> RegenerarPlanilla(int rendicionId, int userId);
     }
 }

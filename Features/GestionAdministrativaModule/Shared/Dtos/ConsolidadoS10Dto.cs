@@ -17,6 +17,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
     public class ConsolidadoS10Dto
     {
         public int Id { get; set; }
+        /// <summary>
+        /// Código de la rendición grupal, <c>CON-AAAA-NNNN</c>: el nombre del conjunto de planillas
+        /// que se consolidaron juntas. Sobrevive al reemplazo del archivo. Null en los consolidados
+        /// anteriores a la columna.
+        /// </summary>
+        public string? Codigo { get; set; }
         /// <summary>"Rendicion" | "Solicitud" — a qué quedó asociado el archivo.</summary>
         public string Ambito { get; set; } = string.Empty;
         public string PdfUrl { get; set; } = string.Empty;
@@ -25,6 +31,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public decimal? MontoTotal { get; set; }
         /// <summary>Número del reembolso del S10 (texto). Null en los consolidados viejos.</summary>
         public string? NumeroReembolso { get; set; }
+
+        /// <summary>
+        /// La PLANILLA GRUPAL: el PDF que junta en un solo documento las planillas de gasto de todo
+        /// lo que cubre el consolidado. La genera Abril One al adjuntarse el S10. Null en los
+        /// consolidados anteriores a la columna.
+        /// </summary>
+        public string? PlanillaGrupalUrl { get; set; }
+        public string? PlanillaGrupalFilename { get; set; }
 
         /// <summary>
         /// Copia firmada por la jefatura (todas sus hojas). Se genera al aprobar el reembolso, así

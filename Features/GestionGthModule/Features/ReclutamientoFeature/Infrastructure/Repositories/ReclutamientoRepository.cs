@@ -1394,6 +1394,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 where !EstadoReclutamiento.FueraDeGth.Contains(e.Codigo)
+                // El tipo (NUEVO / REEMPLAZO) es la columna «Tipo» de la bandeja; junto con es_fft
+                // dice por dónde viene la vacante y cuánto del pipeline se salta.
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
                 join prio in ctx.GthPrioridad on r.GthPrioridadId equals prio.GthPrioridadId into prioJoin
                 from prio in prioJoin.DefaultIfEmpty()
                 orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
@@ -1409,21 +1412,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     PrioridadNombre = prio != null ? prio.Nombre : null,
                     EstadoCodigo    = e.Codigo,
                     EstadoNombre    = e.Nombre,
+                    TipoCodigo      = t.Codigo,
+                    Tipo            = t.Nombre,
+                    r.EsFft,
                 }).ToListAsync();
 
             // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
             var solicitudes = raw.Select(x => new RequerimientoGthListItemDto
             {
-                RequerimientoId       = x.GthRequerimientoId,
-                Codigo                = x.Codigo,
-                Area                  = x.Area,
-                Puesto                = x.Puesto,
-                ProyectoObra          = x.ProyectoObra,
-                FechaLlegada          = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                PrioridadId           = x.PrioridadId,
-                PrioridadNombre       = x.PrioridadNombre,
-                EstadoCodigo          = x.EstadoCodigo,
-                EstadoNombre          = x.EstadoNombre,
+                RequerimientoId         = x.GthRequerimientoId,
+                Codigo                  = x.Codigo,
+                Area                    = x.Area,
+                Puesto                  = x.Puesto,
+                ProyectoObra            = x.ProyectoObra,
+                TipoRequerimiento       = x.Tipo,
+                TipoRequerimientoCodigo = x.TipoCodigo,
+                EsFft                   = x.EsFft,
+                FechaLlegada            = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                PrioridadId             = x.PrioridadId,
+                PrioridadNombre         = x.PrioridadNombre,
+                EstadoCodigo            = x.EstadoCodigo,
+                EstadoNombre            = x.EstadoNombre,
             }).ToList();
 
             // Catálogo de prioridades para el desplegable de la columna (orden semántico Alta→Media→Baja).

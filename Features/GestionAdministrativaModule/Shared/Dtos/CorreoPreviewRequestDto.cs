@@ -36,5 +36,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
 
         /// <summary>La decisión del reembolso (aprobar y firmar / rechazar).</summary>
         public const string Reembolso = "REEMBOLSO";
+
+        /// <summary>
+        /// Adjuntar el Consolidado del S10, que en el mismo paso le avisa a la jefatura de las
+        /// planillas que cubre: consolidar es lo que deja el reembolso esperando su firma.
+        /// </summary>
+        public const string ConsolidadoS10 = "CONSOLIDADO_S10";
     }
 }

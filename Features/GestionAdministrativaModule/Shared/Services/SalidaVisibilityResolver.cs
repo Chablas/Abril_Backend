@@ -24,6 +24,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     ///   • GTH (área "Gestión del Talento Humano" en su cadena)      → ve todo.
     ///   • Gerente (<see cref="CategoriaIds.Gerente"/>)                → su gerencia (raíz Área
     ///                                                                  de Gerencia) + descendientes.
+    ///   • Jefatura del área
+    ///     (<see cref="CategoriaIds.ConVistaDeSuArea"/>)              → su propia área +
+    ///                                                                  descendientes.
     ///   • Administración de Obra ("Administración de Obra" en cadena)→ las áreas donde hay
     ///                                                                  personal de Obra o Staff
     ///                                                                  (workers.obra_oficina_staff_id).
@@ -188,6 +191,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     var root = cadena[^1];
                     visible.Add(root);
                     AddDescendants(root, childrenByParent, visible);
+                }
+
+                // Jefatura del área → su propia área + descendientes.
+                //
+                // El piso obligatorio de más arriba solo ve lo asignado a mano, pero desde que el
+                // revisor se deduce de la estructura (JefeRevisorResolver: el Jefe del área
+                // estándar, el Gerente de la gerencia) una jefatura puede ser revisora —y, por
+                // ConsolidadorResolver, consolidadora— de su área SIN tener fila en
+                // area_revisores. Sin esta regla esa persona quedaba en cero áreas: le tocaba
+                // revisar una rama que no podía ver, y la bandeja le salía vacía. Se decide por
+                // categoría, igual que el otro algoritmo, para que los dos deduzcan lo mismo de
+                // la misma estructura.
+                if (w.CategoriaId.HasValue
+                    && CategoriaIds.ConVistaDeSuArea.Contains(w.CategoriaId.Value)
+                    && w.AreaScopeId.HasValue
+                    && parentById.ContainsKey(w.AreaScopeId.Value))
+                {
+                    visible.Add(w.AreaScopeId.Value);
+                    AddDescendants(w.AreaScopeId.Value, childrenByParent, visible);
                 }
 
                 // Administración de Obra → las áreas con personal de Obra o Staff.

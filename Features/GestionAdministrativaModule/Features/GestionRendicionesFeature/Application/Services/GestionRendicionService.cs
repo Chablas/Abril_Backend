@@ -1,4 +1,6 @@
 ﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
@@ -8,6 +10,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services
 {
@@ -16,7 +19,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         private readonly IGestionRendicionRepository    _repo;
         private readonly ISalidaVisibilityResolver      _visibilityResolver;
         private readonly IConsolidadorResolver          _consolidadorResolver;
+        /// <summary>Jefe/revisor de cada trabajador: a ellos va el aviso de consolidar.</summary>
+        private readonly IJefeRevisorResolver            _jefeResolver;
         private readonly IConsolidadoS10Service         _consolidadoService;
+        /// <summary>Consolidados: de ahí sale el aviso a la jefatura, que va pegado a adjuntar.</summary>
+        private readonly IConsolidadoService             _consolidadoFeature;
         private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly IEmailService                  _emailService;
         private readonly IConfiguration                 _configuration;
@@ -26,7 +33,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             IGestionRendicionRepository repo,
             ISalidaVisibilityResolver visibilityResolver,
             IConsolidadorResolver consolidadorResolver,
+            IJefeRevisorResolver jefeResolver,
             IConsolidadoS10Service consolidadoService,
+            IConsolidadoService consolidadoFeature,
             ICorreoSalidaRecipientResolver correoResolver,
             IEmailService emailService,
             IConfiguration configuration,
@@ -35,7 +44,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             _repo               = repo;
             _visibilityResolver = visibilityResolver;
             _consolidadorResolver = consolidadorResolver;
+            _jefeResolver       = jefeResolver;
             _consolidadoService = consolidadoService;
+            _consolidadoFeature = consolidadoFeature;
             _correoResolver     = correoResolver;
             _emailService       = emailService;
             _configuration      = configuration;
@@ -95,6 +106,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             {
                 await ApplyVisibilityAsync(scope);
 
+                // Adjuntar el consolidado no es una decisión de la primera revisión: su correo va a
+                // la JEFATURA de los trabajadores que cubre, no al solicitante.
+                if (request.Accion == CorreoPreviewAcciones.ConsolidadoS10)
+                    return await PreviewAvisoJefaturaAsync(request.RendicionIds);
+
                 var preview = await _repo.GetPreviewPrimeraRevision(
                     request.RendicionIds, scope, conTrabajadores: request.Aprobar);
 
@@ -122,6 +138,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     "Error resolviendo el preview de correos de la primera revisión");
                 return new List<CorreoAvisoPreviewDto>();
             }
+        }
+
+        /// <summary>
+        /// A quién le va a llegar el aviso que dispara adjuntar el Consolidado del S10: la jefatura
+        /// de los trabajadores de esas planillas.
+        ///
+        /// Se resuelve desde las PLANILLAS y no desde el consolidado —que todavía no existe cuando
+        /// se pregunta— pero con el mismo resolver de jefe/revisor que usa el envío, así que la
+        /// confirmación no puede prometer direcciones distintas de las que después reciben el correo.
+        /// </summary>
+        private async Task<List<CorreoAvisoPreviewDto>> PreviewAvisoJefaturaAsync(
+            IReadOnlyCollection<int> rendicionIds)
+        {
+            var avisos = new List<CorreoAvisoPreviewDto>();
+
+            var ids = rendicionIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return avisos;
+
+            var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
+            if (workerIds.Count == 0) return avisos;
+
+            var jefaturas = (await _jefeResolver.ResolveManyAsync(workerIds))
+                .Values
+                .Select(r => r.Email?.Trim() ?? string.Empty)
+                .Where(email => email.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            await AgregarAvisoAsync(avisos, "A la jefatura", CorreoEventoCodigos.S10Revisor, jefaturas);
+            return avisos;
         }
 
         /// <summary>
@@ -176,8 +222,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             };
         }
 
-        public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId)
+        public async Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
+            int userId, bool seesAllOverride)
         {
             var ids = rendicionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
             if (ids.Count == 0)
@@ -203,8 +250,60 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
                     + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
 
-            return await _consolidadoService.UploadParaRendiciones(
+            var consolidado = await _consolidadoService.UploadParaRendiciones(
                 ids, file, montoTotal, numeroReembolso, userId);
+
+            var (avisada, aviso) = await AvisarJefaturaAsync(consolidado.Id, userId, seesAllOverride);
+
+            return new ConsolidadoS10UploadResultDto
+            {
+                Consolidado     = consolidado,
+                JefaturaAvisada = avisada,
+                AvisoJefatura   = aviso,
+            };
+        }
+
+        /// <summary>
+        /// Le avisa a la jefatura que el consolidado recién adjunto tiene reembolsos esperando su
+        /// firma. Es el MISMO camino que el botón «Avisar a la jefatura» de Consolidados —mismo
+        /// correo, mismos destinatarios, misma configuración y misma marca de avisado— para que las
+        /// dos formas de avisar no puedan comportarse distinto.
+        ///
+        /// Nunca tumba la subida: el consolidado ya quedó adjunto y el PDF en SharePoint, así que un
+        /// correo que no sale no puede deshacer eso. Lo que devuelve es lo que se le va a decir al
+        /// consolidador, que desde Consolidados puede repetir el aviso a mano.
+        /// </summary>
+        private async Task<(bool Avisada, string Mensaje)> AvisarJefaturaAsync(
+            int consolidadoId, int userId, bool seesAllOverride)
+        {
+            var scope = new ConsolidadoFiltersDto
+            {
+                CurrentUserId   = userId,
+                SeesAllOverride = seesAllOverride,
+            };
+
+            try
+            {
+                return (true, await _consolidadoFeature.NotificarJefatura(consolidadoId, scope, userId));
+            }
+            catch (AbrilException ex)
+            {
+                // Los casos previstos (el aviso está apagado, no se le pudo resolver el correo a la
+                // jefatura, no hay nada esperando): el mensaje ya explica cuál es y se imprime tal
+                // cual, sin convertirlo en un error de la subida.
+                _logger.LogInformation(
+                    "Consolidado {ConsolidadoId} adjunto, pero sin aviso a la jefatura: {Motivo}",
+                    consolidadoId, ex.Message);
+                return (false, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando a la jefatura del consolidado {ConsolidadoId} recién adjunto", consolidadoId);
+                return (false,
+                    "El consolidado quedó adjunto, pero no se pudo avisar a la jefatura. "
+                    + "Puedes volver a intentarlo desde Consolidados.");
+            }
         }
 
         // ── Visibilidad ──────────────────────────────────────────────────────

@@ -131,7 +131,10 @@
             { Operador, Rigger, Vigia, Prevencionista, Capataz, Supervisor, Residente };
 
         /// <summary>
-        /// Categorías cuyo trabajador puede ver su propia área en Revisores de Áreas.
+        /// Jefatura de un área: las categorías que mandan sobre el área donde está su puesto.
+        /// La usan Revisores de Áreas (qué trabajador puede verse a sí mismo en su propia área) y
+        /// el algoritmo de <c>SalidaVisibilityResolver</c>, que les concede esa área y su subárbol
+        /// —el revisor/consolidador deducido de la estructura no tiene fila que mirar—.
         /// </summary>
         public static readonly int[] ConVistaDeSuArea = { Jefe, Coordinador, Gerente };
 

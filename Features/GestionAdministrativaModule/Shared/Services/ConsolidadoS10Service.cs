@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -16,17 +17,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// </summary>
     public class ConsolidadoS10Service : IConsolidadoS10Service
     {
+        /// <summary>
+        /// Espacio del <c>pg_advisory_xact_lock</c> con el que se serializa el correlativo
+        /// CON-AAAA-NNNN. Va después del de las solicitudes (8472) y el de las planillas (8473):
+        /// son tres series independientes y cada una toma su propio candado por año.
+        /// </summary>
+        private const int CorrelativoConsolidadoLockNamespace = 8474;
+
+        /// <summary>Perú no tiene horario de verano: el año del correlativo es el de -05:00.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IGraphSharePointService _sharePointService;
+        /// <summary>Quien arma la planilla grupal: el PDF de gasto es de Gestión de Salidas.</summary>
+        private readonly IGestionSalidaService _gestionSalidaService;
         private readonly ILogger<ConsolidadoS10Service> _logger;
 
         public ConsolidadoS10Service(
             IDbContextFactory<AppDbContext> factory,
             IGraphSharePointService sharePointService,
+            IGestionSalidaService gestionSalidaService,
             ILogger<ConsolidadoS10Service> logger)
         {
             _factory = factory;
             _sharePointService = sharePointService;
+            _gestionSalidaService = gestionSalidaService;
             _logger = logger;
         }
 
@@ -148,22 +163,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     + (ids.Count == 1 ? "de la planilla" : $"de las {ids.Count} planillas")
                     + $" (S/ {totalPlanillas:N2}). Corrígelo antes de adjuntarlo.", 400);
 
-            // Si el Coordinador ERP ANULÓ el registro del S10, el número de reembolso anterior quedó
-            // inservible y hay que sacar uno nuevo (HU-ERP-03 / CA-19). Se valida acá, con el resto
-            // de lo que se mira antes de tocar SharePoint: dejar pasar el número de reembolso viejo
-            // mandaría a la jefatura a revisar un consolidado que el S10 ya no reconoce.
+            // Las correcciones vivas de estas planillas: se cierran más abajo, en la misma
+            // transacción, porque recargar el consolidado ES el final de esa gestión.
+            //
+            // El número de reembolso NO se valida contra ellas: se reutiliza el mismo o se escribe
+            // uno nuevo según lo que diga el S10, y eso lo decide el consolidador al llenar el
+            // formulario.
             var correcciones = await ctx.GaCorreccionS10
                 .Where(c => c.State && ids.Contains(c.RendicionId))
                 .ToListAsync();
-
-            var anulada = correcciones.FirstOrDefault(c =>
-                c.NumeroReembolsoAnulado
-                && !string.IsNullOrWhiteSpace(c.NumeroReembolso)
-                && string.Equals(c.NumeroReembolso!.Trim(), reembolso, StringComparison.OrdinalIgnoreCase));
-            if (anulada != null)
-                throw new AbrilException(
-                    $"El número de reembolso {anulada.NumeroReembolso} se anuló en el S10 y no se puede reutilizar. " +
-                    "Genera un número de reembolso nuevo y vuelve a adjuntar el consolidado.", 400);
 
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var folderUrl = await ctx.GaRendicionFolder
@@ -209,6 +217,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 throw new AbrilException("Error al subir el Consolidado del S10 a SharePoint.", 502);
             }
 
+            // ── Planilla grupal ──────────────────────────────────────────────
+            // El tercer documento: la planilla de gasto de TODO lo que cubre este consolidado, en
+            // un solo PDF. Se arma acá y no al rendir porque recién en este paso queda definido qué
+            // planillas van juntas, y se rehace en cada reemplazo porque los montos pueden haber
+            // cambiado en la subsanación.
+            //
+            // Al pie lleva el N.° de reembolso, que es lo que la amarra al Consolidado del S10 que
+            // acompaña (el individual lleva ahí su "TI: 000123"). El NOMBRE del archivo, en cambio,
+            // se arma con los ids: el número de reembolso es texto libre del S10 y puede traer
+            // caracteres que SharePoint no acepta.
+            var grupalBytes = await _gestionSalidaService.GenerarPlanillaGrupal(
+                ids, $"N.° de reembolso {reembolso}");
+
+            var grupalFilename = $"Planilla_Grupal_r{ids[0]}_{ids.Count}planilla{(ids.Count == 1 ? "" : "s")}_{stamp}.pdf";
+
+            string grupalUrl;
+            string? grupalItemId;
+            try
+            {
+                using var grupalStream = new MemoryStream(grupalBytes);
+                var grupalResult = await _sharePointService.UploadToOneDriveFolderAsync(
+                    carpeta.DriveId, carpeta.ItemId, grupalFilename, grupalStream,
+                    "application/pdf",
+                    autoRenameOnLock: true);
+
+                if (grupalResult?.WebUrl is null)
+                    throw new AbrilException("No se pudo subir la planilla grupal a SharePoint (respuesta vacía).", 502);
+
+                grupalUrl = grupalResult.WebUrl;
+                grupalItemId = grupalResult.ItemId;
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló la subida de la planilla grupal (rendiciones={RendicionIds})",
+                    string.Join(",", ids));
+                throw new AbrilException("Error al subir la planilla grupal a SharePoint.", 502);
+            }
+
             // ── Persistir ────────────────────────────────────────────────────
             var now = DateTimeOffset.UtcNow;
 
@@ -231,6 +278,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .Where(c => c.State && anterioresIds.Contains(c.Id) && !siguenCubriendo.Contains(c.Id))
                 .ToListAsync();
 
+            // El código de la rendición grupal se HEREDA cuando este documento reemplaza a otro
+            // que queda entero de baja: es el mismo grupo de planillas y lo único que cambió es el
+            // archivo, así que renombrarlo dejaría a Tesorería y al ERP siguiendo un nombre que ya
+            // no existe (igual que una planilla conserva su REN al subsanarla).
+            //
+            // Se mintea uno nuevo cuando no hay de quién heredarlo: consolidado nuevo, varios
+            // anteriores que se fusionan en uno, o un anterior que sigue vivo cubriendo planillas
+            // con el reembolso ya decidido (ahí el código sigue siendo suyo).
+            var heredado = anterioresIds.Count == 1 && anterioresDeBaja.Count == 1
+                        && !string.IsNullOrWhiteSpace(anterioresDeBaja[0].Codigo)
+                            ? anterioresDeBaja[0]
+                            : null;
+
             var nuevo = new GaConsolidadoS10
             {
                 SolicitudId  = null,
@@ -240,6 +300,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 PdfFilename  = filename,
                 MontoTotal   = monto,
                 NumeroReembolso   = reembolso,
+                PlanillaGrupalUrl      = grupalUrl,
+                PlanillaGrupalItemId   = grupalItemId,
+                PlanillaGrupalDriveId  = carpeta.DriveId,
+                PlanillaGrupalFilename = grupalFilename,
                 UploadedById = userId,
                 UploadedAt   = now,
                 State        = true,
@@ -261,11 +325,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             {
                 using var tx = await ctx.Database.BeginTransactionAsync();
 
-                // Los índices únicos parciales se validan por sentencia: hay que dar de baja los
-                // vínculos anteriores y guardar ANTES de crear los nuevos, o el INSERT choca con el
-                // vínculo vigente de la misma planilla. Ese mismo guardado le da id al consolidado.
+                // Los índices únicos parciales se validan por sentencia, no al COMMIT: las bajas
+                // van en su PROPIO guardado, antes del INSERT. Si no, el vínculo vigente de la
+                // misma planilla —y, cuando el código se hereda, el código del consolidado que se
+                // está reemplazando— chocarían con la fila nueva.
                 foreach (var v in vinculosAnteriores) v.State = false;
                 foreach (var c in anterioresDeBaja)   c.State = false;
+                await ctx.SaveChangesAsync();
+
+                // Siempre se (re)asigna, nunca "solo si está vacío": la execution strategy puede
+                // reintentar este bloque, y un código calculado en el intento anterior podría haber
+                // quedado tomado en el medio.
+                if (heredado != null)
+                {
+                    nuevo.Codigo = heredado.Codigo;
+                    nuevo.Anio   = heredado.Anio;
+                    nuevo.Numero = heredado.Numero;
+                }
+                else
+                {
+                    await MintearCodigoAsync(ctx, nuevo, now);
+                }
+
+                // Este guardado le da id al consolidado, que es lo que necesitan sus vínculos.
                 ctx.GaConsolidadoS10.Add(nuevo);
                 await ctx.SaveChangesAsync();
 
@@ -306,6 +388,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .OrderBy(r => r.Codigo, StringComparer.Ordinal)
                 .ToList();
             return dto;
+        }
+
+        /// <summary>
+        /// Saca el siguiente CON-AAAA-NNNN del año. Mismo mecanismo que el REN de las planillas y
+        /// el SOL de las solicitudes: el candado por año se toma ANTES de leer los números usados,
+        /// porque en READ COMMITTED dos consolidaciones simultáneas leerían lo mismo, armarían el
+        /// mismo código y la segunda moriría contra el índice único (no es un error transitorio,
+        /// así que la execution strategy tampoco lo reintenta).
+        ///
+        /// Corre dentro de la transacción de la subida: el candado es <c>xact</c> y se suelta sola
+        /// al cerrarla.
+        /// </summary>
+        private static async Task MintearCodigoAsync(
+            AppDbContext ctx, GaConsolidadoS10 nuevo, DateTimeOffset now)
+        {
+            var anio = now.ToOffset(PeruOffset).Year;
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({CorrelativoConsolidadoLockNamespace}, {anio})");
+
+            // El menor número libre del año, no el máximo + 1: los consolidados anteriores al
+            // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
+            // Se miran también los dados de baja: el código de uno reemplazado sigue siendo suyo
+            // en la bandeja del ERP, que muestra el documento observado tal como se observó.
+            var usados = (await ctx.GaConsolidadoS10
+                    .Where(c => c.Anio == anio && c.Numero != null)
+                    .Select(c => c.Numero!.Value)
+                    .ToListAsync())
+                .ToHashSet();
+            var numero = 1;
+            while (usados.Contains(numero)) numero++;
+
+            nuevo.Anio   = anio;
+            nuevo.Numero = numero;
+            nuevo.Codigo = $"CON-{anio}-{numero:D4}";
         }
 
         /// <summary>Por qué una planilla sin la primera revisión aprobada todavía no admite el consolidado.</summary>

@@ -131,9 +131,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
         }
 
         /// <summary>
-        /// Vuelve a generar el PDF de una planilla observada en primera revisión y lo descarga. La
-        /// rendición conserva su código REN-AAAA-NNNN y su número de planilla, y queda lista para
-        /// reenviar a revisión.
+        /// Vuelve a generar el PDF de una planilla observada en primera revisión y la reenvía en el
+        /// acto a la primera revisión (con los dos correos del paso). La rendición conserva su
+        /// código REN-AAAA-NNNN y su número de planilla.
+        ///
+        /// No devuelve el archivo: el PDF nuevo queda guardado y la planilla ya apunta a él, así
+        /// que la pantalla lo abre con su botón «Planilla». Solo responde cómo salió el reenvío.
         /// </summary>
         [HttpPatch("{id:int}/regenerar-planilla")]
         public async Task<IActionResult> RegenerarPlanilla(int id)
@@ -143,10 +146,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
 
-                var pdf = await _service.RegenerarPlanilla(id, userId.Value);
-
-                Response.Headers.Append("Access-Control-Expose-Headers", "Content-Disposition");
-                return File(pdf, "application/pdf", $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf");
+                var resultado = await _service.RegenerarPlanilla(id, userId.Value);
+                return Ok(new { resultado.Message, resultado.EnviadaARevision });
             }
             catch (AbrilException ex)
             {

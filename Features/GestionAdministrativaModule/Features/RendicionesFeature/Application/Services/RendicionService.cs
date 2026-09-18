@@ -185,7 +185,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             return resultado;
         }
 
-        public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
+        public async Task<RegenerarPlanillaResultDto> RegenerarPlanilla(int rendicionId, int userId)
         {
             var planilla = await GetDetalle(rendicionId, userId);
 
@@ -197,7 +197,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             // La regeneración es de Gestión de Salidas: el PDF cubre la planilla entera (todas sus
             // salidas, de todos sus trabajadores) y ahí vive su armado. Acá solo se valida que sea
             // del trabajador y que esté observada.
-            return await _gestionSalidaService.RegenerarPlanilla(rendicionId, userId);
+            await _gestionSalidaService.RegenerarPlanilla(rendicionId, userId);
+
+            var resultado = new RegenerarPlanillaResultDto();
+
+            // Regenerar deja la planilla en «Lista para enviar», que es justo el estado desde el que
+            // se envía: el reenvío sigue el MISMO camino que «Enviar a revisión» —guards, estado y
+            // los dos correos— para que las dos formas de enviar no puedan comportarse distinto.
+            //
+            // El PDF nuevo ya está guardado y no se deshace si el envío falla: lo corregido no se
+            // pierde. En ese caso la planilla queda «Lista para enviar» y el mensaje lo dice, en vez
+            // de un error que invitaría a regenerar de nuevo lo ya regenerado.
+            try
+            {
+                resultado.Message          = await EnviarAPrimeraRevision(rendicionId, userId);
+                resultado.EnviadaARevision = true;
+            }
+            catch (AbrilException ex)
+            {
+                _logger.LogWarning(
+                    "Rendición {RendicionId} regenerada pero no reenviada a primera revisión: {Motivo}",
+                    rendicionId, ex.Message);
+                resultado.Message =
+                    $"La planilla {planilla.Codigo} se volvió a generar, pero no se envió a revisión: {ex.Message} " +
+                    "Puedes enviarla desde Mis Rendiciones.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error reenviando a primera revisión la rendición regenerada {RendicionId}", rendicionId);
+                resultado.Message =
+                    $"La planilla {planilla.Codigo} se volvió a generar, pero no se pudo enviar a revisión. " +
+                    "Envíala desde Mis Rendiciones.";
+            }
+
+            return resultado;
         }
 
         // ── Correos de la primera revisión ───────────────────────────────────

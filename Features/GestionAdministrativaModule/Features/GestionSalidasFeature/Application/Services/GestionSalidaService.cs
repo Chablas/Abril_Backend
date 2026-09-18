@@ -395,15 +395,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         $"{limite:dd/MM/yyyy} ({calendario.TextoDelLimite}). Ya no se pueden rendir.", 400);
             }
 
-            // 1.c. Bloqueo: la salida tiene que llevar al menos un trayecto reembolsable. Sin eso no
-            //       hay gasto de movilidad que rendir y la planilla saldría sin una sola fila de esa
-            //       salida, porque los trayectos sin reembolso no se imprimen.
+            // 1.c. Bloqueo: la salida tiene que llevar al menos un trayecto con gasto que rendir.
+            //       Sin eso la planilla saldría sin una sola fila de esa salida: no se imprimen ni
+            //       los trayectos sin reembolso ni los que resuelven a S/ 0.00.
             var noReembolsables = await _repo.GetIdsNoReembolsables(elegiblesIds);
             if (noReembolsables.Count > 0)
                 throw new AbrilException(
-                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún trayecto reembolsable " +
+                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún trayecto con gasto que rendir " +
                     $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden los trayectos cuyo motivo está marcado " +
-                    "como reembolsable en Configuración → Motivos y cuyo recorrido no está excluido en Configuración → Trayectos.",
+                    "como reembolsable en Configuración → Motivos, cuyo recorrido no está excluido en Configuración → " +
+                    "Trayectos y cuyo importe es mayor a S/ 0.00.",
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
@@ -418,7 +419,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 throw new AbrilException(
                     "No se puede rendir: ninguna de las salidas seleccionadas tiene trayectos reembolsables que imprimir.", 400);
 
-            var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId: null);
+            var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, Array.Empty<int>());
             var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
             var numeroLabel    = $"TI: {numeroPlanilla:D6}";
             var pdf            = GenerarPlanillaPdf(datos, numeroLabel, fechas);
@@ -434,7 +435,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return (pdf, rendidasIds.Count, rendicionId, codigo);
         }
 
-        public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
+        public async Task RegenerarPlanilla(int rendicionId, int userId)
         {
             // El PDF cubre la planilla entera, así que se regenera con TODAS sus salidas: acotarlo
             // a las del trabajador que subsana dejaría fuera a los demás grupos del documento.
@@ -467,7 +468,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // Las fechas se vuelven a repartir con los montos corregidos: si la subsanación bajó
             // un importe, lo que se había ido al día siguiente puede volver a caber en el suyo.
             var calendario = await _repo.GetCalendarioNoLaborable();
-            var fechas     = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId);
+            var fechas     = await ImputarFechasPlanillaAsync(datos, calendario, new[] { rendicionId });
 
             // El número de planilla se reusa: el correlativo del papel no se consume otra vez
             // porque es el mismo documento corregido, no uno nuevo.
@@ -479,8 +480,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // El archivo anterior NO se borra de SharePoint: era el documento que el jefe observó y
             // queda como respaldo. Lo que cambia es a cuál apunta la planilla.
             await _repo.ReemplazarPdfRendicion(rendicionId, pdfUrl, pdfItemId, filename);
-
-            return pdf;
         }
 
         /// <summary>
@@ -573,6 +572,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
+        public async Task<byte[]> GenerarPlanillaGrupal(
+            IReadOnlyCollection<int> rendicionIds, string numeroLabel)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            if (ids.Count == 0)
+                throw new AbrilException("No hay planillas con las que armar la planilla grupal.", 400);
+
+            var solicitudIds = await _repo.GetSolicitudIdsDeRendiciones(ids);
+            if (solicitudIds.Count == 0)
+                throw new AbrilException(
+                    "Las planillas del consolidado no tienen salidas: no hay planilla grupal que armar.", 409);
+
+            var datos = await _repo.GetRendicionData(solicitudIds);
+
+            // Mismo corte que al rendir y al regenerar: GetRendicionData solo devuelve trayectos
+            // reembolsables. Sin ninguno no hay papel que armar, y decirlo es mejor que subir un
+            // documento en blanco al lado del Consolidado del S10.
+            if (datos.Count == 0)
+                throw new AbrilException(
+                    "Las planillas del consolidado ya no tienen trayectos reembolsables: no se puede "
+                    + "armar la planilla grupal.", 409);
+
+            var calendario = await _repo.GetCalendarioNoLaborable();
+
+            // Se excluyen TODAS las planillas del consolidado: sus salidas son las que se están
+            // imputando, no un periodo ajeno ya rendido.
+            var fechas = await ImputarFechasPlanillaAsync(datos, calendario, ids);
+
+            return GenerarPlanillaPdf(datos, numeroLabel, fechas);
+        }
+
         /// <summary>
         /// Con qué FECHA sale impreso cada trayecto. La regla vive en
         /// <see cref="ImputacionMovilidadPlanilla"/>; acá se resuelve solo de dónde salen sus datos
@@ -583,12 +613,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// si algo no entró hacia adelante se pregunta qué semanas o quincenas ya se rindieron y se
         /// vuelve a repartir, ahora sí pudiendo ir hacia atrás.
         /// </summary>
-        /// <param name="rendicionId">
-        /// La planilla que se está regenerando, para no tomar sus propias salidas como un periodo
-        /// ajeno. Null cuando se está rindiendo (todavía no existe).
+        /// <param name="rendicionIds">
+        /// Las planillas que se están (re)generando, para no tomar sus propias salidas como un
+        /// periodo ajeno. Vacío cuando se está rindiendo (la planilla todavía no existe); con
+        /// varias cuando lo que se arma es la planilla grupal del consolidado.
         /// </param>
         private async Task<Dictionary<int, DateOnly>> ImputarFechasPlanillaAsync(
-            List<RendicionItemDto> items, CalendarioNoLaborable calendario, int? rendicionId)
+            List<RendicionItemDto> items, CalendarioNoLaborable calendario,
+            IReadOnlyCollection<int> rendicionIds)
         {
             if (items.Count == 0) return new();
 
@@ -608,7 +640,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     trayectos.Select(t => t.WorkerId).Distinct().ToList(),
                     new DateOnly(desde.Year, desde.Month, 1),
                     new DateOnly(hasta.Year, hasta.Month, 1).AddMonths(1).AddDays(-1),
-                    rendicionId);
+                    rendicionIds);
 
                 imputacion = ImputacionMovilidadPlanilla.Resolver(trayectos, calendario, periodos);
             }

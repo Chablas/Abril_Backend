@@ -28,7 +28,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         /// consolidador es uno solo aunque la bandeja lo muestre por planilla.
         /// </summary>
         Task<List<int>> Atender(
-            IEnumerable<int> correccionIds, string? comentario, bool numeroReembolsoAnulado, int erpUserId);
+            IEnumerable<int> correccionIds, string? comentario, int erpUserId);
 
         /// <summary>
         /// Lo que necesitan los avisos de atención de esas correcciones: UNO por pedido (mismo

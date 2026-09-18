@@ -55,13 +55,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         ///
         /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, el
         /// documento compartido se reemplaza entero) las valida el servicio compartido.
+        ///
+        /// Adjuntar TAMBIÉN le avisa a la jefatura, en el mismo paso: consolidar es exactamente lo
+        /// que deja el reembolso esperando su firma, así que el aviso no es un trámite aparte del
+        /// que haya que acordarse. Va best-effort — el resultado dice cómo salió y desde
+        /// Consolidados se puede repetir a mano.
         /// </summary>
         /// <param name="montoTotal">
         /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas
         /// o se rechaza con 400.
         /// </param>
         /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
+        /// <param name="seesAllOverride">Rol que ve toda la organización, para el alcance del aviso.</param>
+        Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
+            int userId, bool seesAllOverride);
     }
 }

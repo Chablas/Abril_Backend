@@ -84,9 +84,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string? AtendidaPor { get; set; }
         public DateTimeOffset? AtendidaAt { get; set; }
         public string? ComentarioAtencion { get; set; }
-
-        /// <summary>True si el ERP anuló el registro y hace falta un número de reembolso nuevo (CA-19).</summary>
-        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>
@@ -169,20 +166,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     }
 
     /// <summary>
-    /// El check de confirmación del Coordinador ERP (RG-22 / RF-OBS-07). El comentario es opcional
-    /// —el requerimiento solo exige el check—, pero <see cref="NumeroReembolsoAnulado"/> cambia lo que el
-    /// colaborador tiene que hacer después, así que se pregunta explícitamente.
+    /// El check de confirmación del Coordinador ERP (RG-22 / RF-OBS-07). El comentario es opcional:
+    /// el requerimiento solo exige el check, y lo que sigue siempre es lo mismo —el consolidador
+    /// recarga el Consolidado del S10 corregido—, así que no hay nada más que preguntar.
     /// </summary>
     public class AtenderCorreccionS10Dto
     {
         /// <summary>Qué se hizo en el S10. Opcional.</summary>
         public string? ComentarioAtencion { get; set; }
-
-        /// <summary>
-        /// true = el registro del S10 se ANULÓ y el colaborador tiene que sacar un número de reembolso nuevo; la
-        /// anterior queda bloqueado (HU-ERP-03 / CA-19). false = se corrigió conservando el número de reembolso.
-        /// </summary>
-        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>Resultado de atender una o varias correcciones en bloque.</summary>

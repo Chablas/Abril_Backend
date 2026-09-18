@@ -2,6 +2,12 @@
 {
     public class SolicitudSalidaFormDataDto
     {
+        /// <summary>
+        /// Motivos activos. Incluye la fila de "Otro motivo" (<see cref="MotivoSalidaDto.EsMotivoLibre"/>),
+        /// que NO va en el desplegable —la elige el checkbox de texto libre— pero cuyas exigencias
+        /// el formulario tiene que poder consultar igual que las de cualquier otro motivo. Si no
+        /// viene (está desactivada), la pantalla no ofrece escribir un motivo a mano.
+        /// </summary>
         public List<MotivoSalidaDto> Motivos { get; set; } = new();
         public List<LugarSalidaDto> Lugares { get; set; } = new();
 
@@ -87,6 +93,9 @@
         /// (origen, destino) elegido puede anularlo — ver
         /// <see cref="SolicitudSalidaFormDataDto.TrayectosNoReembolsables"/>.</summary>
         public bool EsReembolsable { get; set; }
+        /// <summary>true en la fila de "Otro motivo": el formulario la saca del desplegable y la
+        /// usa cuando el trabajador marca el checkbox de texto libre.</summary>
+        public bool EsMotivoLibre { get; set; }
     }
 
     public class LugarSalidaDto

@@ -182,6 +182,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         public int TotalVacantes { get; set; }
 
+        /// <summary>
+        /// Tipos de las vacantes que este usuario ve, sin repetir y en el orden del catálogo: la
+        /// columna «Tipo». Sigue el mismo recorte que <see cref="TotalVacantes"/> y que
+        /// <see cref="Codigos"/> — es una lista y no un valor suelto porque una solicitud puede
+        /// pedir varias vacantes y no tienen por qué ser todas del mismo tipo.
+        ///
+        /// En la práctica la ruta de aprobación ya reparte los tipos: al Gerente General le llegan
+        /// las NUEVAS y al gerente del área y a GTH, los REEMPLAZOS. Las mixtas son las vacantes
+        /// FFT que quedaron enganchadas a una aprobación antes de que el ingreso directo dejara de
+        /// firmarse (ver <c>RutaAprobacion.De</c>).
+        /// </summary>
+        public List<AprobacionGgTipoDto> Tipos { get; set; } = new();
+
+        /// <summary>
+        /// true si alguna de las vacantes que este usuario ve es un ingreso directo <b>FFT</b>. Va
+        /// junto al tipo porque es lo otro que cambia el camino de la vacante.
+        /// </summary>
+        public bool EsFft { get; set; }
+
         /// <summary>Decisión del gerente del área (mueve los reemplazos, junto con la de GTH).</summary>
         public AprobacionNivelResumenDto GerenteArea { get; set; } = new();
 
@@ -204,6 +223,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// de la lista y el botón de la fila ("Revisar y aprobar" vs "Ver decisión").
         /// </summary>
         public bool EsperaMiDecision { get; set; }
+    }
+
+    /// <summary>
+    /// Un tipo de requerimiento presente en las vacantes que el usuario ve de una solicitud, con
+    /// cuántas son. El <see cref="Codigo"/> es lo estable (por ahí filtra la bandeja); el
+    /// <see cref="Nombre"/> es lo que se lee y se puede renombrar desde Configuración.
+    /// </summary>
+    public class AprobacionGgTipoDto
+    {
+        /// <summary><c>NUEVO</c> / <c>REEMPLAZO</c>.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Vacantes de la solicitud, de las que este usuario ve, que son de este tipo.</summary>
+        public int Total { get; set; }
     }
 
     /// <summary>Una vacante de la solicitud, con la decisión de cada nivel.</summary>

@@ -88,9 +88,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         ///
         /// No valida el estado ni la propiedad: eso lo hace quien la llama (ver
         /// <c>IRendicionService.RegenerarPlanilla</c>). Deja la planilla lista para reenviar.
+        ///
+        /// No devuelve el archivo: el PDF nuevo queda guardado y la planilla ya apunta a él.
         /// </summary>
-        /// <returns>Los bytes del PDF nuevo, para que la pantalla lo pueda descargar.</returns>
-        Task<byte[]> RegenerarPlanilla(int rendicionId, int userId);
+        Task RegenerarPlanilla(int rendicionId, int userId);
+
+        /// <summary>
+        /// Arma la PLANILLA GRUPAL: el mismo documento de gasto que la planilla individual, pero
+        /// con las salidas de TODAS las planillas que recibe, en un solo PDF. Es el tercer papel
+        /// del ciclo —planilla individual, Consolidado del S10 y esta— y lo genera la subida del
+        /// consolidado, que es cuando queda definido qué planillas van juntas.
+        ///
+        /// Vive acá porque el armado del PDF de gasto es de esta feature: el generador ya separa
+        /// por trabajador, con su propia paginación y su línea de firma, así que el documento sale
+        /// idéntico al individual solo que con todos los trabajadores del consolidado dentro.
+        ///
+        /// La imputación del tope diario (RG-42) se resuelve sobre el conjunto COMPLETO: si un
+        /// trabajador tiene salidas en dos de las planillas del consolidado, el tope del día las
+        /// alcanza a las dos, que es justo lo que se pierde al mirarlas por separado.
+        ///
+        /// Solo arma los bytes: no los sube ni los guarda. Eso es de quien consolida.
+        /// </summary>
+        /// <param name="rendicionIds">Planillas que cubre el consolidado.</param>
+        /// <param name="numeroLabel">Lo que va al pie de cada hoja, donde el individual lleva su "TI: 000123".</param>
+        Task<byte[]> GenerarPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, string numeroLabel);
 
         /// <summary>
         /// Detalle de una solicitud para el modal — devuelve null si no existe.

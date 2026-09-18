@@ -280,12 +280,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // 1. Exigencias de los motivos elegidos (un solo roundtrip): qué trayectos
             //    necesitan documento adjunto, cuáles necesitan motivo adicional y cuáles no
             //    declaran horario ni lugares. Se carga ANTES de validar porque es el motivo el
-            //    que decide qué campos son obligatorios.
+            //    que decide qué campos son obligatorios. Acá también queda resuelto el motivo_id
+            //    de los trayectos escritos a mano ("Otro motivo"), que a partir de eso pasan por
+            //    las mismas reglas que los del desplegable.
             var exigencias = await CargarExigenciasMotivosAsync(dto);
 
             // Un motivo con pide_horas_lugares = false describe una ausencia de día completo
             // (ej. licencia sin goce de haber), no un desplazamiento: no lleva horas ni lugares y
-            // no admite trayectos adicionales. El motivo libre ("Otro motivo") siempre los pide.
+            // no admite trayectos adicionales. Aplica también a "Otro motivo", que tiene su propia
+            // fila de configuración.
             bool PideHorasLugares(TrayectoCreateDto t) =>
                 !t.MotivoId.HasValue
                 || !exigencias.TryGetValue(t.MotivoId.Value, out var e)
@@ -305,6 +308,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var tieneMotivoLibre = !string.IsNullOrWhiteSpace(t.MotivoLibre);
                 if (!tieneMotivoId && !tieneMotivoLibre)
                     throw new AbrilException($"Trayecto {pos}: debe indicar un motivo.", 400);
+
+                // "Otro motivo" vale por lo que se escribió: su fila del catálogo solo lleva la
+                // configuración, así que sin texto el trayecto no tiene motivo. Y al revés, un
+                // motivo del desplegable no arrastra texto libre aunque el cliente lo mande.
+                var esMotivoLibre = tieneMotivoId
+                                 && exigencias.TryGetValue(t.MotivoId!.Value, out var exMotivo)
+                                 && exMotivo.EsMotivoLibre;
+                if (esMotivoLibre && !tieneMotivoLibre)
+                    throw new AbrilException($"Trayecto {pos}: debe indicar un motivo.", 400);
+                if (tieneMotivoId && !esMotivoLibre)
+                    t.MotivoLibre = null;
 
                 // El horario y los lugares pertenecen al motivo: si el motivo no los pide, no se
                 // guarda nada aunque el cliente los haya mandado (ej. cambió de motivo sin limpiar).
@@ -441,23 +455,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         /// <summary>
-        /// Lee de una sola vez lo que exigen los motivos del catálogo elegidos en la solicitud:
-        /// documento adjunto, motivo adicional y/o horario y lugares. Devuelve un diccionario
-        /// motivoId → exigencias (vacío si todos los trayectos usan "Otro motivo").
+        /// Lee de una sola vez lo que exigen los motivos elegidos en la solicitud: documento
+        /// adjunto, motivo adicional y/o horario y lugares. Devuelve un diccionario
+        /// motivoId → exigencias.
+        ///
+        /// De paso NORMALIZA la vía "Otro motivo": el trayecto que llega con texto libre y sin
+        /// <c>MotivoId</c> queda apuntando a la fila del catálogo que configura esa vía
+        /// (<c>es_motivo_libre</c>), para que el texto libre lea las mismas exigencias que
+        /// cualquier otro motivo en vez de quedar fuera de toda configuración. Es la misma
+        /// consulta: la fila viaja junto a los motivos pedidos. Si esa fila no existe todavía,
+        /// el trayecto se queda con <c>MotivoId</c> nulo y la solicitud sigue el camino de antes.
         /// </summary>
-        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)>>
+        private async Task<Dictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares, bool EsMotivoLibre)>>
             CargarExigenciasMotivosAsync(SolicitudSalidaCreateDto dto)
         {
             var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
-            if (motivoIds.Count == 0) return new();
+            var hayTextoLibre = dto.Trayectos.Any(t => !t.MotivoId.HasValue && !string.IsNullOrWhiteSpace(t.MotivoLibre));
+            if (motivoIds.Count == 0 && !hayTextoLibre) return new();
 
             using var ctx = _factory.CreateDbContext();
             var filas = await ctx.GaMotivoSalida
-                .Where(m => motivoIds.Contains(m.Id))
-                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares })
+                .Where(m => motivoIds.Contains(m.Id) || m.EsMotivoLibre)
+                .Select(m => new { m.Id, m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares, m.EsMotivoLibre })
                 .ToListAsync();
 
-            return filas.ToDictionary(m => m.Id, m => (m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares));
+            var libreId = filas.FirstOrDefault(m => m.EsMotivoLibre)?.Id;
+            if (libreId.HasValue)
+            {
+                foreach (var t in dto.Trayectos)
+                {
+                    if (!t.MotivoId.HasValue && !string.IsNullOrWhiteSpace(t.MotivoLibre))
+                        t.MotivoId = libreId.Value;
+                }
+            }
+
+            return filas.ToDictionary(
+                m => m.Id,
+                m => (m.RequiereAdjunto, m.RequiereMotivoAdicional, m.PideHorasLugares, m.EsMotivoLibre));
         }
 
         /// <summary>
@@ -469,7 +503,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private async Task<Dictionary<int, List<TrayectoAdjuntoSubidoDto>>?> SubirAdjuntosAsync(
             SolicitudSalidaCreateDto dto,
             IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos,
-            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares)> exigencias)
+            IReadOnlyDictionary<int, (bool RequiereAdjunto, bool RequiereMotivoAdicional, bool PideHorasLugares, bool EsMotivoLibre)> exigencias)
         {
             var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
                 .Where(a => a.File != null && a.File.Length > 0)
@@ -632,9 +666,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// motivos con motivo adicional se muestran como "Motivo — detalle": el correo tiene una
         /// sola fila de motivo y el detalle es justamente lo que el revisor necesita leer.
         /// Devuelve además si corresponde mostrar el recordatorio de recuperación de horas:
-        /// solo se muestra cuando al menos un trayecto tiene un motivo del catálogo de hora
-        /// exacta. Los motivos de hora estimada y el motivo libre (personalizado) quedan
-        /// excluidos a propósito y nunca lo disparan — misma regla que el formulario.
+        /// solo se muestra cuando al menos un trayecto tiene un motivo de hora exacta que declara
+        /// horario. Los de hora estimada y los que no piden horas quedan fuera — misma regla que
+        /// el formulario. "Otro motivo" sigue su propia fila de configuración como cualquier otro.
         /// </summary>
         private static async Task<(List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> Trayectos, bool MostrarRecordatorio)>
             ResolveTrayectosForEmailAsync(AppDbContext ctx, List<GaSolicitudTrayecto> trayectos)
@@ -648,9 +682,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 {
                     var m = await ctx.GaMotivoSalida
                         .Where(m => m.Id == t.MotivoId.Value)
-                        .Select(m => new { m.Descripcion, m.EsHoraEstimada, m.PideHorasLugares })
+                        .Select(m => new { m.Descripcion, m.EsHoraEstimada, m.PideHorasLugares, m.EsMotivoLibre })
                         .FirstOrDefaultAsync();
-                    motivo = m?.Descripcion ?? "—";
+                    // La fila de "Otro motivo" solo lleva la configuración: en el correo va lo que
+                    // escribió el trabajador, igual que en las pantallas.
+                    motivo = m == null ? "—"
+                           : m.EsMotivoLibre ? (t.MotivoLibre ?? "—")
+                           : m.Descripcion;
                     if (!string.IsNullOrWhiteSpace(t.MotivoAdicional))
                         motivo = $"{motivo} — {t.MotivoAdicional}";
                     // Un motivo que no declara horario tampoco genera horas que recuperar.
@@ -658,8 +696,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 }
                 else
                 {
-                    // Motivo personalizado (libre): NO dispara el recordatorio de recuperación
-                    // de horas — se omite tanto en el formulario como en los correos.
+                    // Solicitudes anteriores a la fila de configuración de "Otro motivo": quedaron
+                    // con motivo_id nulo y no disparan el recordatorio de recuperación de horas.
                     motivo = t.MotivoLibre ?? "—";
                 }
 
@@ -1071,8 +1109,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (nuevas.Count == 0 && ediciones.Count == 0)
                 throw new AbrilException("No se recibió ningún cambio que guardar.", 400);
 
-            if (nuevas.Any(n => n.Monto < 0) || ediciones.Any(e => e.Monto < 0))
-                throw new AbrilException("El monto no puede ser negativo.", 400);
+            // Una captura de S/ 0.00 no es un gasto: no hay nada que reembolsar y la fila solo
+            // ensuciaría la planilla. El mínimo real es un céntimo, que es el paso del input.
+            if (nuevas.Any(n => n.Monto <= 0) || ediciones.Any(e => e.Monto <= 0))
+                throw new AbrilException("El monto de una captura tiene que ser mayor a S/ 0.00.", 400);
 
             // Un solo viaje trae los trayectos de la solicitud que todavía se pueden tocar, cada
             // uno con los montos de sus capturas vivas y el tope con el que se lo compara. Con eso

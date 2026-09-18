@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
                 throw new AbrilException("Selecciona al menos una corrección.", 400);
 
             var atendidas = await _repo.Atender(
-                accion.CorreccionIds, accion.ComentarioAtencion, accion.NumeroReembolsoAnulado, erpUserId);
+                accion.CorreccionIds, accion.ComentarioAtencion, erpUserId);
 
             // El aviso al consolidador es best-effort: la confirmación ya está guardada y no se
             // revierte porque un correo falle — la ve igual en Consolidados (mismo criterio que las

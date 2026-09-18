@@ -190,7 +190,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                                             ? erp : null,
                     AtendidaAt         = c.AtendidaAt,
                     ComentarioAtencion = c.ComentarioAtencion,
-                    NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
 
                     // WorkerId no viaja en el DTO: la pantalla filtra por el desplegable y el
                     // backend resuelve el recorte, así que exponerlo no agregaría nada.
@@ -291,7 +290,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         }
 
         public async Task<List<int>> Atender(
-            IEnumerable<int> correccionIds, string? comentario, bool numeroReembolsoAnulado, int erpUserId)
+            IEnumerable<int> correccionIds, string? comentario, int erpUserId)
         {
             var ids = correccionIds?.Distinct().ToList() ?? new List<int>();
             if (ids.Count == 0) return new();
@@ -316,7 +315,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 c.AtendidaPorId      = erpUserId;
                 c.AtendidaAt         = now;
                 c.ComentarioAtencion = obs;
-                c.NumeroReembolsoAnulado        = numeroReembolsoAnulado;
                 c.UpdatedDateTime    = now;
             }
 
@@ -408,7 +406,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                                                 ? nombres.GetValueOrDefault(primera.AtendidaPorId.Value)
                                                 : null,
                         ComentarioAtencion = primera.ComentarioAtencion,
-                        NumeroReembolsoAnulado = lista.Any(c => c.NumeroReembolsoAnulado),
                     };
                 })
                 .ToList();

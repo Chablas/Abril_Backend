@@ -17,6 +17,13 @@
         /// <summary>Si true, una salida con este motivo genera reembolso de movilidad. El
         /// trayecto elegido puede anularlo (ga_trayecto.es_reembolsable), nunca al reves.</summary>
         public bool EsReembolsable { get; set; }
+        /// <summary>
+        /// true en la fila que configura la via "Otro motivo" (el texto libre del formulario).
+        /// No es una opcion del desplegable y su descripcion no se muestra en ninguna salida:
+        /// existe para que ese texto libre tambien pueda declararse reembolsable, pedir adjunto,
+        /// etc. Hay una sola, no se crea ni se renombra desde la pantalla.
+        /// </summary>
+        public bool EsMotivoLibre { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 

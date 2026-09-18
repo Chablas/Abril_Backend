@@ -364,7 +364,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 items.Add(new ConsolidadoListItemDto
                 {
                     Id              = dto.Id,
+                    Codigo          = dto.Codigo,
                     NumeroReembolso = dto.NumeroReembolso,
+                    PlanillaGrupalUrl      = dto.PlanillaGrupalUrl,
+                    PlanillaGrupalFilename = dto.PlanillaGrupalFilename,
                     MontoTotal      = dto.MontoTotal,
                     MontoVisible    = visibles.Sum(s => s.Monto),
 
@@ -736,8 +739,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         {
             var elegibles = await IdsConReembolsoRevisableAsync(ctx, idsList);
             if (elegibles.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas del consolidado tiene un reembolso por decidir.", 400);
+                throw new AbrilException(await MotivoSinNadaQueDecidirAsync(ctx, idsList), 400);
 
             var solicitudes = await ctx.GaSolicitudSalida
                 .Where(s => elegibles.Contains(s.Id))
@@ -752,6 +754,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     403);
 
             return solicitudes.Where(s => decidibles.Contains(s.Id)).ToList();
+        }
+
+        /// <summary>
+        /// Por qué no hay nada que decidir. El caso que de verdad pasa es el observado: el documento
+        /// está en manos del consolidador y decirlo así evita que la jefatura crea que se rompió
+        /// algo. El resto cae en el mensaje genérico.
+        /// </summary>
+        private static async Task<string> MotivoSinNadaQueDecidirAsync(AppDbContext ctx, List<int> idsList)
+        {
+            var observadas = await ctx.GaSolicitudSalida
+                .CountAsync(s => idsList.Contains(s.Id)
+                              && s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado);
+
+            return observadas > 0
+                ? "Este consolidado está observado: vuelve a la jefatura recién cuando el consolidador "
+                  + "adjunte el Consolidado del S10 corregido."
+                : "Ninguna de las salidas del consolidado tiene un reembolso por decidir.";
         }
 
         /// <summary>
@@ -1185,7 +1204,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
         /// <summary>
         /// De los ids indicados, cuáles tienen un reembolso listo para decidir: rendidas, con
-        /// Consolidado del S10 adjunto y todavía Pendiente u Observado.
+        /// Consolidado del S10 adjunto y todavía PENDIENTE.
+        ///
+        /// Lo Observado NO entra, y eso es la regla, no un descuido: observar devuelve el documento
+        /// al consolidador, y lo único que lo trae de vuelta es recargar el Consolidado del S10
+        /// corregido (RG-23), que es lo que lo pone otra vez en Pendiente. Mientras eso no pase, la
+        /// jefatura no puede aprobar por encima de su propia observación: firmaría el mismo papel
+        /// que acaba de decir que estaba mal, y la segunda revisión existe justamente para cuadrar
+        /// el importe del S10 contra lo rendido (RG-31). Vale igual para lo que devuelve Tesorería
+        /// (RG-49): también vuelve al consolidador.
         /// </summary>
         private static async Task<HashSet<int>> IdsConReembolsoRevisableAsync(
             AppDbContext ctx, List<int> ids)
@@ -1195,8 +1222,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             var candidatas = await ctx.GaSolicitudSalida
                 .Where(s => ids.Contains(s.Id)
                          && s.EstadoRendicionId == EstadosSalida.Rendicion.Rendido
-                         && (s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
-                          || s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado))
+                         && s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente)
                 .Select(s => new { s.Id, s.RendicionId })
                 .ToListAsync();
 
@@ -1233,9 +1259,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
         private static void CopiarCabecera(ConsolidadoListItemDto o, ConsolidadoDetalleDto d)
         {
-            d.Id = o.Id; d.NumeroReembolso = o.NumeroReembolso; d.MontoTotal = o.MontoTotal;
+            d.Id = o.Id; d.Codigo = o.Codigo;
+            d.NumeroReembolso = o.NumeroReembolso; d.MontoTotal = o.MontoTotal;
             d.MontoVisible = o.MontoVisible;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
+            d.PlanillaGrupalUrl = o.PlanillaGrupalUrl; d.PlanillaGrupalFilename = o.PlanillaGrupalFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
             d.Rendiciones = o.Rendiciones; d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount;
@@ -1270,7 +1298,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             {
                 var texto = filters.Texto!.Trim();
                 q = q.Where(x =>
-                    (x.NumeroReembolso ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
+                    (x.Codigo ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
+                    || (x.NumeroReembolso ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
                     || x.Rendiciones.Any(r => r.Codigo.Contains(texto, StringComparison.OrdinalIgnoreCase)));
             }
 

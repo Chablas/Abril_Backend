@@ -181,7 +181,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
                                       System.Globalization.CultureInfo.InvariantCulture, out var monto))
                     return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
 
-                return Ok(await _service.UploadConsolidadoS10(rendicionIds, file, monto, numeroReembolso, userId.Value));
+                return Ok(await _service.UploadConsolidadoS10(
+                    rendicionIds, file, monto, numeroReembolso, userId.Value,
+                    User.IsInRole(Roles.UsuarioRecepcion)));
             }
             catch (AbrilException ex)
             {

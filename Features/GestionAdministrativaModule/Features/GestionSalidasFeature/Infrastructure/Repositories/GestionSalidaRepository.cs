@@ -242,8 +242,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 {
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
-                    Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    // Motivo libre (sin catálogo) cuenta como hora exacta → se registra hora real.
+                    // "Otro motivo" tiene fila en el catálogo (es la que lo configura), pero lo
+                    // que se muestra es lo que escribió el trabajador, no su descripción.
+                    Motivo = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                     EsHoraEstimada = m != null && m.EsHoraEstimada,
                     // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
                     // motivo libre no tiene el flag y por eso no concede nada.
@@ -879,37 +880,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
-            // Con un solo trayecto reembolsable ya hay gasto que rendir. Se pregunta por la regla
-            // completa (motivo + par origen-destino) y no solo por el flag del motivo: los
-            // trayectos sin reembolso no entran en la planilla, así que una salida cuyo único
-            // motivo reembolsable va por un recorrido excluido no tendría ni una fila que imprimir.
-            // El motivo libre (motivo_id NULL) tampoco concede: el flag vive en el catálogo.
-            var excluidos = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
-
+            // Con un solo trayecto que deje una fila en la planilla ya hay gasto que rendir. Se
+            // pregunta por el IMPORTE y no solo por el flag del motivo, porque es el importe el
+            // que decide qué se imprime: el motivo no reembolsable, el recorrido excluido del
+            // catálogo y el trayecto que resuelve a S/ 0.00 —el tarifario de TI en cero— quedan
+            // todos fuera, así que una salida hecha solo de esos no tendría ni una fila que
+            // imprimir. Es la misma cuenta que hace GetRendicionData, vía ImporteRendidoLoader.
             var trayectos = await (
                 from t in ctx.GaSolicitudTrayecto
-                join m in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
-                from m in mGroup.DefaultIfEmpty()
+                join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
+                join w in ctx.Worker on s.WorkerId equals w.Id
                 where idsList.Contains(t.SolicitudId)
                 select new
                 {
+                    t.Id,
                     t.SolicitudId,
-                    EsMotivoDeCatalogo   = m != null,
-                    MotivoEsReembolsable = m != null && m.EsReembolsable,
+                    w.Subarea,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
                 }
             ).ToListAsync();
 
-            var conTrayectoReembolsable = trayectos
-                .Where(t => ReembolsoTrayectoRule.Resolver(
-                    t.EsMotivoDeCatalogo, t.MotivoEsReembolsable,
-                    t.LugarOrigenId, t.LugarDestinoId, excluidos) == true)
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos.Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                    t.Id, t.Subarea, t.LugarOrigenId, t.LugarDestinoId)).ToList());
+
+            var conGastoQueRendir = trayectos
+                .Where(t => importes.TryGetValue(t.Id, out var imp) && imp.EsReembolsable && imp.Importe > 0m)
                 .Select(t => t.SolicitudId)
                 .Distinct()
                 .ToList();
 
-            return idsList.Except(conTrayectoReembolsable).ToList();
+            return idsList.Except(conGastoQueRendir).ToList();
         }
 
         public async Task<List<string>> GetCorreosSolicitantes(
@@ -962,10 +965,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return await CalendarioNoLaborable.CargarAsync(ctx);
         }
 
+        public async Task<List<int>> GetSolicitudIdsDeRendiciones(IReadOnlyCollection<int> rendicionIds)
+        {
+            if (rendicionIds.Count == 0) return new();
+
+            var ids = rendicionIds.Distinct().ToList();
+
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GaSolicitudSalida
+                .Where(s => s.RendicionId != null && ids.Contains(s.RendicionId.Value))
+                .OrderBy(s => s.Id)
+                .Select(s => s.Id)
+                .ToListAsync();
+        }
+
         public async Task<Dictionary<int, List<ImputacionMovilidadPlanilla.PeriodoRendido>>> GetPeriodosRendidos(
-            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta, int? excluirRendicionId)
+            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta,
+            IReadOnlyCollection<int> excluirRendicionIds)
         {
             if (workerIds.Count == 0) return new();
+
+            var excluidas = excluirRendicionIds.Distinct().ToList();
 
             using var ctx = _factory.CreateDbContext();
 
@@ -974,7 +994,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var filas = await ctx.GaSolicitudSalida
                 .Where(s => workerIds.Contains(s.WorkerId)
                          && s.RendicionId != null
-                         && (excluirRendicionId == null || s.RendicionId != excluirRendicionId)
+                         && !excluidas.Contains(s.RendicionId.Value)
                          && s.FechaSalida >= desde && s.FechaSalida <= hasta)
                 .GroupBy(s => new { s.WorkerId, s.RendicionId })
                 .Select(g => new
@@ -1049,7 +1069,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Orden       = t.Orden,
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
-                        Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                        Motivo      = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                         MotivoAdicional = t.MotivoAdicional,
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -1248,7 +1268,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         TrabajadorDocumentTypeId = per != null ? per.DocumentIdentityTypeId : null,
                         Area             = w.Area,     // fallback; se sobrescribe abajo si el puesto resuelve un área
                         FechaSalida      = s.FechaSalida,
-                        Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
+                        Motivo           = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? "") : m.Descripcion,
                         MotivoAdicional  = t.MotivoAdicional,
                         LugarOrigen      = lo == null ? t.LugarOrigenLibre
                                          : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : null)

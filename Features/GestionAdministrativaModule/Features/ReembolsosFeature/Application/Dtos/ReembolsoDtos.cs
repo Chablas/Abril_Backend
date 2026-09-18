@@ -19,8 +19,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         /// <summary>Id de <c>ga_consolidado_s10</c>.</summary>
         public int Id { get; set; }
 
-        /// <summary>Número de reembolso que devolvió el S10: es como el documento se nombra.</summary>
+        /// <summary>
+        /// Código de la rendición grupal, <c>CON-AAAA-NNNN</c>: el nombre del conjunto de planillas
+        /// que se consolidaron juntas. Sobrevive al reemplazo del archivo. Null en los consolidados
+        /// anteriores a la columna.
+        /// </summary>
+        public string? Codigo { get; set; }
+
+        /// <summary>Número de reembolso que devolvió el S10: es el nombre que le puso el S10.</summary>
         public string? NumeroReembolso { get; set; }
+
+        /// <summary>
+        /// La PLANILLA GRUPAL: el PDF que junta en un solo documento las planillas de gasto de todo
+        /// lo que cubre el consolidado. La genera Abril One al adjuntarse el S10, no se sube. Null
+        /// en los consolidados anteriores a la columna.
+        /// </summary>
+        public string? PlanillaGrupalUrl { get; set; }
+        public string? PlanillaGrupalFilename { get; set; }
+
 
         /// <summary>
         /// Importe con el que el S10 registró las planillas que cubre — el documento entero. Null en

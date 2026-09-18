@@ -6209,3 +6209,30 @@ Aparte, se identificaron y borraron ~190 registros de `person` — duplicados de
 ### Pendiente
 - Los 4 casos de ficha duplicada con estados simétricos (ambos Activo o ambos Retirado) — decisión de GTH/SSOMA, no técnica.
 - No se corrió `dotnet build` en esta sesión (regla del proyecto); falta reiniciar el backend en el entorno del usuario para que tomen efecto estos cambios.
+
+## Sesión 2026-09-18 — Nuevo módulo Catálogo de EPP (SSOMA + Logística)
+
+### Contexto
+Pedido de SSOMA: catálogo autorizado de Equipo de Protección Personal, visible también para Logística, para estandarizar qué EPP/marca/modelo se puede comprar y agilizar la generación de pedidos.
+
+### Cambios
+- Nueva feature `Features/SsomaModule/EppFeature/`, permiso `ssoma.gestion.epp` en módulo SSOMA.
+- Jerarquía: `SsEppCategoria` → `SsEppFamilia` → `SsEppItem` (nombre técnico + nombre comercial + descripción + imagen + ficha técnica PDF) → `SsEppModelo` (marca/modelo/código/imagen). `SsEppAuditoria` registra quién y cuándo creó/editó/activó/desactivó cada ítem o modelo.
+- `SsEppPedido`/`SsEppPedidoLinea`: pedidos con código correlativo (`PED-EPP-{año}-{id}`, generado post-insert con el propio Id), proyecto, usuario que lo generó, fecha, y snapshot de cada línea (no referencia en vivo al catálogo, para que un pedido histórico no cambie si luego se edita el ítem).
+- Dos contenedores de storage nuevos: `epp-imagenes` y `epp-fichas-tecnicas` (`IStorageContainerResolver`, `StorageOptions`).
+- Controllers: `EppController` (`/api/v1/ssoma/epp`) y `EppPedidoController` (`/api/v1/ssoma/epp/pedidos`), mismo `[RequireFeature("ssoma.gestion.epp")]`.
+- Migraciones en `_sql_prod/`: `ssoma_epp_feature.sql` (feature + categorías + tabla item/modelo inicial), `ssoma_epp_familia.sql` (agrega nivel Familia, migra ítems existentes), `ssoma_epp_ficha_tecnica.sql`, `ssoma_epp_pedido.sql`, y `ssoma_epp_seed_excel.sql` (carga inicial: 54 EPP / 43 modelos desde el Excel "EPPS AUTORIZADO SSOMA ACTUALIZADO ACTUAL.xls", hoja "EPP Aprobado", reorganizados en Familias reales).
+
+### Archivos clave
+- `Features/SsomaModule/EppFeature/**` (Application/Infrastructure/Presentation completos).
+- `Shared/Data/AppContext.cs` — DbSets nuevos.
+- `Shared/Services/Storage/**` — contenedores `epp-imagenes`/`epp-fichas-tecnicas`.
+- `Features/SsomaModule/SsomaModule.cs` — registro DI.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi, ya existente). Migraciones SQL ejecutadas y verificadas en vivo por el usuario durante toda la sesión (catálogo, imágenes, ficha técnica, pedido guardado con código correlativo).
+
+### Pendiente
+- Completar modelos/marcas de los ítems que en el Excel decían "Según estándar de logística" (quedaron sin modelo específico).
+- Evaluar si el Pedido necesita un flujo de aprobación (hoy `Estado = "Generado"` es solo informativo).

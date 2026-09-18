@@ -244,15 +244,35 @@ public class PenalidadService : IPenalidadService
     /// formales de penalidad -- deliberadamente UN solo destinatario, no todos los correos de
     /// contacto (producción, comercial, técnico, etc.), para no diluir de quién es la
     /// responsabilidad de responder. Prioridad en cascada:
-    /// 1. Usuario TITULAR del portal de la contratista (contractor_user → app_user.email) --
-    ///    por regla de negocio (ContractorAccountEmailPolicy) es un solo correo por empresa,
-    ///    el más autorizado porque es quien realmente opera la cuenta.
+    /// 1. Contacto de contractor_email cuya DIRECCIÓN (no el tipo -- verificado en BD que
+    ///    contractor_person_type_id nunca se completa en la práctica, sale null en todos los
+    ///    contactos existentes) contenga "geren"/"administr"/"representante" -- ej.
+    ///    "gerencia@batalladejunin.com". Es una heurística sobre el texto del correo, no un
+    ///    catálogo, porque el catálogo de tipos está sin usar.
     /// 2. contributor.email_administrador -- el "responsable" asignado a mano en Gestión de
-    ///    Responsables, cuando no hay usuario titular.
-    /// 3. El primer correo de contacto activo (contractor_email) más antiguo, como último
-    ///    recurso, para no dejar la notificación sin ningún destinatario.</summary>
+    ///    Responsables, cuando no hay ningún contacto con "gerencia" en la dirección.
+    /// 3. Usuario TITULAR del portal (contractor_user → app_user.email) -- último recurso: es
+    ///    un solo correo por empresa por regla de negocio, pero puede ser de cualquier área
+    ///    (quien registró el acceso, no necesariamente gerencia -- ver caso Batalla de Junín,
+    ///    cuyo titular es un correo de "seguridad").</summary>
     private static async Task<List<string>> ResolverCorreosContratistaAsync(AppDbContext ctx, int empresaId)
     {
+        var contactosActivos = await ctx.ContractorEmail
+            .Join(ctx.Contractor, ce => ce.ContractorId, ct => ct.ContractorId, (ce, ct) => new { ce, ct })
+            .Where(x => x.ct.ContributorId == empresaId && x.ct.Active && x.ce.Active && x.ce.State)
+            .OrderBy(x => x.ce.CreatedDateTime)
+            .Select(x => x.ce.Email)
+            .ToListAsync();
+
+        var contactoGerencia = contactosActivos.FirstOrDefault(e =>
+            e.Contains("geren", StringComparison.OrdinalIgnoreCase)
+            || e.Contains("administr", StringComparison.OrdinalIgnoreCase)
+            || e.Contains("representante", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(contactoGerencia)) return new List<string> { contactoGerencia };
+
+        var emailAdmin = await ctx.Contributor.Where(c => c.ContributorId == empresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
+        if (!string.IsNullOrWhiteSpace(emailAdmin)) return new List<string> { emailAdmin };
+
         var titular = await ctx.ContractorUser
             .Where(cu => cu.Active && cu.State)
             .Join(ctx.Contractor.Where(ct => ct.ContributorId == empresaId), cu => cu.ContractorId, ct => ct.ContractorId, (cu, ct) => cu.UserId)
@@ -260,17 +280,9 @@ public class PenalidadService : IPenalidadService
             .FirstOrDefaultAsync();
         if (!string.IsNullOrWhiteSpace(titular)) return new List<string> { titular };
 
-        var emailAdmin = await ctx.Contributor.Where(c => c.ContributorId == empresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
-        if (!string.IsNullOrWhiteSpace(emailAdmin)) return new List<string> { emailAdmin };
-
-        var contacto = await ctx.ContractorEmail
-            .Join(ctx.Contractor, ce => ce.ContractorId, ct => ct.ContractorId, (ce, ct) => new { ce, ct })
-            .Where(x => x.ct.ContributorId == empresaId && x.ct.Active && x.ce.Active && x.ce.State)
-            .OrderBy(x => x.ce.CreatedDateTime)
-            .Select(x => x.ce.Email)
-            .FirstOrDefaultAsync();
-
-        return string.IsNullOrWhiteSpace(contacto) ? new List<string>() : new List<string> { contacto };
+        // 4. Ningún nivel anterior dio resultado -- mejor el primer contacto que existe (aunque
+        //    no se pueda identificar su rol) que dejar la notificación sin destinatario alguno.
+        return contactosActivos.Count > 0 ? new List<string> { contactosActivos[0] } : new List<string>();
     }
 
     public async Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId)

@@ -21,11 +21,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public int Id { get; set; }
 
         /// <summary>
-        /// Código de la rendición grupal: <c>CON-AAAA-NNNN</c>. Es el nombre con el que se sigue al
-        /// conjunto de planillas que se consolidaron juntas, en las cuatro pantallas por las que
-        /// pasa (Gestión de Rendiciones, Consolidados, Correcciones S10 y Reembolsos). Sigue la
-        /// misma serie por año que el SOL-AAAA-NNNN de la solicitud y el REN-AAAA-NNNN de la
-        /// planilla (RG-02).
+        /// Código de la rendición grupal: <c>CONS-&lt;ÁREA&gt;-AAAA-NNN</c> (CONS-GTH-2026-001), con
+        /// correlativo propio por área y año. Es el nombre con el que se sigue al conjunto de
+        /// planillas que se consolidaron juntas, en las cuatro pantallas por las que pasa (Gestión
+        /// de Rendiciones, Consolidados, Correcciones S10 y Reembolsos), y el que lleva impreso la
+        /// planilla de reembolso. La sigla sale de <c>area_item.abreviatura</c> del área del
+        /// consolidado (<see cref="AreaScopeId"/>). Hasta el 2026-09-18 era CON-AAAA-NNNN, por año.
         ///
         /// Al REEMPLAZAR el documento el código NO cambia: la fila nueva hereda el de la que se da
         /// de baja, igual que una planilla conserva su REN al subsanarla. Lo que se reemplaza es el
@@ -41,8 +42,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// <summary>Año del correlativo (hora de Perú). Null junto con <see cref="Codigo"/>.</summary>
         public int? Anio { get; set; }
 
-        /// <summary>Correlativo dentro del año. Null junto con <see cref="Codigo"/>.</summary>
+        /// <summary>Correlativo dentro del área y el año. Null junto con <see cref="Codigo"/>.</summary>
         public int? Numero { get; set; }
+
+        /// <summary>
+        /// Área del consolidado: la del consolidador que lo subió (su ficha vigente → puesto → área
+        /// de destino). Da la sigla del <see cref="Codigo"/> y el "ÁREA" de la planilla de
+        /// reembolso. Se hereda al reemplazar, junto con el código. Null si no se pudo resolver.
+        /// </summary>
+        public int? AreaScopeId { get; set; }
 
         /// <summary>
         /// FK a <c>ga_solicitud_salida.id</c> en los consolidados antiguos que cubrían una sola
@@ -75,9 +83,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string? NumeroReembolso { get; set; }
 
         /// <summary>
-        /// PLANILLA GRUPAL: el tercer documento del ciclo. Es la misma planilla de gasto que la
-        /// individual, pero con las salidas de TODAS las planillas que cubre este consolidado en un
-        /// solo PDF, un bloque por trabajador con su línea de firma.
+        /// PLANILLA GRUPAL ("PLANILLA DE REEMBOLSO" en el papel): el tercer documento del ciclo. Los
+        /// trayectos de TODAS las planillas que cubre este consolidado en una sola tabla, con la
+        /// columna RENDICIÓN diciendo de qué planilla sale cada fila, la cabecera del consolidador
+        /// y el código <see cref="Codigo"/> impreso.
         ///
         /// La genera Abril One —no se sube— en el mismo acto en que el consolidador adjunta el
         /// Consolidado del S10, que es cuando queda definido qué planillas van juntas. Si el
@@ -89,6 +98,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string? PlanillaGrupalItemId { get; set; }
         public string? PlanillaGrupalDriveId { get; set; }
         public string? PlanillaGrupalFilename { get; set; }
+
+        /// <summary>
+        /// Copia de la planilla grupal con la firma de la jefatura, que se estampa en el mismo acto
+        /// que la del consolidado (aprobar el reembolso ES firmar) y con las mismas reglas: si firma
+        /// más de una jefatura, las firmas se acumulan sobre esta copia. Null mientras no se apruebe,
+        /// y en los consolidados aprobados antes de que la grupal se firmara.
+        /// </summary>
+        public string? PlanillaGrupalFirmadoUrl { get; set; }
+        public string? PlanillaGrupalFirmadoItemId { get; set; }
+        public string? PlanillaGrupalFirmadoFilename { get; set; }
 
         /// <summary>
         /// Copia del consolidado con la firma de la jefatura estampada en TODAS sus hojas. Se genera

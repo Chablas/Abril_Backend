@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 
 namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Interfaces
@@ -12,8 +13,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         /// <summary>Las correcciones vivas que pasan los filtros, ordenadas por antigüedad del pedido.</summary>
         Task<List<CorreccionS10ListItemDto>> GetAll(CorreccionS10FiltersDto filters);
 
-        /// <summary>Una corrección viva por id, o null si no existe (o ya se cerró).</summary>
-        Task<CorreccionS10ListItemDto?> GetDetalle(int correccionId);
+        /// <summary>
+        /// Una corrección viva por id con las rendiciones que cubre su consolidado y sus salidas, o
+        /// null si no existe (o ya se cerró).
+        /// </summary>
+        Task<CorreccionS10DetalleDto?> GetDetalle(int correccionId);
+
+        /// <summary>
+        /// El detalle de UNA salida de la bandeja —trayectos, capturas y adjuntos—, en consulta.
+        /// Null si la salida no está en una planilla de una corrección viva ni de su consolidado.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId);
 
         /// <summary>Opciones de los filtros: solo lo que aparece en la bandeja.</summary>
         Task<CorreccionS10FilterDataDto> GetFilterData();

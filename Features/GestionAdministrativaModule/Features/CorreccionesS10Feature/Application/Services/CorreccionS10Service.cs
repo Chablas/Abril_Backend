@@ -45,11 +45,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 
         public Task<CorreccionS10FilterDataDto> GetFilterData() => _repo.GetFilterData();
 
-        public async Task<CorreccionS10ListItemDto> GetDetalle(int correccionId) =>
+        public async Task<CorreccionS10DetalleDto> GetDetalle(int correccionId) =>
             await _repo.GetDetalle(correccionId)
                 ?? throw new AbrilException(
                     "La solicitud de corrección no existe o ya se cerró (el consolidador recargó el "
                     + "Consolidado del S10).", 404);
+
+        public async Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId) =>
+            await _repo.GetSalidaDetalle(solicitudId)
+                ?? throw new AbrilException(
+                    "La salida no existe o no está en una corrección en curso.", 404);
 
         public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreview(List<int> correccionIds)
         {
@@ -127,9 +132,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 
                     if (!envio.Enviar || envio.Para.Count == 0) continue;
 
-                    // El botón lleva a Gestión de Rendiciones, que es donde el consolidador recarga
-                    // el Consolidado del S10: es el paso que esta confirmación acaba de habilitar.
-                    var url  = SalidaEnlaces.GestionRendiciones(_configuration, datos.RendicionId);
+                    // El botón lleva a Consolidados, que es donde el consolidador recarga el
+                    // Consolidado del S10: es el paso que esta confirmación acaba de habilitar. Las
+                    // correcciones anteriores a la columna no saben su consolidado: caen en la planilla.
+                    var url  = datos.ConsolidadoS10Id is int consolidadoId
+                        ? SalidaEnlaces.Consolidados(_configuration, consolidadoId)
+                        : SalidaEnlaces.GestionRendiciones(_configuration, datos.RendicionId);
                     var body = CorreccionS10EmailTemplates.Atendida(layout, datos, url);
 
                     await _emailService.SendAsync(

@@ -281,6 +281,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 ? fila.MontoTotalPlanilla
                 : totalesFuera.GetValueOrDefault(rendicionId);
 
+            bool ReembolsoAbierto(int rendicionId) =>
+                agrupables.TryGetValue(rendicionId, out var a) && a.ReembolsoAbierto;
+
             var salidasDelDetalle = new Dictionary<int, List<ConsolidadoSalidaDto>>();
             var items = new List<ConsolidadoListItemDto>(grupos.Count);
 
@@ -306,6 +309,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                                 Codigo             = kv.Value,
                                 Visible            = false,
                                 MontoTotalPlanilla = MontoCompletoDe(kv.Key),
+                                ReembolsoAbierto   = ReembolsoAbierto(kv.Key),
                             };
                         }
 
@@ -317,6 +321,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                             Codigo             = p.Codigo,
                             Visible            = true,
                             MontoTotalPlanilla = p.MontoTotalPlanilla,
+                            ReembolsoAbierto   = ReembolsoAbierto(p.Id),
                             NumeroPlanilla     = p.NumeroPlanilla,
                             Periodo            = PlanillaRendicionHelper.EtiquetaPeriodo(
                                                      suyas.Min(s => s.FechaSalida),
@@ -368,6 +373,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     NumeroReembolso = dto.NumeroReembolso,
                     PlanillaGrupalUrl      = dto.PlanillaGrupalUrl,
                     PlanillaGrupalFilename = dto.PlanillaGrupalFilename,
+                    PlanillaGrupalFirmadoUrl      = dto.PlanillaGrupalFirmadoUrl,
+                    PlanillaGrupalFirmadoFilename = dto.PlanillaGrupalFirmadoFilename,
                     MontoTotal      = dto.MontoTotal,
                     MontoVisible    = visibles.Sum(s => s.Monto),
 
@@ -414,6 +421,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     PuedeSolicitarCorreccion = puedeConsolidar
                                             && correccion == null
                                             && visibles.Any(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado),
+                    // Mismo criterio que la subida: el documento nuevo cubre las planillas que
+                    // siguen abiertas; sin ninguna, el consolidado ya quedó firmado y no se toca.
+                    PuedeReemplazar = puedeConsolidar && rendiciones.Any(r => r.ReembolsoAbierto),
                     CorreccionS10 = correccion,
                 });
 
@@ -601,7 +611,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             var consolidadoIds = consolidadoPorSolicitud.Values.Select(c => c.Id).Distinct().ToList();
             var consolidados = await ctx.GaConsolidadoS10
                 .Where(c => consolidadoIds.Contains(c.Id))
-                .Select(c => new { c.Id, c.PdfUrl, c.PdfFilename, c.PdfFirmadoUrl })
+                .Select(c => new
+                {
+                    c.Id, c.PdfUrl, c.PdfFilename, c.PdfFirmadoUrl,
+                    c.PlanillaGrupalUrl, c.PlanillaGrupalFilename, c.PlanillaGrupalFirmadoUrl,
+                })
                 .ToDictionaryAsync(c => c.Id, c => c);
 
             // Un consolidado compartido puede llegar ya firmado por otro jefe, que aprobó otra de
@@ -626,12 +640,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                         var previas = c.PdfFirmadoUrl != null && firmantes.TryGetValue(cid, out var yaFirmaron)
                             ? yaFirmaron.Count
                             : 0;
+
+                        // La planilla grupal acumula las firmas igual que el consolidado. Si llega
+                        // sin copia firmada aunque ya haya firmas —las que se estamparon antes de
+                        // que la grupal se firmara—, esta es su primera.
+                        var grupalFirmada = previas > 0 && c.PlanillaGrupalFirmadoUrl != null;
+
                         return new DocumentoParaFirmarDto
                         {
                             Id       = cid,
                             Url      = previas > 0 ? c.PdfFirmadoUrl! : c.PdfUrl,
                             Filename = c.PdfFilename,
                             Slot     = previas,
+                            GrupalUrl = c.PlanillaGrupalUrl == null
+                                ? null
+                                : grupalFirmada ? c.PlanillaGrupalFirmadoUrl : c.PlanillaGrupalUrl,
+                            GrupalFilename = c.PlanillaGrupalFilename,
+                            GrupalSlot     = grupalFirmada ? previas : 0,
                         };
                     })
                     .ToList();
@@ -648,12 +673,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         }
 
         public async Task<List<int>> AprobarReembolsoFirmado(
-            IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId)
+            IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId, DateTimeOffset firmadoAt)
         {
             if (planillas.Count == 0) return new();
 
             using var ctx = _factory.CreateDbContext();
-            var now = DateTimeOffset.UtcNow;
+            // La hora que quedó impresa en el pie de las firmas: la base y el papel dicen lo mismo.
+            var now = firmadoAt;
 
             var solicitudIds = planillas.SelectMany(p => p.SolicitudIds).Distinct().ToList();
             var rendicionIds = planillas.Select(p => p.RendicionId).Distinct().ToList();
@@ -692,14 +718,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     r.FirmadoAt          = now;
                 }
 
-                foreach (var (consolidadoId, archivo) in p.Consolidados)
+                foreach (var (consolidadoId, firmado) in p.Consolidados)
                 {
                     if (!consolidados.TryGetValue(consolidadoId, out var c)) continue;
-                    c.PdfFirmadoUrl      = archivo.Url;
-                    c.PdfFirmadoItemId   = archivo.ItemId;
-                    c.PdfFirmadoFilename = archivo.Filename;
+                    c.PdfFirmadoUrl      = firmado.S10.Url;
+                    c.PdfFirmadoItemId   = firmado.S10.ItemId;
+                    c.PdfFirmadoFilename = firmado.S10.Filename;
                     c.FirmadoPorId       = reviewerUserId;
                     c.FirmadoAt          = now;
+
+                    if (firmado.Grupal != null)
+                    {
+                        c.PlanillaGrupalFirmadoUrl      = firmado.Grupal.Url;
+                        c.PlanillaGrupalFirmadoItemId   = firmado.Grupal.ItemId;
+                        c.PlanillaGrupalFirmadoFilename = firmado.Grupal.Filename;
+                    }
                 }
             }
 
@@ -1073,6 +1106,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             return plan;
         }
 
+        public async Task<ReemplazoConsolidadoPlanDto?> GetReemplazoPlan(
+            int consolidadoId, ConsolidadoFiltersDto scope, int userId)
+        {
+            var visibles = await ResolverSolicitudIds(new[] { consolidadoId }, scope);
+            if (visibles.Count == 0) return null;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var cubiertas  = await RendicionesCubiertasAsync(ctx, consolidadoId);
+            var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, cubiertas);
+            var abiertas   = agrupables.Values.Where(a => a.ReembolsoAbierto).ToList();
+
+            var plan = new ReemplazoConsolidadoPlanDto
+            {
+                PuedeConsolidar      = await PuedeConsolidarAsync(ctx, consolidadoId, userId),
+                RendicionIdsAbiertas = abiertas.Select(a => a.RendicionId).OrderBy(id => id).ToList(),
+            };
+            if (abiertas.Count == 0) return plan;
+
+            // El reemplazo deja el reembolso Pendiente otra vez: el aviso va a la jefatura de los
+            // trabajadores de esas planillas, el MISMO revisor que después lo decide.
+            plan.JefaturaEmails = (await _jefeResolver.ResolveManyAsync(
+                    abiertas.SelectMany(a => a.WorkerIds).Distinct().ToList()))
+                .Values
+                .Select(r => r.Email?.Trim() ?? string.Empty)
+                .Where(email => email.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return plan;
+        }
+
         public async Task<List<GaCorreccionS10>> CrearCorrecciones(
             int consolidadoId, string? numeroReembolso, IReadOnlyCollection<int> rendicionIds,
             string motivo, int userId)
@@ -1135,6 +1200,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             ctx.GaCorreccionS10.AddRange(nuevas);
             await ctx.SaveChangesAsync();
             return nuevas;
+        }
+
+        public async Task<FirmanteDto> GetFirmante(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var nombre = await ctx.Person
+                .Where(p => p.UserId == userId && p.FullName != null)
+                .Select(p => p.FullName)
+                .FirstOrDefaultAsync();
+
+            // Una persona puede tener más de una ficha (reingresos anteriores a la fusión): gana la
+            // vigente, igual que en el resto de los lookups usuario → ficha. Sin ordenar saldría
+            // el puesto de una ficha retirada.
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var puesto = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
+                    v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
+                .ThenByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo ? 1 : 0)
+                .ThenByDescending(w => w.Id)
+                .Select(w => w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null)
+                .FirstOrDefaultAsync();
+
+            return new FirmanteDto
+            {
+                // El nombre viene en MAYÚSCULAS; en el pie va como nombre propio ("Roberto Vidal").
+                // El puesto no: es un nombre de catálogo y puede traer siglas (SSOMA, TI).
+                Nombre = string.IsNullOrWhiteSpace(nombre)
+                    ? string.Empty
+                    : System.Globalization.CultureInfo.GetCultureInfo("es-PE").TextInfo
+                        .ToTitleCase(nombre.Trim().ToLowerInvariant()),
+                Puesto = string.IsNullOrWhiteSpace(puesto) ? null : puesto.Trim(),
+            };
         }
 
         public async Task<List<string>> GetCorreosCoordinadorErp()
@@ -1264,6 +1363,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             d.MontoVisible = o.MontoVisible;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
             d.PlanillaGrupalUrl = o.PlanillaGrupalUrl; d.PlanillaGrupalFilename = o.PlanillaGrupalFilename;
+            d.PlanillaGrupalFirmadoUrl = o.PlanillaGrupalFirmadoUrl;
+            d.PlanillaGrupalFirmadoFilename = o.PlanillaGrupalFirmadoFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
             d.Rendiciones = o.Rendiciones; d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount;
@@ -1275,6 +1376,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             d.PorDecidirCount = o.PorDecidirCount;
             d.PuedeConsolidar = o.PuedeConsolidar; d.PuedeAvisarJefatura = o.PuedeAvisarJefatura;
             d.JefaturaAvisadaAt = o.JefaturaAvisadaAt; d.PuedeSolicitarCorreccion = o.PuedeSolicitarCorreccion;
+            d.PuedeReemplazar = o.PuedeReemplazar;
             d.CorreccionS10 = o.CorreccionS10;
         }
 

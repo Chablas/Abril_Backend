@@ -106,10 +106,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool PuedeConsolidar { get; set; }
 
         /// <summary>
-        /// True si a esta planilla se le puede adjuntar (o cambiar) el Consolidado del S10: la
-        /// primera revisión está APROBADA (RG-35) y el reembolso de TODAS sus salidas sigue por
-        /// decidir. Es la misma condición que valida la subida, sin mirar permisos (para eso está
-        /// <see cref="PuedeConsolidar"/>).
+        /// True si a esta planilla se le puede adjuntar su PRIMER Consolidado del S10: la primera
+        /// revisión está APROBADA (RG-35), el reembolso de TODAS sus salidas sigue por decidir y
+        /// todavía no tiene consolidado. Reemplazarlo ya no se hace acá sino en Consolidados, que es
+        /// donde vuelve la observación. Es la misma condición que valida la subida, sin mirar
+        /// permisos (para eso está <see cref="PuedeConsolidar"/>).
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 
@@ -273,26 +274,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// salen los consolidadores a los que se avisa al aprobar, igual que en el envío.
         /// </summary>
         public List<int> WorkerIds { get; set; } = new();
-    }
-
-    /// <summary>
-    /// Resultado de adjuntar el Consolidado del S10: el documento que quedó y cómo salió el aviso a
-    /// la jefatura, que va pegado al mismo paso. Consolidar es exactamente lo que deja el reembolso
-    /// esperando la firma, así que avisar no es un trámite aparte que haya que acordarse de hacer.
-    ///
-    /// El aviso es best-effort: si no sale —está apagado en Configuración → Correos, no se pudo
-    /// resolver a quién, o falló el envío— el consolidado igual quedó adjunto y
-    /// <see cref="AvisoJefatura"/> dice por qué. Desde Consolidados se puede volver a mandar a mano.
-    /// </summary>
-    public class ConsolidadoS10UploadResultDto
-    {
-        /// <summary>El consolidado adjunto, tal como lo devuelve la subida.</summary>
-        public ConsolidadoS10Dto Consolidado { get; set; } = new();
-
-        /// <summary>true = el correo salió y la jefatura ya lo tiene en su bandeja.</summary>
-        public bool JefaturaAvisada { get; set; }
-
-        /// <summary>Qué pasó con el aviso, para imprimirlo tal cual en la pantalla.</summary>
-        public string AvisoJefatura { get; set; } = string.Empty;
     }
 }

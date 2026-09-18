@@ -15,6 +15,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int CorreccionId { get; set; }
         public int RendicionId { get; set; }
 
+        /// <summary>
+        /// Consolidado observado sobre el que se pidió la corrección. Lo usa el aviso de atención:
+        /// su botón abre Consolidados en ese documento, que es donde se reemplaza. Null en las
+        /// correcciones anteriores a la columna.
+        /// </summary>
+        public int? ConsolidadoS10Id { get; set; }
+
         /// <summary>Código(s) REN-AAAA-NNNN de las planillas, separados por coma.</summary>
         public string Codigo { get; set; } = string.Empty;
 
@@ -143,9 +150,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Al consolidador: el ERP ya hizo la corrección en el S10. El botón lo deja en Gestión de
-        /// Rendiciones, que es donde recarga el Consolidado — el paso que esta confirmación acaba de
-        /// habilitar.
+        /// Al consolidador: el ERP ya hizo la corrección en el S10. El botón lo deja en Consolidados,
+        /// que es donde recarga el Consolidado — el paso que esta confirmación acaba de habilitar.
         /// </summary>
         public static string Atendida(
             SalidaEmailLayout l, CorreccionS10CorreoDatos d, string urlRecargar)

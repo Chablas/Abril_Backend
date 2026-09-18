@@ -29,25 +29,90 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
         public async Task<List<CorreccionS10ListItemDto>> GetAll(CorreccionS10FiltersDto filters)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ArmarAsync(ctx, filters, correccionId: null);
+            return await ArmarAsync<CorreccionS10ListItemDto>(ctx, filters, correccionId: null);
         }
 
-        public async Task<CorreccionS10ListItemDto?> GetDetalle(int correccionId)
+        public async Task<CorreccionS10DetalleDto?> GetDetalle(int correccionId)
         {
             using var ctx = _factory.CreateDbContext();
-            var items = await ArmarAsync(ctx, new CorreccionS10FiltersDto(), correccionId);
-            return items.FirstOrDefault();
+            var detalle = (await ArmarAsync<CorreccionS10DetalleDto>(
+                ctx, new CorreccionS10FiltersDto(), correccionId)).FirstOrDefault();
+            if (detalle == null) return null;
+
+            // Las planillas que cubre el consolidado observado —todas: el registro del S10 que corrige
+            // el ERP es uno solo— más la de la fila, por si su vínculo ya no estuviera vigente.
+            var rendicionIds = new List<int> { detalle.RendicionId };
+            if (detalle.ConsolidadoS10 != null)
+                rendicionIds.AddRange(await ctx.GaConsolidadoS10Rendicion
+                    .Where(v => v.State && v.ConsolidadoS10Id == detalle.ConsolidadoS10.Id)
+                    .Select(v => v.RendicionId)
+                    .ToListAsync());
+            rendicionIds = rendicionIds.Distinct().ToList();
+
+            var planillas = await PlanillaRendicionLoader.LoadAsync(
+                ctx,
+                ctx.GaSolicitudSalida.Where(s => s.RendicionId != null && rendicionIds.Contains(s.RendicionId.Value)),
+                conDetalle: true);
+
+            foreach (var p in planillas.OrderBy(p => p.Codigo, StringComparer.Ordinal))
+            {
+                detalle.Rendiciones.Add(new CorreccionS10PlanillaDto
+                {
+                    Id                 = p.Id,
+                    Codigo             = p.Codigo,
+                    NumeroPlanilla     = p.NumeroPlanilla,
+                    EstadoReembolso    = p.EstadoReembolso,
+                    MontoTotalPlanilla = p.MontoTotalPlanilla,
+                });
+                detalle.Salidas.AddRange(p.Salidas.Select(s => new CorreccionS10SalidaDto
+                {
+                    Id              = s.Id,
+                    Codigo          = s.Codigo,
+                    RendicionId     = p.Id,
+                    Trabajador      = s.Trabajador,
+                    Area            = s.Area,
+                    FechaSalida     = s.FechaSalida,
+                    Motivo          = s.Motivo,
+                    TrayectosCount  = s.TrayectosCount,
+                    Monto           = s.Monto,
+                    EstadoReembolso = s.EstadoReembolso,
+                }));
+            }
+
+            return detalle;
+        }
+
+        public async Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo una salida de lo que está en la bandeja: de una planilla con una corrección viva
+            // o cubierta por el consolidado de una. Mandar un id cualquiera no abre otra salida.
+            var vivas = ctx.GaCorreccionS10.Where(c => c.State);
+            var enBandeja = await ctx.GaSolicitudSalida
+                .Where(s => s.Id == solicitudId && s.RendicionId != null)
+                .AnyAsync(s => vivas.Any(c =>
+                    c.RendicionId == s.RendicionId
+                    || (c.ConsolidadoS10Id != null
+                        && ctx.GaConsolidadoS10Rendicion.Any(v => v.State
+                            && v.ConsolidadoS10Id == c.ConsolidadoS10Id
+                            && v.RendicionId == s.RendicionId))));
+            if (!enBandeja) return null;
+
+            return await SalidaDetalleLoader.LoadAsync(ctx, solicitudId, conAptitudParaRendir: false);
         }
 
         /// <summary>
         /// El armado que comparten el listado y el detalle: la fila del ERP necesita datos de tres
         /// tablas distintas (la corrección, su planilla y el colaborador dueño de las salidas), y
         /// resolverlas por separado en cada camino haría que las dos vistas se pudieran desalinear.
+        /// Es genérico para que el detalle salga de este mismo armado, con sus listas vacías.
         ///
         /// Cinco consultas fijas, sin N+1: correcciones, planillas, dueños, consolidados y totales.
         /// </summary>
-        private static async Task<List<CorreccionS10ListItemDto>> ArmarAsync(
+        private static async Task<List<T>> ArmarAsync<T>(
             AppDbContext ctx, CorreccionS10FiltersDto filters, int? correccionId)
+            where T : CorreccionS10ListItemDto, new()
         {
             // 1) Las correcciones vivas que pasan los filtros de columna.
             var query = ctx.GaCorreccionS10.Where(c => c.State);
@@ -140,7 +205,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             var nombres = await CorreccionS10Loader.NombresAsync(ctx, correcciones);
 
             // ── Armado de las filas ──────────────────────────────────────────
-            var items = new List<CorreccionS10ListItemDto>(correcciones.Count);
+            var items = new List<T>(correcciones.Count);
 
             foreach (var c in correcciones)
             {
@@ -150,7 +215,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
 
                 var areaScopeId = info?.Dueno.AreaScopeId;
 
-                items.Add(new CorreccionS10ListItemDto
+                items.Add(new T
                 {
                     Id             = c.Id,
                     RendicionId    = c.RendicionId,
@@ -242,7 +307,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             // Se arma sobre las filas de la bandeja (sin filtros) por la misma razón que en
             // Tesorería: ofrecer colaboradores o periodos que no están acá sería ofrecer un
             // resultado vacío. Reutiliza el armado, así que no puede desalinearse de la tabla.
-            var items = await ArmarAsync(ctx, new CorreccionS10FiltersDto(), correccionId: null);
+            var items = await ArmarAsync<CorreccionS10ListItemDto>(
+                ctx, new CorreccionS10FiltersDto(), correccionId: null);
             if (items.Count == 0) return new();
 
             var rendicionIds = items.Select(x => x.RendicionId).Distinct().ToList();
@@ -385,6 +451,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                     {
                         CorreccionId       = primera.Id,
                         RendicionId        = primera.RendicionId,
+                        ConsolidadoS10Id   = primera.ConsolidadoS10Id,
                         Codigo             = string.Join(", ", codigos),
                         RendicionesCount   = codigos.Count,
                         Trabajador         = string.Join(", ", suyas.Select(s => s.Trabajador).Distinct().OrderBy(n => n)),

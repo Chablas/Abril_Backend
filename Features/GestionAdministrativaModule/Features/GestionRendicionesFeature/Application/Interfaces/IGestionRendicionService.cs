@@ -48,13 +48,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) UN Consolidado del S10 para las planillas indicadas: una o varias,
-        /// de uno o de varios trabajadores, de las razones sociales que sean. Solo lo sube el
-        /// consolidador, que tiene que estar habilitado por TODOS los trabajadores de esas planillas
+        /// Adjunta el PRIMER Consolidado del S10 de las planillas indicadas: una o varias, de uno o
+        /// de varios trabajadores, de las razones sociales que sean. Solo lo sube el consolidador,
+        /// que tiene que estar habilitado por TODOS los trabajadores de esas planillas
         /// (Consolidados → Configuración → Consolidadores).
         ///
-        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, el
-        /// documento compartido se reemplaza entero) las valida el servicio compartido.
+        /// Ninguna puede tener ya un consolidado (409): reemplazarlo es de Consolidados
+        /// (<c>IConsolidadoService.ReemplazarConsolidado</c>). El resto de las reglas (primera
+        /// revisión APROBADA, reembolso por decidir) las valida el servicio compartido.
         ///
         /// Adjuntar TAMBIÉN le avisa a la jefatura, en el mismo paso: consolidar es exactamente lo
         /// que deja el reembolso esperando su firma, así que el aviso no es un trámite aparte del

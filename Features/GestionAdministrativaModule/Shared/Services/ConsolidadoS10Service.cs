@@ -1,9 +1,11 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,7 +21,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     {
         /// <summary>
         /// Espacio del <c>pg_advisory_xact_lock</c> con el que se serializa el correlativo
-        /// CON-AAAA-NNNN. Va después del de las solicitudes (8472) y el de las planillas (8473):
+        /// CONS-ÁREA-AAAA-NNN. Va después del de las solicitudes (8472) y el de las planillas (8473):
         /// son tres series independientes y cada una toma su propio candado por año.
         /// </summary>
         private const int CorrelativoConsolidadoLockNamespace = 8474;
@@ -188,10 +190,82 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (carpeta == null || !carpeta.IsFolder)
                 throw new AbrilException("No se pudo resolver la carpeta de consolidados del S10 en SharePoint.", 502);
 
+            // ── Qué pasa con los consolidados anteriores ──────────────────────
+            // Se resuelve ANTES de generar los PDF: si este documento reemplaza entero a otro,
+            // hereda su código, y el código va impreso en la planilla de reembolso y en el nombre
+            // de los archivos.
+
+            // Los vínculos vigentes de estas planillas pasan al consolidado nuevo.
+            var vinculosAnteriores = await ctx.GaConsolidadoS10Rendicion
+                .Where(v => v.State && ids.Contains(v.RendicionId))
+                .ToListAsync();
+
+            // Un consolidado anterior se da de baja cuando se queda sin planillas. Si todavía cubre
+            // alguna con el reembolso ya decidido, sigue vivo para ella: es el documento que se firmó.
+            var anterioresIds = vinculosAnteriores.Select(v => v.ConsolidadoS10Id).Distinct().ToList();
+            var siguenCubriendo = await ctx.GaConsolidadoS10Rendicion
+                .Where(v => v.State
+                         && anterioresIds.Contains(v.ConsolidadoS10Id)
+                         && !ids.Contains(v.RendicionId))
+                .Select(v => v.ConsolidadoS10Id)
+                .Distinct()
+                .ToListAsync();
+            var anterioresDeBaja = await ctx.GaConsolidadoS10
+                .Where(c => c.State && anterioresIds.Contains(c.Id) && !siguenCubriendo.Contains(c.Id))
+                .ToListAsync();
+
+            // El código de la rendición grupal se HEREDA cuando este documento reemplaza a otro
+            // que queda entero de baja: es el mismo grupo de planillas y lo único que cambió es el
+            // archivo, así que renombrarlo dejaría a Tesorería y al ERP siguiendo un nombre que ya
+            // no existe (igual que una planilla conserva su REN al subsanarla). Con el código se
+            // hereda también el área, que es la que lo arma.
+            //
+            // Se mintea uno nuevo cuando no hay de quién heredarlo: consolidado nuevo, varios
+            // anteriores que se fusionan en uno, o un anterior que sigue vivo cubriendo planillas
+            // con el reembolso ya decidido (ahí el código sigue siendo suyo).
+            var heredado = anterioresIds.Count == 1 && anterioresDeBaja.Count == 1
+                        && !string.IsNullOrWhiteSpace(anterioresDeBaja[0].Codigo)
+                            ? anterioresDeBaja[0]
+                            : null;
+
+            // ── Área y código de la rendición grupal ─────────────────────────
+            var now = DateTimeOffset.UtcNow;
+
+            var areaScopeId = heredado?.AreaScopeId ?? await AreaDelConsolidadoAsync(ctx, userId, ids);
+            var area = areaScopeId == null
+                ? null
+                : await (
+                    from sc in ctx.AreaScope
+                    join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                    where sc.AreaScopeId == areaScopeId.Value
+                    select new { it.AreaItemName, it.Abreviatura }
+                  ).FirstOrDefaultAsync();
+
+            // El código nuevo se calcula acá, sin candado, para poder imprimirlo; dentro de la
+            // transacción se confirma que siga libre (ver VerificarCodigoLibreAsync).
+            string  codigoGrupo;
+            int?    anio;
+            int?    numero;
+            string? prefijoNuevo = null;
+            if (heredado != null)
+            {
+                codigoGrupo = heredado.Codigo!;
+                anio        = heredado.Anio;
+                numero      = heredado.Numero;
+            }
+            else
+            {
+                prefijoNuevo = CodigoRendicionGrupal.Prefijo(area?.Abreviatura, area?.AreaItemName);
+                anio         = now.ToOffset(PeruOffset).Year;
+                numero       = await MenorNumeroLibreAsync(ctx, prefijoNuevo, anio.Value);
+                codigoGrupo  = CodigoRendicionGrupal.Armar(prefijoNuevo, anio.Value, numero.Value);
+            }
+
+            // Los archivos se nombran con el código —solo letras, números y guiones, así que
+            // SharePoint lo acepta— y con la hora: un reemplazo hereda el código y no puede pisar
+            // el archivo del documento que reemplaza, que queda como historial.
             var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            var filename = ids.Count == 1
-                ? $"Consolidado_S10_r{ids[0]}_{stamp}.pdf"
-                : $"Consolidado_S10_r{ids[0]}_{ids.Count}planillas_{stamp}.pdf";
+            var filename = $"Consolidado_S10_{codigoGrupo}_{stamp}.pdf";
 
             string pdfUrl;
             string? pdfItemId;
@@ -217,20 +291,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 throw new AbrilException("Error al subir el Consolidado del S10 a SharePoint.", 502);
             }
 
-            // ── Planilla grupal ──────────────────────────────────────────────
-            // El tercer documento: la planilla de gasto de TODO lo que cubre este consolidado, en
-            // un solo PDF. Se arma acá y no al rendir porque recién en este paso queda definido qué
-            // planillas van juntas, y se rehace en cada reemplazo porque los montos pueden haber
-            // cambiado en la subsanación.
-            //
-            // Al pie lleva el N.° de reembolso, que es lo que la amarra al Consolidado del S10 que
-            // acompaña (el individual lleva ahí su "TI: 000123"). El NOMBRE del archivo, en cambio,
-            // se arma con los ids: el número de reembolso es texto libre del S10 y puede traer
-            // caracteres que SharePoint no acepta.
-            var grupalBytes = await _gestionSalidaService.GenerarPlanillaGrupal(
-                ids, $"N.° de reembolso {reembolso}");
+            // ── Planilla de reembolso (la planilla grupal) ──────────────────
+            // El tercer documento: los trayectos de TODO lo que cubre este consolidado en una sola
+            // tabla, con la planilla de la que sale cada fila. Se arma acá y no al rendir porque
+            // recién en este paso queda definido qué planillas van juntas, y se rehace en cada
+            // reemplazo porque los montos pueden haber cambiado en la subsanación. La cabecera es
+            // la del consolidador: su razón social, su nombre y el área del consolidado.
+            var consolidador = await ctx.Person
+                .Where(p => p.UserId == userId && p.FullName != null)
+                .Select(p => p.FullName)
+                .FirstOrDefaultAsync();
+            var razones = await RazonSocialConsolidador.LoadPorUsuarioAsync(ctx, new[] { userId });
+            razones.TryGetValue(userId, out var razon);
 
-            var grupalFilename = $"Planilla_Grupal_r{ids[0]}_{ids.Count}planilla{(ids.Count == 1 ? "" : "s")}_{stamp}.pdf";
+            var grupalBytes = await _gestionSalidaService.GenerarPlanillaGrupal(ids, new PlanillaReembolsoCabeceraDto
+            {
+                Codigo          = codigoGrupo,
+                RazonSocial     = razon?.Nombre,
+                Ruc             = razon?.Ruc,
+                Consolidador    = consolidador,
+                Area            = area?.AreaItemName,
+                NumeroReembolso = reembolso,
+            });
+
+            var grupalFilename = $"Planilla_Reembolso_{codigoGrupo}_{stamp}.pdf";
 
             string grupalUrl;
             string? grupalItemId;
@@ -243,7 +327,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     autoRenameOnLock: true);
 
                 if (grupalResult?.WebUrl is null)
-                    throw new AbrilException("No se pudo subir la planilla grupal a SharePoint (respuesta vacía).", 502);
+                    throw new AbrilException("No se pudo subir la planilla de reembolso a SharePoint (respuesta vacía).", 502);
 
                 grupalUrl = grupalResult.WebUrl;
                 grupalItemId = grupalResult.ItemId;
@@ -251,49 +335,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             catch (AbrilException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falló la subida de la planilla grupal (rendiciones={RendicionIds})",
+                _logger.LogError(ex, "Falló la subida de la planilla de reembolso (rendiciones={RendicionIds})",
                     string.Join(",", ids));
-                throw new AbrilException("Error al subir la planilla grupal a SharePoint.", 502);
+                throw new AbrilException("Error al subir la planilla de reembolso a SharePoint.", 502);
             }
 
             // ── Persistir ────────────────────────────────────────────────────
-            var now = DateTimeOffset.UtcNow;
-
-            // Los vínculos vigentes de estas planillas pasan al consolidado nuevo.
-            var vinculosAnteriores = await ctx.GaConsolidadoS10Rendicion
-                .Where(v => v.State && ids.Contains(v.RendicionId))
-                .ToListAsync();
-
-            // Un consolidado anterior se da de baja cuando se queda sin planillas. Si todavía cubre
-            // alguna con el reembolso ya decidido, sigue vivo para ella: es el documento que se firmó.
-            var anterioresIds = vinculosAnteriores.Select(v => v.ConsolidadoS10Id).Distinct().ToList();
-            var siguenCubriendo = await ctx.GaConsolidadoS10Rendicion
-                .Where(v => v.State
-                         && anterioresIds.Contains(v.ConsolidadoS10Id)
-                         && !ids.Contains(v.RendicionId))
-                .Select(v => v.ConsolidadoS10Id)
-                .Distinct()
-                .ToListAsync();
-            var anterioresDeBaja = await ctx.GaConsolidadoS10
-                .Where(c => c.State && anterioresIds.Contains(c.Id) && !siguenCubriendo.Contains(c.Id))
-                .ToListAsync();
-
-            // El código de la rendición grupal se HEREDA cuando este documento reemplaza a otro
-            // que queda entero de baja: es el mismo grupo de planillas y lo único que cambió es el
-            // archivo, así que renombrarlo dejaría a Tesorería y al ERP siguiendo un nombre que ya
-            // no existe (igual que una planilla conserva su REN al subsanarla).
-            //
-            // Se mintea uno nuevo cuando no hay de quién heredarlo: consolidado nuevo, varios
-            // anteriores que se fusionan en uno, o un anterior que sigue vivo cubriendo planillas
-            // con el reembolso ya decidido (ahí el código sigue siendo suyo).
-            var heredado = anterioresIds.Count == 1 && anterioresDeBaja.Count == 1
-                        && !string.IsNullOrWhiteSpace(anterioresDeBaja[0].Codigo)
-                            ? anterioresDeBaja[0]
-                            : null;
-
             var nuevo = new GaConsolidadoS10
             {
                 SolicitudId  = null,
+                AreaScopeId  = areaScopeId,
                 PdfUrl       = pdfUrl,
                 PdfItemId    = pdfItemId,
                 PdfDriveId   = carpeta.DriveId,
@@ -333,19 +384,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 foreach (var c in anterioresDeBaja)   c.State = false;
                 await ctx.SaveChangesAsync();
 
-                // Siempre se (re)asigna, nunca "solo si está vacío": la execution strategy puede
-                // reintentar este bloque, y un código calculado en el intento anterior podría haber
-                // quedado tomado en el medio.
-                if (heredado != null)
-                {
-                    nuevo.Codigo = heredado.Codigo;
-                    nuevo.Anio   = heredado.Anio;
-                    nuevo.Numero = heredado.Numero;
-                }
-                else
-                {
-                    await MintearCodigoAsync(ctx, nuevo, now);
-                }
+                // El código nuevo ya va impreso en la planilla: acá solo se confirma, con el
+                // candado del correlativo tomado, que nadie lo haya tomado mientras se subían los
+                // archivos. Se repite en cada intento de la execution strategy.
+                if (prefijoNuevo != null)
+                    await VerificarCodigoLibreAsync(ctx, anio!.Value, codigoGrupo);
+
+                nuevo.Codigo = codigoGrupo;
+                nuevo.Anio   = anio;
+                nuevo.Numero = numero;
 
                 // Este guardado le da id al consolidado, que es lo que necesitan sus vínculos.
                 ctx.GaConsolidadoS10.Add(nuevo);
@@ -391,37 +438,80 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <summary>
-        /// Saca el siguiente CON-AAAA-NNNN del año. Mismo mecanismo que el REN de las planillas y
-        /// el SOL de las solicitudes: el candado por año se toma ANTES de leer los números usados,
-        /// porque en READ COMMITTED dos consolidaciones simultáneas leerían lo mismo, armarían el
-        /// mismo código y la segunda moriría contra el índice único (no es un error transitorio,
-        /// así que la execution strategy tampoco lo reintenta).
-        ///
-        /// Corre dentro de la transacción de la subida: el candado es <c>xact</c> y se suelta sola
-        /// al cerrarla.
+        /// El área del consolidado: la del consolidador que lo sube —es el consolidador DEL ÁREA—,
+        /// por su ficha vigente (una persona puede tener varias por reingreso) → puesto → área de
+        /// destino. Si él no tiene área (sin ficha o sin puesto), la que más se repite entre los
+        /// trabajadores de las planillas que cubre.
         /// </summary>
-        private static async Task MintearCodigoAsync(
-            AppDbContext ctx, GaConsolidadoS10 nuevo, DateTimeOffset now)
+        private static async Task<int?> AreaDelConsolidadoAsync(
+            AppDbContext ctx, int userId, IReadOnlyCollection<int> rendicionIds)
         {
-            var anio = now.ToOffset(PeruOffset).Year;
-            await ctx.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT pg_advisory_xact_lock({CorrelativoConsolidadoLockNamespace}, {anio})");
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var propia = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
+                    v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
+                .ThenByDescending(w => w.WorkersEstadoId == WorkersEstadoIds.Activo ? 1 : 0)
+                .ThenByDescending(w => w.Id)
+                .Select(w => w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null)
+                .FirstOrDefaultAsync();
+            if (propia != null) return propia;
 
-            // El menor número libre del año, no el máximo + 1: los consolidados anteriores al
-            // código se numeraron en la migración y una baja no debe dejar el hueco perdido.
-            // Se miran también los dados de baja: el código de uno reemplazado sigue siendo suyo
-            // en la bandeja del ERP, que muestra el documento observado tal como se observó.
+            var deLosTrabajadores = await (
+                from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                where s.RendicionId != null && rendicionIds.Contains(s.RendicionId.Value)
+                select w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
+            ).ToListAsync();
+
+            return deLosTrabajadores
+                .Where(a => a != null)
+                .GroupBy(a => a!.Value)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key)
+                .Select(g => (int?)g.Key)
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// El menor número libre del área en el año, no el máximo + 1: una baja no debe dejar el
+        /// hueco perdido. Se miran también los dados de baja: el código de uno reemplazado sigue
+        /// siendo suyo en la bandeja del ERP, que muestra el documento observado tal como se
+        /// observó.
+        /// </summary>
+        private static async Task<int> MenorNumeroLibreAsync(AppDbContext ctx, string prefijo, int anio)
+        {
+            var raiz = CodigoRendicionGrupal.Raiz(prefijo, anio);
             var usados = (await ctx.GaConsolidadoS10
-                    .Where(c => c.Anio == anio && c.Numero != null)
+                    .Where(c => c.Anio == anio && c.Numero != null
+                             && c.Codigo != null && c.Codigo.StartsWith(raiz))
                     .Select(c => c.Numero!.Value)
                     .ToListAsync())
                 .ToHashSet();
+
             var numero = 1;
             while (usados.Contains(numero)) numero++;
+            return numero;
+        }
 
-            nuevo.Anio   = anio;
-            nuevo.Numero = numero;
-            nuevo.Codigo = $"CON-{anio}-{numero:D4}";
+        /// <summary>
+        /// Confirma, dentro de la transacción de la subida, que el código calculado antes de armar
+        /// la planilla siga libre. El candado por año se toma ANTES de mirar: en READ COMMITTED dos
+        /// consolidaciones simultáneas leerían lo mismo. Si otro lo tomó en el medio —dos
+        /// consolidaciones de la misma área en los mismos segundos—, la planilla ya tiene impreso
+        /// un código ajeno: se corta con 409 en vez de guardar un papel que no coincide.
+        ///
+        /// El candado es <c>xact</c> y se suelta solo al cerrar la transacción.
+        /// </summary>
+        private static async Task VerificarCodigoLibreAsync(AppDbContext ctx, int anio, string codigo)
+        {
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({CorrelativoConsolidadoLockNamespace}, {anio})");
+
+            if (await ctx.GaConsolidadoS10.AnyAsync(c => c.Codigo == codigo))
+                throw new AbrilException(
+                    $"Otro consolidado tomó el código {codigo} mientras se subía este. "
+                    + "Vuelve a adjuntar el Consolidado del S10.", 409);
         }
 
         /// <summary>Por qué una planilla sin la primera revisión aprobada todavía no admite el consolidado.</summary>

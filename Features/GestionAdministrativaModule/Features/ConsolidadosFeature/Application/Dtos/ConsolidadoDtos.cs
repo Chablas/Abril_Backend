@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public int Id { get; set; }
 
         /// <summary>
-        /// Código de la rendición grupal, <c>CON-AAAA-NNNN</c>: el nombre del conjunto de planillas
+        /// Código de la rendición grupal, <c>CONS-ÁREA-AAAA-NNN</c>: el nombre del conjunto de planillas
         /// que se consolidaron juntas. Sobrevive al reemplazo del archivo. Null en los consolidados
         /// anteriores a la columna.
         /// </summary>
@@ -48,6 +48,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// </summary>
         public string? PlanillaGrupalUrl { get; set; }
         public string? PlanillaGrupalFilename { get; set; }
+        /// <summary>
+        /// Copia de la planilla grupal con la firma de la jefatura. Null mientras no se apruebe, y
+        /// en los consolidados aprobados antes de que la grupal se firmara.
+        /// </summary>
+        public string? PlanillaGrupalFirmadoUrl { get; set; }
+        public string? PlanillaGrupalFirmadoFilename { get; set; }
         /// <summary>Copia con la firma de la jefatura. Null mientras no se apruebe el reembolso.</summary>
         public string? PdfFirmadoUrl { get; set; }
         public string? PdfFirmadoFilename { get; set; }
@@ -130,6 +136,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public bool PuedeSolicitarCorreccion { get; set; }
 
         /// <summary>
+        /// True si el consolidador puede reemplazar el documento: alguna de sus planillas sigue con
+        /// el reembolso por decidir (<see cref="ConsolidadoPlanillaDto.ReembolsoAbierto"/>). Es el
+        /// ÚNICO lugar donde se reemplaza —Gestión de Rendiciones solo adjunta el primero— y es
+        /// también lo que destraba un reembolso observado.
+        /// </summary>
+        public bool PuedeReemplazar { get; set; }
+
+        /// <summary>
         /// La corrección con el Coordinador ERP que está viva en alguna de sus planillas. Null en el
         /// caso normal: casi ningún consolidado pasa por el ERP. Su estado dice de quién es la pelota.
         /// </summary>
@@ -152,6 +166,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
         /// <summary>Monto de la planilla COMPLETA. Es lo que suma contra el importe del consolidado.</summary>
         public decimal MontoTotalPlanilla { get; set; }
+
+        /// <summary>
+        /// True si el reembolso de TODAS sus salidas sigue por decidir (Pendiente u Observado): es lo
+        /// que va a cubrir el consolidado de reemplazo. Las ya decididas se quedan con el actual, que
+        /// es el que se firmó (ver <c>ConsolidadoS10Agrupacion</c>).
+        /// </summary>
+        public bool ReembolsoAbierto { get; set; }
 
         // Lo de abajo solo viene en las visibles.
         public string? NumeroPlanilla { get; set; }
@@ -318,6 +339,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
         /// <summary>El consolidador le pide la corrección al Coordinador ERP.</summary>
         public const string CorreccionErp = "CORRECCION_ERP";
+
+        /// <summary>
+        /// El consolidador reemplaza el Consolidado del S10: el reembolso vuelve a Pendiente y se le
+        /// avisa a la jefatura.
+        /// </summary>
+        public const string Reemplazo = "REEMPLAZO";
+    }
+
+    /// <summary>
+    /// Lo que necesita el reemplazo de un consolidado: si el usuario es su consolidador y qué
+    /// planillas va a cubrir el documento nuevo (las que siguen con el reembolso por decidir).
+    /// </summary>
+    public class ReemplazoConsolidadoPlanDto
+    {
+        public bool PuedeConsolidar { get; set; }
+        /// <summary>Planillas con el reembolso abierto: las que pasan al documento nuevo.</summary>
+        public List<int> RendicionIdsAbiertas { get; set; } = new();
+        /// <summary>Correos de la jefatura de los trabajadores de esas planillas, sin repetir.</summary>
+        public List<string> JefaturaEmails { get; set; } = new();
     }
 
     /// <summary>
@@ -375,6 +415,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// siempre). Ver <c>SignaturePdfStamper.Stamp</c>.
         /// </summary>
         public int Slot { get; set; }
+
+        /// <summary>
+        /// Planilla grupal que se firma junto con el consolidado: la original o —si otro jefe ya la
+        /// firmó— su copia firmada, igual que <see cref="Url"/>. Null en los consolidados anteriores
+        /// a la planilla grupal.
+        /// </summary>
+        public string? GrupalUrl { get; set; }
+
+        /// <summary>Nombre de la planilla grupal ORIGINAL: la copia firmada se nombra a partir de él.</summary>
+        public string? GrupalFilename { get; set; }
+
+        /// <summary>
+        /// Lugar de la firma en la planilla grupal. Es el de <see cref="Slot"/> salvo que la grupal
+        /// no tenga todavía copia firmada (las firmas anteriores a que se firmara): ahí va primera.
+        /// </summary>
+        public int GrupalSlot { get; set; }
+    }
+
+    /// <summary>
+    /// Quién firma, tal como se imprime en el pie de la firma: su nombre y el puesto de su ficha
+    /// vigente (<c>workers.puesto_id</c>). Sin puesto, el pie dice "Firma de Jefatura / Gerencia".
+    /// </summary>
+    public class FirmanteDto
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public string? Puesto { get; set; }
     }
 
     /// <summary>
@@ -410,8 +476,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public int RendicionId { get; set; }
         public List<int> SolicitudIds { get; set; } = new();
         public ArchivoFirmadoDto Planilla { get; set; } = new();
-        /// <summary>consolidadoId → su copia firmada.</summary>
-        public Dictionary<int, ArchivoFirmadoDto> Consolidados { get; set; } = new();
+        /// <summary>consolidadoId → sus copias firmadas.</summary>
+        public Dictionary<int, ConsolidadoFirmadoDto> Consolidados { get; set; } = new();
+    }
+
+    /// <summary>Las copias firmadas de un consolidado: el del S10 y su planilla grupal.</summary>
+    public class ConsolidadoFirmadoDto
+    {
+        public ArchivoFirmadoDto S10 { get; set; } = new();
+        /// <summary>Null en los consolidados anteriores a la planilla grupal.</summary>
+        public ArchivoFirmadoDto? Grupal { get; set; }
     }
 
     /// <summary>

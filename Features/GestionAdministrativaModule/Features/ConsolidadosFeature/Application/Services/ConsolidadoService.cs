@@ -25,6 +25,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         private const int MotivoCorreccionMaxLength = 2000;
 
         private readonly IConsolidadoRepository         _repo;
+        private readonly IConsolidadoS10Service         _consolidadoS10Service;
         private readonly ISalidaVisibilityResolver      _visibilityResolver;
         private readonly IFirmaPersonalRepository       _firmaRepository;
         private readonly IGraphSharePointService        _sharePointService;
@@ -35,6 +36,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
         public ConsolidadoService(
             IConsolidadoRepository repo,
+            IConsolidadoS10Service consolidadoS10Service,
             ISalidaVisibilityResolver visibilityResolver,
             IFirmaPersonalRepository firmaRepository,
             IGraphSharePointService sharePointService,
@@ -44,6 +46,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             ILogger<ConsolidadoService> logger)
         {
             _repo               = repo;
+            _consolidadoS10Service = consolidadoS10Service;
             _visibilityResolver = visibilityResolver;
             _firmaRepository    = firmaRepository;
             _sharePointService  = sharePointService;
@@ -122,6 +125,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                             await AgregarAvisoAsync(
                                 avisos, "Al Coordinador ERP", CorreoEventoCodigos.CorreccionS10Solicitada,
                                 await _repo.GetCorreosCoordinadorErp());
+                        break;
+                    }
+
+                    case ConsolidadoCorreoAcciones.Reemplazo:
+                    {
+                        var plan = await _repo.GetReemplazoPlan(consolidadoId, scope, userId);
+                        if (plan is { PuedeConsolidar: true } && plan.RendicionIdsAbiertas.Count > 0)
+                            await AgregarAvisoAsync(
+                                avisos, "A la jefatura", CorreoEventoCodigos.S10Revisor, plan.JefaturaEmails);
                         break;
                     }
 
@@ -212,9 +224,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         }
 
         /// <summary>
-        /// Aprueba el reembolso FIRMANDO: estampa la firma del revisor en todas las hojas de los
-        /// documentos de cada planilla —su PDF y el Consolidado del S10— y deja las salidas en
-        /// "Firmado", que es lo que Tesorería ve como pagable. Aprobar y firmar son el mismo acto:
+        /// Aprueba el reembolso FIRMANDO: estampa la firma del revisor —con su pie: puesto, nombre,
+        /// fecha y hora— en todas las hojas de los documentos de cada planilla —su PDF, el
+        /// Consolidado del S10 y la planilla grupal— y deja las salidas en "Firmado", que es lo que
+        /// Tesorería ve como pagable. Aprobar y firmar son el mismo acto:
         /// lo que el jefe respalda con su firma es justamente lo que está aprobando.
         ///
         /// Los PDF se suben ANTES de escribir el estado: si algo falla en SharePoint no queda una
@@ -251,32 +264,47 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             var carpeta = await ResolverCarpetaRendicionesAsync();
 
+            // El pie de la firma: puesto, nombre y el momento de la firma. Ese mismo momento es el
+            // que queda guardado como fecha de firma, así el papel y la pantalla no discrepan.
+            var firmante  = await _repo.GetFirmante(userId);
+            var firmadoAt = DateTimeOffset.UtcNow;
+            var pie = new SignaturePdfStamper.PieFirma(firmante.Nombre, firmante.Puesto, firmadoAt);
+
             var firmadas = new List<PlanillaFirmadaDto>(planillas.Count);
-            // Un consolidado compartido por varias planillas de la selección se firma una sola vez.
-            var consolidadosFirmados = new Dictionary<int, ArchivoFirmadoDto>();
+            // Un consolidado compartido por varias planillas de la selección se firma una sola vez,
+            // junto con su planilla grupal.
+            var consolidadosFirmados = new Dictionary<int, ConsolidadoFirmadoDto>();
             foreach (var p in planillas)
             {
                 var firmada = new PlanillaFirmadaDto
                 {
                     RendicionId  = p.RendicionId,
                     SolicitudIds = p.SolicitudIds,
-                    Planilla     = await FirmarYSubirAsync(carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes),
+                    Planilla     = await FirmarYSubirAsync(carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes, pie),
                 };
 
                 foreach (var doc in p.Consolidados)
                 {
-                    if (!consolidadosFirmados.TryGetValue(doc.Id, out var archivo))
+                    if (!consolidadosFirmados.TryGetValue(doc.Id, out var firmado))
                     {
-                        archivo = await FirmarYSubirAsync(carpeta, doc.Url, doc.Filename, firma.Bytes, doc.Slot);
-                        consolidadosFirmados[doc.Id] = archivo;
+                        firmado = new ConsolidadoFirmadoDto
+                        {
+                            S10 = await FirmarYSubirAsync(
+                                carpeta, doc.Url, doc.Filename, firma.Bytes, pie, doc.Slot),
+                            Grupal = doc.GrupalUrl == null || doc.GrupalFilename == null
+                                ? null
+                                : await FirmarYSubirAsync(
+                                    carpeta, doc.GrupalUrl, doc.GrupalFilename, firma.Bytes, pie, doc.GrupalSlot),
+                        };
+                        consolidadosFirmados[doc.Id] = firmado;
                     }
-                    firmada.Consolidados[doc.Id] = archivo;
+                    firmada.Consolidados[doc.Id] = firmado;
                 }
 
                 firmadas.Add(firmada);
             }
 
-            var decididas = await _repo.AprobarReembolsoFirmado(firmadas, userId);
+            var decididas = await _repo.AprobarReembolsoFirmado(firmadas, userId, firmadoAt);
             if (decididas.Count > 0)
                 rendicionesFirmadas.AddRange(firmadas.Select(f => f.RendicionId));
 
@@ -293,9 +321,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// copia firmada: la firma nueva se suma (en <paramref name="slot"/>) y la copia se reemplaza.
         /// </param>
         /// <param name="pdfFilename">Nombre del ORIGINAL: la copia se llama igual, con -FIRMADO.</param>
+        /// <param name="pie">Puesto, nombre y fecha que van impresos debajo de la firma.</param>
         /// <param name="slot">Lugar de la firma en la hoja (0 = la esquina de siempre).</param>
         private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
-            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng, int slot = 0)
+            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng,
+            SignaturePdfStamper.PieFirma pie, int slot = 0)
         {
             byte[] original;
             try
@@ -315,7 +345,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 // Una planilla agrupa a varios trabajadores y cada grupo termina con su propia
                 // línea de firma, así que la firma va en TODAS las hojas: solo al pie de la última
                 // dejaría sin firma a todos los grupos menos el último.
-                firmado = SignaturePdfStamper.Stamp(original, firmaPng, slot);
+                firmado = SignaturePdfStamper.Stamp(original, firmaPng, pie, slot);
             }
             catch (Exception ex)
             {
@@ -507,6 +537,63 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             }
 
             return "Solicitud enviada al Coordinador ERP.";
+        }
+
+        public async Task<ConsolidadoS10UploadResultDto> ReemplazarConsolidado(
+            int consolidadoId, IFormFile file, decimal montoTotal, string numeroReembolso,
+            ConsolidadoFiltersDto scope, int userId)
+        {
+            await ApplyVisibilityAsync(scope);
+
+            var plan = await _repo.GetReemplazoPlan(consolidadoId, scope, userId)
+                ?? throw new AbrilException("El Consolidado del S10 no existe o no está en tu alcance.", 404);
+
+            if (!plan.PuedeConsolidar)
+                throw new AbrilException(
+                    "Solo el consolidador de estas rendiciones puede reemplazar el Consolidado del S10.", 403);
+
+            if (plan.RendicionIdsAbiertas.Count == 0)
+                throw new AbrilException(
+                    "El reembolso de este consolidado ya está decidido: el Consolidado del S10 ya no se puede cambiar.", 409);
+
+            // Las reglas del documento (primera revisión aprobada, monto contra las planillas
+            // completas, herencia del código, reabrir lo observado y cerrar la corrección con el ERP)
+            // son las mismas que al adjuntar: las aplica el servicio compartido.
+            var consolidado = await _consolidadoS10Service.UploadParaRendiciones(
+                plan.RendicionIdsAbiertas, file, montoTotal, numeroReembolso, userId);
+
+            // Mismo aviso que al adjuntar desde Gestión de Rendiciones: nunca tumba el reemplazo.
+            try
+            {
+                return new ConsolidadoS10UploadResultDto
+                {
+                    Consolidado     = consolidado,
+                    JefaturaAvisada = true,
+                    AvisoJefatura   = await NotificarJefatura(consolidado.Id, scope, userId),
+                };
+            }
+            catch (AbrilException ex)
+            {
+                _logger.LogInformation(
+                    "Consolidado {ConsolidadoId} reemplazado, pero sin aviso a la jefatura: {Motivo}",
+                    consolidado.Id, ex.Message);
+                return new ConsolidadoS10UploadResultDto
+                {
+                    Consolidado = consolidado, JefaturaAvisada = false, AvisoJefatura = ex.Message,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando a la jefatura del consolidado {ConsolidadoId} recién reemplazado", consolidado.Id);
+                return new ConsolidadoS10UploadResultDto
+                {
+                    Consolidado     = consolidado,
+                    JefaturaAvisada = false,
+                    AvisoJefatura   = "El consolidado quedó reemplazado, pero no se pudo avisar a la jefatura. "
+                                    + "Puedes volver a intentarlo con «Avisar a la jefatura».",
+                };
+            }
         }
 
         // ── Visibilidad ──────────────────────────────────────────────────────

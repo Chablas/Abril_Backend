@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
     {
         public int Id { get; set; }
         /// <summary>
-        /// Código de la rendición grupal, <c>CON-AAAA-NNNN</c>: el nombre del conjunto de planillas
+        /// Código de la rendición grupal, <c>CONS-ÁREA-AAAA-NNN</c>: el nombre del conjunto de planillas
         /// que se consolidaron juntas. Sobrevive al reemplazo del archivo. Null en los consolidados
         /// anteriores a la columna.
         /// </summary>
@@ -39,6 +39,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         /// </summary>
         public string? PlanillaGrupalUrl { get; set; }
         public string? PlanillaGrupalFilename { get; set; }
+        /// <summary>
+        /// Copia de la planilla grupal con la firma de la jefatura. Null mientras no se apruebe, y
+        /// en los consolidados aprobados antes de que la grupal se firmara.
+        /// </summary>
+        public string? PlanillaGrupalFirmadoUrl { get; set; }
+        public string? PlanillaGrupalFirmadoFilename { get; set; }
 
         /// <summary>
         /// Copia firmada por la jefatura (todas sus hojas). Se genera al aprobar el reembolso, así
@@ -64,5 +70,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public int Id { get; set; }
         /// <summary>Código REN-AAAA-NNNN (o "#id" en las anteriores al código).</summary>
         public string Codigo { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Resultado de adjuntar (Gestión de Rendiciones) o reemplazar (Consolidados) el Consolidado del
+    /// S10: el documento que quedó y cómo salió el aviso a la jefatura, que va pegado al mismo paso.
+    /// Consolidar es exactamente lo que deja el reembolso esperando la firma, así que avisar no es un
+    /// trámite aparte que haya que acordarse de hacer.
+    ///
+    /// El aviso es best-effort: si no sale —está apagado en Configuración → Correos, no se pudo
+    /// resolver a quién, o falló el envío— el consolidado igual quedó adjunto y
+    /// <see cref="AvisoJefatura"/> dice por qué. Desde Consolidados se puede volver a mandar a mano.
+    /// </summary>
+    public class ConsolidadoS10UploadResultDto
+    {
+        /// <summary>El consolidado adjunto, tal como lo devuelve la subida.</summary>
+        public ConsolidadoS10Dto Consolidado { get; set; } = new();
+
+        /// <summary>true = el correo salió y la jefatura ya lo tiene en su bandeja.</summary>
+        public bool JefaturaAvisada { get; set; }
+
+        /// <summary>Qué pasó con el aviso, para imprimirlo tal cual en la pantalla.</summary>
+        public string AvisoJefatura { get; set; } = string.Empty;
     }
 }

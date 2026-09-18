@@ -128,10 +128,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             IReadOnlyCollection<int> excluirRendicionIds);
 
         /// <summary>
-        /// Las salidas de N planillas de rendición, en un solo roundtrip. Es lo que necesita la
-        /// planilla grupal, que se arma con todo lo que cubre el Consolidado del S10.
+        /// Las salidas de N planillas de rendición, cada una con el código (REN-AAAA-NNNN) de la
+        /// planilla a la que pertenece, en un solo roundtrip. Es lo que necesita la planilla de
+        /// reembolso, que se arma con todo lo que cubre el Consolidado del S10 y dice en cada fila
+        /// de qué rendición sale.
         /// </summary>
-        Task<List<int>> GetSolicitudIdsDeRendiciones(IReadOnlyCollection<int> rendicionIds);
+        Task<Dictionary<int, string>> GetCodigoRendicionPorSolicitud(IReadOnlyCollection<int> rendicionIds);
 
         /// <summary>
         /// Detalle completo (cabecera + trayectos con capturas + rendición si existe).

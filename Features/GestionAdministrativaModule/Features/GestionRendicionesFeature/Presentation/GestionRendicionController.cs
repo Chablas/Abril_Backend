@@ -156,9 +156,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Adjunta un Consolidado del S10 que cubre las planillas indicadas: una sola (el botón de
-        /// cada fila) o varias a la vez (la selección), incluso de trabajadores y razones sociales
-        /// distintos. Solo lo puede subir el consolidador de esas planillas.
+        /// Adjunta el primer Consolidado del S10 de las planillas indicadas: una sola (el detalle) o
+        /// varias a la vez (la selección), incluso de trabajadores y razones sociales distintos. Solo
+        /// lo puede subir el consolidador de esas planillas. Reemplazarlo es de Consolidados.
         /// </summary>
         [HttpPost("consolidado-s10")]
         [Consumes("multipart/form-data")]

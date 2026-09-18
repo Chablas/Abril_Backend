@@ -965,18 +965,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return await CalendarioNoLaborable.CargarAsync(ctx);
         }
 
-        public async Task<List<int>> GetSolicitudIdsDeRendiciones(IReadOnlyCollection<int> rendicionIds)
+        public async Task<Dictionary<int, string>> GetCodigoRendicionPorSolicitud(IReadOnlyCollection<int> rendicionIds)
         {
             if (rendicionIds.Count == 0) return new();
 
             var ids = rendicionIds.Distinct().ToList();
 
             using var ctx = _factory.CreateDbContext();
-            return await ctx.GaSolicitudSalida
-                .Where(s => s.RendicionId != null && ids.Contains(s.RendicionId.Value))
-                .OrderBy(s => s.Id)
-                .Select(s => s.Id)
-                .ToListAsync();
+            var filas = await (
+                from s in ctx.GaSolicitudSalida
+                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id
+                where ids.Contains(r.Id)
+                select new { s.Id, RendicionId = r.Id, r.Codigo }
+            ).ToListAsync();
+
+            return filas.ToDictionary(
+                f => f.Id, f => PlanillaRendicionHelper.CodigoRendicion(f.Codigo, f.RendicionId));
         }
 
         public async Task<Dictionary<int, List<ImputacionMovilidadPlanilla.PeriodoRendido>>> GetPeriodosRendidos(

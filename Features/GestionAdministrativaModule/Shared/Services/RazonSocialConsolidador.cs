@@ -19,8 +19,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// </summary>
     public static class RazonSocialConsolidador
     {
-        /// <summary>Una razón social resuelta (<c>contributor</c>).</summary>
-        public sealed record RazonSocial(int Id, string? Nombre);
+        /// <summary>Una razón social resuelta (<c>contributor</c>), con su RUC.</summary>
+        public sealed record RazonSocial(int Id, string? Nombre, string? Ruc = null);
 
         /// <summary>
         /// Razón social vigente de cada usuario (<c>app_user.user_id</c>). Un usuario con varias
@@ -52,9 +52,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             var contributorPorWorker = vigentes.ToDictionary(v => v.WorkerId, v => v.ContributorId!.Value);
 
             var contributorIds = contributorPorWorker.Values.Distinct().ToList();
-            var nombres = await ctx.Contributor
+            var contribuyentes = await ctx.Contributor
                 .Where(c => contributorIds.Contains(c.ContributorId))
-                .ToDictionaryAsync(c => c.ContributorId, c => (string?)c.ContributorName);
+                .Select(c => new { c.ContributorId, c.ContributorName, c.ContributorRuc })
+                .ToDictionaryAsync(c => c.ContributorId);
 
             return fichas
                 .Where(f => contributorPorWorker.ContainsKey(f.WorkerId))
@@ -64,7 +65,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     g =>
                     {
                         var contributorId = contributorPorWorker[g.Max(f => f.WorkerId)];
-                        return new RazonSocial(contributorId, nombres.GetValueOrDefault(contributorId));
+                        contribuyentes.TryGetValue(contributorId, out var c);
+                        return new RazonSocial(contributorId, c?.ContributorName, c?.ContributorRuc);
                     });
         }
     }

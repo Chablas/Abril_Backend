@@ -649,6 +649,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     NumeroReembolso = dto.NumeroReembolso,
                     PlanillaGrupalUrl      = dto.PlanillaGrupalUrl,
                     PlanillaGrupalFilename = dto.PlanillaGrupalFilename,
+                    PlanillaGrupalFirmadoUrl      = dto.PlanillaGrupalFirmadoUrl,
+                    PlanillaGrupalFirmadoFilename = dto.PlanillaGrupalFirmadoFilename,
                     MontoS10        = dto.MontoTotal,
                     MontoPlanillas  = rendiciones.Sum(r => r.MontoTotalPlanilla),
                     MontoTotal      = salidas.Sum(s => s.Monto),
@@ -985,6 +987,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             d.MontoS10 = o.MontoS10; d.MontoPlanillas = o.MontoPlanillas; d.MontoTotal = o.MontoTotal;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
             d.PlanillaGrupalUrl = o.PlanillaGrupalUrl; d.PlanillaGrupalFilename = o.PlanillaGrupalFilename;
+            d.PlanillaGrupalFirmadoUrl = o.PlanillaGrupalFirmadoUrl;
+            d.PlanillaGrupalFirmadoFilename = o.PlanillaGrupalFirmadoFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
             d.RazonSocial = o.RazonSocial;

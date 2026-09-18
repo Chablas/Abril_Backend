@@ -421,6 +421,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? PdfFirmadoUrl { get; set; }
     }
 
+    /// <summary>
+    /// La cabecera de la planilla de reembolso (la planilla grupal): el código de la rendición
+    /// grupal y los datos del consolidador. Lo que sale de las filas —periodo, cantidad de
+    /// rendiciones, importe— lo calcula el generador.
+    /// </summary>
+    public class PlanillaReembolsoCabeceraDto
+    {
+        /// <summary>CONS-GTH-2026-001: va en el título y al pie de cada hoja.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>Razón social del consolidador (bajo la que queda el registro del S10).</summary>
+        public string? RazonSocial { get; set; }
+        /// <summary>RUC de esa razón social.</summary>
+        public string? Ruc { get; set; }
+        /// <summary>Nombre del consolidador que sube el consolidado.</summary>
+        public string? Consolidador { get; set; }
+        /// <summary>Área del consolidado.</summary>
+        public string? Area { get; set; }
+        /// <summary>Número de reembolso que devolvió el S10.</summary>
+        public string? NumeroReembolso { get; set; }
+    }
+
     /// <summary>Una fila del PDF de planilla — un registro = UN TRAYECTO (no una solicitud).</summary>
     public class RendicionItemDto
     {

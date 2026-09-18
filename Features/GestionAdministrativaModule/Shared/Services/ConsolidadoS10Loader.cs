@@ -126,6 +126,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             NumeroReembolso  = c.NumeroReembolso,
             PlanillaGrupalUrl      = c.PlanillaGrupalUrl,
             PlanillaGrupalFilename = c.PlanillaGrupalFilename,
+            PlanillaGrupalFirmadoUrl      = c.PlanillaGrupalFirmadoUrl,
+            PlanillaGrupalFirmadoFilename = c.PlanillaGrupalFirmadoFilename,
             PdfFirmadoUrl      = c.PdfFirmadoUrl,
             PdfFirmadoFilename = c.PdfFirmadoFilename,
             FirmadoAt          = c.FirmadoAt,

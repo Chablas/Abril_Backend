@@ -250,6 +250,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
                     + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
 
+            // Acá solo se adjunta el PRIMERO. Corregirlo —casi siempre por una observación— es de
+            // Consolidados, que es donde vuelve la observación y donde se ve el documento entero.
+            var yaConsolidadas = await _consolidadoService.GetForRendiciones(ids);
+            if (yaConsolidadas.Count > 0)
+            {
+                var codigos = yaConsolidadas.Values
+                    .SelectMany(c => c.Rendiciones)
+                    .Where(r => yaConsolidadas.ContainsKey(r.Id))
+                    .Select(r => r.Codigo)
+                    .ToList();
+                var cuantas = yaConsolidadas.Count;
+                throw new AbrilException(
+                    (codigos.Count > 0
+                        ? $"{ConsolidadoS10Agrupacion.Enumerar(codigos)} ya "
+                        : (ids.Count == 1 ? "Esta rendición ya " : "Alguna de las rendiciones ya "))
+                    + (cuantas == 1 ? "tiene" : "tienen")
+                    + " su Consolidado del S10: para reemplazarlo, hazlo desde Consolidados.", 409);
+            }
+
             var consolidado = await _consolidadoService.UploadParaRendiciones(
                 ids, file, montoTotal, numeroReembolso, userId);
 

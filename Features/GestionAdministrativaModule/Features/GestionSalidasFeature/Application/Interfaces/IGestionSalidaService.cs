@@ -94,14 +94,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task RegenerarPlanilla(int rendicionId, int userId);
 
         /// <summary>
-        /// Arma la PLANILLA GRUPAL: el mismo documento de gasto que la planilla individual, pero
-        /// con las salidas de TODAS las planillas que recibe, en un solo PDF. Es el tercer papel
-        /// del ciclo —planilla individual, Consolidado del S10 y esta— y lo genera la subida del
+        /// Arma la PLANILLA GRUPAL, que en el papel se titula "PLANILLA DE REEMBOLSO": los trayectos
+        /// de TODAS las planillas que recibe en una sola tabla, con la columna RENDICIÓN diciendo de
+        /// qué planilla sale cada fila, y la cabecera del consolidador. Es el tercer papel del
+        /// ciclo —planilla individual, Consolidado del S10 y esta— y lo genera la subida del
         /// consolidado, que es cuando queda definido qué planillas van juntas.
         ///
-        /// Vive acá porque el armado del PDF de gasto es de esta feature: el generador ya separa
-        /// por trabajador, con su propia paginación y su línea de firma, así que el documento sale
-        /// idéntico al individual solo que con todos los trabajadores del consolidado dentro.
+        /// Vive acá porque el armado del PDF de gasto es de esta feature: comparte con la planilla
+        /// individual el logo, la línea de firma y la imputación de fechas.
         ///
         /// La imputación del tope diario (RG-42) se resuelve sobre el conjunto COMPLETO: si un
         /// trabajador tiene salidas en dos de las planillas del consolidado, el tope del día las
@@ -110,8 +110,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// Solo arma los bytes: no los sube ni los guarda. Eso es de quien consolida.
         /// </summary>
         /// <param name="rendicionIds">Planillas que cubre el consolidado.</param>
-        /// <param name="numeroLabel">Lo que va al pie de cada hoja, donde el individual lleva su "TI: 000123".</param>
-        Task<byte[]> GenerarPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, string numeroLabel);
+        /// <param name="cabecera">El código y los datos del consolidador que van impresos.</param>
+        Task<byte[]> GenerarPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, PlanillaReembolsoCabeceraDto cabecera);
 
         /// <summary>
         /// Detalle de una solicitud para el modal — devuelve null si no existe.

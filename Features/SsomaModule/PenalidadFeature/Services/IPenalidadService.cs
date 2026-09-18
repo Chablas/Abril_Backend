@@ -12,6 +12,16 @@ public interface IPenalidadService
     /// el selector de origen al registrar una penalidad nueva).</summary>
     Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId);
 
+    /// <summary>Empresas contratistas con presencia activa en el proyecto (ss_empresa_proyecto),
+    /// para el selector "Empresa contratista" de Nueva Penalidad -- ya no se muestran todas las
+    /// empresas del sistema, solo las del proyecto elegido.</summary>
+    Task<List<EmpresaProyectoDto>> GetEmpresasPorProyectoAsync(int proyectoId);
+
+    /// <summary>A qué correo se notificaría el primer aviso (a Residencia) si se registra la
+    /// penalidad para este proyecto -- vista previa que se muestra en el formulario de alta,
+    /// antes de guardar.</summary>
+    Task<DestinatariosNotificacionDto> GetNotificacionInicialAsync(int proyectoId);
+
     Task<PenalidadCreadaDto> RegistrarAsync(PenalidadRegistrarRequest req, int userId);
 
     Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId);

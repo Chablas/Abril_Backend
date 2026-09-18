@@ -20,6 +20,15 @@ public class SsomaPenalidad
     public int EmpresaId { get; set; }              // FK contributor (contributor_id)
     public int ProyectoId { get; set; }             // FK project (project_id)
     public int InfraccionId { get; set; }           // FK ssoma_rac_infraccion
+
+    /// <summary>Copiada automáticamente de Infraccion.Categoria al registrar — el usuario ya no
+    /// elige severidad a mano, la determina la infracción tipificada del catálogo.</summary>
+    public string? Categoria { get; set; }
+
+    /// <summary>DEPRECADO — reemplazado por <see cref="Categoria"/>, que ahora la deriva
+    /// automáticamente la infracción del catálogo en vez de ser un campo libre del formulario.
+    /// Se conserva la columna por convención del proyecto (no se borran campos); ningún código
+    /// nuevo la escribe ni la lee.</summary>
     public string Severidad { get; set; } = "";     // BAJO | MEDIO | ALTO | CRITICO
 
     /// <summary>Calculado al registrar: Infraccion.MontoFijo o FactorUit × UIT del año vigente.</summary>
@@ -29,6 +38,8 @@ public class SsomaPenalidad
     public string? MontoAjustadoMotivo { get; set; }
     public decimal UitReferencia { get; set; }
 
+    /// <summary>Viñeta literal del Anexo 4 elegida dentro de la categoría de la infracción.</summary>
+    public string? Motivo { get; set; }
     public string? DescripcionOcurrido { get; set; }
 
     /// <summary>

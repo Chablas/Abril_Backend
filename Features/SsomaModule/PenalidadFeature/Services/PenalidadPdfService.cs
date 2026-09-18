@@ -37,7 +37,7 @@ public static class PenalidadPdfService
                             table.Cell().Padding(4).Text(v2).FontSize(9);
                         }
                         Fila("Empresa", p.EmpresaNombre ?? "-", "Proyecto", p.ProyectoNombre ?? "-");
-                        Fila("Infracción", p.InfraccionNombre ?? "-", "Severidad", p.Severidad);
+                        Fila("Infracción", p.InfraccionNombre ?? "-", "Categoría", p.Categoria ?? "-");
                         Fila("Monto estimado", $"S/ {p.MontoCalculado:N2}", "Plazo de descargo",
                              p.PlazoDescargoVenceEn?.ToString("dd/MM/yyyy HH:mm") ?? "-");
                     });
@@ -96,7 +96,7 @@ public static class PenalidadPdfService
                             table.Cell().Padding(4).Text(v2).FontSize(9);
                         }
                         Fila("Empresa", p.EmpresaNombre ?? "-", "Proyecto", p.ProyectoNombre ?? "-");
-                        Fila("Infracción", p.InfraccionNombre ?? "-", "Severidad", p.Severidad);
+                        Fila("Infracción", p.InfraccionNombre ?? "-", "Categoría", p.Categoria ?? "-");
                         Fila("Monto final", $"S/ {(p.MontoFinal ?? p.MontoCalculado):N2}", "Fecha resolución",
                              p.ResueltaEn?.ToString("dd/MM/yyyy") ?? "-");
                     });

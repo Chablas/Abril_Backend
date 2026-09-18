@@ -5,6 +5,7 @@ using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Services;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,18 +16,25 @@ public class PenalidadService : IPenalidadService
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly IRacSharePointService _spService;
     private readonly IPenalidadNotificationService _notif;
+    private readonly IProyectoResponsablesResolver _responsables;
     private readonly ILogger<PenalidadService> _logger;
+
+    // Debe coincidir con PenalidadNotificationService.SsomaBuzon -- se repite acá solo para
+    // poder previsualizar el destinatario sin acoplar este servicio al de notificaciones.
+    private const string SsomaBuzon = "ssoma@abril.pe";
 
     public PenalidadService(
         IDbContextFactory<AppDbContext> factory,
         IRacSharePointService spService,
         IPenalidadNotificationService notif,
+        IProyectoResponsablesResolver responsables,
         ILogger<PenalidadService> logger)
     {
-        _factory   = factory;
-        _spService = spService;
-        _notif     = notif;
-        _logger    = logger;
+        _factory      = factory;
+        _spService    = spService;
+        _notif        = notif;
+        _responsables = responsables;
+        _logger       = logger;
     }
 
     // ── Lectura ──────────────────────────────────────────────────────────────
@@ -62,7 +70,7 @@ public class PenalidadService : IPenalidadService
                 ProyectoNombre       = ctx.Project.Where(pr => pr.ProjectId == p.ProyectoId).Select(pr => pr.ProjectDescription).FirstOrDefault(),
                 EmpresaNombre        = ctx.Contributor.Where(c => c.ContributorId == p.EmpresaId).Select(c => c.ContributorName).FirstOrDefault(),
                 InfraccionNombre     = p.Infraccion != null ? p.Infraccion.Nombre : null,
-                Severidad            = p.Severidad,
+                Categoria            = p.Categoria,
                 MontoCalculado       = p.MontoCalculado,
                 MontoFinal           = p.MontoFinal,
                 Estado               = p.Estado,
@@ -97,16 +105,19 @@ public class PenalidadService : IPenalidadService
         // (y cualquier consumidor de este DTO) no debe verlo, para no viciar la decisión final.
         var decisionFirme = pen.Estado is "Aplicada" or "Anulada" or "EnApelacion";
 
+        var proximaNotificacion = await ResolverProximaNotificacionAsync(ctx, pen);
+
         return new PenalidadDetalleDto
         {
             Id                       = pen.Id,
+            ProximaNotificacion      = proximaNotificacion,
             Codigo                   = pen.Codigo,
             OrigenTipo               = pen.OrigenTipo,
             OrigenId                 = pen.OrigenId,
             ProyectoNombre           = proyectoNombre,
             EmpresaNombre            = empresaNombre,
             InfraccionNombre         = pen.Infraccion?.Nombre,
-            Severidad                = pen.Severidad,
+            Categoria                = pen.Categoria,
             MontoCalculado           = pen.MontoCalculado,
             MontoFinal               = pen.MontoFinal,
             Estado                   = pen.Estado,
@@ -117,6 +128,7 @@ public class PenalidadService : IPenalidadService
             EmpresaId                = pen.EmpresaId,
             ProyectoId               = pen.ProyectoId,
             InfraccionId             = pen.InfraccionId,
+            Motivo                   = pen.Motivo,
             DescripcionOcurrido      = pen.DescripcionOcurrido,
             UitReferencia            = pen.UitReferencia,
             MotivoAjusteMonto        = pen.MontoAjustadoMotivo,
@@ -147,6 +159,112 @@ public class PenalidadService : IPenalidadService
                 })
                 .ToList(),
         };
+    }
+
+    /// <summary>Con qué correo se notifica la penalidad ANTES de registrarla -- se le muestra
+    /// al usuario en el formulario de alta apenas elige el proyecto, para que sepa desde el
+    /// inicio a quién le va a llegar el primer aviso (a Residencia) si confirma el registro.</summary>
+    public async Task<DestinatariosNotificacionDto> GetNotificacionInicialAsync(int proyectoId)
+    {
+        var r = await _responsables.ResolverAsync(proyectoId);
+        return new DestinatariosNotificacionDto
+        {
+            Para   = string.IsNullOrWhiteSpace(r.ResidenteEmail) ? new() : new() { r.ResidenteEmail },
+            Motivo = "Al registrar, se notifica a Residencia para su aprobación.",
+        };
+    }
+
+    /// <summary>Calcula a quién le llegará el próximo correo automático según el estado actual
+    /// de la penalidad -- se muestra en el detalle para que quien va a aprobar/decidir/evaluar
+    /// vea los destinatarios exactos antes de confirmar la acción. Null en estados que no
+    /// disparan ningún envío (p. ej. mientras se espera el descargo del contratista, que es un
+    /// recordatorio automático por cron, no una acción manual).</summary>
+    private async Task<DestinatariosNotificacionDto?> ResolverProximaNotificacionAsync(AppDbContext ctx, SsomaPenalidad pen)
+    {
+        switch (pen.Estado)
+        {
+            case "PendienteResidente":
+            {
+                var r = await _responsables.ResolverAsync(pen.ProyectoId);
+                return new DestinatariosNotificacionDto
+                {
+                    Para   = string.IsNullOrWhiteSpace(r.ResidenteEmail) ? new() : new() { r.ResidenteEmail },
+                    Motivo = "Al aprobar, se notifica a Gerencia Inmobiliaria.",
+                };
+            }
+            case "PendienteGerenciaInmobiliaria":
+            {
+                var correos = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
+                return new DestinatariosNotificacionDto
+                {
+                    Para   = correos,
+                    Motivo = "Al aprobar, se notifica al contratista con el plazo para presentar su descargo.",
+                };
+            }
+            case "EnEvaluacionSsoma":
+            {
+                var r = await _responsables.ResolverAsync(pen.ProyectoId);
+                return new DestinatariosNotificacionDto
+                {
+                    Para   = string.IsNullOrWhiteSpace(r.GerenteInmobiliarioEmail) ? new() : new() { r.GerenteInmobiliarioEmail },
+                    Motivo = "Al enviar tu evaluación, se notifica a Gerencia Inmobiliaria para la decisión final.",
+                };
+            }
+            case "PendienteDecisionGerencia":
+            case "EnApelacion":
+            {
+                var correos = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
+                var r = await _responsables.ResolverAsync(pen.ProyectoId);
+                var para = new List<string> { SsomaBuzon };
+                para.AddRange(correos);
+                var cc = new List<string?> { r.ResidenteEmail, r.CoordSsomaEmail }
+                    .Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e!).Distinct().ToList();
+                return new DestinatariosNotificacionDto
+                {
+                    Para   = para,
+                    Cc     = cc,
+                    Motivo = "Al confirmar la decisión, se notifica el resultado a estos correos.",
+                };
+            }
+            case "Aplicada":
+            {
+                var r = await _responsables.ResolverAsync(pen.ProyectoId);
+                return new DestinatariosNotificacionDto
+                {
+                    Para   = string.IsNullOrWhiteSpace(r.GerenteInmobiliarioEmail) ? new() : new() { r.GerenteInmobiliarioEmail },
+                    Motivo = "Si el contratista presenta una apelación, se notifica a Gerencia Inmobiliaria.",
+                };
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Todos los correos de contacto reales de una empresa contratista: el
+    /// "administrador responsable" (contributor.email_administrador, solo se llena si alguien
+    /// lo asignó explícitamente en Gestión de Responsables) MÁS los correos de contacto
+    /// registrados en el alta de la contratista (contractor_email, vía contractor.contributor_id
+    /// = empresaId) -- que es donde en la práctica suele estar cargado el correo real. Sin este
+    /// segundo origen, una empresa con contractor_email pero sin "responsable" asignado
+    /// aparecía como "sin correo" aunque sí tuviera uno.</summary>
+    private static async Task<List<string>> ResolverCorreosContratistaAsync(AppDbContext ctx, int empresaId)
+    {
+        var correos = new List<string>();
+
+        var emailAdmin = await ctx.Contributor.Where(c => c.ContributorId == empresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
+        if (!string.IsNullOrWhiteSpace(emailAdmin)) correos.Add(emailAdmin);
+
+        var emailsContacto = await ctx.ContractorEmail
+            .Join(ctx.Contractor, ce => ce.ContractorId, ct => ct.ContractorId, (ce, ct) => new { ce, ct })
+            .Where(x => x.ct.ContributorId == empresaId && x.ct.Active && x.ce.Active && x.ce.State)
+            .Select(x => x.ce.Email)
+            .ToListAsync();
+
+        foreach (var e in emailsContacto)
+            if (!string.IsNullOrWhiteSpace(e) && !correos.Contains(e, StringComparer.OrdinalIgnoreCase))
+                correos.Add(e);
+
+        return correos;
     }
 
     public async Task<List<OrigenCandidatoDto>> GetOrigenesCandidatosAsync(int? empresaId, int? proyectoId)
@@ -221,11 +339,34 @@ public class PenalidadService : IPenalidadService
         return candidatos.OrderByDescending(c => c.Fecha).ToList();
     }
 
+    public async Task<List<EmpresaProyectoDto>> GetEmpresasPorProyectoAsync(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var empresas = await ctx.SsEmpresaProyecto
+            .Where(ep => ep.ProyectoId == proyectoId && ep.Activo)
+            .Join(ctx.Contributor, ep => ep.EmpresaId, c => c.ContributorId, (ep, c) => c)
+            .Where(c => !c.EsAbril && c.Active)
+            .OrderBy(c => c.ContributorName)
+            .Select(c => new EmpresaProyectoDto { Id = c.ContributorId, Nombre = c.ContributorName })
+            .ToListAsync();
+
+        foreach (var e in empresas)
+        {
+            var correos = await ResolverCorreosContratistaAsync(ctx, e.Id);
+            e.EmailAdministrador = correos.Count > 0 ? string.Join(", ", correos) : null;
+        }
+
+        return empresas;
+    }
+
     // ── Registro + tipificación ──────────────────────────────────────────────
 
     public async Task<PenalidadCreadaDto> RegistrarAsync(PenalidadRegistrarRequest req, int userId)
     {
         using var ctx = _factory.CreateDbContext();
+
+        if (string.IsNullOrWhiteSpace(req.DescripcionOcurrido))
+            throw new AbrilException("La descripción de lo ocurrido es obligatoria.", 400);
 
         var esAbril = await ctx.Contributor.Where(c => c.ContributorId == req.EmpresaId).Select(c => c.EsAbril).FirstOrDefaultAsync();
         if (esAbril) throw new AbrilException("La empresa Abril Ingeniería no puede ser objeto de penalidad.", 422);
@@ -236,9 +377,16 @@ public class PenalidadService : IPenalidadService
         // El valor de UIT solo hace falta cuando la infracción se tarifica por factor UIT — la
         // mayoría de infracciones de SST de la tabla vigente tienen monto fijo en soles y no
         // deberían bloquearse por la falta de un dato que ni siquiera usan.
-        decimal monto;
+        // "Muy grave" (Anexo 4) no tiene tarifa: da lugar a rescisión de contrato, no a un monto.
+        var esMuyGrave = infraccion.Categoria == "MuyGrave";
+
+        decimal monto = 0m;
         decimal uitReferencia = 0m;
-        if (infraccion.MontoFijo.HasValue)
+        if (esMuyGrave)
+        {
+            monto = 0m;
+        }
+        else if (infraccion.MontoFijo.HasValue)
         {
             monto = infraccion.MontoFijo.Value;
         }
@@ -251,7 +399,7 @@ public class PenalidadService : IPenalidadService
             uitReferencia = uitVigente.Valor;
             monto = Math.Round((infraccion.FactorUit ?? 0m) * uitVigente.Valor, 2);
         }
-        if (monto <= 0m)
+        if (monto <= 0m && !esMuyGrave)
             throw new AbrilException("La infracción no tiene un monto fijo ni un factor UIT configurado.", 422);
 
         if (req.OrigenTipo is "RAC" or "AMONESTACION")
@@ -285,9 +433,10 @@ public class PenalidadService : IPenalidadService
             EmpresaId           = req.EmpresaId,
             ProyectoId          = req.ProyectoId,
             InfraccionId        = req.InfraccionId,
-            Severidad           = req.Severidad,
+            Categoria           = infraccion.Categoria,
             MontoCalculado      = monto,
             UitReferencia       = uitReferencia,
+            Motivo              = req.Motivo,
             DescripcionOcurrido = req.DescripcionOcurrido,
             Estado              = "Registrada",
             CreatedBy           = userId,
@@ -371,14 +520,10 @@ public class PenalidadService : IPenalidadService
             _logger.LogWarning(ex, "Error generando PDF de notificación de penalidad {Codigo}", pen.Codigo);
         }
 
-        var contratistaEmail = await ctx.Contributor.Where(c => c.ContributorId == pen.EmpresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
+        var correosContratista = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
         _ = Task.Run(async () =>
         {
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(contratistaEmail))
-                    await _notif.NotificarDescargoAlContratistaAsync(detalle, contratistaEmail);
-            }
+            try { await _notif.NotificarDescargoAlContratistaAsync(detalle, correosContratista); }
             catch { }
         });
 
@@ -499,8 +644,8 @@ public class PenalidadService : IPenalidadService
             _logger.LogWarning(ex, "Error generando PDF de resolución de penalidad {Codigo}", pen.Codigo);
         }
 
-        var contratistaEmail = await ctx.Contributor.Where(c => c.ContributorId == pen.EmpresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
-        _ = Task.Run(async () => { try { await _notif.NotificarDecisionFinalAsync(detalle, contratistaEmail); } catch { } });
+        var correosContratista = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
+        _ = Task.Run(async () => { try { await _notif.NotificarDecisionFinalAsync(detalle, correosContratista); } catch { } });
 
         return detalle;
     }
@@ -568,8 +713,8 @@ public class PenalidadService : IPenalidadService
             _logger.LogWarning(ex, "Error generando PDF de resolución de apelación {Codigo}", pen.Codigo);
         }
 
-        var contratistaEmail = await ctx.Contributor.Where(c => c.ContributorId == pen.EmpresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
-        _ = Task.Run(async () => { try { await _notif.NotificarDecisionFinalAsync(detalle, contratistaEmail); } catch { } });
+        var correosContratista = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
+        _ = Task.Run(async () => { try { await _notif.NotificarDecisionFinalAsync(detalle, correosContratista); } catch { } });
 
         return detalle;
     }
@@ -610,10 +755,10 @@ public class PenalidadService : IPenalidadService
         foreach (var pen in porVencer)
         {
             var detalle = await MapDetalleAsync(ctx, pen);
-            var contratistaEmail = await ctx.Contributor.Where(c => c.ContributorId == pen.EmpresaId).Select(c => c.EmailAdministrador).FirstOrDefaultAsync();
-            if (!string.IsNullOrWhiteSpace(contratistaEmail))
+            var correosContratista = await ResolverCorreosContratistaAsync(ctx, pen.EmpresaId);
+            if (correosContratista.Count > 0)
             {
-                try { await _notif.RecordatorioDescargoAsync(detalle, contratistaEmail); }
+                try { await _notif.RecordatorioDescargoAsync(detalle, correosContratista); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Error enviando recordatorio de penalidad {Codigo}", pen.Codigo); }
             }
         }
@@ -645,7 +790,7 @@ public class PenalidadService : IPenalidadService
         if (soloActivas) query = query.Where(i => i.Activo);
         return await query.OrderBy(i => i.Nombre).Select(i => new InfraccionAdminDto
         {
-            Id = i.Id, Nombre = i.Nombre, FactorUit = i.FactorUit, MontoFijo = i.MontoFijo,
+            Id = i.Id, Nombre = i.Nombre, Categoria = i.Categoria, FactorUit = i.FactorUit, MontoFijo = i.MontoFijo,
             Descripcion = i.Descripcion, Activo = i.Activo,
         }).ToListAsync();
     }
@@ -656,12 +801,12 @@ public class PenalidadService : IPenalidadService
         ValidarInfraccion(req);
         var entidad = new SsomaRacInfraccion
         {
-            Nombre = req.Nombre, FactorUit = req.FactorUit, MontoFijo = req.MontoFijo,
+            Nombre = req.Nombre, Categoria = req.Categoria, FactorUit = req.FactorUit, MontoFijo = req.MontoFijo,
             Descripcion = req.Descripcion, Activo = req.Activo,
         };
         ctx.SsomaRacInfracciones.Add(entidad);
         await ctx.SaveChangesAsync();
-        return new InfraccionAdminDto { Id = entidad.Id, Nombre = entidad.Nombre, FactorUit = entidad.FactorUit, MontoFijo = entidad.MontoFijo, Descripcion = entidad.Descripcion, Activo = entidad.Activo };
+        return new InfraccionAdminDto { Id = entidad.Id, Nombre = entidad.Nombre, Categoria = entidad.Categoria, FactorUit = entidad.FactorUit, MontoFijo = entidad.MontoFijo, Descripcion = entidad.Descripcion, Activo = entidad.Activo };
     }
 
     public async Task<InfraccionAdminDto> ActualizarInfraccionAsync(int id, InfraccionUpsertRequest req)
@@ -669,10 +814,10 @@ public class PenalidadService : IPenalidadService
         using var ctx = _factory.CreateDbContext();
         ValidarInfraccion(req);
         var entidad = await ctx.SsomaRacInfracciones.FindAsync(id) ?? throw new AbrilException("Infracción no encontrada.", 404);
-        entidad.Nombre = req.Nombre; entidad.FactorUit = req.FactorUit; entidad.MontoFijo = req.MontoFijo;
+        entidad.Nombre = req.Nombre; entidad.Categoria = req.Categoria; entidad.FactorUit = req.FactorUit; entidad.MontoFijo = req.MontoFijo;
         entidad.Descripcion = req.Descripcion; entidad.Activo = req.Activo;
         await ctx.SaveChangesAsync();
-        return new InfraccionAdminDto { Id = entidad.Id, Nombre = entidad.Nombre, FactorUit = entidad.FactorUit, MontoFijo = entidad.MontoFijo, Descripcion = entidad.Descripcion, Activo = entidad.Activo };
+        return new InfraccionAdminDto { Id = entidad.Id, Nombre = entidad.Nombre, Categoria = entidad.Categoria, FactorUit = entidad.FactorUit, MontoFijo = entidad.MontoFijo, Descripcion = entidad.Descripcion, Activo = entidad.Activo };
     }
 
     private static void ValidarInfraccion(InfraccionUpsertRequest req)

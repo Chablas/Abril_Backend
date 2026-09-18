@@ -86,6 +86,24 @@ public class PenalidadController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetOrigenesCandidatos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("proyectos/{proyectoId:int}/empresas")]
+    [RequireFeature("ssoma.gestion.penalidades.crear")]
+    public async Task<IActionResult> GetEmpresasPorProyecto(int proyectoId)
+    {
+        try { return Ok(await _service.GetEmpresasPorProyectoAsync(proyectoId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetEmpresasPorProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("proyectos/{proyectoId:int}/notificacion-inicial")]
+    [RequireFeature("ssoma.gestion.penalidades.crear")]
+    public async Task<IActionResult> GetNotificacionInicial(int proyectoId)
+    {
+        try { return Ok(await _service.GetNotificacionInicialAsync(proyectoId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetNotificacionInicial"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost]
     [RequireFeature("ssoma.gestion.penalidades.crear")]
     public async Task<IActionResult> Registrar([FromBody] PenalidadRegistrarRequest req)

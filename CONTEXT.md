@@ -6236,3 +6236,24 @@ Pedido de SSOMA: catálogo autorizado de Equipo de Protección Personal, visible
 ### Pendiente
 - Completar modelos/marcas de los ítems que en el Excel decían "Según estándar de logística" (quedaron sin modelo específico).
 - Evaluar si el Pedido necesita un flujo de aprobación (hoy `Estado = "Generado"` es solo informativo).
+
+## Sesión 2026-09-20 — Hoja de Ruta de Contratistas (SSOMA)
+
+### Contexto
+Pedido de SSOMA: resumen semanal de cumplimiento por contratista para decidir si se acepta su valorización, cruzando el checklist en papel (PDR/GA) contra los módulos que ya existen en el sistema.
+
+### Cambios
+- Nuevo feature `Features/SsomaModule/HojaRutaContratistaFeature/` (solo lectura, no crea tablas nuevas): agrega estado semanal por contratista jalando de `ss_hab_trabajador`/`ss_item_trabajador` (Inducción, SCTR, Vida ley, EMO, RETCC), `ss_hab_empresa` (Hoja de Atención SCTR, item id 25 fijo), Dossier (`ss_dossier_documento` tipo ATS/PETAR/EPP), `CharlaContratista`, `ssoma_rac` (conteo abiertas/cerradas, informativo), `ss_entregable` de accidentes (tipo "Registro de accidentes", id 13) y `ss_hab_equipo`/`ss_item_equipo` (Certificado de Operatividad, id 8, solo si el contratista tiene equipos registrados).
+- Constantes nuevas en `Shared/Constants/`: `HabItemIds.CarnetRetcc`, `HabItemEquipoIds.CertificadoOperatividad`, `HabItemEmpresaIds.HojaAtencionSctr`, `SsomaEntregableTipoIds.RegistroDeAccidentes` — todos verificados por SQL directo contra la BD real, no adivinados.
+- Endpoints en `HojaRutaController` (`/api/v1/ssoma/hoja-ruta`): `GET` resumen (contributorId, proyectoId, anio, numeroSemana) y `GET /contratistas?proyectoId=` (contratistas con trabajador activo en ese proyecto, excluyendo Abril).
+- `HojaRutaEstado` es `string` (constantes), no `enum` — no hay `JsonStringEnumConverter` global en `Program.cs`, un enum habría serializado como número.
+- Fix de bug conocido del proyecto: comparar `DateOnly.ToDateTime()` contra columna `timestamptz` sin `DateTime.SpecifyKind(..., Utc)` revienta en Postgres (mismo patrón que `RetiroAutomaticoService`) — corregido en `GetItemInformeAccidenteAsync`/`GetItemObservacionesRacAsync`.
+- Feature registrado en `feature`/`role_feature` (SQL manual, no migración EF) como `ssoma.gestion.hoja-ruta`, con los mismos roles que `ssoma.gestion.cumplimiento`.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores de compilación (el build completo falló al copiar el `.exe` de salida porque el backend estaba corriendo en el entorno del usuario — falla de entorno, no de código).
+
+### Pendiente
+- Extender el mismo patrón de auto-retiro/desactivación (`RetiroAutomaticoService`, ya en producción desde el 2026-09-22) a equipos y empresa — hoy solo cubre trabajadores.
+- Automatizar certificados de disposición de residuos sólidos (hoy es ítem manual, fuera del cálculo).

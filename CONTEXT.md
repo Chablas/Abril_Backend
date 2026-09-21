@@ -6209,3 +6209,40 @@ Aparte, se identificaron y borraron ~190 registros de `person` — duplicados de
 ### Pendiente
 - Los 4 casos de ficha duplicada con estados simétricos (ambos Activo o ambos Retirado) — decisión de GTH/SSOMA, no técnica.
 - No se corrió `dotnet build` en esta sesión (regla del proyecto); falta reiniciar el backend en el entorno del usuario para que tomen efecto estos cambios.
+
+## Sesión 2026-09-21 — Investigación EMO "Falta" pese a vigente + notificación al aprobar/rechazar Descanso Médico
+
+### Contexto
+Dos investigaciones encadenadas a pedido del usuario:
+1. Trabajadores de contratistas aparecían "No Autorizado" en Control de Acceso con el Certificado de Aptitud (EMO) como faltante, pese a que la empresa decía haber subido un certificado vigente.
+2. Reporte de que al médico ocupacional aprobar/rechazar un Descanso Médico, nadie recibía correo.
+
+### Hallazgo 1 — EMO de contratistas no es un bug de fechas, es backlog de aprobación
+Confirmado con SQL en pgAdmin sobre `ss_hab_trabajador`/`worker_emos` (worker_id 13893, DNI 75552374): el EMO de contratistas NO pasa por `EmoRepository`/`WorkerEmo` (eso es solo para trabajadores "Casa" — ver `ControlAccesoRepository.cs` líneas 703-742). Para contratistas es un ítem más de `ss_hab_trabajador` (item_id=4), subido por la empresa y queda en `estado = "Enviado"` hasta que alguien de Abril lo apruebe manualmente.
+
+El ítem 4 (Certificado de Aptitud) tiene `responsable = "SSOMA"` en `ss_item_trabajador` — por diseño del frontend (`trabajadores.ts:181-198`, `bandeja.ts:127-138`), solo `ADMINISTRADOR_SSOMA`/`ADMINISTRADOR_UDP` pueden aprobarlo. Se confirmó con SQL un backlog real: 20+ EMOs "Enviado" sin aprobar, algunos de semanas, varios ya vencidos según su `vigencia`. Conclusión: no hay bug de código, es un cuello de botella de revisión — falta confirmar si hay alguien con esos roles cubriendo esa cola.
+
+No se tocó código para esto (ver `Abril-Frontend/CONTEXT.md`, mismo día, por el único cambio de UI: fecha de subida visible en las tarjetas de Bandeja).
+
+### Hallazgo 2 — Descansos Médicos: correo solo se enviaba al registrar, nunca al resolver
+`DescansoMedicoRepository.Aprobar`/`Rechazar` no llamaban a ningún servicio de correo (a diferencia de `MiSaludService.SendNotificacionDescansoAsync`, que sí notifica pero solo en el momento de **crear** el descanso, no al aprobarlo/rechazarlo).
+
+### Cambio implementado
+Se agregó notificación por correo al aprobar/rechazar un Descanso Médico (`DescansoMedicoService.Aprobar`/`Rechazar`), best-effort (si falla el envío, el estado del descanso ya quedó guardado, solo se loguea el error). Destinatarios:
+- Quien registró el descanso (`RegistradoPorId` → `app_user.email`).
+- Coordinadora de Administración: Fiorella Mendoza Cruz (`fmendoza@abril.pe`, puesto "Coordinador Administrativo de Obra") — correo fijo en código, igual que Asistenta Social, porque no existe un área "Administración" en `area_scope` para resolverlo dinámicamente como GTH.
+- GTH (`area_scope.email` del área "Gestión del Talento Humano", mismo criterio que `MiSaludRepository`).
+- Asistenta Social (correo fijo, mismo valor que ya usaba `MiSaludService`).
+
+### Archivos clave
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/DescansoMedico/DescansoMedicoDto.cs` — nuevo `DescansoResolucionNotifDatosDto`.
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Interfaces/IDescansoMedicoRepository.cs` — nueva firma `GetDatosNotificacionResolucionAsync`.
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/DescansoMedicoRepository.cs` — resuelve correo del registrador (app_user) y de GTH (area_scope).
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Services/DescansoMedicoService.cs` — arma y envía el correo tras `Aprobar`/`Rechazar`.
+
+### Verificado
+`dotnet build` → 0 errores. No se probó en vivo (envío de correo real) — el usuario verifica él mismo.
+
+### Pendiente
+- Confirmar con el equipo si hay usuarios con rol `ADMINISTRADOR_SSOMA`/`ADMINISTRADOR_UDP` cubriendo la revisión de EMOs de contratistas — si no, ese es el cuello de botella real del backlog en Control de Acceso, no un bug de código.
+- Si en el futuro se da de alta un área "Administración" en `area_scope`, migrar el correo de la coordinadora de Administración de constante fija a lookup dinámico (mismo patrón que GTH).

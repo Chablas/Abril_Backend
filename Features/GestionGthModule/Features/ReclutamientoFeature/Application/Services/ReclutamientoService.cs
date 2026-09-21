@@ -1414,7 +1414,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     $"{FormatearMb(MaxLongListTotalBytes)} entre CVs y anexos. Quita algún anexo del " +
                     "portafolio o envía la long list en dos tandas.", 400);
 
-            // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
+            // 1) Contexto (valida que la fase admita enviar CVs) — no cambia estado todavía.
             var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
 
             // 2) Destinatarios del correo de long list.
@@ -1502,7 +1502,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
             }
 
-            // 5) Persistir los candidatos (reemplazando la long list previa) y avanzar a LONG_LIST_ENVIADA.
+            // 5) Persistir los candidatos —sumándolos a los que ya estaban, ver
+            //    GuardarLongListCandidatos— y, si el proceso todavía no había pasado de ahí,
+            //    avanzar a LONG_LIST_ENVIADA.
             return await _repo.GuardarLongListCandidatos(requerimientoId, persist, userId);
         }
 
@@ -1604,10 +1606,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 });
             }
 
-            return l.Documento(
-                new Layout.Cabecera(
+            // Un envío adicional se anuncia como lo que es: candidatos NUEVOS que se suman a un
+            // proceso en marcha. Con el texto de siempre ("GTH culminó el filtro de CVs") el
+            // solicitante entendería que le reenviaron la misma lista y que ya la decidió.
+            var cabecera = ctx.EsEnvioAdicional
+                ? new Layout.Cabecera(
+                    "req-longlist", "Nuevos CVs para tu revisión",
+                    "GTH sumó candidatos a este proceso. Son adicionales a los que ya revisaste: "
+                    + "los archivos se abren desde los enlaces de la tabla.")
+                : new Layout.Cabecera(
                     "req-longlist", "Long List de CVs",
-                    "GTH culminó el filtro de CVs. Los archivos se abren desde los enlaces de la tabla."),
+                    "GTH culminó el filtro de CVs. Los archivos se abren desde los enlaces de la tabla.");
+
+            return l.Documento(
+                cabecera,
                 l.Tarjeta(datos),
                 l.Seccion("req-candidatos", $"Candidatos ({candidatos.Count})"),
                 l.Tabla(ColumnasLongList, filas),

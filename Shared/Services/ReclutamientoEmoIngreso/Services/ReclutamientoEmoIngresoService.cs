@@ -285,10 +285,24 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
         }
 
         /// <summary>
-        /// A dónde va el requerimiento cuando el EMO sale No Apto: a <c>EMO_NO_APTO</c> para que GTH
-        /// elija a quién de los rechazados retoma, o directo a <c>LONG_LIST</c> si no queda ninguno
-        /// —sin candidatos a los que volver, la pantalla de decisión no tendría nada que ofrecer y
-        /// preparar otra long list es lo único que se puede hacer—.
+        /// A dónde va el requerimiento cuando el EMO sale No Apto.
+        ///
+        /// Primero se mira si el proceso todavía tiene candidatos VIVOS, que desde que GTH puede
+        /// enviar CVs en cualquier fase es un caso normal: mientras el seleccionado hacía su
+        /// examen, otros candidatos pudieron seguir avanzando. Con alguno vivo el requerimiento va
+        /// a donde está el trabajo que le queda —la misma escalera que usa
+        /// <c>RegistrarDecisionFinalista</c>— y no a la pantalla de decisión, que ofrecería rehacer
+        /// un proceso que no está vacío:
+        /// <list type="bullet">
+        ///   <item><description>Finalistas ya enviados al área → <c>SELECCION_JEFATURA</c>.</description></item>
+        ///   <item><description>Candidatos aprobados todavía en evaluación → <c>ENTREVISTAS</c>.</description></item>
+        ///   <item><description>CVs esperando la decisión del área → <c>LONG_LIST_ENVIADA</c>.</description></item>
+        /// </list>
+        ///
+        /// Sin nadie vivo vale lo de siempre: <c>EMO_NO_APTO</c> para que GTH elija a quién de los
+        /// rechazados retoma, o directo a <c>LONG_LIST</c> si no queda ninguno —sin candidatos a
+        /// los que volver, la pantalla de decisión no tendría nada que ofrecer y preparar otra long
+        /// list es lo único que se puede hacer—.
         ///
         /// Un ingreso directo FFT sin rechazados termina en <c>CERRADO_SIN_CUBRIR</c>: ese flujo no
         /// tiene long list (nace con su candidato puesto por el solicitante) ni candidatos previos,
@@ -303,6 +317,34 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
         private static async Task<string> FaseTrasNoAptoAsync(
             AppDbContext ctx, int requerimientoId, int candidatoNoAptoId, bool esFft)
         {
+            // Candidatos que siguen vivos, con el paso en el que está cada uno. Una sola consulta:
+            // el estado de la long list y el resultado de la evaluación (si la tiene) por candidato.
+            var cerrados = ResultadoCandidato.Cerrados.ToArray();
+            var vivos = await (
+                from c in ctx.GthCandidato
+                where c.State && c.GthRequerimientoId == requerimientoId
+                      && c.GthCandidatoId != candidatoNoAptoId
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado || est.Codigo == EstadoCandidato.Pendiente
+                select new
+                {
+                    Pendiente = est.Codigo == EstadoCandidato.Pendiente,
+                    Resultado = (
+                        from ev in ctx.GthCandidatoEvaluacion
+                        where ev.GthCandidatoId == c.GthCandidatoId && ev.State
+                        join res in ctx.GthCandidatoResultado
+                            on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                        select res.Codigo).FirstOrDefault(),
+                }).ToListAsync();
+
+            var enCarrera = vivos.Where(v => !v.Pendiente && !cerrados.Contains(v.Resultado ?? "")).ToList();
+            if (enCarrera.Any(v => v.Resultado == ResultadoCandidato.Paso))
+                return EstadoReclutamiento.SeleccionJefatura;
+            if (enCarrera.Count > 0)
+                return EstadoReclutamiento.Entrevistas;
+            if (vivos.Any(v => v.Pendiente))
+                return EstadoReclutamiento.LongListEnviada;
+
             // Descartados por el resultado de su evaluación: formulario, entrevistas o decisión
             // final. NO_APTO_EMO queda fuera a propósito — un examen médico no se revierte
             // volviendo a elegir a la misma persona.

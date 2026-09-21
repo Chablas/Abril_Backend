@@ -101,6 +101,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<CandidatoAprobadoDto> CandidatosAprobados { get; set; } = new();
 
         /// <summary>
+        /// CVs que GTH ya envió y que esperan la decisión del área solicitante (candidatos
+        /// PENDIENTE de la long list vigente). Desde que GTH puede mandar CVs en cualquier fase del
+        /// proceso, un requerimiento en entrevistas o en decisión de finalistas puede tener a la vez
+        /// candidatos recién enviados: son estos, y se muestran en la sección de la long list para
+        /// que GTH sepa qué mandó y qué le falta que le respondan.
+        /// </summary>
+        public List<CandidatoPendienteDto> CandidatosPendientes { get; set; } = new();
+
+        /// <summary>
         /// Candidatos RECHAZADOS a lo largo del proceso, con la etapa del rechazo, incluidos los de
         /// long lists anteriores. Alimenta la sección «Historial de candidatos rechazados»: cuando
         /// el solicitante rechaza a todos y el requerimiento vuelve a LONG_LIST, es lo que GTH mira
@@ -172,6 +181,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// no registre nada ni envíe el correo de agradecimiento.
         /// </summary>
         public EvaluacionResumenDto? Evaluacion { get; set; }
+    }
+
+    /// <summary>
+    /// Un CV enviado que espera la decisión del área solicitante (candidato PENDIENTE). Trae lo
+    /// justo para listarlo: hasta que el área no lo apruebe no tiene formulario, ni Multitest, ni
+    /// entrevista, ni evaluación.
+    /// </summary>
+    public class CandidatoPendienteDto
+    {
+        public int CandidatoId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Nombre y link del CV que GTH cargó al enviarlo.</summary>
+        public string? CvNombre { get; set; }
+        public string? CvUrl { get; set; }
+
+        /// <summary>Cuándo se le envió al solicitante (hora Perú).</summary>
+        public DateTime EnviadoEn { get; set; }
     }
 
     /// <summary>

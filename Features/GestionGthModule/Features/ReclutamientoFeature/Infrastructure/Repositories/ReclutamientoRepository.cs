@@ -117,14 +117,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Max(x => x.NumeroLongList));
 
         /// <summary>
-        /// Cuántos candidatos de la long list vigente siguen en carrera: aprobados por el
-        /// solicitante y sin un resultado que cierre su participación
-        /// (<see cref="ResultadoCandidato.Cerrados"/>). Cero significa que el proceso se quedó sin
-        /// candidatos —el área los rechazó a todos en la long list, GTH los descartó en el
-        /// formulario o en la entrevista, o el área rechazó a los finalistas— y es la condición
-        /// que habilita las dos salidas de GTH: retomar a un rechazado del historial o preparar
-        /// una long list nueva (ver <see cref="RetomarCandidatoRechazado"/> y
-        /// <see cref="VolverALongList"/>).
+        /// Cuántos candidatos de la long list vigente siguen en carrera: los aprobados por el
+        /// solicitante sin un resultado que cierre su participación
+        /// (<see cref="ResultadoCandidato.Cerrados"/>) <b>más los que todavía esperan su
+        /// decisión</b> (PENDIENTE). Cero significa que el proceso se quedó sin candidatos —el área
+        /// los rechazó a todos en la long list, GTH los descartó en el formulario o en la
+        /// entrevista, o el área rechazó a los finalistas— y es la condición que habilita las dos
+        /// salidas de GTH: retomar a un rechazado del historial o preparar una long list nueva (ver
+        /// <see cref="RetomarCandidatoRechazado"/> y <see cref="VolverALongList"/>).
+        ///
+        /// Los PENDIENTE cuentan desde que GTH puede mandar CVs en cualquier fase
+        /// (<see cref="EstadoReclutamiento.FasesEnvioLongList"/>): un proceso con una long list
+        /// recién enviada no está trabado —está esperando al área—, y darlo por vacío dejaría
+        /// rehacerlo por encima de unos CVs que el solicitante todavía no vio.
         ///
         /// El formulario rechazado NO saca a nadie de la cuenta: mientras GTH no le mande el
         /// correo de fin de proceso (<see cref="RegistrarRechazoPostulante"/>, que es lo que lo
@@ -142,7 +147,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
-                where est.Codigo == EstadoCandidato.Aprobado
+                where est.Codigo == EstadoCandidato.Aprobado || est.Codigo == EstadoCandidato.Pendiente
                 select (
                     from ev in ctx.GthCandidatoEvaluacion
                     where ev.GthCandidatoId == c.GthCandidatoId && ev.State
@@ -152,8 +157,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     select ev.GthCandidatoEvaluacionId).Any()
                 ).ToListAsync();
 
+            // El resultado cerrado se mira también en los PENDIENTE aunque no puedan tenerlo (nadie
+            // trabaja con un candidato hasta que el área lo aprueba): sale de la misma proyección y
+            // ahorra partir la consulta en dos.
             return candidatos.Count(resultadoCerrado => !resultadoCerrado);
         }
+
+        /// <summary>
+        /// Cuántos candidatos de la long list vigente esperan todavía la decisión del solicitante
+        /// (estado PENDIENTE). Es lo que enciende la tarjeta «Long list enviada por GTH» de su
+        /// panel y lo que hace que un proceso con CVs recién enviados no se considere sin
+        /// candidatos, esté en la fase que esté.
+        /// </summary>
+        private static Task<int> ContarCandidatosPendientes(AppDbContext ctx, int requerimientoId) =>
+            (from c in CandidatosVigentes(ctx)
+             where c.GthRequerimientoId == requerimientoId
+             join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+             where est.Codigo == EstadoCandidato.Pendiente
+             select c.GthCandidatoId).CountAsync();
 
         /// <summary>
         /// Fases del pipeline en las que GTH puede retomar a un rechazado o arrancar una long list
@@ -193,8 +214,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var enCarrera = await ContarCandidatosEnCarrera(ctx, requerimientoId);
             if (enCarrera > 0)
                 throw new AbrilException(
-                    $"Este proceso todavía tiene {enCarrera} candidato(s) en carrera: solo se puede "
-                    + $"{accion} cuando ya no queda ninguno.", 409);
+                    $"Este proceso todavía tiene {enCarrera} candidato(s) en juego (en evaluación o "
+                    + $"esperando la decisión del área): solo se puede {accion} cuando ya no queda "
+                    + "ninguno.", 409);
         }
 
         /// <summary>
@@ -900,14 +922,32 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Tabla "Solicitudes de vacante" del área (mismo proyectado de siempre).
             var misSolicitudes = await ProjectRequerimientos(ctx, delArea);
 
-            // Tarjetas "Gestión de candidatos": requerimientos del área cuya long list ya fue
-            // enviada por GTH (estado LONG_LIST_ENVIADA), con el conteo de candidatos vigentes.
+            // Tarjetas "Gestión de candidatos": requerimientos del área con CVs esperando su
+            // decisión, con el conteo de esos candidatos.
+            //
+            // La condición son los candidatos PENDIENTE y ya no la fase LONG_LIST_ENVIADA: GTH
+            // puede mandar CVs en cualquier momento del proceso (ver FasesEnvioLongList), así que
+            // un requerimiento en entrevistas o esperando la decisión de finalistas puede tener
+            // igual una long list nueva por revisar. Cuando eso pasa, el mismo requerimiento
+            // aparece con sus dos tarjetas —los CVs por decidir y el informe de finalistas—, que es
+            // exactamente lo que el solicitante tiene pendiente.
+            var pendienteEstadoId = await ctx.GthCandidatoEstado
+                .Where(e => e.State && e.Codigo == EstadoCandidato.Pendiente)
+                .Select(e => (int?)e.GthCandidatoEstadoId)
+                .FirstOrDefaultAsync() ?? 0; // 0 = catálogo sin sembrar: ninguna tarjeta
+
+            var terminadas = EstadoReclutamiento.FasesTerminadas.ToArray();
+
             var cards = await (
                 from r in delArea
+                where CandidatosVigentes(ctx).Any(c => c.GthRequerimientoId == r.GthRequerimientoId
+                                                    && c.GthCandidatoEstadoId == pendienteEstadoId)
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
                 join pr in ctx.Project on r.ProjectId equals pr.ProjectId
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
-                where e.Codigo == EstadoReclutamiento.LongListEnviada
+                // Un proceso terminado no pide decisiones: puede haber cerrado con CVs enviados
+                // (GTH los mandó mientras el seleccionado firmaba) y decidirlos ya no cambia nada.
+                where !terminadas.Contains(e.Codigo)
                 orderby r.UpdatedDateTime descending, r.GthRequerimientoId descending
                 select new GestionCandidatoCardDto
                 {
@@ -916,7 +956,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Puesto          = p.Nombre,
                     Area            = r.Solicitud!.AreaNombre,
                     ProyectoObra    = pr.ProjectDescription,
-                    TotalCandidatos = CandidatosVigentes(ctx).Count(c => c.GthRequerimientoId == r.GthRequerimientoId),
+                    TotalCandidatos = CandidatosVigentes(ctx).Count(c => c.GthRequerimientoId == r.GthRequerimientoId
+                                                                      && c.GthCandidatoEstadoId == pendienteEstadoId),
                     EstadoCodigo    = e.Codigo,
                     EstadoNombre    = e.Nombre,
                     Tipo            = TipoGestionCandidato.LongList,
@@ -1193,8 +1234,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Cabecera del requerimiento (scope: el área del usuario, ver EnScope) que ya tenga la
-            // long list enviada (LONG_LIST_ENVIADA o posterior).
+            // Cabecera del requerimiento (scope: el área del usuario, ver EnScope).
             var head = await (
                 from r in EnScope(ctx.GthRequerimiento, scope)
                 where r.GthRequerimientoId == requerimientoId
@@ -1211,20 +1251,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ProyectoObra = pr.ProjectDescription,
                     EstadoCodigo = e.Codigo,
                     EstadoNombre = e.Nombre,
-                    EstadoOrden  = e.Orden,
                 }).FirstOrDefaultAsync();
 
             if (head == null) return null;
 
-            // La revisión solo está disponible una vez que GTH envió la long list.
-            var longListEnviadaOrden = await ctx.GthEstadoRequerimiento
-                .Where(e => e.Codigo == EstadoReclutamiento.LongListEnviada && e.State)
-                .Select(e => (int?)e.Orden)
-                .FirstOrDefaultAsync();
-            if (longListEnviadaOrden == null || head.EstadoOrden < longListEnviadaOrden)
-                return null;
-
-            var candidatos = await (
+            // Todos los candidatos de la long list vigente, decididos o no. Ya NO se pide que el
+            // requerimiento esté en LONG_LIST_ENVIADA: GTH puede mandar CVs en cualquier fase, así
+            // que lo que hay por revisar lo dicen los candidatos y no la fase del proceso.
+            var todos = await (
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
@@ -1240,6 +1274,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     EstadoCodigo  = est.Codigo,
                     EstadoNombre  = est.Nombre,
                 }).ToListAsync();
+
+            if (todos.Count == 0) return null;
+
+            // Lo que el solicitante tiene que decidir son los PENDIENTE. Una long list puede tener
+            // candidatos ya decididos de un envío anterior —GTH sigue mandando CVs mientras el
+            // proceso avanza—, y volver a preguntarle por ellos sería pedirle que reviva decisiones
+            // que ya tomó (y que arrastraron trabajo: formularios, entrevistas, informes).
+            //
+            // Sin ninguno pendiente la pantalla no desaparece: se devuelve la long list completa en
+            // modo consulta (YaDecidida), que es lo que hace falta cuando alguien vuelve a abrir el
+            // enlace del correo después de haber decidido.
+            var pendientes  = todos.Where(c => c.EstadoCodigo == EstadoCandidato.Pendiente).ToList();
+            var yaDecidida  = pendientes.Count == 0;
+            var candidatos  = yaDecidida ? todos : pendientes;
 
             // Portafolio/anexos de todos los candidatos en una sola consulta (no una por
             // candidato), igual que las evaluaciones de los finalistas.
@@ -1257,6 +1305,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 EstadoCodigo    = head.EstadoCodigo,
                 EstadoNombre    = head.EstadoNombre,
                 Candidatos      = candidatos,
+                YaDecidida      = yaDecidida,
             };
         }
 
@@ -1292,22 +1341,42 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (head == null)
                 throw new AbrilException("No se encontró la long list del requerimiento.", 404);
 
-            // La decisión solo se registra una vez, cuando GTH ya envió la long list (LONG_LIST_ENVIADA).
-            if (head.EstadoCodigo != EstadoReclutamiento.LongListEnviada)
-                throw new AbrilException("Esta long list ya fue revisada o aún no está disponible para revisión.", 409);
+            // Un proceso terminado no admite decisiones, aunque le queden CVs sin decidir: pudo
+            // cerrarse con un envío en curso y aprobar a alguien ahí no llevaría a ninguna parte.
+            if (EstadoReclutamiento.FasesTerminadas.Contains(head.EstadoCodigo))
+                throw new AbrilException(
+                    "Este proceso de selección ya terminó: no quedan decisiones que tomar sobre sus CVs.", 409);
+
+            // Se decide sobre los candidatos PENDIENTE, no sobre toda la long list ni sobre una
+            // fase concreta: GTH puede seguir mandando CVs con el proceso ya en entrevistas o en la
+            // decisión de finalistas, así que la misma long list puede tener candidatos decididos
+            // hace semanas y otros recién enviados. Lo único que se pide es que quede algo por
+            // decidir.
+            var pendienteId = await ctx.GthCandidatoEstado
+                .Where(e => e.Codigo == EstadoCandidato.Pendiente && e.State)
+                .Select(e => (int?)e.GthCandidatoEstadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el estado PENDIENTE de candidatos.", 500);
 
             var candidatos = await CandidatosVigentes(ctx)
-                .Where(c => c.GthRequerimientoId == requerimientoId)
+                .Where(c => c.GthRequerimientoId == requerimientoId && c.GthCandidatoEstadoId == pendienteId)
                 .OrderBy(c => c.Orden).ThenBy(c => c.GthCandidatoId)
                 .ToListAsync();
             if (candidatos.Count == 0)
-                throw new AbrilException("La long list no tiene candidatos para revisar.", 400);
+                throw new AbrilException("Esta long list ya fue revisada: no quedan CVs por decidir.", 409);
 
-            // Decisión recibida por candidato; deben cubrir exactamente a los candidatos vigentes.
+            // Decisión recibida por candidato; deben cubrir exactamente a los que están pendientes.
             var decisionPorId = new Dictionary<int, bool>();
             foreach (var d in decisiones) decisionPorId[d.CandidatoId] = d.Aprobado;
             if (candidatos.Any(c => !decisionPorId.ContainsKey(c.GthCandidatoId)))
                 throw new AbrilException("Debes aprobar o rechazar a todos los candidatos antes de enviar la decisión.", 400);
+
+            // Candidatos que YA estaban en carrera antes de esta decisión (aprobados en un envío
+            // anterior y sin resultado cerrado). Se cuenta antes de tocar nada: es lo que decide si
+            // rechazar a todos estos CVs deja o no al proceso sin nadie. La consulta no ve los
+            // cambios que todavía están en memoria, así que el total final se arma sumando los
+            // aprobados de esta vuelta.
+            var otrosEnCarrera = await ContarCandidatosEnCarrera(ctx, requerimientoId) - candidatos.Count;
 
             var estadosCand = await ctx.GthCandidatoEstado
                 .Where(e => e.State && (e.Codigo == EstadoCandidato.Aprobado || e.Codigo == EstadoCandidato.Rechazado))
@@ -1333,13 +1402,41 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 if (aprobado) aprobados++; else rechazados++;
             }
 
-            // ≥1 aprobado → LONG_LIST_APROBADA. 0 aprobados → de vuelta a LONG_LIST para que GTH
-            // vuelva a enviar una long list (los rechazados quedan grabados como data histórica).
-            var todosRechazados = aprobados == 0;
-            var codigoDestino   = todosRechazados ? EstadoReclutamiento.LongList : EstadoReclutamiento.LongListAprobada;
-            var estadoDestino   = await ctx.GthEstadoRequerimiento
-                .FirstOrDefaultAsync(e => e.Codigo == codigoDestino && e.State)
-                ?? throw new AbrilException($"No está configurado el estado {codigoDestino} de reclutamiento.", 500);
+            // Fase en la que queda el requerimiento. Un envío de CVs ya no es el primer paso del
+            // proceso, así que la decisión sobre ellos NUNCA lo devuelve atrás:
+            //
+            //   • ≥1 aprobado → LONG_LIST_APROBADA, pero solo si el proceso todavía no había
+            //     llegado ahí. Si ya estaba en entrevistas, finalistas o el EMO, se queda donde
+            //     está: los aprobados de este envío se suman al trabajo que ya hay.
+            //   • 0 aprobados y nadie más en carrera → LONG_LIST, que es la fase donde GTH prepara
+            //     otra long list (los rechazados quedan como historial). Tampoco se retrocede desde
+            //     el EMO o la carta oferta: ahí el proceso ya tiene a su seleccionado.
+            //   • 0 aprobados pero alguien sigue en carrera → no se mueve nada: el proceso continúa
+            //     con los candidatos que ya estaban.
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongList
+                                        || e.Codigo == EstadoReclutamiento.LongListAprobada
+                                        || e.Codigo == EstadoReclutamiento.SeleccionJefatura
+                                        || e.GthEstadoRequerimientoId == head.Req.GthEstadoRequerimientoId))
+                .ToListAsync();
+            var estadoActual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == head.Req.GthEstadoRequerimientoId)
+                ?? throw new AbrilException("El requerimiento no tiene una fase válida.", 500);
+            var faseLongList = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST de reclutamiento.", 500);
+            var faseAprobada = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongListAprobada)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST_APROBADA de reclutamiento.", 500);
+            var ordenSeleccion = estados
+                .FirstOrDefault(e => e.Codigo == EstadoReclutamiento.SeleccionJefatura)?.Orden ?? int.MaxValue;
+
+            // Rechazarlos a todos solo devuelve el proceso a LONG_LIST si no queda nadie más y el
+            // requerimiento sigue en la parte del pipeline que se resuelve con candidatos (hasta la
+            // decisión de finalistas). Del EMO en adelante ya hay un seleccionado.
+            var todosRechazados = aprobados == 0 && otrosEnCarrera <= 0
+                                  && estadoActual.Orden <= ordenSeleccion;
+
+            var estadoDestino = todosRechazados                                      ? faseLongList
+                              : aprobados > 0 && estadoActual.Orden < faseAprobada.Orden ? faseAprobada
+                              : estadoActual;
 
             head.Req.GthEstadoRequerimientoId = estadoDestino.GthEstadoRequerimientoId;
             head.Req.UpdatedDateTime          = now;
@@ -1631,13 +1728,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var c in canales)
                 c.Publicado = publicados.Contains(c.Id);
 
-            // Candidatos aprobados por el solicitante (para la fase "Long list aprobada", imágenes 4/5).
-            // Vacío en fases anteriores; los rechazados no se incluyen.
-            var candidatosAprobadosRaw = await (
+            // Candidatos de la long list vigente que siguen en juego: los que el solicitante aprobó
+            // (la fase "Long list aprobada" y todo lo que viene después) y los que todavía esperan
+            // su decisión. Los dos grupos salen de la MISMA consulta y se parten en memoria: son
+            // las mismas columnas de la misma tabla y traerlos por separado sería un roundtrip de
+            // más. Los rechazados no se incluyen (van al historial).
+            var candidatosVivosRaw = await (
                 from c in CandidatosVigentes(ctx)
                 where c.GthRequerimientoId == requerimientoId
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
-                where est.Codigo == EstadoCandidato.Aprobado
+                where est.Codigo == EstadoCandidato.Aprobado || est.Codigo == EstadoCandidato.Pendiente
                 orderby c.Orden, c.GthCandidatoId
                 select new
                 {
@@ -1647,7 +1747,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.CvNombre,
                     c.CvUrl,
                     c.MultitestRealizado,
+                    c.CreatedDateTime,
+                    Pendiente = est.Codigo == EstadoCandidato.Pendiente,
                 }).ToListAsync();
+
+            var candidatosAprobadosRaw = candidatosVivosRaw.Where(x => !x.Pendiente).ToList();
+
+            // CVs enviados que esperan la decisión del área. GTH los ve en la sección de la long
+            // list para saber qué mandó y qué falta que le respondan; no tienen formulario,
+            // Multitest ni entrevista (nada de eso arranca hasta que el área los apruebe).
+            var candidatosPendientes = candidatosVivosRaw
+                .Where(x => x.Pendiente)
+                .Select(x => new CandidatoPendienteDto
+                {
+                    CandidatoId = x.GthCandidatoId,
+                    Nombre      = x.Nombre,
+                    CvNombre    = x.CvNombre,
+                    CvUrl       = x.CvUrl,
+                    EnviadoEn   = x.CreatedDateTime.ToOffset(PeruOffset).DateTime,
+                }).ToList();
 
             // Formulario del postulante de cada candidato aprobado (0..1 por candidato) para saber, por
             // candidato, si GTH ya lo envió y en qué fase está. Se trae en un segundo roundtrip pequeño
@@ -1821,6 +1939,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Canales             = canales,
                 LugaresEntrevista   = lugaresEntrevista,
                 CandidatosAprobados = candidatosAprobados,
+                CandidatosPendientes = candidatosPendientes,
                 CandidatosRechazados = candidatosRechazados,
                 Seleccionado         = seleccionado,
                 CartaOferta          = cartaOferta,
@@ -2876,6 +2995,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             //   • No quedan finalistas pero sí rezagados → vuelve a ENTREVISTAS, que es donde GTH
             //     los termina de evaluar. Antes iba derecho a LONG_LIST y esos candidatos se
             //     perdían: la long list nueva los deja fuera por ser de una vuelta anterior.
+            //   • No quedan ni finalistas ni rezagados pero hay CVs esperando la decisión del área
+            //     → LONG_LIST_ENVIADA: el proceso sigue vivo y la pelota es del solicitante.
             //   • No queda nadie → LONG_LIST, para que GTH prepare y envíe una long list nueva
             //     (los rechazados quedan grabados como historial y se pueden retomar).
             var quedanEnCarrera = finalistas.Any(f =>
@@ -2896,13 +3017,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                       && !ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId && ev.State)
                 select c.GthCandidatoId).CountAsync();
 
+            // CVs que GTH mandó después y que el área todavía no decidió. Son la tercera forma de
+            // que el proceso siga vivo sin finalistas: no hay a quién entrevistar todavía, pero la
+            // pelota es del solicitante, así que el requerimiento se para en LONG_LIST_ENVIADA y no
+            // vuelve a LONG_LIST — mandarlo ahí le pediría a GTH una long list nueva por encima de
+            // la que ya envió.
+            var pendientesDecision = aprobado || quedanEnCarrera || rezagadosEnCarrera > 0
+                ? 0
+                : await ContarCandidatosPendientes(ctx, requerimientoId);
+
             var sinFinalistas         = !aprobado && !quedanEnCarrera;
-            var continuaConRezagados  = sinFinalistas && rezagadosEnCarrera > 0;
-            var todosRechazados       = sinFinalistas && rezagadosEnCarrera == 0;
+            var otrosVivos            = rezagadosEnCarrera + pendientesDecision;
+            var continuaConRezagados  = sinFinalistas && otrosVivos > 0;
+            var todosRechazados       = sinFinalistas && otrosVivos == 0;
 
             var codigoEstado = aprobado ? EstadoReclutamiento.EmoIngreso
                              : quedanEnCarrera ? EstadoReclutamiento.SeleccionJefatura
                              : rezagadosEnCarrera > 0 ? EstadoReclutamiento.Entrevistas
+                             : pendientesDecision > 0 ? EstadoReclutamiento.LongListEnviada
                              : EstadoReclutamiento.LongList;
             var estadoDestino = await ctx.GthEstadoRequerimiento
                 .FirstOrDefaultAsync(e => e.Codigo == codigoEstado && e.State)
@@ -3432,6 +3564,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        /// <summary>
+        /// Valida que el requerimiento admita que GTH le mande CVs al solicitante: que no sea un
+        /// ingreso directo (FFT, que no tiene long list) y que esté en una fase del proceso vivo
+        /// (<see cref="EstadoReclutamiento.FasesEnvioLongList"/>).
+        ///
+        /// Ya no se compara por <c>orden</c> contra LONG_LIST: enviar una long list dejó de ser el
+        /// paso de una sola fase, así que lo que decide es la lista de fases —que además excluye
+        /// por arriba a los procesos ya terminados, cosa que un "orden mayor o igual" no hacía—.
+        /// </summary>
+        private static void ValidarFaseEnvioLongList(bool esFft, string estadoCodigo)
+        {
+            if (esFft)
+                throw new AbrilException(
+                    "Este requerimiento es un ingreso directo (FFT): el candidato lo nombró el área "
+                    + "solicitante y no tiene long list.", 409);
+
+            if (!EstadoReclutamiento.FasesEnvioLongList.Contains(estadoCodigo))
+                throw new AbrilException(
+                    "En esta fase no se pueden enviar CVs: la revisión de CV todavía no inició o el "
+                    + "proceso ya terminó.", 409);
+        }
+
         public async Task<LongListEnvioContextoDto> GetLongListEnvioContexto(int requerimientoId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -3450,6 +3604,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 select new
                 {
                     r.Codigo,
+                    r.EsFft,
                     Puesto           = p.Nombre,
                     Area             = r.Solicitud!.AreaNombre,
                     ProyectoObra     = pr.ProjectDescription,
@@ -3463,14 +3618,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (info == null)
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
-            // Solo se puede enviar la long list si la revisión de CV ya inició (fase LONG_LIST o
-            // posterior). Reenviar cuando ya está en LONG_LIST_ENVIADA está permitido.
-            var longListOrden = await ctx.GthEstadoRequerimiento
-                .Where(e => e.Codigo == EstadoReclutamiento.LongList && e.State)
-                .Select(e => (int?)e.Orden)
-                .FirstOrDefaultAsync();
-            if (longListOrden == null || info.EstadoOrden < longListOrden)
-                throw new AbrilException("La revisión de CV aún no ha iniciado; no hay long list para enviar.", 400);
+            ValidarFaseEnvioLongList(info.EsFft, info.EstadoCodigo);
 
             return new LongListEnvioContextoDto
             {
@@ -3482,6 +3630,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra          = info.ProyectoObra,
                 SlaDias               = info.SlaDias,
                 SolicitanteEmail      = info.SolicitanteEmail,
+                // Fuera de las dos fases en las que la long list arranca de cero, todo envío se
+                // suma a un proceso que ya tiene candidatos (ver GuardarLongListCandidatos).
+                EsEnvioAdicional      = !EstadoReclutamiento.FasesLongListDeCero.Contains(info.EstadoCodigo),
             };
         }
 
@@ -3496,17 +3647,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 throw new AbrilException("Requerimiento no encontrado.", 404);
 
             var estados = await ctx.GthEstadoRequerimiento
-                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongList
-                                        || e.Codigo == EstadoReclutamiento.LongListEnviada
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongListEnviada
                                         || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
                 .ToListAsync();
-            var longList        = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList);
             var longListEnviada = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongListEnviada)
                 ?? throw new AbrilException("No está configurado el estado LONG_LIST_ENVIADA de reclutamiento.", 500);
-            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId)
+                ?? throw new AbrilException("El requerimiento no tiene una fase válida.", 500);
 
-            if (longList == null || actual == null || actual.Orden < longList.Orden)
-                throw new AbrilException("La revisión de CV aún no ha iniciado; no hay long list para enviar.", 400);
+            ValidarFaseEnvioLongList(req.EsFft, actual.Codigo);
 
             // Estado inicial de cada candidato: PENDIENTE (aún sin decisión del solicitante).
             var estadoPendienteId = await ctx.GthCandidatoEstado
@@ -3524,52 +3673,46 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             var now = DateTimeOffset.UtcNow;
 
-            // Qué hacer con la long list anterior depende de si el solicitante llegó a decidirla:
+            // A qué vuelta (`numero_long_list`) entran estos candidatos. GTH puede mandar CVs en
+            // cualquier fase del proceso vivo, así que hay dos casos y NINGUNO da de baja lo
+            // anterior — un candidato ya cargado nunca se reemplaza:
             //
-            //   • Ya decidida  → esto es una VUELTA NUEVA (rechazó a todos y el requerimiento
-            //     volvió a LONG_LIST). La anterior se conserva viva: sus rechazados son el
-            //     historial que el sistema muestra, y `state = false` significa "eliminado del
-            //     sistema, no mostrar nunca", que no es el caso de un rechazado.
-            //   • Sin decidir  → esto es una CORRECCIÓN del mismo envío. Ahí las filas anteriores
-            //     sí se eliminan (state = false): se reemplazan, no son historial de nada.
+            //   • VUELTA NUEVA (numero + 1): solo desde LONG_LIST o EMO_NO_APTO y con la vuelta
+            //     vigente agotada (todos decididos y ninguno en carrera). Es empezar de cero: el
+            //     área rechazó a toda la long list, o el EMO del seleccionado salió No Apto. La
+            //     anterior queda como historial de rechazados (ver CandidatosVigentes).
+            //   • ADITIVA (mismo numero): en el resto del proceso. Los CVs nuevos se suman a los
+            //     que ya están, que pueden estar en cualquier paso —formulario, entrevista o
+            //     esperando la decisión del área—, y entran PENDIENTE como cualquier long list.
             //
-            // No pueden convivir ambas cosas en una misma vuelta: la decisión de la long list se
-            // registra para todos los candidatos de una sola vez.
-            // Con sus anexos (mismo viaje): si esta carga reemplaza a la anterior, los anexos de
-            // los candidatos que se dan de baja se dan de baja con ellos.
+            // Antes existía un tercer caso —"corrección": si la vuelta vigente seguía sin decidir,
+            // la carga nueva daba de baja a la anterior—. Se quitó al abrirse el envío a todo el
+            // proceso: ahora la sección de carga sigue disponible después de enviar, así que un
+            // segundo envío es casi siempre "van estos dos más" y borrar en silencio a los ya
+            // enviados le haría desaparecer al solicitante candidatos que ya tiene en su correo.
             var vigentes = await ctx.GthCandidato
-                .Include(c => c.Anexos)
                 .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
+                .Select(c => new { c.NumeroLongList, c.Orden, Decidido = c.GthCandidatoEstadoId != estadoPendienteId })
                 .ToListAsync();
 
-            var vueltaAnterior = vigentes.Count == 0 ? 0 : vigentes.Max(c => c.NumeroLongList);
-            var ultimaVuelta   = vigentes.Where(c => c.NumeroLongList == vueltaAnterior).ToList();
-            var yaDecidida     = ultimaVuelta.Any(c => c.GthCandidatoEstadoId != estadoPendienteId);
+            var vueltaVigente = vigentes.Count == 0 ? 0 : vigentes.Max(c => c.NumeroLongList);
+            var ultimaVuelta  = vigentes.Where(c => c.NumeroLongList == vueltaVigente).ToList();
 
-            int numeroLongList;
-            if (yaDecidida)
-            {
-                numeroLongList = vueltaAnterior + 1;
-            }
-            else
-            {
-                numeroLongList = Math.Max(vueltaAnterior, 1);
-                foreach (var v in ultimaVuelta)
-                {
-                    v.State           = false;
-                    v.UpdatedDateTime = now;
-                    v.UpdatedUserId   = userId;
+            // "Agotada" es más que "decidida": con alguien todavía en carrera (o esperando la
+            // decisión del área) una vuelta nueva lo dejaría fuera de todas las pantallas por ser
+            // de una vuelta anterior, que es justo el problema que este cambio viene a resolver.
+            var deCero = EstadoReclutamiento.FasesLongListDeCero.Contains(actual.Codigo)
+                         && ultimaVuelta.All(c => c.Decidido)
+                         && await ContarCandidatosEnCarrera(ctx, requerimientoId) == 0;
 
-                    foreach (var a in v.Anexos.Where(a => a.State))
-                    {
-                        a.State           = false;
-                        a.UpdatedDateTime = now;
-                        a.UpdatedUserId   = userId;
-                    }
-                }
-            }
+            var numeroLongList = deCero ? vueltaVigente + 1 : Math.Max(vueltaVigente, 1);
 
-            var orden = 1;
+            // El orden sigue al último de su vuelta: en una carga aditiva los candidatos nuevos van
+            // detrás de los que ya estaban, y no compartiendo los mismos números con ellos.
+            var orden = deCero
+                ? 1
+                : (ultimaVuelta.Count == 0 ? 0 : ultimaVuelta.Max(c => c.Orden)) + 1;
+
             foreach (var c in candidatos)
             {
                 // Los anexos entran por la navegación: EF inserta candidato + anexos en el mismo
@@ -3611,20 +3754,26 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 orden++;
             }
 
-            // Avance del pipeline a LONG_LIST_ENVIADA (idempotente: no se retrocede).
-            if (actual.Orden < longListEnviada.Orden)
+            // Fase en la que queda el requerimiento:
+            //
+            //   • Antes de LONG_LIST_ENVIADA (o viniendo de EMO_NO_APTO, que es una fase de
+            //     decisión con el orden del EMO) → LONG_LIST_ENVIADA: la pelota pasa al
+            //     solicitante, que es lo único que este envío deja pendiente.
+            //   • Más adelante (entrevistas, finalistas, EMO, carta oferta) → NO se mueve. El
+            //     proceso sigue donde estaba con sus candidatos; los recién enviados esperan la
+            //     decisión del área en paralelo, y devolver la fase atrás borraría el paso real en
+            //     el que está la vacante.
+            var vuelveAEnviada = actual.Orden < longListEnviada.Orden
+                                 || actual.Codigo == EstadoReclutamiento.EmoNoApto;
+            if (vuelveAEnviada)
             {
                 req.GthEstadoRequerimientoId = longListEnviada.GthEstadoRequerimientoId;
-                req.UpdatedDateTime          = now;
-                req.UpdatedUserId            = userId;
                 actual = longListEnviada;
             }
-            else
-            {
-                // Reenvío estando ya en LONG_LIST_ENVIADA: refresca la fecha para ordenar las tarjetas.
-                req.UpdatedDateTime = now;
-                req.UpdatedUserId   = userId;
-            }
+
+            // La fecha se refresca siempre: es la que ordena las tarjetas y la bandeja.
+            req.UpdatedDateTime = now;
+            req.UpdatedUserId   = userId;
 
             await ctx.SaveChangesAsync();
 
@@ -4796,6 +4945,73 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             AprobacionGg,
             RechazadoGg,
+        };
+
+        /// <summary>
+        /// Fases desde las que GTH puede enviarle CVs al solicitante. Es <b>todo el proceso desde
+        /// que la revisión de CV inició</b> y hasta que termina: una long list ya no es un paso que
+        /// se cumple una vez, sino algo que GTH puede seguir mandando mientras la vacante siga
+        /// abierta, aunque ya haya candidatos en entrevistas o finalistas esperando la decisión del
+        /// área (pedido de GTH del 2026-09-21). Los candidatos que llegan tarde se suman a los que
+        /// ya están, cada uno en el paso que le toca.
+        ///
+        /// Quedan fuera, y por eso la lista se escribe entera en vez de compararse por
+        /// <c>orden</c>:
+        /// <list type="bullet">
+        ///   <item><description>Lo anterior a <see cref="LongList"/> (la vacante ni siquiera está
+        ///   aprobada o publicada: no hay a quién mandarle nada).</description></item>
+        ///   <item><description><see cref="Cerrado"/>, <see cref="CerradoSinCubrir"/> y
+        ///   <see cref="RechazadoGg"/>: el proceso terminó.</description></item>
+        /// </list>
+        ///
+        /// Un ingreso directo (FFT) tampoco entra, pero eso no se decide por la fase sino por
+        /// <c>gth_requerimiento.es_fft</c>: ese flujo no tiene long list — el candidato lo nombró
+        /// quien pidió la vacante.
+        /// </summary>
+        public static readonly HashSet<string> FasesEnvioLongList = new()
+        {
+            LongList,
+            LongListEnviada,
+            LongListAprobada,
+            Entrevistas,
+            SeleccionJefatura,
+            EmoIngreso,
+            EmoApto,
+            EmoAptoRestricciones,
+            EmoObservado,
+            EmoNoApto,
+            CartaOferta,
+            CartaOfertaFirmada,
+        };
+
+        /// <summary>
+        /// Fases en las que el requerimiento ya terminó: no hay nada que decidir ni a quién sumar.
+        /// Un proceso puede cerrarse con CVs todavía esperando la decisión del área (GTH los mandó
+        /// mientras el seleccionado firmaba su carta), y esos candidatos no pueden seguir pidiendo
+        /// una decisión que ya no cambia nada.
+        /// </summary>
+        public static readonly HashSet<string> FasesTerminadas = new()
+        {
+            Cerrado,
+            CerradoSinCubrir,
+            RechazadoGg,
+        };
+
+        /// <summary>
+        /// Las dos fases en las que enviar una long list significa <b>empezar de cero</b> y no sumar
+        /// candidatos a los que ya están: el área rechazó a toda la long list (el requerimiento
+        /// vuelve solo a <see cref="LongList"/>) o el EMO del seleccionado salió No Apto
+        /// (<see cref="EmoNoApto"/>). Son las únicas en las que la carga entra como una vuelta
+        /// nueva —<c>numero_long_list + 1</c>— y la anterior pasa a ser historial.
+        ///
+        /// En el resto del pipeline la carga es aditiva: se suma a la vuelta vigente para que los
+        /// candidatos nuevos convivan con los que ya están en formulario, entrevista o decisión del
+        /// área (ver <c>GuardarLongListCandidatos</c>).
+        /// </summary>
+        public static readonly HashSet<string> FasesLongListDeCero = new()
+        {
+            LongList,
+            EmoNoApto,
         };
 
         /// <summary>

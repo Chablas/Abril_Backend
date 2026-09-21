@@ -28,9 +28,10 @@
         public bool PuedeRendirse { get; set; }
 
         /// <summary>
-        /// True si al menos un trayecto lleva un motivo marcado como reembolsable en
-        /// Configuración → Motivos (<c>ga_motivo_salida.es_reembolsable</c>). Sin eso la salida no
-        /// genera gasto de movilidad y no hay nada que rendir. El motivo libre no concede.
+        /// True si al menos un trayecto deja gasto que rendir: su motivo está marcado como
+        /// reembolsable en Configuración → Motivos (<c>ga_motivo_salida.es_reembolsable</c>), su
+        /// recorrido no está excluido y su importe es mayor a S/ 0.00. Sin eso la planilla no
+        /// tendría ni una fila de esta salida y no hay nada que rendir.
         /// </summary>
         public bool EsReembolsable { get; set; }
 

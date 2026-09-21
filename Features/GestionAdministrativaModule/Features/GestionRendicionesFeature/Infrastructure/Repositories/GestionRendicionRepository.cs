@@ -559,7 +559,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
                 return new ConsolidacionFila
                 {
+                    // Solo el primero: con un consolidado ya adjunto, reemplazarlo es de Consolidados.
                     PuedeAdjuntar = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
+                                 && p.ConsolidadoS10 == null
                                  && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto,
                     Conjunto = conjunto.Select(id => new ConsolidadoConjuntoItemDto
                     {

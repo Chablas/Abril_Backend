@@ -1,0 +1,22 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Se cae CA-19: el número de reembolso anulado deja de capturarse
+-- ═══════════════════════════════════════════════════════════════════════════
+-- El área usuaria dejó sin efecto CA-19 / HU-ERP-03 («si el consolidado fue
+-- anulado, la guía anterior no puede reutilizarse»). Con eso, el checkbox «El
+-- registro del S10 se anuló» sale del modal del Coordinador ERP y la columna
+-- deja de escribirse y de leerse en toda la aplicación.
+--
+-- Lo que queda del paso NO cambia: el ERP sigue confirmando con el check (RG-22)
+-- y el consolidador sigue teniendo que recargar el Consolidado del S10 corregido
+-- para volver a pedirle la firma a la jefatura (RG-23). Lo único que se pierde es
+-- el bloqueo del número anterior: ahora se reutiliza o se cambia según lo que
+-- diga el S10, y eso lo decide el consolidador al llenar el formulario.
+--
+-- ⚠ POST-DEPLOY. Corrrerlo ANTES tumba la sección entera: el código que está
+-- corriendo hoy todavía materializa GaCorreccionS10 con esa columna y se caería
+-- con 42703 hasta que entre el deploy. Al revés no pasa nada — el código nuevo
+-- no la nombra, así que convive sin problema con la columna todavía presente.
+--
+-- Re-corrible: IF EXISTS.
+
+ALTER TABLE ga_correccion_s10 DROP COLUMN IF EXISTS numero_reembolso_anulado;

@@ -15,6 +15,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     ///   trabajador es de TI: es la única subárea que rinde contra tarifario en vez de capturas.</item>
     ///   <item>0 si no aplica ninguna de las dos.</item>
     /// </list>
+    ///
+    /// Un trayecto que resuelve a <b>0</b> no entra en la rendición: se devuelve con
+    /// <c>EsReembolsable = false</c>. Pedir el reembolso de S/ 0.00 no tiene sentido, así que no se
+    /// imprime en la planilla ni suma al total. Pasa sobre todo con el tarifario de TI: un par
+    /// (origen, destino) cargado en S/ 0.00 —el recorrido que no cuesta movilidad— cubre al
+    /// trayecto (no se le pide captura) pero no genera gasto que rendir.
     /// </summary>
     public static class ImporteRendidoLoader
     {
@@ -78,13 +84,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 }
                 else if (EsTi(t.Subarea)
                       && t.LugarOrigenId.HasValue && t.LugarDestinoId.HasValue
-                      && catalogoMap.TryGetValue((t.LugarOrigenId.Value, t.LugarDestinoId.Value), out var montoCat))
+                      && catalogoMap.TryGetValue((t.LugarOrigenId.Value, t.LugarDestinoId.Value), out var montoCat)
+                      && montoCat > 0m)
                 {
                     result[t.TrayectoId] = new ImporteResuelto(montoCat, true, true);
                 }
                 else
                 {
-                    result[t.TrayectoId] = new ImporteResuelto(0m, false, true);
+                    // Sin capturas y sin tarifario con monto no hay gasto: el trayecto queda fuera
+                    // de la rendición en vez de imprimirse en S/ 0.00.
+                    result[t.TrayectoId] = new ImporteResuelto(0m, false, false);
                 }
             }
 

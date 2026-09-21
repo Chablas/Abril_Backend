@@ -527,6 +527,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo> SsActivoRotativo => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativo>();
         public DbSet<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento> SsActivoRotativoMovimiento => Set<Abril_Backend.Features.SsomaModule.ActivosRotativosFeature.Infrastructure.Models.SsActivoRotativoMovimiento>();
 
+        // EPP — Catálogo Autorizado (SSOMA + Logística)
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppCategoria> SsEppCategoria => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppCategoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppFamilia> SsEppFamilia => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppFamilia>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppItem> SsEppItem => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppItem>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppModelo> SsEppModelo => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppModelo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppAuditoria> SsEppAuditoria => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppAuditoria>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedido> SsEppPedido => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedido>();
+        public DbSet<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedidoLinea> SsEppPedidoLinea => Set<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Models.SsEppPedidoLinea>();
+
         // Cumplimiento SSOMA
         public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad> SsCumplimientoActividad => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoActividad>();
         public DbSet<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro> SsCumplimientoRegistro => Set<Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Models.SsCumplimientoRegistro>();
@@ -587,6 +596,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo> GthCorreoTipo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso> GthResponsableProceso => Set<Abril_Backend.Features.GestionGthModule.Shared.Models.GthResponsableProceso>();
+        // Configuración propia de qué áreas ve cada trabajador en Solicitud de Personal.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitudPersonalVisibilidadArea> GthSolicitudPersonalVisibilidadArea => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitudPersonalVisibilidadArea>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso> GthTipoProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion> GthCanalPublicacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal> GthRequerimientoCanal => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>();
@@ -1771,6 +1782,22 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne(r => r.Worker)
                  .WithMany()
                  .HasForeignKey(r => r.WorkerId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitudPersonalVisibilidadArea>(e =>
+            {
+                // Llave explícita: sin una PK descubrible no se arma el modelo y se cae toda la app.
+                e.HasKey(v => v.GthSolicitudPersonalVisibilidadAreaId);
+                // Una sola fila viva por trabajador y área.
+                e.HasIndex(v => new { v.WorkerId, v.AreaScopeId }).IsUnique().HasFilter("state = true");
+                e.HasOne<Worker>()
+                 .WithMany()
+                 .HasForeignKey(v => v.WorkerId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
+                 .WithMany()
+                 .HasForeignKey(v => v.AreaScopeId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

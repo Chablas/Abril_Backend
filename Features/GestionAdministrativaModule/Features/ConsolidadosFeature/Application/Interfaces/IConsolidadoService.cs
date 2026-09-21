@@ -66,5 +66,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// <param name="motivo">El «MOTIVO *» del requerimiento. Obligatorio (CA-17).</param>
         /// <returns>Mensaje para mostrar en la pantalla.</returns>
         Task<string> SolicitarCorreccionS10(int consolidadoId, string motivo, ConsolidadoFiltersDto scope, int userId);
+
+        /// <summary>
+        /// El consolidador reemplaza el Consolidado del S10 —normalmente porque se lo observaron—.
+        /// Es el ÚNICO lugar donde se reemplaza: Gestión de Rendiciones solo adjunta el primero. El
+        /// documento nuevo cubre las planillas que siguen con el reembolso abierto (las decididas se
+        /// quedan con el que se firmó), hereda el código CON y deja el reembolso Pendiente; en el
+        /// mismo paso se le avisa a la jefatura (best-effort, igual que al adjuntar).
+        /// </summary>
+        Task<ConsolidadoS10UploadResultDto> ReemplazarConsolidado(
+            int consolidadoId, IFormFile file, decimal montoTotal, string numeroReembolso,
+            ConsolidadoFiltersDto scope, int userId);
     }
 }

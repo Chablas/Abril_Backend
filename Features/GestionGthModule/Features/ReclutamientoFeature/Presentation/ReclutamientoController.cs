@@ -184,9 +184,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
                 var result = await _service.RegistrarDecisionLongList(id, dto, userId);
+                // Con 0 aprobados hay dos finales distintos: el proceso se quedó sin nadie y vuelve
+                // a long list, o sigue con los candidatos que ya estaban en evaluación (GTH puede
+                // mandar CVs con el proceso avanzado, así que rechazar estos no lo deja vacío).
                 var message = result.TodosRechazados
                     ? "Decisión registrada. Rechazaste a todos los candidatos; GTH enviará una nueva long list."
-                    : "Decisión registrada y notificada a GTH.";
+                    : result.Aprobados == 0
+                        ? "Decisión registrada y notificada a GTH. El proceso continúa con los candidatos que ya estaban en evaluación."
+                        : "Decisión registrada y notificada a GTH.";
                 return Ok(new { message, result.EstadoCodigo, result.EstadoNombre, result.Aprobados, result.Rechazados, result.TodosRechazados });
             }
             catch (AbrilException ex)

@@ -6210,6 +6210,54 @@ Aparte, se identificaron y borraron ~190 registros de `person` — duplicados de
 - Los 4 casos de ficha duplicada con estados simétricos (ambos Activo o ambos Retirado) — decisión de GTH/SSOMA, no técnica.
 - No se corrió `dotnet build` en esta sesión (regla del proyecto); falta reiniciar el backend en el entorno del usuario para que tomen efecto estos cambios.
 
+## Sesión 2026-09-18 — Nuevo módulo Catálogo de EPP (SSOMA + Logística)
+
+### Contexto
+Pedido de SSOMA: catálogo autorizado de Equipo de Protección Personal, visible también para Logística, para estandarizar qué EPP/marca/modelo se puede comprar y agilizar la generación de pedidos.
+
+### Cambios
+- Nueva feature `Features/SsomaModule/EppFeature/`, permiso `ssoma.gestion.epp` en módulo SSOMA.
+- Jerarquía: `SsEppCategoria` → `SsEppFamilia` → `SsEppItem` (nombre técnico + nombre comercial + descripción + imagen + ficha técnica PDF) → `SsEppModelo` (marca/modelo/código/imagen). `SsEppAuditoria` registra quién y cuándo creó/editó/activó/desactivó cada ítem o modelo.
+- `SsEppPedido`/`SsEppPedidoLinea`: pedidos con código correlativo (`PED-EPP-{año}-{id}`, generado post-insert con el propio Id), proyecto, usuario que lo generó, fecha, y snapshot de cada línea (no referencia en vivo al catálogo, para que un pedido histórico no cambie si luego se edita el ítem).
+- Dos contenedores de storage nuevos: `epp-imagenes` y `epp-fichas-tecnicas` (`IStorageContainerResolver`, `StorageOptions`).
+- Controllers: `EppController` (`/api/v1/ssoma/epp`) y `EppPedidoController` (`/api/v1/ssoma/epp/pedidos`), mismo `[RequireFeature("ssoma.gestion.epp")]`.
+- Migraciones en `_sql_prod/`: `ssoma_epp_feature.sql` (feature + categorías + tabla item/modelo inicial), `ssoma_epp_familia.sql` (agrega nivel Familia, migra ítems existentes), `ssoma_epp_ficha_tecnica.sql`, `ssoma_epp_pedido.sql`, y `ssoma_epp_seed_excel.sql` (carga inicial: 54 EPP / 43 modelos desde el Excel "EPPS AUTORIZADO SSOMA ACTUALIZADO ACTUAL.xls", hoja "EPP Aprobado", reorganizados en Familias reales).
+
+### Archivos clave
+- `Features/SsomaModule/EppFeature/**` (Application/Infrastructure/Presentation completos).
+- `Shared/Data/AppContext.cs` — DbSets nuevos.
+- `Shared/Services/Storage/**` — contenedores `epp-imagenes`/`epp-fichas-tecnicas`.
+- `Features/SsomaModule/SsomaModule.cs` — registro DI.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi, ya existente). Migraciones SQL ejecutadas y verificadas en vivo por el usuario durante toda la sesión (catálogo, imágenes, ficha técnica, pedido guardado con código correlativo).
+
+### Pendiente
+- Completar modelos/marcas de los ítems que en el Excel decían "Según estándar de logística" (quedaron sin modelo específico).
+- Evaluar si el Pedido necesita un flujo de aprobación (hoy `Estado = "Generado"` es solo informativo).
+
+## Sesión 2026-09-20 — Hoja de Ruta de Contratistas (SSOMA)
+
+### Contexto
+Pedido de SSOMA: resumen semanal de cumplimiento por contratista para decidir si se acepta su valorización, cruzando el checklist en papel (PDR/GA) contra los módulos que ya existen en el sistema.
+
+### Cambios
+- Nuevo feature `Features/SsomaModule/HojaRutaContratistaFeature/` (solo lectura, no crea tablas nuevas): agrega estado semanal por contratista jalando de `ss_hab_trabajador`/`ss_item_trabajador` (Inducción, SCTR, Vida ley, EMO, RETCC), `ss_hab_empresa` (Hoja de Atención SCTR, item id 25 fijo), Dossier (`ss_dossier_documento` tipo ATS/PETAR/EPP), `CharlaContratista`, `ssoma_rac` (conteo abiertas/cerradas, informativo), `ss_entregable` de accidentes (tipo "Registro de accidentes", id 13) y `ss_hab_equipo`/`ss_item_equipo` (Certificado de Operatividad, id 8, solo si el contratista tiene equipos registrados).
+- Constantes nuevas en `Shared/Constants/`: `HabItemIds.CarnetRetcc`, `HabItemEquipoIds.CertificadoOperatividad`, `HabItemEmpresaIds.HojaAtencionSctr`, `SsomaEntregableTipoIds.RegistroDeAccidentes` — todos verificados por SQL directo contra la BD real, no adivinados.
+- Endpoints en `HojaRutaController` (`/api/v1/ssoma/hoja-ruta`): `GET` resumen (contributorId, proyectoId, anio, numeroSemana) y `GET /contratistas?proyectoId=` (contratistas con trabajador activo en ese proyecto, excluyendo Abril).
+- `HojaRutaEstado` es `string` (constantes), no `enum` — no hay `JsonStringEnumConverter` global en `Program.cs`, un enum habría serializado como número.
+- Fix de bug conocido del proyecto: comparar `DateOnly.ToDateTime()` contra columna `timestamptz` sin `DateTime.SpecifyKind(..., Utc)` revienta en Postgres (mismo patrón que `RetiroAutomaticoService`) — corregido en `GetItemInformeAccidenteAsync`/`GetItemObservacionesRacAsync`.
+- Feature registrado en `feature`/`role_feature` (SQL manual, no migración EF) como `ssoma.gestion.hoja-ruta`, con los mismos roles que `ssoma.gestion.cumplimiento`.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores de compilación (el build completo falló al copiar el `.exe` de salida porque el backend estaba corriendo en el entorno del usuario — falla de entorno, no de código).
+
+### Pendiente
+- Extender el mismo patrón de auto-retiro/desactivación (`RetiroAutomaticoService`, ya en producción desde el 2026-09-22) a equipos y empresa — hoy solo cubre trabajadores.
+- Automatizar certificados de disposición de residuos sólidos (hoy es ítem manual, fuera del cálculo).
+
 ## Sesión 2026-09-21 — Investigación EMO "Falta" pese a vigente + notificación al aprobar/rechazar Descanso Médico
 
 ### Contexto
@@ -6246,3 +6294,50 @@ Se agregó notificación por correo al aprobar/rechazar un Descanso Médico (`De
 ### Pendiente
 - Confirmar con el equipo si hay usuarios con rol `ADMINISTRADOR_SSOMA`/`ADMINISTRADOR_UDP` cubriendo la revisión de EMOs de contratistas — si no, ese es el cuello de botella real del backlog en Control de Acceso, no un bug de código.
 - Si en el futuro se da de alta un área "Administración" en `area_scope`, migrar el correo de la coordinadora de Administración de constante fija a lookup dinámico (mismo patrón que GTH).
+## Sesión 2026-09-18 — Nuevo módulo Catálogo de EPP (SSOMA + Logística)
+
+### Contexto
+Pedido de SSOMA: catálogo autorizado de Equipo de Protección Personal, visible también para Logística, para estandarizar qué EPP/marca/modelo se puede comprar y agilizar la generación de pedidos.
+
+### Cambios
+- Nueva feature `Features/SsomaModule/EppFeature/`, permiso `ssoma.gestion.epp` en módulo SSOMA.
+- Jerarquía: `SsEppCategoria` → `SsEppFamilia` → `SsEppItem` (nombre técnico + nombre comercial + descripción + imagen + ficha técnica PDF) → `SsEppModelo` (marca/modelo/código/imagen). `SsEppAuditoria` registra quién y cuándo creó/editó/activó/desactivó cada ítem o modelo.
+- `SsEppPedido`/`SsEppPedidoLinea`: pedidos con código correlativo (`PED-EPP-{año}-{id}`, generado post-insert con el propio Id), proyecto, usuario que lo generó, fecha, y snapshot de cada línea (no referencia en vivo al catálogo, para que un pedido histórico no cambie si luego se edita el ítem).
+- Dos contenedores de storage nuevos: `epp-imagenes` y `epp-fichas-tecnicas` (`IStorageContainerResolver`, `StorageOptions`).
+- Controllers: `EppController` (`/api/v1/ssoma/epp`) y `EppPedidoController` (`/api/v1/ssoma/epp/pedidos`), mismo `[RequireFeature("ssoma.gestion.epp")]`.
+- Migraciones en `_sql_prod/`: `ssoma_epp_feature.sql` (feature + categorías + tabla item/modelo inicial), `ssoma_epp_familia.sql` (agrega nivel Familia, migra ítems existentes), `ssoma_epp_ficha_tecnica.sql`, `ssoma_epp_pedido.sql`, y `ssoma_epp_seed_excel.sql` (carga inicial: 54 EPP / 43 modelos desde el Excel "EPPS AUTORIZADO SSOMA ACTUALIZADO ACTUAL.xls", hoja "EPP Aprobado", reorganizados en Familias reales).
+
+### Archivos clave
+- `Features/SsomaModule/EppFeature/**` (Application/Infrastructure/Presentation completos).
+- `Shared/Data/AppContext.cs` — DbSets nuevos.
+- `Shared/Services/Storage/**` — contenedores `epp-imagenes`/`epp-fichas-tecnicas`.
+- `Features/SsomaModule/SsomaModule.cs` — registro DI.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi, ya existente). Migraciones SQL ejecutadas y verificadas en vivo por el usuario durante toda la sesión (catálogo, imágenes, ficha técnica, pedido guardado con código correlativo).
+
+### Pendiente
+- Completar modelos/marcas de los ítems que en el Excel decían "Según estándar de logística" (quedaron sin modelo específico).
+- Evaluar si el Pedido necesita un flujo de aprobación (hoy `Estado = "Generado"` es solo informativo).
+
+## Sesión 2026-09-20 — Hoja de Ruta de Contratistas (SSOMA)
+
+### Contexto
+Pedido de SSOMA: resumen semanal de cumplimiento por contratista para decidir si se acepta su valorización, cruzando el checklist en papel (PDR/GA) contra los módulos que ya existen en el sistema.
+
+### Cambios
+- Nuevo feature `Features/SsomaModule/HojaRutaContratistaFeature/` (solo lectura, no crea tablas nuevas): agrega estado semanal por contratista jalando de `ss_hab_trabajador`/`ss_item_trabajador` (Inducción, SCTR, Vida ley, EMO, RETCC), `ss_hab_empresa` (Hoja de Atención SCTR, item id 25 fijo), Dossier (`ss_dossier_documento` tipo ATS/PETAR/EPP), `CharlaContratista`, `ssoma_rac` (conteo abiertas/cerradas, informativo), `ss_entregable` de accidentes (tipo "Registro de accidentes", id 13) y `ss_hab_equipo`/`ss_item_equipo` (Certificado de Operatividad, id 8, solo si el contratista tiene equipos registrados).
+- Constantes nuevas en `Shared/Constants/`: `HabItemIds.CarnetRetcc`, `HabItemEquipoIds.CertificadoOperatividad`, `HabItemEmpresaIds.HojaAtencionSctr`, `SsomaEntregableTipoIds.RegistroDeAccidentes` — todos verificados por SQL directo contra la BD real, no adivinados.
+- Endpoints en `HojaRutaController` (`/api/v1/ssoma/hoja-ruta`): `GET` resumen (contributorId, proyectoId, anio, numeroSemana) y `GET /contratistas?proyectoId=` (contratistas con trabajador activo en ese proyecto, excluyendo Abril).
+- `HojaRutaEstado` es `string` (constantes), no `enum` — no hay `JsonStringEnumConverter` global en `Program.cs`, un enum habría serializado como número.
+- Fix de bug conocido del proyecto: comparar `DateOnly.ToDateTime()` contra columna `timestamptz` sin `DateTime.SpecifyKind(..., Utc)` revienta en Postgres (mismo patrón que `RetiroAutomaticoService`) — corregido en `GetItemInformeAccidenteAsync`/`GetItemObservacionesRacAsync`.
+- Feature registrado en `feature`/`role_feature` (SQL manual, no migración EF) como `ssoma.gestion.hoja-ruta`, con los mismos roles que `ssoma.gestion.cumplimiento`.
+- Frontend: ver `Abril-Frontend/CONTEXT.md` (mismo día).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores de compilación (el build completo falló al copiar el `.exe` de salida porque el backend estaba corriendo en el entorno del usuario — falla de entorno, no de código).
+
+### Pendiente
+- Extender el mismo patrón de auto-retiro/desactivación (`RetiroAutomaticoService`, ya en producción desde el 2026-09-22) a equipos y empresa — hoy solo cubre trabajadores.
+- Automatizar certificados de disposición de residuos sólidos (hoy es ítem manual, fuera del cálculo).

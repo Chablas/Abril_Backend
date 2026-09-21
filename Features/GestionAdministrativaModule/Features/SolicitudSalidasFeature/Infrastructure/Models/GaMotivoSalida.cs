@@ -28,6 +28,16 @@
         /// <c>GaTrayecto.EsReembolsable</c>), nunca al reves.
         /// </summary>
         public bool EsReembolsable { get; set; }
+        /// <summary>
+        /// true en la UNICA fila que configura la via "Otro motivo" del formulario: el motivo que
+        /// el trabajador escribe a mano cuando ninguno del catalogo le sirve. No se ofrece en el
+        /// desplegable, pero es una fila como las demas para que el texto libre tambien pueda
+        /// declararse reembolsable, pedir adjunto o describir una ausencia de dia completo.
+        /// Los trayectos que la usan apuntan a ella con <c>motivo_id</c> y guardan lo escrito en
+        /// <c>ga_solicitud_trayecto.motivo_libre</c>: ese texto es el que se muestra en todas las
+        /// pantallas, nunca esta descripcion.
+        /// </summary>
+        public bool EsMotivoLibre { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

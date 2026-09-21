@@ -645,7 +645,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 items.Add(new ReembolsoListItemDto
                 {
                     Id              = dto.Id,
+                    Codigo          = dto.Codigo,
                     NumeroReembolso = dto.NumeroReembolso,
+                    PlanillaGrupalUrl      = dto.PlanillaGrupalUrl,
+                    PlanillaGrupalFilename = dto.PlanillaGrupalFilename,
+                    PlanillaGrupalFirmadoUrl      = dto.PlanillaGrupalFirmadoUrl,
+                    PlanillaGrupalFirmadoFilename = dto.PlanillaGrupalFirmadoFilename,
                     MontoS10        = dto.MontoTotal,
                     MontoPlanillas  = rendiciones.Sum(r => r.MontoTotalPlanilla),
                     MontoTotal      = salidas.Sum(s => s.Monto),
@@ -863,7 +868,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 !string.IsNullOrEmpty(valor)
                 && valor.Contains(texto, StringComparison.OrdinalIgnoreCase);
 
-            return Tiene(x.NumeroReembolso)
+            return Tiene(x.Codigo)
+                || Tiene(x.NumeroReembolso)
                 || Tiene(x.Periodo)
                 || Tiene(x.RazonSocial)
                 || x.Trabajadores.Any(Tiene)
@@ -977,9 +983,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
         private static void CopiarCabecera(ReembolsoListItemDto o, ReembolsoDetalleDto d)
         {
-            d.Id = o.Id; d.NumeroReembolso = o.NumeroReembolso;
+            d.Id = o.Id; d.Codigo = o.Codigo; d.NumeroReembolso = o.NumeroReembolso;
             d.MontoS10 = o.MontoS10; d.MontoPlanillas = o.MontoPlanillas; d.MontoTotal = o.MontoTotal;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
+            d.PlanillaGrupalUrl = o.PlanillaGrupalUrl; d.PlanillaGrupalFilename = o.PlanillaGrupalFilename;
+            d.PlanillaGrupalFirmadoUrl = o.PlanillaGrupalFirmadoUrl;
+            d.PlanillaGrupalFirmadoFilename = o.PlanillaGrupalFirmadoFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
             d.RazonSocial = o.RazonSocial;

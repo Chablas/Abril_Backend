@@ -82,10 +82,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids);
 
         /// <summary>
-        /// Del set dado, devuelve las solicitudes sin NINGÚN trayecto reembolsable —motivo marcado
-        /// en Configuración → Motivos y recorrido no excluido en Configuración → Trayectos—: no
-        /// generan gasto de movilidad, así que no hay nada que rendir y la planilla no tendría ni
-        /// una fila de ellas. Es el bloqueo duro que acompaña al recorte de la pantalla.
+        /// Del set dado, devuelve las solicitudes sin NINGÚN trayecto que deje gasto que rendir:
+        /// motivo no marcado en Configuración → Motivos, recorrido excluido en Configuración →
+        /// Trayectos, o importe resuelto en S/ 0.00 (el tarifario de TI en cero). La planilla no
+        /// tendría ni una fila de ellas, así que no hay nada que rendir. Es el bloqueo duro que
+        /// acompaña al recorte de la pantalla.
         /// </summary>
         Task<List<int>> GetIdsNoReembolsables(IEnumerable<int> ids);
 
@@ -118,11 +119,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// una semana o una quincena que el trabajador ya rindió. Por eso se pide recién cuando
         /// hace falta y no en cada rendición.
         /// </summary>
-        /// <param name="excluirRendicionId">
-        /// La planilla que se está regenerando: sus propias salidas no son un periodo ajeno.
+        /// <param name="excluirRendicionIds">
+        /// Las planillas que se están (re)generando: sus propias salidas no son un periodo ajeno.
+        /// Es una colección y no un id porque la planilla grupal cubre varias a la vez.
         /// </param>
         Task<Dictionary<int, List<ImputacionMovilidadPlanilla.PeriodoRendido>>> GetPeriodosRendidos(
-            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta, int? excluirRendicionId);
+            IReadOnlyCollection<int> workerIds, DateOnly desde, DateOnly hasta,
+            IReadOnlyCollection<int> excluirRendicionIds);
+
+        /// <summary>
+        /// Las salidas de N planillas de rendición, cada una con el código (REN-AAAA-NNNN) de la
+        /// planilla a la que pertenece, en un solo roundtrip. Es lo que necesita la planilla de
+        /// reembolso, que se arma con todo lo que cubre el Consolidado del S10 y dice en cada fila
+        /// de qué rendición sale.
+        /// </summary>
+        Task<Dictionary<int, string>> GetCodigoRendicionPorSolicitud(IReadOnlyCollection<int> rendicionIds);
 
         /// <summary>
         /// Detalle completo (cabecera + trayectos con capturas + rendición si existe).

@@ -395,15 +395,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         $"{limite:dd/MM/yyyy} ({calendario.TextoDelLimite}). Ya no se pueden rendir.", 400);
             }
 
-            // 1.c. Bloqueo: la salida tiene que llevar al menos un trayecto reembolsable. Sin eso no
-            //       hay gasto de movilidad que rendir y la planilla saldría sin una sola fila de esa
-            //       salida, porque los trayectos sin reembolso no se imprimen.
+            // 1.c. Bloqueo: la salida tiene que llevar al menos un trayecto con gasto que rendir.
+            //       Sin eso la planilla saldría sin una sola fila de esa salida: no se imprimen ni
+            //       los trayectos sin reembolso ni los que resuelven a S/ 0.00.
             var noReembolsables = await _repo.GetIdsNoReembolsables(elegiblesIds);
             if (noReembolsables.Count > 0)
                 throw new AbrilException(
-                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún trayecto reembolsable " +
+                    $"No se puede rendir: {noReembolsables.Count} solicitud(es) no tienen ningún trayecto con gasto que rendir " +
                     $"(IDs: {string.Join(", ", noReembolsables)}). Solo se rinden los trayectos cuyo motivo está marcado " +
-                    "como reembolsable en Configuración → Motivos y cuyo recorrido no está excluido en Configuración → Trayectos.",
+                    "como reembolsable en Configuración → Motivos, cuyo recorrido no está excluido en Configuración → " +
+                    "Trayectos y cuyo importe es mayor a S/ 0.00.",
                     400);
 
             // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
@@ -418,7 +419,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 throw new AbrilException(
                     "No se puede rendir: ninguna de las salidas seleccionadas tiene trayectos reembolsables que imprimir.", 400);
 
-            var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId: null);
+            var fechas         = await ImputarFechasPlanillaAsync(datos, calendario, Array.Empty<int>());
             var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
             var numeroLabel    = $"TI: {numeroPlanilla:D6}";
             var pdf            = GenerarPlanillaPdf(datos, numeroLabel, fechas);
@@ -434,7 +435,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return (pdf, rendidasIds.Count, rendicionId, codigo);
         }
 
-        public async Task<byte[]> RegenerarPlanilla(int rendicionId, int userId)
+        public async Task RegenerarPlanilla(int rendicionId, int userId)
         {
             // El PDF cubre la planilla entera, así que se regenera con TODAS sus salidas: acotarlo
             // a las del trabajador que subsana dejaría fuera a los demás grupos del documento.
@@ -467,7 +468,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // Las fechas se vuelven a repartir con los montos corregidos: si la subsanación bajó
             // un importe, lo que se había ido al día siguiente puede volver a caber en el suyo.
             var calendario = await _repo.GetCalendarioNoLaborable();
-            var fechas     = await ImputarFechasPlanillaAsync(datos, calendario, rendicionId);
+            var fechas     = await ImputarFechasPlanillaAsync(datos, calendario, new[] { rendicionId });
 
             // El número de planilla se reusa: el correlativo del papel no se consume otra vez
             // porque es el mismo documento corregido, no uno nuevo.
@@ -479,8 +480,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // El archivo anterior NO se borra de SharePoint: era el documento que el jefe observó y
             // queda como respaldo. Lo que cambia es a cuál apunta la planilla.
             await _repo.ReemplazarPdfRendicion(rendicionId, pdfUrl, pdfItemId, filename);
-
-            return pdf;
         }
 
         /// <summary>
@@ -573,6 +572,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
+        public async Task<byte[]> GenerarPlanillaGrupal(
+            IReadOnlyCollection<int> rendicionIds, PlanillaReembolsoCabeceraDto cabecera)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            if (ids.Count == 0)
+                throw new AbrilException("No hay planillas con las que armar la planilla de reembolso.", 400);
+
+            // Cada salida con el código de su planilla: es la columna RENDICIÓN.
+            var rendicionPorSolicitud = await _repo.GetCodigoRendicionPorSolicitud(ids);
+            if (rendicionPorSolicitud.Count == 0)
+                throw new AbrilException(
+                    "Las planillas del consolidado no tienen salidas: no hay planilla de reembolso que armar.", 409);
+
+            var datos = await _repo.GetRendicionData(rendicionPorSolicitud.Keys.ToList());
+
+            // Mismo corte que al rendir y al regenerar: GetRendicionData solo devuelve trayectos
+            // reembolsables. Sin ninguno no hay papel que armar, y decirlo es mejor que subir un
+            // documento en blanco al lado del Consolidado del S10.
+            if (datos.Count == 0)
+                throw new AbrilException(
+                    "Las planillas del consolidado ya no tienen trayectos reembolsables: no se puede "
+                    + "armar la planilla de reembolso.", 409);
+
+            var calendario = await _repo.GetCalendarioNoLaborable();
+
+            // Se excluyen TODAS las planillas del consolidado: sus salidas son las que se están
+            // imputando, no un periodo ajeno ya rendido.
+            var fechas = await ImputarFechasPlanillaAsync(datos, calendario, ids);
+
+            return GenerarPlanillaReembolsoPdf(datos, cabecera, fechas, rendicionPorSolicitud);
+        }
+
         /// <summary>
         /// Con qué FECHA sale impreso cada trayecto. La regla vive en
         /// <see cref="ImputacionMovilidadPlanilla"/>; acá se resuelve solo de dónde salen sus datos
@@ -583,12 +614,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// si algo no entró hacia adelante se pregunta qué semanas o quincenas ya se rindieron y se
         /// vuelve a repartir, ahora sí pudiendo ir hacia atrás.
         /// </summary>
-        /// <param name="rendicionId">
-        /// La planilla que se está regenerando, para no tomar sus propias salidas como un periodo
-        /// ajeno. Null cuando se está rindiendo (todavía no existe).
+        /// <param name="rendicionIds">
+        /// Las planillas que se están (re)generando, para no tomar sus propias salidas como un
+        /// periodo ajeno. Vacío cuando se está rindiendo (la planilla todavía no existe); con
+        /// varias cuando lo que se arma es la planilla grupal del consolidado.
         /// </param>
         private async Task<Dictionary<int, DateOnly>> ImputarFechasPlanillaAsync(
-            List<RendicionItemDto> items, CalendarioNoLaborable calendario, int? rendicionId)
+            List<RendicionItemDto> items, CalendarioNoLaborable calendario,
+            IReadOnlyCollection<int> rendicionIds)
         {
             if (items.Count == 0) return new();
 
@@ -608,7 +641,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     trayectos.Select(t => t.WorkerId).Distinct().ToList(),
                     new DateOnly(desde.Year, desde.Month, 1),
                     new DateOnly(hasta.Year, hasta.Month, 1).AddMonths(1).AddDays(-1),
-                    rendicionId);
+                    rendicionIds);
 
                 imputacion = ImputacionMovilidadPlanilla.Resolver(trayectos, calendario, periodos);
             }
@@ -651,23 +684,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Máximo de líneas que puede ocupar el texto de una celda de la tabla.</summary>
         private const int TablaMaxLineas = 2;
 
-        /// <summary>Margen de la hoja, salvo el inferior (ver <see cref="MargenInferiorPt"/>).</summary>
+        /// <summary>
+        /// Margen de la hoja, salvo el inferior (ver <see cref="MargenInferiorPt"/>) y el derecho,
+        /// que es el de <see cref="SignaturePdfStamper.SignatureMarginPt"/> para que la línea de
+        /// firma termine donde termina la firma estampada.
+        /// </summary>
         private const float MargenPt = 25f;
 
         /// <summary>
-        /// Alto reservado bajo la línea para la leyenda "Firma de Jefatura / Gerencia".
+        /// Margen inferior de la hoja: el de <see cref="SignaturePdfStamper.PieMargenInferiorPt"/>.
+        /// Debajo de la línea de firma se reserva el pie (<see cref="SignaturePdfStamper.PieAltoPt"/>)
+        /// y la línea tiene que quedar exactamente donde el estampador apoya la firma al aprobar el
+        /// reembolso: ahí el pie firmado —cargo, nombre, fecha— tapa la leyenda de la planilla. El
+        /// número de registro compensa esta diferencia con un padding para seguir cayendo a
+        /// <see cref="MargenPt"/> del borde.
         /// </summary>
-        private const float FirmaLeyendaAltoPt = 13f;
-
-        /// <summary>
-        /// Margen inferior de la hoja. Es menor que el resto a propósito: la leyenda va DEBAJO de
-        /// la línea de firma y la línea tiene que quedar exactamente donde
-        /// <see cref="SignaturePdfStamper"/> apoya la firma al aprobar el reembolso
-        /// (<see cref="SignaturePdfStamper.SignatureMarginPt"/> del borde inferior). El número de
-        /// registro y la paginación compensan esta diferencia con un padding para seguir cayendo a
-        /// <see cref="MargenPt"/> como antes.
-        /// </summary>
-        private const float MargenInferiorPt = (float)SignaturePdfStamper.SignatureMarginPt - FirmaLeyendaAltoPt;
+        private const float MargenInferiorPt = (float)SignaturePdfStamper.PieMargenInferiorPt;
 
         /// <summary>
         /// Texto de la columna MOTIVO de la planilla: el motivo del catálogo con su detalle pegado
@@ -732,45 +764,252 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     {
                         page.Size(PageSizes.A4.Landscape());
                         page.MarginTop(MargenPt);
-                        page.MarginHorizontal(MargenPt);
+                        page.MarginLeft(MargenPt);
+                        page.MarginRight((float)SignaturePdfStamper.SignatureMarginPt);
                         page.MarginBottom(MargenInferiorPt);
                         page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
 
                         page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel, fechas));
 
-                        // Pie de página común a todas las páginas — número de registro (izq),
-                        // "Página X de Y" cuando aplique y, al cerrar cada trabajador, su línea
-                        // de firma pegada al borde inferior derecho.
+                        // Pie de página común a todas las páginas — número de registro y "Página X
+                        // de Y" cuando aplique (izq) y, al cerrar cada trabajador, su línea de
+                        // firma pegada al borde inferior derecho.
                         var pageNum_    = pag.pageNum;
                         var totalPages_ = pag.totalPages;
                         var isLast_     = pag.isLast;
-                        page.Footer().PaddingTop(4).Row(footerRow =>
-                        {
-                            // Se compensa el margen inferior recortado para que el número de
-                            // registro y la paginación sigan cayendo a MargenPt del borde.
-                            footerRow.RelativeItem()
-                                .PaddingBottom(MargenPt - MargenInferiorPt)
-                                .AlignBottom()
-                                .Row(datos =>
-                                {
-                                    datos.RelativeItem().AlignLeft()
-                                        .Text(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
-                                    datos.RelativeItem().AlignRight()
-                                        .Text(totalPages_ > 1 ? $"Página {pageNum_} de {totalPages_}" : "")
-                                        .FontSize(9).FontColor(Colors.Grey.Medium);
-                                });
-
-                            // El ancho es el mismo de la firma estampada y el bloque termina en el
-                            // margen derecho: así la línea queda justo debajo de la firma en vez
-                            // de al lado. Solo en la hoja que cierra al trabajador.
-                            footerRow.ConstantItem((float)SignaturePdfStamper.SignatureWidthPt)
-                                .Element(c => { if (isLast_) LineaFirma(c); });
-                        });
+                        page.Footer().Element(f => PiePagina(f, numeroLabel, pageNum_, totalPages_, isLast_));
                     });
                 }
             });
 
             return doc.GeneratePdf();
+        }
+
+        /// <summary>
+        /// El pie de cada hoja, igual en la planilla individual y en la de reembolso: el número del
+        /// documento con "Página X de Y" a la izquierda y, en la hoja que lo cierra, la línea de firma
+        /// pegada al borde inferior derecho.
+        /// </summary>
+        private static void PiePagina(IContainer footer, string numeroLabel, int pageNum, int totalPages, bool conLineaFirma)
+        {
+            footer.PaddingTop(4).Row(footerRow =>
+            {
+                // Se compensa el margen inferior recortado para que el número de registro siga
+                // cayendo a MargenPt del borde. La paginación va pegada a él y no a la derecha: esa
+                // esquina es de las firmas, y cuando firma más de una jefatura la segunda se estampa
+                // a la izquierda de la primera.
+                footerRow.RelativeItem()
+                    .PaddingBottom(MargenPt - MargenInferiorPt)
+                    .AlignBottom()
+                    .AlignLeft()
+                    .Text(t =>
+                    {
+                        t.Span(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
+                        if (totalPages > 1)
+                            t.Span($"      Página {pageNum} de {totalPages}")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                    });
+
+                // El ancho es el mismo de la firma estampada y el bloque termina en el margen
+                // derecho: así la línea queda justo debajo de la firma en vez de al lado.
+                footerRow.ConstantItem((float)SignaturePdfStamper.SignatureWidthPt)
+                    .Element(c => { if (conLineaFirma) LineaFirma(c); });
+            });
+        }
+
+        // ── Planilla de reembolso (la planilla grupal del consolidado) ──────────
+
+        /// <summary>Lo que la cabecera de la planilla de reembolso resume de sus filas.</summary>
+        private sealed record ResumenReembolso(string Periodo, int Rendiciones, decimal Importe);
+
+        /// <summary>Ancho de la etiqueta en la cabecera a dos columnas de la planilla de reembolso.</summary>
+        private const float ReembolsoEtiquetaPt = 135f;
+
+        /// <summary>
+        /// La PLANILLA DE REEMBOLSO: los trayectos de todas las planillas del consolidado en una sola
+        /// tabla —con la columna RENDICIÓN diciendo de cuál sale cada fila—, el código de la
+        /// rendición grupal en el título y la cabecera del consolidador. Una sola línea de firma, al
+        /// pie de la última hoja: la firma de la jefatura la estampa en todas.
+        /// </summary>
+        private static byte[] GenerarPlanillaReembolsoPdf(
+            List<RendicionItemDto> items,
+            PlanillaReembolsoCabeceraDto cabecera,
+            IReadOnlyDictionary<int, DateOnly> fechas,
+            IReadOnlyDictionary<int, string> rendicionPorSolicitud)
+        {
+            string RendicionDe(RendicionItemDto it) =>
+                rendicionPorSolicitud.TryGetValue(it.SolicitudId, out var codigo) ? codigo : string.Empty;
+
+            // Juntas las filas de cada rendición —es lo que distingue la columna nueva— y dentro de
+            // cada una por la fecha IMPRESA, igual que la planilla individual.
+            var filas = items
+                .OrderBy(RendicionDe, StringComparer.Ordinal)
+                .ThenBy(x => FechaImpresa(x, fechas))
+                .ThenBy(x => x.FechaSalida)
+                .ThenBy(x => x.SolicitudId)
+                .ThenBy(x => x.Orden)
+                .ToList();
+
+            var resumen = new ResumenReembolso(
+                Periodo: filas.Count > 0
+                    ? $"{filas.Min(i => FechaImpresa(i, fechas)):dd/MM/yyyy}   AL   {filas.Max(i => FechaImpresa(i, fechas)):dd/MM/yyyy}"
+                    : "",
+                Rendiciones: filas.Select(RendicionDe).Where(c => c.Length > 0).Distinct().Count(),
+                Importe: filas.Sum(i => i.Importe));
+
+            var totalPages = Math.Max(1, (int)Math.Ceiling(filas.Count / (double)FilasPorPagina));
+            var logo = GetLogoBytes();
+
+            var doc = Document.Create(container =>
+            {
+                for (var p = 0; p < totalPages; p++)
+                {
+                    var pageItems = filas.Skip(p * FilasPorPagina).Take(FilasPorPagina).ToList();
+                    var pageNum   = p + 1;
+                    var isLast    = pageNum == totalPages;
+
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4.Landscape());
+                        page.MarginTop(MargenPt);
+                        page.MarginLeft(MargenPt);
+                        page.MarginRight((float)SignaturePdfStamper.SignatureMarginPt);
+                        page.MarginBottom(MargenInferiorPt);
+                        page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
+
+                        page.Content().Element(c => RenderPaginaReembolso(
+                            c, cabecera, resumen, pageItems, isLast, logo, fechas, RendicionDe, filas));
+
+                        page.Footer().Element(f => PiePagina(f, cabecera.Codigo, pageNum, totalPages, isLast));
+                    });
+                }
+            });
+
+            return doc.GeneratePdf();
+        }
+
+        private static void RenderPaginaReembolso(
+            IContainer container,
+            PlanillaReembolsoCabeceraDto cabecera,
+            ResumenReembolso resumen,
+            List<RendicionItemDto> pageItems,
+            bool isLastPage,
+            byte[]? logo,
+            IReadOnlyDictionary<int, DateOnly> fechas,
+            Func<RendicionItemDto, string> rendicionDe,
+            List<RendicionItemDto> todas)
+        {
+            var pe = CultureInfo.GetCultureInfo("es-PE");
+
+            container.Column(col =>
+            {
+                col.Spacing(6);
+
+                // ── Header: logo izquierda + caja título derecha ─────────────
+                col.Item().Row(row =>
+                {
+                    row.ConstantItem(160).Height(45).Element(c =>
+                    {
+                        if (logo != null)
+                            c.AlignLeft().AlignMiddle().Image(logo).FitArea();
+                    });
+
+                    row.RelativeItem(); // spacer
+
+                    row.ConstantItem(400).Height(32).Row(titleRow =>
+                    {
+                        titleRow.RelativeItem(5).Border(1).AlignCenter().AlignMiddle()
+                            .Text("PLANILLA DE REEMBOLSO").FontSize(11).Bold();
+                        titleRow.RelativeItem(3).Border(1).PaddingHorizontal(4).AlignCenter().AlignMiddle()
+                            .Text(cabecera.Codigo).FontSize(10).Bold();
+                    });
+                });
+
+                // ── Cabecera: el consolidador (izq) y el consolidado (der) ────────
+                col.Item().PaddingTop(3).Row(info =>
+                {
+                    info.RelativeItem().Column(izq =>
+                    {
+                        izq.Spacing(2);
+                        izq.Item().Element(c => InfoLine(c, "RAZÓN SOCIAL:", cabecera.RazonSocial ?? "", ReembolsoEtiquetaPt));
+                        izq.Item().Element(c => InfoLine(c, "RUC DEL CONSOLIDADOR:", cabecera.Ruc ?? "", ReembolsoEtiquetaPt));
+                        izq.Item().Element(c => InfoLine(c, "CONSOLIDADOR:", cabecera.Consolidador ?? "", ReembolsoEtiquetaPt));
+                        izq.Item().Element(c => InfoLine(c, "ÁREA:", cabecera.Area ?? "", ReembolsoEtiquetaPt));
+                    });
+
+                    info.ConstantItem(30);
+
+                    info.RelativeItem().Column(der =>
+                    {
+                        der.Spacing(2);
+                        der.Item().Element(c => InfoLine(c, "N.° DE REEMBOLSO:", cabecera.NumeroReembolso ?? "", ReembolsoEtiquetaPt));
+                        der.Item().Element(c => InfoLine(c, "PERIODO DEL:", resumen.Periodo, ReembolsoEtiquetaPt));
+                        der.Item().Element(c => InfoLine(c, "RENDICIONES:", resumen.Rendiciones.ToString(pe), ReembolsoEtiquetaPt));
+                        der.Item().Element(c => InfoLine(c, "IMPORTE TOTAL:", $"S/ {resumen.Importe.ToString("N2", pe)}", ReembolsoEtiquetaPt));
+                    });
+                });
+
+                // ── Tabla ────────────────────────────────────────────────────
+                col.Item().PaddingTop(6).Table(table =>
+                {
+                    table.ColumnsDefinition(c =>
+                    {
+                        c.ConstantColumn(70);   // FECHA
+                        c.ConstantColumn(95);   // RENDICIÓN
+                        c.ConstantColumn(200);  // MOTIVO
+                        c.ConstantColumn(160);  // ORIGEN
+                        c.ConstantColumn(175);  // DESTINO
+                        c.ConstantColumn(90);   // IMPORTE S/
+                    });
+
+                    table.Header(h =>
+                    {
+                        static IContainer Th(IContainer c) => c.Border(1).Background(Colors.Grey.Lighten4)
+                            .PaddingVertical(3).AlignCenter().AlignMiddle();
+                        h.Cell().Element(Th).Text("FECHA").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("RENDICIÓN").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("MOTIVO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("ORIGEN").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("DESTINO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("IMPORTE S/").Bold().FontSize(TablaFontSize);
+                    });
+
+                    static IContainer Td(IContainer c) => c.Border(1).PaddingVertical(2).PaddingHorizontal(4).AlignMiddle();
+
+                    // Texto de celda recortado a un máximo de 2 líneas (evita "textazos").
+                    static void CeldaTexto(IContainer c, string value, bool center = false) =>
+                        (center ? c.AlignCenter() : c)
+                            .Text(value ?? "").FontSize(TablaFontSize).ClampLines(TablaMaxLineas);
+
+                    foreach (var it in pageItems)
+                    {
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, FechaImpresa(it, fechas).ToString("dd/MM/yyyy"), center: true));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, rendicionDe(it)));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, MotivoConDetalle(it.Motivo, it.MotivoAdicional)));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarOrigen ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarDestino ?? ""));
+                        // Mismo criterio que la planilla individual: el importe del catálogo se
+                        // muestra aunque sea 0.00; sin ninguna fuente, la celda queda vacía.
+                        table.Cell().Element(Td).AlignRight().Text(
+                            (it.EsCatalogo || it.Importe > 0)
+                                ? it.Importe.ToString("N2", pe)
+                                : "").FontSize(TablaFontSize);
+                    }
+
+                    if (isLastPage)
+                    {
+                        var totalGeneral = todas.Sum(i => i.Importe);
+                        table.Cell().ColumnSpan(5).Border(1).PaddingVertical(7).PaddingHorizontal(8).AlignMiddle()
+                            .Text(text =>
+                            {
+                                text.Span("TOTAL EN LETRAS: ").Bold();
+                                text.Span(MontoEnLetrasSoles(totalGeneral));
+                            });
+                        table.Cell().Border(1).PaddingVertical(7).PaddingHorizontal(4).AlignMiddle().AlignRight()
+                            .Text(totalGeneral.ToString("N2", pe)).Bold();
+                    }
+                });
+            });
         }
 
         private static void RenderPagina(
@@ -916,27 +1155,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         /// <summary>
         /// Línea de firma con su leyenda debajo, pensada para el pie derecho de la hoja. Al aprobar
-        /// el reembolso, <see cref="SignaturePdfStamper"/> estampa la firma anclada a esa misma
-        /// esquina, así que la línea se dibuja justo sobre el borde inferior de la imagen: cae
-        /// encima de la línea y no suelta en cualquier parte de la hoja.
+        /// el reembolso, <see cref="SignaturePdfStamper"/> estampa la firma apoyada sobre esa misma
+        /// línea y su pie —cargo, nombre y fecha— en el espacio reservado debajo, tapando la
+        /// leyenda: la planilla firmada dice quién firmó en vez de "Firma de Jefatura / Gerencia".
         /// </summary>
         private static void LineaFirma(IContainer container)
         {
             container.AlignBottom().Column(fc =>
             {
-                fc.Item().LineHorizontal(0.7f);
-                // MinHeight y no Height: si la leyenda no entrara en una línea, sube en vez de
-                // reventar el layout (desalineada, pero el PDF sale).
-                fc.Item().MinHeight(FirmaLeyendaAltoPt).AlignMiddle().AlignCenter()
-                    .Text("Firma de Jefatura / Gerencia").FontSize(9).Italic();
+                fc.Item().LineHorizontal(SignaturePdfStamper.LineaFirmaGrosorPt);
+                // Alto fijo: es el mismo que ocupa el pie firmado, así la línea queda exactamente
+                // donde el estampador dibuja la suya. La leyenda va en el renglón del cargo.
+                fc.Item().Height((float)SignaturePdfStamper.PieAltoPt).PaddingTop(2).AlignCenter()
+                    .Text(SignaturePdfStamper.LeyendaSinCargo).FontSize(7.5f).Italic();
             });
         }
 
-        private static void InfoLine(IContainer container, string label, string value)
+        /// <param name="labelWidth">
+        /// Ancho de la etiqueta. La planilla individual usa el de siempre; la de reembolso, que lleva
+        /// la cabecera a dos columnas, uno menor.
+        /// </param>
+        private static void InfoLine(IContainer container, string label, string value, float labelWidth = 155f)
         {
             container.Row(r =>
             {
-                r.ConstantItem(155).AlignMiddle().Text(label).Bold().FontSize(9);
+                r.ConstantItem(labelWidth).AlignMiddle().Text(label).Bold().FontSize(9);
                 r.RelativeItem().BorderBottom(0.6f).BorderColor(Colors.Grey.Darken1)
                     .PaddingBottom(1).AlignMiddle()
                     .Text(value ?? "").FontSize(9);

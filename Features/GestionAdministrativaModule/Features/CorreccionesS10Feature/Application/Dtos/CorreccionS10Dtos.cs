@@ -8,8 +8,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     /// para hacer su trabajo sin abrir nada más: el número de reembolso con el que ubica el registro en el S10,
     /// qué observó la jefatura y qué le pide el colaborador.
     ///
-    /// No trae la planilla ni los trayectos: el ERP no revisa el gasto —eso ya lo hizo la jefatura—,
-    /// solo corrige el documento del S10. Sí trae los dos PDF por si necesita contrastarlos.
+    /// La fila no trae las salidas: las trae el detalle (<see cref="CorreccionS10DetalleDto"/>), con
+    /// el ojo de cada una para ver sus trayectos. Sí trae los documentos por si necesita contrastarlos.
     /// </summary>
     public class CorreccionS10ListItemDto
     {
@@ -84,9 +84,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string? AtendidaPor { get; set; }
         public DateTimeOffset? AtendidaAt { get; set; }
         public string? ComentarioAtencion { get; set; }
+    }
 
-        /// <summary>True si el ERP anuló el registro y hace falta un número de reembolso nuevo (CA-19).</summary>
-        public bool NumeroReembolsoAnulado { get; set; }
+    /// <summary>
+    /// El detalle de una corrección: la fila de la bandeja más las rendiciones que cubre el
+    /// consolidado observado —todas, no solo la de la fila: el registro del S10 que se corrige es
+    /// uno solo— con sus salidas, cuyo ojo abre los trayectos.
+    /// </summary>
+    public class CorreccionS10DetalleDto : CorreccionS10ListItemDto
+    {
+        public List<CorreccionS10PlanillaDto> Rendiciones { get; set; } = new();
+        public List<CorreccionS10SalidaDto> Salidas { get; set; } = new();
+    }
+
+    public class CorreccionS10PlanillaDto
+    {
+        public int Id { get; set; }
+        /// <summary>Código REN-AAAA-NNNN.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        public string? NumeroPlanilla { get; set; }
+        public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
+        /// <summary>Monto de la planilla completa: lo que suma contra el importe del S10.</summary>
+        public decimal MontoTotalPlanilla { get; set; }
+    }
+
+    public class CorreccionS10SalidaDto
+    {
+        public int Id { get; set; }
+        public string? Codigo { get; set; }
+        /// <summary>Planilla a la que pertenece: es como se agrupan las salidas en el detalle.</summary>
+        public int RendicionId { get; set; }
+        public string Trabajador { get; set; } = string.Empty;
+        public string? Area { get; set; }
+        public DateOnly FechaSalida { get; set; }
+        public string Motivo { get; set; } = string.Empty;
+        public int TrayectosCount { get; set; }
+        public decimal Monto { get; set; }
+        public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
     }
 
     /// <summary>
@@ -169,20 +203,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     }
 
     /// <summary>
-    /// El check de confirmación del Coordinador ERP (RG-22 / RF-OBS-07). El comentario es opcional
-    /// —el requerimiento solo exige el check—, pero <see cref="NumeroReembolsoAnulado"/> cambia lo que el
-    /// colaborador tiene que hacer después, así que se pregunta explícitamente.
+    /// El check de confirmación del Coordinador ERP (RG-22 / RF-OBS-07). El comentario es opcional:
+    /// el requerimiento solo exige el check, y lo que sigue siempre es lo mismo —el consolidador
+    /// recarga el Consolidado del S10 corregido—, así que no hay nada más que preguntar.
     /// </summary>
     public class AtenderCorreccionS10Dto
     {
         /// <summary>Qué se hizo en el S10. Opcional.</summary>
         public string? ComentarioAtencion { get; set; }
-
-        /// <summary>
-        /// true = el registro del S10 se ANULÓ y el colaborador tiene que sacar un número de reembolso nuevo; la
-        /// anterior queda bloqueado (HU-ERP-03 / CA-19). false = se corrigió conservando el número de reembolso.
-        /// </summary>
-        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>Resultado de atender una o varias correcciones en bloque.</summary>

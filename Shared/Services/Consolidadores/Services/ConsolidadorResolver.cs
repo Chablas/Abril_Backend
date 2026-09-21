@@ -8,9 +8,10 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
     /// <summary>
     /// Implementación de <see cref="IConsolidadorResolver"/>. Ver ahí la regla completa.
     ///
-    /// El recorrido del árbol y la deducción del Jefe/Gerente/residente son los mismos que usa
-    /// <c>JefeRevisorResolver</c> y salen del mismo <see cref="EstructuraAreaLoader"/>. Lo propio de
-    /// este servicio es qué tabla de asignaciones lee (<c>area_consolidadores</c>) y cómo elige:
+    /// El recorrido del árbol y la jefatura de cada nodo —lo fijado en Revisores y el
+    /// Jefe/Gerente/residente que deduce el árbol— son los mismos que usa <c>JefeRevisorResolver</c>
+    /// y salen del mismo <see cref="EstructuraAreaLoader"/>. Lo propio de este servicio es la tabla
+    /// de asignaciones que va antes que esa jefatura (<c>area_consolidadores</c>) y cómo elige:
     /// <see cref="Candidatos"/> devuelve TODOS los del primer nodo que resuelve, no el primero.
     /// </summary>
     public class ConsolidadorResolver : IConsolidadorResolver
@@ -160,17 +161,20 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
         /// Los consolidadores de una cadena nodo → raíz, para un proyecto dado (o sin proyecto):
         ///
         ///   1. se recorre la cadena desde el nodo más cercano al trabajador hacia la raíz;
-        ///   2. en cada nodo, si hay asignaciones a mano vivas y activas esas SON la respuesta —
-        ///      primero las del <paramref name="proyecto"/> y detrás las del área, que por eso
-        ///      valen para todos los proyectos sin asignación propia;
-        ///   3. si el nodo no tiene ninguna, responde el algoritmo: el residente de la obra cuando
-        ///      el nodo filtra por proyecto y ese proyecto es una obra con residente, más el
-        ///      Jefe/Gerente del área;
+        ///   2. en cada nodo, si hay consolidadores asignados a mano vivos y activos esos SON la
+        ///      respuesta — primero los del <paramref name="proyecto"/> y detrás los del área, que
+        ///      por eso valen para todos los proyectos sin asignación propia;
+        ///   3. si no hay, responde la jefatura del nodo tal como la leen los revisores: la fijada a
+        ///      mano en Revisores (con la misma herencia área → proyectos) y, solo si tampoco hay,
+        ///      el algoritmo: el residente de la obra cuando el nodo filtra por proyecto y ese
+        ///      proyecto es una obra con residente, más el Jefe/Gerente del área;
         ///   4. el primer nodo que devuelva alguien corta la búsqueda. Un área sin jefe no se queda
         ///      sin consolidador: se sigue subiendo y acaba en el Gerente de su gerencia.
         ///
-        /// Lo asignado a mano REEMPLAZA al algoritmo en su nodo (no se suma): si alguien se tomó el
-        /// trabajo de cargar la lista de un área, esa lista es la que vale.
+        /// Cada capa REEMPLAZA a las de abajo en su nodo (no se suman): si alguien se tomó el trabajo
+        /// de cargar la lista de un área, esa lista es la que vale; y si Revisores dice quién es el
+        /// jefe del área, el Jefe por categoría ya no consolida ni recibe el aviso de las planillas
+        /// aprobadas.
         /// </summary>
         private static List<ConsolidadorElegido> Candidatos(
             List<int> cadena, int? proyecto, Contexto contexto)
@@ -197,15 +201,24 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
                     return lista;
                 }
 
-                var porAlgoritmo = new List<EstructuraAreaLoader.PersonaDeArea>();
-                if (filtra && contexto.Estructura.ResidentePorProyecto.TryGetValue(proyecto!.Value, out var residente))
-                    porAlgoritmo.Add(residente);
-                porAlgoritmo.AddRange(contexto.Estructura.JefePorNodo[nodo]);
+                // Sin consolidadores propios manda la jefatura del nodo, la MISMA lista que lee el
+                // revisor: lo fijado en Revisores y, solo si no hay nada, lo que deduce el árbol.
+                var jefatura = EstructuraAreaLoader
+                    .RevisoresAsignados(contexto.Estructura, nodo, filtra ? proyecto : null)
+                    .Select(r => r.Persona)
+                    .ToList();
 
-                if (porAlgoritmo.Count > 0)
+                if (jefatura.Count == 0)
+                {
+                    if (filtra && contexto.Estructura.ResidentePorProyecto.TryGetValue(proyecto!.Value, out var residente))
+                        jefatura.Add(residente);
+                    jefatura.AddRange(contexto.Estructura.JefePorNodo[nodo]);
+                }
+
+                if (jefatura.Count > 0)
                 {
                     var lista = new List<ConsolidadorElegido>();
-                    Agregar(lista, porAlgoritmo.Select(p => new ConsolidadorElegido(
+                    Agregar(lista, jefatura.Select(p => new ConsolidadorElegido(
                         p.WorkerId, p.PersonId, p.Email.Trim(), p.Nombre, ConsolidadorOrigen.Algoritmo)));
                     return lista;
                 }

@@ -32,6 +32,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
                     PideHorasLugares = m.PideHorasLugares,
                     EsReembolsable  = m.EsReembolsable,
+                    EsMotivoLibre   = m.EsMotivoLibre,
                     CreatedAt       = m.CreatedAt,
                 })
                 .ToListAsync();
@@ -52,6 +53,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
             if (existe)
                 throw new AbrilException("Ya existe un motivo con esa descripción.", 409);
 
+            // EsMotivoLibre no se asigna nunca acá: la fila que configura "Otro motivo" es única
+            // y nace del script de datos, no de esta pantalla.
             ctx.GaMotivoSalida.Add(new GaMotivoSalida
             {
                 Descripcion     = descripcion,
@@ -83,13 +86,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
         {
             using var ctx = _factory.CreateDbContext();
 
+            var motivo = await ctx.GaMotivoSalida.FindAsync(id)
+                ?? throw new AbrilException("Motivo no encontrado.", 404);
+
+            // "Otro motivo" no se renombra: su descripción no se muestra en ninguna salida (ahí va
+            // el texto que escribió el trabajador) y la pantalla la nombra para identificar la fila.
+            // Tampoco pide motivo adicional: el texto libre YA es ese detalle.
+            if (motivo.EsMotivoLibre)
+            {
+                motivo.RequiereAdjunto = dto.RequiereAdjunto;
+                motivo.EsHoraEstimada  = dto.EsHoraEstimada;
+                motivo.RequiereMotivoAdicional = false;
+                motivo.PideHorasLugares = dto.PideHorasLugares;
+                motivo.EsReembolsable  = dto.EsReembolsable;
+                await ctx.SaveChangesAsync();
+                return;
+            }
+
             var descripcion = dto.Descripcion?.Trim() ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(descripcion))
                 throw new AbrilException("La descripción no puede estar vacía.", 400);
-
-            var motivo = await ctx.GaMotivoSalida.FindAsync(id)
-                ?? throw new AbrilException("Motivo no encontrado.", 404);
 
             var existe = await ctx.GaMotivoSalida
                 .AnyAsync(m => m.Id != id && m.Descripcion.ToLower() == descripcion.ToLower());

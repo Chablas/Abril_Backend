@@ -4,6 +4,20 @@
     public static class CorreoEventoCodigos
     {
         public const string Revisor = "REVISOR";
+
+        /// <summary>
+        /// Al jefe del área del solicitante, cuando quien tiene que aprobar la salida es un
+        /// <c>CategoriaIds.Residente</c>: en las áreas que filtran por proyecto la solicitud la
+        /// decide el residente de la obra, y el jefe del área se quedaba sin enterarse de las
+        /// salidas de su propia gente.
+        ///
+        /// Es INFORMATIVO a propósito: mismo detalle que el correo del revisor pero sin los botones
+        /// de aprobar/rechazar —decidir sigue siendo del residente— y sin los documentos adjuntos,
+        /// que son solo para quien decide. Sale junto con <see cref="Revisor"/> al registrar la
+        /// solicitud, así que se administra en Solicitud de Salidas.
+        /// </summary>
+        public const string RevisorJefeArea = "REVISOR_JEFE_AREA";
+
         public const string Confirmacion = "CONFIRMACION";
         public const string Aprobada = "APROBADA";
         public const string Rechazada = "RECHAZADA";
@@ -230,5 +244,30 @@
         /// porque ese nombre cambia sin que nadie se acuerde de venir a esta pantalla.
         /// </summary>
         public const string Rol = "ROL";
+
+        /// <summary>
+        /// El jefe del área del solicitante, el mismo que recibe
+        /// <see cref="CorreoEventoCodigos.RevisorJefeArea"/>. Es el otro tipo que no apunta a nadie
+        /// fijo, pero a diferencia de <see cref="Rol"/> no se resuelve con una consulta sino con el
+        /// CONTEXTO del envío: depende de quién registró la solicitud, así que el correo no aporta
+        /// destinatarios por sí solo —los pone quien lo manda— y solo tiene a alguien cuando el
+        /// revisor del solicitante es un residente.
+        ///
+        /// Por eso <see cref="CorreosConJefeArea"/> acota en qué correos se puede usar: en los demás
+        /// la fila quedaría prendida sin enviarle nunca nada a nadie, que es justo el tipo de
+        /// configuración muerta que esta pantalla existe para evitar.
+        /// </summary>
+        public const string JefeArea = "JEFE_AREA";
+
+        /// <summary>
+        /// Los correos que se envían con el jefe del área resuelto y por lo tanto admiten un
+        /// destinatario de tipo <see cref="JefeArea"/>. Hoy es solo la confirmación del alta.
+        ///
+        /// El correo al revisor NO está y no debe estarlo: lleva los botones que aprueban y rechazan
+        /// desde el propio correo, y el jefe del área justamente no decide — para eso recibe
+        /// <see cref="CorreoEventoCodigos.RevisorJefeArea"/>, que es el mismo detalle sin botones.
+        /// </summary>
+        public static readonly string[] CorreosConJefeArea =
+            { CorreoEventoCodigos.Confirmacion };
     }
 }

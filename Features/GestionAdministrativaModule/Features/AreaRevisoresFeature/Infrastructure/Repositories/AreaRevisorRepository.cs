@@ -17,7 +17,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// Los nodos configurables los define <see cref="AreaAsignacionNodos"/> (los mismos que lista
     /// Consolidadores de Áreas). Estos revisores aplican a los trabajadores del subárbol del nodo
     /// que no tengan jefe personalizado; sin revisores de área resuelve el algoritmo (el Jefe del
-    /// área o el Gerente de la gerencia) y, en última instancia, GTH.
+    /// área o el Gerente de la gerencia) y, en última instancia, GTH. Lo que se fija acá es también
+    /// la jefatura que heredan los consolidadores de un área que no tiene consolidadores propios.
     ///
     /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las
     /// áreas y pueden editarlas; un trabajador de las categorías

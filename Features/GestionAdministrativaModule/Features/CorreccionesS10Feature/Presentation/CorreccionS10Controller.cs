@@ -101,6 +101,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Presentat
         }
 
         /// <summary>
+        /// El detalle de una salida de la bandeja, en consulta: trayectos, capturas y adjuntos. Lo
+        /// abre el ojo de la tabla de salidas del detalle de la corrección.
+        /// </summary>
+        [HttpGet("salidas/{solicitudId:int}/detalle")]
+        public async Task<IActionResult> GetSalidaDetalle(int solicitudId)
+        {
+            try
+            {
+                return Ok(await _service.GetSalidaDetalle(solicitudId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en CorreccionS10Controller.GetSalidaDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// A quién le llegaría el aviso al colaborador si se confirmara la selección. Es POST y no
         /// GET porque la selección puede ser larga y viaja en el cuerpo, igual que en las otras
         /// pantallas del flujo.

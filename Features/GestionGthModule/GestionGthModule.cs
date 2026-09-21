@@ -33,6 +33,11 @@ namespace Abril_Backend.Features.GestionGthModule
             // área y las que cuelgan de ella) y si puede moverlos (solo la jefatura).
             services.AddScoped<ISolicitudPersonalScopeResolver, SolicitudPersonalScopeResolver>();
 
+            // Configuración propia de ese alcance (Solicitud de Personal → Configuración →
+            // Visibilidad): las áreas que se le marcan a un trabajador reemplazan al algoritmo.
+            services.AddScoped<ISolicitudPersonalVisibilidadRepository, SolicitudPersonalVisibilidadRepository>();
+            services.AddScoped<ISolicitudPersonalVisibilidadService, SolicitudPersonalVisibilidadService>();
+
             // Bitácora de fases del requerimiento. Es un interceptor de EF y no un servicio de la
             // feature porque el estado se mueve desde una docena de sitios: acá se registra y en
             // Program.cs se engancha al DbContext (ver RequerimientoEstadoHistorialInterceptor).

@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
@@ -173,7 +173,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
+        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -182,7 +182,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
                 throw new AbrilException(
                     "El área no existe o no admite configuración (solo áreas de tipo Área de Gerencia o Área Estándar).", 404);
 
-            await AreaAsignacionNodos.SetFiltroProyectoAsync(ctx, areaScopeId, filtraPorProyecto);
+            await AreaAsignacionNodos.SetFiltroProyectoAsync(
+                ctx, areaScopeId, filtraPorProyecto, firmaConsolidadoPorProyecto);
         }
     }
 }

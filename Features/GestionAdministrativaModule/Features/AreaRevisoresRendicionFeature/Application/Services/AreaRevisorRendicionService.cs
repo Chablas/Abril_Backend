@@ -1,14 +1,14 @@
-﻿using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 
-namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services
+namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Services
 {
-    public class AreaRevisorService : IAreaRevisorService
+    public class AreaRevisorRendicionService : IAreaRevisorRendicionService
     {
-        private readonly IAreaRevisorRepository _repo;
+        private readonly IAreaRevisorRendicionRepository _repo;
 
-        public AreaRevisorService(IAreaRevisorRepository repo)
+        public AreaRevisorRendicionService(IAreaRevisorRendicionRepository repo)
         {
             _repo = repo;
         }

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Shared.Services.Revisores.Interfaces
+﻿namespace Abril_Backend.Shared.Services.Revisores.Interfaces
 {
     /// <summary>
     /// Resuelve el jefe/revisor de un trabajador:
@@ -82,8 +82,15 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         /// Trabajador que se está editando, para descartarlo de sus propios candidatos. Null al
         /// crear uno nuevo (no hay a quién descartar).
         /// </param>
+        /// <param name="ambito">
+        /// Para que pantalla se previsualiza. <c>Salidas</c> (default) lee area_revisores y senala
+        /// al residente de la obra; <c>Rendiciones</c> lee area_revisores_rendicion y senala al
+        /// administrador de obra. Es lo unico que distingue las dos secciones de Revisores de Areas.
+        /// </param>
         Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
-            IReadOnlyCollection<int> areaScopeIds, int? workerId = null);
+            IReadOnlyCollection<int> areaScopeIds, int? workerId = null,
+            Jerarquia.EstructuraAreaLoader.AmbitoRevisor ambito
+                = Jerarquia.EstructuraAreaLoader.AmbitoRevisor.Salidas);
 
         /// <summary>
         /// El <b>jefe del área</b> de un trabajador: el mismo paso 2 de <see cref="ResolveAsync"/>
@@ -111,7 +118,71 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         /// </summary>
         Task<Dictionary<int, JefeRevisorResolution>> ResolveJefeDeAreaManyAsync(
             IReadOnlyCollection<int> workerIds);
+
+        /// <summary>
+        /// Quién aprueba y firma un DOCUMENTO que agrupa a varios trabajadores: la planilla de
+        /// rendición (1.ª revisión) y el Consolidado del S10 con su planilla grupal. Es UNA persona
+        /// para el documento entero, y por eso no se puede derivar de <see cref="ResolveManyAsync"/>,
+        /// que da un revisor por trabajador y dejaría un documento con dos dueños.
+        ///
+        /// La regla, en orden (2026-09-21):
+        ///   1. si TODOS los trabajadores tienen el MISMO jefe personalizado (<c>workers_revisores</c>),
+        ///      ese firma — y es el único caso en que el firmante puede estar DENTRO del documento,
+        ///      porque se eligió a mano ficha por ficha;
+        ///   2. si no, el revisor del área (lo asignado en Revisores de Áreas o lo que deduce el
+        ///      algoritmo), resuelto desde el nodo común del grupo hacia la raíz y saltando a
+        ///      cualquiera que esté incluido en el documento;
+        ///   3. a una jefatura la firma su gerencia, igual que en la resolución por trabajador.
+        ///
+        /// En un área marcada "filtrar por proyecto", la firma la lleva el revisor del ÁREA y no el
+        /// de la obra, salvo que esa área tenga activado
+        /// <c>ga_salidas_area_config.firma_consolidado_por_proyecto</c> y el documento sea de una
+        /// sola obra.
+        /// </summary>
+        /// <returns>
+        /// Los aprobadores en ORDEN. Vacio si la rama no resuelve ninguno ni llega al fallback de
+        /// GTH. Casi siempre es uno solo; en obra son dos (administrador y residente).
+        /// </returns>
+        Task<List<AprobadorDocumento>> ResolveAprobadoresDeDocumentoAsync(
+            IReadOnlyCollection<int> workerIds, PasoAprobacion paso);
+
+        /// <summary>
+        /// <see cref="ResolveFirmanteDeDocumentoAsync"/> para varios documentos de una vez, con un
+        /// número FIJO de consultas: el listado resuelve decenas de consolidados por página y
+        /// hacerlo de a uno sería un N+1 en la pantalla.
+        /// </summary>
+        /// <param name="workersPorDocumento">
+        /// id del documento (consolidado o planilla) → los trabajadores que agrupa. La clave la
+        /// pone el llamador y solo sirve para devolverle el resultado indexado.
+        /// </param>
+        Task<Dictionary<int, List<AprobadorDocumento>>> ResolveAprobadoresDeDocumentosAsync(
+            IReadOnlyDictionary<int, IReadOnlyCollection<int>> workersPorDocumento,
+            PasoAprobacion paso);
     }
+
+    /// <summary>
+    /// Cual de los dos pasos del ciclo se esta resolviendo. No todos los aprobadores intervienen en
+    /// los dos: en obra el administrador revisa la planilla solo el, pero el consolidado lo firman
+    /// el administrador y el residente.
+    /// </summary>
+    public enum PasoAprobacion
+    {
+        /// <summary>La primera revision de la planilla (Gestion de Rendiciones).</summary>
+        PrimeraRevision,
+
+        /// <summary>La firma del Consolidado del S10 y su planilla grupal (Consolidados).</summary>
+        Consolidado,
+    }
+
+    /// <summary>
+    /// Uno de los que tiene que aprobar un documento, con el lugar que ocupa.
+    /// </summary>
+    /// <param name="Orden">
+    /// 1 = primero. Con varios aprobadores el orden IMPORTA: nadie firma antes que quien lo
+    /// precede, para que el residente no pueda firmar un consolidado que el administrador de obra
+    /// todavia no vio.
+    /// </param>
+    public record AprobadorDocumento(JefeRevisorResolution Persona, int Orden);
 
     /// <summary>
     /// Revisor que le tocaría a un trabajador de un nodo del árbol de áreas. Se separa el caso sin

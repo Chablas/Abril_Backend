@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Interfaces
 {
@@ -12,6 +12,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
         Task UpdateAreaConsolidadoresAsync(int areaScopeId, int? projectId, List<AreaAsignacionInputDto> consolidadores);
 
         /// <summary>Marca/desmarca "filtrar por proyecto" para el área (upsert en ga_salidas_area_config).</summary>
-        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto);
+        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto);
     }
 }

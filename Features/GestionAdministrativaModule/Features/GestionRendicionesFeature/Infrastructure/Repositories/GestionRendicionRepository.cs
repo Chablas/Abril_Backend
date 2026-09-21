@@ -39,11 +39,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             using var ctx = _factory.CreateDbContext();
 
             var planillas = await PlanillaRendicionLoader.LoadAsync(ctx, SalidasVisibles(ctx, filters));
-            var ajenas    = await MisWorkerIdsQueNoDecidoAsync(ctx, filters.CurrentUserId);
+            var decido    = await PlanillasQueFirmoAsync(ctx, WorkersPorPlanilla(planillas), filters.CurrentUserId);
 
             var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, filters.CurrentUserId, planillas);
 
-            var items = planillas.Select(p => Armar(p, ajenas, consolidacion)).ToList();
+            var items = planillas.Select(p => Armar(p, decido, consolidacion)).ToList();
             return Filtrar(items, filters);
         }
 
@@ -56,11 +56,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             if (planillas.Count == 0) return null;
 
             var planilla = planillas[0];
-            var ajenas   = await MisWorkerIdsQueNoDecidoAsync(ctx, scope.CurrentUserId);
+            var decido   = await PlanillasQueFirmoAsync(ctx, WorkersPorPlanilla(planillas), scope.CurrentUserId);
 
             var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, scope.CurrentUserId, planillas);
 
-            var cabecera = Armar(planilla, ajenas, consolidacion);
+            var cabecera = Armar(planilla, decido, consolidacion);
             var detalle  = new GestionRendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
@@ -227,15 +227,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 throw new AbrilException(
                     "Ninguna de las planillas seleccionadas está esperando la primera revisión.", 400);
 
-            // Nadie revisa su propia rendición, salvo el que es su propio revisor (jefe
-            // personalizado apuntándose a sí mismo). Misma regla que la decisión del reembolso y
-            // que aprobar la salida; ver MisWorkerIdsQueNoDecidoAsync.
-            var ajenas = await MisWorkerIdsQueNoDecidoAsync(ctx, reviewerUserId);
-
+            // La primera revisión de una planilla la decide su FIRMANTE y nadie más: el mismo que
+            // firma su consolidado y recibe sus correos. Ver PlanillasQueFirmoAsync — ver la
+            // planilla ya no alcanza para aprobarla.
             var decididasIds = planillas.Select(p => p.Id).ToHashSet();
-            if (visibles.Any(x => decididasIds.Contains(x.RendicionId) && ajenas.Contains(x.WorkerId)))
+
+            var workersPorPlanilla = visibles
+                .Where(x => decididasIds.Contains(x.RendicionId))
+                .GroupBy(x => x.RendicionId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyCollection<int>)g.Select(x => x.WorkerId).Distinct().ToList());
+
+            var firmo = await PlanillasQueFirmoAsync(ctx, workersPorPlanilla, reviewerUserId);
+
+            if (decididasIds.Any(id => !firmo.Contains(id)))
                 throw new AbrilException(
-                    "No puedes revisar una rendición con tus propias salidas — deselecciónala primero.", 403);
+                    "Solo quien firma la planilla puede aprobar u observar su primera revisión. "
+                    + "Deselecciona las que no te toquen.", 403);
 
             var now = DateTimeOffset.UtcNow;
             foreach (var p in planillas)
@@ -463,17 +472,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
         };
 
-        private static async Task<HashSet<int>> MisWorkerIdsAsync(AppDbContext ctx, int? userId)
-        {
-            if (!userId.HasValue) return new();
-            var ids = await (
-                from w in ctx.Worker
-                join per in ctx.Person on w.PersonId equals per.PersonId
-                where per.UserId == userId.Value
-                select w.Id
-            ).ToListAsync();
-            return ids.ToHashSet();
-        }
 
         public async Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds)
         {
@@ -579,35 +577,61 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         }
 
         /// <summary>
-        /// Fichas del usuario cuyas salidas NO le toca decidir a él: la regla es "nadie decide lo
-        /// suyo", y la única excepción es que el revisor resuelto de esa ficha sea él mismo, o sea
-        /// que tenga el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de Ingresos →
-        /// ficha del trabajador → "Jefe personalizado").
+        /// De las planillas dadas, las que ESTE usuario puede decidir en primera revisión: aquellas
+        /// cuyo firmante resuelto es él.
         ///
-        /// La excepción no puede abrirse sin querer: el revisor que se deriva del área nunca es el
-        /// propio trabajador (lo descarta <c>JefeRevisorResolver</c> al subir por el árbol), así
-        /// que solo la abre esa elección explícita. Y se pregunta al MISMO resolver que decide a
-        /// quién se le manda el correo de la primera revisión, así que en la web decide exactamente
-        /// quien recibe ese correo — mismo criterio que <c>EnsurePuedeDecidirAsync</c> usa para
-        /// aprobar/rechazar la salida en Gestión de Salidas.
+        /// Cambió de forma el 2026-09-21. Antes era un guard NEGATIVO —"no decides lo tuyo"— y
+        /// alcanzaba con ver la planilla para poder aprobarla, así que recepción y GTH, que ven
+        /// todo, aprobaban la primera revisión de cualquiera. Ahora la planilla tiene UN firmante
+        /// (<c>ResolveFirmantesDeDocumentosAsync</c>), el mismo que firma su consolidado y el mismo
+        /// que recibe los correos, y solo él decide.
         ///
-        /// Devuelve un conjunto (no un booleano) porque el usuario puede tener varias fichas por
-        /// reingreso y el jefe personalizado puede estar puesto en una sola: la ficha con el revisor
-        /// propio se decide, las otras no.
+        /// Esto NO toca la visibilidad: las filas siguen saliendo de <c>SalidasVisibles</c>, así que
+        /// recepción y GTH ven exactamente lo mismo que antes — lo que pierden es el botón, que
+        /// nunca fue su trabajo. La visibilidad se administra aparte, en Gestión de Salidas →
+        /// Configuración → Visibilidad.
+        ///
+        /// "Nadie decide lo suyo" ya no hace falta como regla aparte: el firmante nunca está dentro
+        /// del documento, salvo que TODOS sus trabajadores tengan el mismo jefe personalizado y ese
+        /// sea él —la excepción explícita de Gestión de Ingresos → ficha → "Jefe personalizado"—.
+        ///
+        /// Un número fijo de consultas: las fichas del usuario, un lote para todas las planillas y,
+        /// solo si algún firmante es el fallback de GTH, el árbol de áreas.
         /// </summary>
-        private async Task<HashSet<int>> MisWorkerIdsQueNoDecidoAsync(AppDbContext ctx, int? userId)
+        private async Task<HashSet<int>> PlanillasQueFirmoAsync(
+            AppDbContext ctx,
+            IReadOnlyDictionary<int, IReadOnlyCollection<int>> workersPorPlanilla,
+            int? userId)
         {
-            var mios = await MisWorkerIdsAsync(ctx, userId);
-            if (mios.Count == 0) return mios;
+            if (!userId.HasValue || workersPorPlanilla.Count == 0) return new();
 
-            var revisores = await _jefeResolver.ResolveManyAsync(mios.ToList());
+            var quien = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, userId);
+            if (quien.WorkerIds.Count == 0) return new();
 
-            return mios
-                .Where(id => !(revisores.TryGetValue(id, out var revisor)
-                               && revisor.WorkerId != null
-                               && mios.Contains(revisor.WorkerId.Value)))
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                workersPorPlanilla, PasoAprobacion.PrimeraRevision);
+
+            var necesitaArbol = firmantes.Values.Any(
+                fs => fs.Count == 0 || fs.Any(f => f.Persona.WorkerId == null));
+            var arbol = necesitaArbol
+                ? await RevisorDeLaSalida.CargarArbolAsync(ctx)
+                : new Dictionary<int, (int? Padre, string Nombre)>();
+
+            // Basta con estar entre los aprobadores: si hacen falta varios, el turno lo valida la
+            // escritura. En obra la primera revision la aprueba solo el administrador, asi que casi
+            // siempre esta lista tiene un elemento.
+            return firmantes
+                .Where(kv => kv.Value.Any(f => RevisorDeLaSalida.EsElRevisor(quien, f.Persona, arbol)))
+                .Select(kv => kv.Key)
                 .ToHashSet();
         }
+
+        /// <summary>Los trabajadores de cada planilla, que es lo que identifica al documento.</summary>
+        private static Dictionary<int, IReadOnlyCollection<int>> WorkersPorPlanilla(
+            IEnumerable<PlanillaRendicionLoader.PlanillaFila> planillas)
+            => planillas.ToDictionary(
+                p => p.Id,
+                p => (IReadOnlyCollection<int>)p.Salidas.Select(s => s.WorkerId).Distinct().ToList());
 
         private static async Task<string?> ResolveAreaNombreAsync(AppDbContext ctx, int? areaScopeId)
         {
@@ -621,7 +645,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         }
 
         private static GestionRendicionListItemDto Armar(
-            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> misWorkerIdsQueNoDecido,
+            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> planillasQueFirmo,
             IReadOnlyDictionary<int, ConsolidacionFila> consolidacion) => new()
         {
             Id                 = p.Id,
@@ -652,9 +676,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
                 p.ObservacionReembolsoOrigenId),
             RevisorNotificadoAt  = p.RevisorNotificadoAt,
-            // Basta una salida suya que no le toque decidir para apagar la planilla entera: la
-            // primera revisión es del documento completo, no se puede aprobar "a medias".
-            PuedeDecidir       = !p.Salidas.Any(s => misWorkerIdsQueNoDecido.Contains(s.WorkerId)),
+            // La primera revisión es del documento completo y la decide su firmante: no se
+            // aprueba "a medias" ni la aprueba cualquiera que la vea.
+            PuedeDecidir       = planillasQueFirmo.Contains(p.Id),
             // Lo que resolvió ConsolidacionPorPlanillaAsync: qué cubriría el consolidado de esta
             // fila, si se le puede adjuntar y si el usuario puede consolidar por TODOS sus trabajadores.
             PuedeConsolidar          = consolidacion[p.Id].PuedeConsolidar,

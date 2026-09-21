@@ -31,6 +31,10 @@ using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Ser
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
@@ -157,6 +161,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // al resolver el revisor de una salida, entre workers_revisores y el fallback GTH)
             services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
             services.AddScoped<IAreaRevisorService, AreaRevisorService>();
+
+            // Gemela de la anterior: los aprobadores de la primera revisión y los firmantes del
+            // consolidado. area_revisores quedó solo para aprobar la salida (2026-09-21).
+            services.AddScoped<IAreaRevisorRendicionRepository, AreaRevisorRendicionRepository>();
+            services.AddScoped<IAreaRevisorRendicionService, AreaRevisorRendicionService>();
 
             // Consolidadores de áreas (Consolidados → Configuración: quién hace el trámite del S10
             // de las planillas de cada área — el propio trabajador ya no). Misma pantalla que

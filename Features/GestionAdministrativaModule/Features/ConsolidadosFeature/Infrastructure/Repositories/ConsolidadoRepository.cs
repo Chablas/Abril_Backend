@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
@@ -623,6 +623,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             // de pisarla. Y si quien aprueba ya lo firmó, no se vuelve a firmar.
             var firmantes = await FirmantesPorConsolidadoAsync(ctx, consolidadoIds);
 
+            // Y el TURNO: las firmas van en orden (primero el administrador de obra, después el
+            // residente), así que un consolidado al que todavía le falta una firma anterior a la
+            // mía no se me ofrece. Sin esto el residente podría firmar un documento que el
+            // administrador no vio, que es justo lo que el orden existe para impedir.
+            var fueraDeTurno = await ConsolidadosFueraDeTurnoAsync(
+                ctx, consolidadoIds, solicitudes.Select(s => s.WorkerId).Distinct().ToList(),
+                reviewerUserId);
+
             return planillas.Select(p =>
             {
                 var solicitudIds = porRendicion[p.Id];
@@ -634,6 +642,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     .Distinct()
                     .Where(cid => consolidados.ContainsKey(cid))
                     .Where(cid => !(firmantes.TryGetValue(cid, out var yaFirmaron) && yaFirmaron.Contains(reviewerUserId)))
+                    .Where(cid => !fueraDeTurno.Contains(cid))
                     .Select(cid =>
                     {
                         var c = consolidados[cid];
@@ -703,6 +712,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var vivas = solicitudes.Select(s => s.Id).ToHashSet();
 
+            // La firma de ESTE usuario sobre cada consolidado tocado queda registrada como fila: es
+            // lo que permite que después firme otro al costado sin pisarla, y lo que se contrasta
+            // contra las firmas que el área exige antes de dar el documento por firmado.
+            var yaFirmadosPorMi = await ctx.GaConsolidadoS10Firma
+                .Where(f => f.State && f.FirmadoPorId == reviewerUserId
+                         && consolidadoIds.Contains(f.ConsolidadoS10Id))
+                .Select(f => f.ConsolidadoS10Id)
+                .ToListAsync();
+
+            var fichaDelFirmante = await (
+                from w in ctx.Worker.AsNoTracking()
+                join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
+                where per.UserId == reviewerUserId && w.State
+                orderby w.Id
+                select (int?)w.Id
+            ).FirstOrDefaultAsync();
+
             foreach (var p in planillas)
             {
                 // Si ninguna de sus salidas sigue viva, la planilla no se toca: sus PDF firmados
@@ -733,13 +759,53 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                         c.PlanillaGrupalFirmadoItemId   = firmado.Grupal.ItemId;
                         c.PlanillaGrupalFirmadoFilename = firmado.Grupal.Filename;
                     }
+
+                    // Una fila por firma. El slot es el lugar que ocupó en la hoja, para que la
+                    // siguiente se estampe al costado y no encima.
+                    if (!yaFirmadosPorMi.Contains(consolidadoId))
+                    {
+                        ctx.GaConsolidadoS10Firma.Add(new GaConsolidadoS10Firma
+                        {
+                            ConsolidadoS10Id = consolidadoId,
+                            FirmadoPorId     = reviewerUserId,
+                            WorkerId         = fichaDelFirmante,
+                            Slot             = firmado.Slot,
+                            FirmadoAt        = now,
+                            State            = true,
+                            CreatedAt        = now,
+                        });
+                        yaFirmadosPorMi.Add(consolidadoId);
+                    }
                 }
             }
 
+            // ── ¿Queda firmado el documento, o falta alguien? ──────────────────
+            // Un consolidado de obra lo firman DOS (administrador y residente). La salida solo pasa
+            // a "Firmado" —que es lo que Tesorería ve como pagable— cuando están todas las firmas
+            // que su área exige; con una sola se queda esperando a la otra.
+            var faltanFirmas = await ConsolidadosIncompletosAsync(
+                ctx, consolidadoIds, solicitudes.Select(s => s.WorkerId).Distinct().ToList());
+
+            var consolidadoDeSolicitud = new Dictionary<int, int>();
+            foreach (var p in planillas)
+                foreach (var sid in p.SolicitudIds)
+                    foreach (var cid in p.Consolidados.Keys)
+                        consolidadoDeSolicitud[sid] = cid;
+
             foreach (var s in solicitudes)
             {
-                // Aprobar ES la firma: la salida salta directo a Firmado, que es lo que Tesorería
-                // ve como pagable. "Aprobado" ya no es un estado por el que se pase.
+                // Aprobar ES la firma. La salida salta a "Firmado" —lo que Tesorería ve como
+                // pagable— solo si el consolidado ya reunió TODAS sus firmas; si falta alguna se
+                // queda como está, esperando al siguiente firmante, con su firma ya estampada en
+                // el papel.
+                var incompleto = consolidadoDeSolicitud.TryGetValue(s.Id, out var cid)
+                                 && faltanFirmas.Contains(cid);
+                if (incompleto)
+                {
+                    s.UpdatedAt = now;
+                    continue;
+                }
+
                 s.EstadoReembolsoId      = EstadosSalida.Reembolso.Firmado;
                 s.ReembolsoDecididoPorId = reviewerUserId;
                 s.ReembolsoDecididoAt    = now;
@@ -807,10 +873,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         }
 
         /// <summary>
-        /// De las salidas dadas, las que decide el usuario: aquellas cuyo revisor resuelto (el mismo
-        /// que recibe los correos del flujo) es él. Ver <see cref="RevisorDeLaSalida.EsElRevisor"/>.
-        /// Un número fijo de consultas: las fichas del usuario, un lote al resolver y, solo si algún
-        /// revisor es el fallback de GTH, el árbol de áreas.
+        /// De las salidas dadas, las que decide el usuario.
+        ///
+        /// La unidad es el DOCUMENTO y no la salida (2026-09-21): un consolidado tiene UN firmante
+        /// —el mismo que recibe su aviso—, así que las salidas se agrupan por el consolidado que
+        /// las cubre y o se decide el documento entero o no se decide nada de él. Antes se resolvía
+        /// el revisor de cada trabajador por separado, lo que permitía firmar un documento por
+        /// partes.
+        ///
+        /// Un número fijo de consultas: las fichas del usuario, el consolidado de cada salida y un
+        /// solo lote para todos los documentos (ver <c>ResolveFirmantesDeDocumentosAsync</c>).
         /// </summary>
         private async Task<HashSet<int>> DecidiblesPorUsuarioAsync(
             AppDbContext ctx, IReadOnlyCollection<(int Id, int WorkerId)> salidas, int? userId)
@@ -820,18 +892,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             var quien = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, userId);
             if (quien.WorkerIds.Count == 0) return new();
 
-            var revisores = await _jefeResolver.ResolveManyAsync(
-                salidas.Select(s => s.WorkerId).Distinct().ToList());
+            var solicitudIds = salidas.Select(s => s.Id).Distinct().ToList();
 
-            var necesitaArbol = salidas.Any(s => !revisores.TryGetValue(s.WorkerId, out var r) || r.WorkerId == null);
+            var consolidadoPorSolicitud = await (
+                from s  in ctx.GaSolicitudSalida.AsNoTracking()
+                join cr in ctx.GaConsolidadoS10Rendicion.AsNoTracking()
+                    on s.RendicionId equals cr.RendicionId
+                where solicitudIds.Contains(s.Id) && cr.State
+                select new { s.Id, cr.ConsolidadoS10Id }
+            ).ToDictionaryAsync(x => x.Id, x => x.ConsolidadoS10Id);
+
+            // Las salidas sin consolidado (todavía) se agrupan por su propio id: cada una es su
+            // propio documento hasta que alguna las cubra.
+            var grupos = salidas
+                .GroupBy(s => consolidadoPorSolicitud.TryGetValue(s.Id, out var c) ? c : -s.Id)
+                .ToList();
+
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                grupos.ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyCollection<int>)g.Select(s => s.WorkerId).Distinct().ToList()),
+                PasoAprobacion.Consolidado);
+
+            // El árbol solo hace falta si algún firmante es el fallback de GTH (un área, no una
+            // persona): ahí decide cualquiera que cuelgue de ese nodo.
+            var necesitaArbol = firmantes.Values.Any(
+                fs => fs.Count == 0 || fs.Any(f => f.Persona.WorkerId == null));
             var arbol = necesitaArbol
                 ? await RevisorDeLaSalida.CargarArbolAsync(ctx)
                 : new Dictionary<int, (int? Padre, string Nombre)>();
 
-            return salidas
-                .Where(s => RevisorDeLaSalida.EsElRevisor(quien, revisores.GetValueOrDefault(s.WorkerId), arbol))
-                .Select(s => s.Id)
-                .ToHashSet();
+            // Un consolidado puede necesitar VARIAS firmas (en obra: administrador y residente), así
+            // que basta con estar entre ellas para que el documento le aparezca accionable. Que le
+            // toque el turno es otra cosa y la valida la escritura.
+            var decidibles = new HashSet<int>();
+            foreach (var grupo in grupos)
+            {
+                var deEste = firmantes.GetValueOrDefault(grupo.Key) ?? new List<AprobadorDocumento>();
+                if (!deEste.Any(f => RevisorDeLaSalida.EsElRevisor(quien, f.Persona, arbol)))
+                    continue;
+
+                foreach (var salida in grupo) decidibles.Add(salida.Id);
+            }
+
+            return decidibles;
         }
 
         // ══ Correos ═════════════════════════════════════════════════════════
@@ -1021,11 +1125,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             info.SolicitudIds = pendientes.Select(p => p.Id).ToList();
 
-            // La jefatura de esas salidas: el MISMO revisor que las decide en esta pantalla.
-            var jefaturas = (await _jefeResolver.ResolveManyAsync(
-                    pendientes.Select(p => p.WorkerId).Distinct().ToList()))
-                .Values
-                .Where(r => !string.IsNullOrWhiteSpace(r.Email))
+            // Quien firma el documento: UNO para el consolidado entero, el MISMO que después lo
+            // decide en esta pantalla. No se resuelve por trabajador — eso daría varios dueños para
+            // un solo documento y el aviso saldría a gente que no puede firmarlo.
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
+                pendientes.Select(p => p.WorkerId).Distinct().ToList(),
+                PasoAprobacion.Consolidado);
+
+            // Les llega a TODOS los que tienen que firmar, no solo al primero: el segundo se entera
+            // igual de que el documento existe, y sin eso el residente se enteraria recien cuando el
+            // administrador ya firmo, sin aviso propio.
+            var jefaturas = firmantes
+                .Select(f => f.Persona)
+                .Where(p => !string.IsNullOrWhiteSpace(p.Email))
                 .ToList();
 
             info.JefaturaEmails = jefaturas
@@ -1125,13 +1237,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             };
             if (abiertas.Count == 0) return plan;
 
-            // El reemplazo deja el reembolso Pendiente otra vez: el aviso va a la jefatura de los
-            // trabajadores de esas planillas, el MISMO revisor que después lo decide.
-            plan.JefaturaEmails = (await _jefeResolver.ResolveManyAsync(
-                    abiertas.SelectMany(a => a.WorkerIds).Distinct().ToList()))
-                .Values
-                .Select(r => r.Email?.Trim() ?? string.Empty)
-                .Where(email => email.Length > 0)
+            // El reemplazo deja el reembolso Pendiente otra vez: el aviso va a quien va a poder
+            // firmarlo, que es UNO para el documento entero y no uno por trabajador.
+            var firmantesCorreccion = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
+                abiertas.SelectMany(a => a.WorkerIds).Distinct().ToList(),
+                PasoAprobacion.Consolidado);
+
+            plan.JefaturaEmails = firmantesCorreccion
+                .Select(f => f.Persona.Email?.Trim() ?? string.Empty)
+                .Where(e => e.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1338,22 +1452,139 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         /// cubre. Aprobar firma la planilla y su consolidado en el mismo acto, así que los firmantes
         /// del consolidado son los de sus planillas firmadas.
         /// </summary>
+        /// <summary>
+        /// Quiénes ya firmaron cada consolidado, por <c>app_user</c>.
+        ///
+        /// Sale de <c>ga_consolidado_s10_firma</c> y ya NO de <c>ga_rendicion.firmado_por_id</c>:
+        /// esa columna admite UNA firma por planilla, y desde el 2026-09-21 en obra firman el
+        /// administrador de obra y el residente sobre las MISMAS planillas. La columna se sigue
+        /// escribiendo —es la que referencia el PDF firmado de cada planilla— pero ya no es la
+        /// fuente de "quiénes firmaron".
+        /// </summary>
         private static async Task<Dictionary<int, HashSet<int>>> FirmantesPorConsolidadoAsync(
             AppDbContext ctx, List<int> consolidadoIds)
         {
             if (consolidadoIds.Count == 0) return new();
 
-            var filas = await (
-                from v in ctx.GaConsolidadoS10Rendicion
-                join r in ctx.GaRendicion on v.RendicionId equals r.Id
-                where v.State && consolidadoIds.Contains(v.ConsolidadoS10Id)
-                   && r.FirmadoPorId != null && r.PdfFirmadoUrl != null
-                select new { v.ConsolidadoS10Id, FirmadoPorId = r.FirmadoPorId!.Value }
-            ).ToListAsync();
+            var filas = await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && consolidadoIds.Contains(f.ConsolidadoS10Id))
+                .Select(f => new { f.ConsolidadoS10Id, f.FirmadoPorId })
+                .ToListAsync();
 
             return filas
                 .GroupBy(f => f.ConsolidadoS10Id)
                 .ToDictionary(g => g.Key, g => g.Select(f => f.FirmadoPorId).ToHashSet());
+        }
+
+        /// <summary>
+        /// De los consolidados dados, aquellos en los que a ESTE usuario todavía no le toca firmar:
+        /// alguien que va antes que él en el orden de firmas no firmó aún.
+        ///
+        /// El orden sale del mismo sitio que los aprobadores (<c>area_revisores_rendicion</c> por
+        /// <c>orden_prioridad</c>, o el algoritmo: administrador de obra y después residente). Quien
+        /// no figura entre los aprobadores no queda fuera de turno por esta vía —de eso se ocupa el
+        /// guard de siempre—, y un documento con un solo firmante nunca cae acá.
+        /// </summary>
+        private async Task<HashSet<int>> ConsolidadosFueraDeTurnoAsync(
+            AppDbContext ctx, List<int> consolidadoIds, List<int> workerIds, int reviewerUserId)
+        {
+            var fuera = new HashSet<int>();
+            if (consolidadoIds.Count == 0 || workerIds.Count == 0) return fuera;
+
+            var misFichas = await (
+                from w in ctx.Worker.AsNoTracking()
+                join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
+                where per.UserId == reviewerUserId && w.State
+                select w.Id
+            ).ToListAsync();
+            if (misFichas.Count == 0) return fuera;
+
+            var esperados = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                consolidadoIds.ToDictionary(id => id, _ => (IReadOnlyCollection<int>)workerIds),
+                PasoAprobacion.Consolidado);
+
+            var puestas = await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && consolidadoIds.Contains(f.ConsolidadoS10Id) && f.WorkerId != null)
+                .Select(f => new { f.ConsolidadoS10Id, WorkerId = f.WorkerId!.Value })
+                .ToListAsync();
+
+            var firmaronPorDoc = puestas
+                .GroupBy(f => f.ConsolidadoS10Id)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.WorkerId).ToHashSet());
+
+            foreach (var (cid, aprobadores) in esperados)
+            {
+                var miTurno = aprobadores
+                    .Where(a => a.Persona.WorkerId != null && misFichas.Contains(a.Persona.WorkerId.Value))
+                    .Select(a => (int?)a.Orden)
+                    .FirstOrDefault();
+
+                if (miTurno == null) continue;
+
+                var firmaron = firmaronPorDoc.TryGetValue(cid, out var set) ? set : new HashSet<int>();
+
+                var faltaAlguienAntes = aprobadores.Any(a =>
+                    a.Orden < miTurno
+                    && a.Persona.WorkerId != null
+                    && !firmaron.Contains(a.Persona.WorkerId.Value));
+
+                if (faltaAlguienAntes) fuera.Add(cid);
+            }
+
+            return fuera;
+        }
+        /// <summary>
+        /// De los consolidados dados, los que TODAVÍA no reunieron todas las firmas que su área
+        /// exige. Compara las firmas ya estampadas (incluida la que se está por guardar, que ya
+        /// está en el ChangeTracker) contra los aprobadores que resuelve el algoritmo o
+        /// <c>area_revisores_rendicion</c>.
+        ///
+        /// Un aprobador sin ficha resuelta (el fallback de GTH, que es un área) no se puede
+        /// contrastar: esos documentos se dan por completos con una firma, que es como funcionaban
+        /// antes de que existieran las firmas múltiples.
+        /// </summary>
+        private async Task<HashSet<int>> ConsolidadosIncompletosAsync(
+            AppDbContext ctx, List<int> consolidadoIds, List<int> workerIds)
+        {
+            var incompletos = new HashSet<int>();
+            if (consolidadoIds.Count == 0 || workerIds.Count == 0) return incompletos;
+
+            var esperados = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                consolidadoIds.ToDictionary(id => id, _ => (IReadOnlyCollection<int>)workerIds),
+                PasoAprobacion.Consolidado);
+
+            // Lo ya guardado más lo que este SaveChanges va a agregar.
+            var puestas = await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && consolidadoIds.Contains(f.ConsolidadoS10Id))
+                .Select(f => new { f.ConsolidadoS10Id, f.WorkerId })
+                .ToListAsync();
+
+            var porConsolidado = consolidadoIds.ToDictionary(id => id, _ => new HashSet<int>());
+            foreach (var f in puestas)
+                if (f.WorkerId != null && porConsolidado.TryGetValue(f.ConsolidadoS10Id, out var set))
+                    set.Add(f.WorkerId.Value);
+
+            foreach (var nueva in ctx.ChangeTracker.Entries<GaConsolidadoS10Firma>()
+                         .Where(e => e.State == EntityState.Added)
+                         .Select(e => e.Entity))
+                if (nueva.WorkerId != null && porConsolidado.TryGetValue(nueva.ConsolidadoS10Id, out var set))
+                    set.Add(nueva.WorkerId.Value);
+
+            foreach (var (cid, aprobadores) in esperados)
+            {
+                var fichas = aprobadores
+                    .Select(a => a.Persona.WorkerId)
+                    .Where(w => w != null)
+                    .Select(w => w!.Value)
+                    .ToList();
+
+                if (fichas.Count == 0) continue;
+
+                var firmaron = porConsolidado.TryGetValue(cid, out var set) ? set : new HashSet<int>();
+                if (fichas.Any(f => !firmaron.Contains(f))) incompletos.Add(cid);
+            }
+
+            return incompletos;
         }
 
         private static void CopiarCabecera(ConsolidadoListItemDto o, ConsolidadoDetalleDto d)

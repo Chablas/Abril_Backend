@@ -258,6 +258,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaVisibilidadArea> GaVisibilidadArea { get; set; }
         public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
         public DbSet<AreaRevisores> AreaRevisores { get; set; }
+
+        /// <summary>
+        /// Aprobadores de la primera revisión y firmantes del consolidado. Gemela de
+        /// <see cref="AreaRevisores"/>, que desde el 2026-09-21 quedó solo para aprobar la salida.
+        /// </summary>
+        public DbSet<AreaRevisoresRendicion> AreaRevisoresRendicion { get; set; }
         // Quién puede adjuntar el Consolidado del S10 por los trabajadores de un área.
         public DbSet<AreaConsolidadores> AreaConsolidadores { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
@@ -267,6 +273,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
         // Qué planillas cubre cada Consolidado del S10: un consolidado puede agrupar varias.
         public DbSet<GaConsolidadoS10Rendicion> GaConsolidadoS10Rendicion { get; set; }
+
+        /// <summary>
+        /// Las firmas estampadas sobre un consolidado. Son filas y no una columna porque en obra
+        /// firman dos personas sobre las mismas planillas (administrador de obra y residente).
+        /// </summary>
+        public DbSet<GaConsolidadoS10Firma> GaConsolidadoS10Firma { get; set; }
         // Solicitudes de corrección del Consolidado del S10 al Coordinador ERP (bandeja
         // "Correcciones S10"). Van por planilla, igual que el consolidado.
         public DbSet<GaCorreccionS10> GaCorreccionS10 { get; set; }

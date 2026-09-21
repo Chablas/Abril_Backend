@@ -1,4 +1,4 @@
-using Abril_Backend.Infrastructure.Data;
+﻿using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
@@ -105,8 +105,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// área, no de quién se le asigna.
         /// </summary>
         public static async Task SetFiltroProyectoAsync(
-            AppDbContext ctx, int areaScopeId, bool filtraPorProyecto)
+            AppDbContext ctx, int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
         {
+            // Sin subdividir el área no hay revisor de obra al que bajarle la firma: apagar el
+            // filtro apaga también la firma por proyecto, y no queda un flag encendido sin efecto
+            // esperando a que alguien vuelva a marcar el otro.
+            firmaConsolidadoPorProyecto = filtraPorProyecto && firmaConsolidadoPorProyecto;
+
             var now = DateTimeOffset.UtcNow;
             var config = await ctx.GaSalidasAreaConfig
                 .FirstOrDefaultAsync(f => f.State && f.AreaScopeId == areaScopeId);
@@ -117,14 +122,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 {
                     AreaScopeId = areaScopeId,
                     FiltraPorProyecto = filtraPorProyecto,
+                    FirmaConsolidadoPorProyecto = firmaConsolidadoPorProyecto,
                     State = true,
                     Active = true,
                     CreatedAt = now,
                 });
             }
-            else if (config.FiltraPorProyecto != filtraPorProyecto)
+            else if (config.FiltraPorProyecto != filtraPorProyecto
+                     || config.FirmaConsolidadoPorProyecto != firmaConsolidadoPorProyecto)
             {
                 config.FiltraPorProyecto = filtraPorProyecto;
+                config.FirmaConsolidadoPorProyecto = firmaConsolidadoPorProyecto;
                 config.UpdatedAt = now;
             }
 

@@ -1,4 +1,4 @@
-namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
+﻿namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
 {
     /// <summary>
     /// Forma común de las dos pantallas que asignan PERSONAS A ÁREAS con el mismo algoritmo:
@@ -38,6 +38,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public bool FiltraPorProyecto { get; set; }
 
         /// <summary>
+        /// Solo tiene efecto con <see cref="FiltraPorProyecto"/> en true, y por eso la pantalla lo
+        /// ofrece únicamente en esas áreas. Si es true, el consolidado y la planilla grupal los
+        /// firma el revisor POR PROYECTO —el mismo que aprueba las salidas— en vez del revisor del
+        /// área. No trae lista propia: usa los revisores por proyecto que ya están más abajo.
+        /// </summary>
+        public bool FirmaConsolidadoPorProyecto { get; set; }
+
+        /// <summary>
         /// Solo cuando <see cref="FiltraPorProyecto"/> es true: TODOS los proyectos activos, cada
         /// uno con lo suyo asignado (vacío si no se asignó nada) y con sus efectivos resueltos. Van
         /// todos y no solo los asignados porque desde que existe el algoritmo un proyecto sin nada
@@ -68,6 +76,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public int OrdenPrioridad { get; set; }
         /// <summary>false = no se considera (ej. ausencia temporal).</summary>
         public bool Active { get; set; }
+
+        /// <summary>
+        /// Solo en Revisores de Rendiciones: su visto bueno hace falta en la PRIMERA REVISION de la
+        /// planilla. En las otras dos pantallas viaja en true y no se usa. Con varias filas marcadas,
+        /// todas tienen que aprobar.
+        /// </summary>
+        public bool ApruebaPrimeraRevision { get; set; } = true;
+
+        /// <summary>
+        /// Solo en Revisores de Rendiciones: su firma hace falta en el CONSOLIDADO y su planilla
+        /// grupal. El orden de las firmas lo da <see cref="OrdenPrioridad"/>.
+        /// </summary>
+        public bool ApruebaConsolidado { get; set; } = true;
     }
 
     /// <summary>
@@ -130,11 +151,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public int WorkerId { get; set; }
         public int OrdenPrioridad { get; set; }
         public bool Active { get; set; } = true;
+
+        /// <summary>
+        /// Solo en Revisores de Rendiciones: su visto bueno hace falta en la PRIMERA REVISION de la
+        /// planilla. En las otras dos pantallas viaja en true y no se usa. Con varias filas marcadas,
+        /// todas tienen que aprobar.
+        /// </summary>
+        public bool ApruebaPrimeraRevision { get; set; } = true;
+
+        /// <summary>
+        /// Solo en Revisores de Rendiciones: su firma hace falta en el CONSOLIDADO y su planilla
+        /// grupal. El orden de las firmas lo da <see cref="OrdenPrioridad"/>.
+        /// </summary>
+        public bool ApruebaConsolidado { get; set; } = true;
     }
 
     /// <summary>Cuerpo del PUT de flag: marca/desmarca "filtrar por proyecto" para el área.</summary>
     public class AreaFiltroProyectoUpdateDto
     {
         public bool FiltraPorProyecto { get; set; }
+
+        /// <summary>
+        /// Solo se guarda en true si <see cref="FiltraPorProyecto"/> también lo está: sin subdividir
+        /// el área no hay revisor de obra al que bajarle la firma.
+        /// </summary>
+        public bool FirmaConsolidadoPorProyecto { get; set; }
     }
 }

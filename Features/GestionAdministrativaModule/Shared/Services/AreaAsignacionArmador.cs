@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Services.Jerarquia;
@@ -60,18 +60,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 select new AreaProyectoOptionDto { ProjectId = pr.ProjectId, ProjectName = pr.ProjectDescription }
             ).ToListAsync();
 
-        /// <summary>Qué áreas de la lista están marcadas como "filtrar por proyecto".</summary>
-        public static async Task<Dictionary<int, bool>> FiltranPorProyectoAsync(
+        /// <summary>Los dos flags por área: si se subdivide por proyecto y si la firma baja a la obra.</summary>
+        public static async Task<Dictionary<int, (bool Filtra, bool FirmaPorProyecto)>> FiltranPorProyectoAsync(
             AppDbContext ctx, List<int> areaIds)
         {
             var flags = await ctx.GaSalidasAreaConfig
                 .Where(f => f.State && areaIds.Contains(f.AreaScopeId))
-                .Select(f => new { f.AreaScopeId, f.FiltraPorProyecto })
+                .Select(f => new { f.AreaScopeId, f.FiltraPorProyecto, f.FirmaConsolidadoPorProyecto })
                 .ToListAsync();
 
             return flags
                 .GroupBy(f => f.AreaScopeId)
-                .ToDictionary(g => g.Key, g => g.First().FiltraPorProyecto);
+                .ToDictionary(
+                    g => g.Key,
+                    g => (g.First().FiltraPorProyecto, g.First().FirmaConsolidadoPorProyecto));
         }
 
         /// <summary>Opciones del selector: cualquier trabajador con correo corporativo.</summary>
@@ -98,7 +100,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public static void Completar(
             List<AreaAsignacionItemDto> areas,
             List<AsignacionCruda> asignaciones,
-            Dictionary<int, bool> filtranPorProyecto,
+            Dictionary<int, (bool Filtra, bool FirmaPorProyecto)> filtranPorProyecto,
             List<AreaProyectoOptionDto> proyectos,
             Func<int, List<AreaEfectivoDto>> efectivosDeArea,
             Func<int, int, List<AreaEfectivoDto>> efectivosDeProyecto)
@@ -116,7 +118,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             foreach (var a in areas)
             {
                 if (porArea.TryGetValue(a.AreaScopeId, out var propios)) a.Asignados = propios;
-                a.FiltraPorProyecto = filtranPorProyecto.TryGetValue(a.AreaScopeId, out var f) && f;
+                var flags = filtranPorProyecto.TryGetValue(a.AreaScopeId, out var f)
+                    ? f
+                    : (Filtra: false, FirmaPorProyecto: false);
+
+                a.FiltraPorProyecto           = flags.Filtra;
+                a.FirmaConsolidadoPorProyecto = flags.Filtra && flags.FirmaPorProyecto;
                 a.Efectivos = efectivosDeArea(a.AreaScopeId);
 
                 if (!a.FiltraPorProyecto) continue;

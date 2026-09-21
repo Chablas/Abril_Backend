@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
@@ -94,7 +94,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         {
             try
             {
-                await _service.SetFiltroProyectoAsync(areaScopeId, dto?.FiltraPorProyecto ?? false);
+                await _service.SetFiltroProyectoAsync(
+                    areaScopeId,
+                    dto?.FiltraPorProyecto ?? false,
+                    dto?.FirmaConsolidadoPorProyecto ?? false);
                 return Ok(new { message = "Configuración del área actualizada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

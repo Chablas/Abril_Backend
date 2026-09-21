@@ -159,10 +159,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
             if (workerIds.Count == 0) return avisos;
 
-            var jefaturas = (await _jefeResolver.ResolveManyAsync(workerIds))
-                .Values
-                .Select(r => r.Email?.Trim() ?? string.Empty)
-                .Where(email => email.Length > 0)
+            // Quien va a firmar el consolidado que se está por adjuntar: UNO para el documento
+            // entero. Se pregunta al MISMO resolver que después manda el correo y que habilita el
+            // botón, así que la confirmación no puede anunciar a alguien que no va a poder firmar.
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
+                workerIds, PasoAprobacion.Consolidado);
+
+            var jefaturas = firmantes
+                .Select(f => f.Persona.Email?.Trim() ?? string.Empty)
+                .Where(e => e.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

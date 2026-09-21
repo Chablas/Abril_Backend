@@ -104,6 +104,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids);
 
         /// <summary>
+        /// Valida que las salidas dadas puedan ir en una MISMA planilla: sin mezclar jefaturas con
+        /// el resto del equipo y todas bajo un mismo nodo de área por debajo de la gerencia. La
+        /// regla vive en <c>AgrupacionRendicionRule</c>, compartida con el Consolidado del S10;
+        /// lanza <c>AbrilException</c> 400 con el motivo concreto si el conjunto no se puede juntar.
+        /// </summary>
+        Task ValidarAgrupacionDeSolicitudes(IEnumerable<int> ids);
+
+        /// <summary>
         /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el
         /// plazo de rendición y las fechas de la planilla fuera del repositorio. Trae también el
         /// tope de movilidad, que sale de la misma fila de config.

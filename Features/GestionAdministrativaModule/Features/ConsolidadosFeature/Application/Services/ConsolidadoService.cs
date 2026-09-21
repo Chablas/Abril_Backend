@@ -1,4 +1,4 @@
-using Abril_Backend.Application.Exceptions;
+﻿using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructure.Interfaces;
@@ -289,6 +289,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                     {
                         firmado = new ConsolidadoFirmadoDto
                         {
+                            Slot = doc.Slot,
                             S10 = await FirmarYSubirAsync(
                                 carpeta, doc.Url, doc.Filename, firma.Bytes, pie, doc.Slot),
                             Grupal = doc.GrupalUrl == null || doc.GrupalFilename == null

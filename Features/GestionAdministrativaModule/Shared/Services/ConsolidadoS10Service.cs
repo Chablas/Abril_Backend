@@ -117,6 +117,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                           + "cuando la jefatura la aprueba.",
                     409);
 
+            // Quiénes pueden compartir un consolidado: no se mezclan jefaturas (JEFE, SUB GERENTE,
+            // RESIDENTE) con el resto del equipo —a una jefatura la firma su gerencia, y acá
+            // terminaría firmando un documento donde ella misma está incluida— y todos tienen que
+            // colgar de un mismo nodo de área por debajo de la gerencia. Es la MISMA regla que se
+            // aplica al rendir, así que no se puede consolidar lo que no se pudo agrupar (ni al
+            // revés). La planilla grupal sale de este documento, así que la hereda sin código extra.
+            var workersDeLasPlanillas = await ctx.GaSolicitudSalida.AsNoTracking()
+                .Where(s => s.RendicionId != null && ids.Contains(s.RendicionId.Value))
+                .Select(s => s.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            await AgrupacionRendicionRule.ValidarAsync(ctx, workersDeLasPlanillas, "planillas");
+
             // ── Qué planillas pueden ir juntas (ver ConsolidadoS10Agrupacion) ──
             var actuales = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, ids);
             var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(

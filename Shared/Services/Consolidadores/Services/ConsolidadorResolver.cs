@@ -1,4 +1,4 @@
-using Abril_Backend.Infrastructure.Data;
+﻿using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Jerarquia;
 using Microsoft.EntityFrameworkCore;
@@ -210,8 +210,8 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
 
                 if (jefatura.Count == 0)
                 {
-                    if (filtra && contexto.Estructura.ResidentePorProyecto.TryGetValue(proyecto!.Value, out var residente))
-                        jefatura.Add(residente);
+                    if (filtra && contexto.Estructura.TryPersonaDeLaObra(proyecto!.Value, out var deLaObra))
+                        jefatura.Add(deLaObra);
                     jefatura.AddRange(contexto.Estructura.JefePorNodo[nodo]);
                 }
 
@@ -284,7 +284,11 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
                 .Select(f => f.AreaScopeId)
                 .ToListAsync()).ToHashSet();
 
-            var estructura = await EstructuraAreaLoader.CargarAsync(ctx, nodos);
+            // Consolidar es parte del ciclo de la rendicion, no de la salida: cuando el area no
+            // tiene consolidadores propios manda la jefatura de area_revisores_rendicion, y en las
+            // areas filtradas por proyecto el algoritmo senala al ADMINISTRADOR DE OBRA.
+            var estructura = await EstructuraAreaLoader.CargarAsync(
+                ctx, nodos, EstructuraAreaLoader.AmbitoRevisor.Rendiciones);
 
             return new Contexto(cadenaPorNodo, asignados.ToLookup(a => a.AreaScopeId), filtran, estructura);
         }

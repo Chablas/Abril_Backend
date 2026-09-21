@@ -139,6 +139,19 @@
         public static readonly int[] ConVistaDeSuArea = { Jefe, Coordinador, Gerente };
 
         /// <summary>
+        /// La jefatura de un área NO gerencial, <b>en orden de precedencia</b>: de las que existan
+        /// en el nodo manda la primera. El ORDEN es la regla, no un detalle de implementación
+        /// (2026-09-21): en un área con SUB GERENTE y JEFE manda el sub gerente, y el residente
+        /// solo entra si no hay ninguno de los dos.
+        ///
+        /// En un "Área de Gerencia" no aplica: ahí manda <see cref="Gerente"/> y nadie más.
+        ///
+        /// COORDINADOR queda fuera a propósito: ve su área (<see cref="ConVistaDeSuArea"/>) pero no
+        /// es jefatura para aprobar ni para agrupar rendiciones.
+        /// </summary>
+        public static readonly int[] JefaturaDeAreaPorPrecedencia = { SubGerente, Jefe, Residente };
+
+        /// <summary>
         /// Categorías que pueden aprobar la salida de un trabajador regular, en el orden
         /// en que las busca el walk-up por el árbol de áreas (ApproverResolver, regla C).
         /// El índice define la prioridad, así que el orden importa.

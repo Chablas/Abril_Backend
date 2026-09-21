@@ -1,44 +1,40 @@
 ﻿using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Presentation
+namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Presentation
 {
-    /// <summary>
-    /// Consolidadores del S10 por área (Gestión de Rendiciones → Configuración → Consolidadores).
-    /// Mismo contrato que Revisores de Áreas: lo que cambia es a quién se asigna y que acá quedan
-    /// vigentes todos los activos, no solo el primero.
-    /// </summary>
     [ApiController]
-    [Route("api/v1/gestion-administrativa/configuracion/consolidadores-areas")]
+    [Route("api/v1/gestion-administrativa/configuracion/revisores-areas-rendicion")]
     [Authorize]
-    public class AreaConsolidadorController : ControllerBase
+    public class AreaRevisorRendicionController : ControllerBase
     {
         /// <summary>
-        /// Roles que configuran esta pantalla. Es el mismo par que en Revisores de Áreas: quien
-        /// administra la jefatura de un área administra también quién puede consolidar por ella.
+        /// Roles que configuran los aprobadores de rendiciones, en el formato separado por comas que
+        /// espera <c>[Authorize(Roles = ...)]</c>. Es el mismo par que decide <c>verTodas</c>
+        /// en la carga inicial: acá ver todas las áreas y editarlas van juntos.
         /// </summary>
         private const string RolesQueEditan =
             Roles.AdministradorSolicitudSalidas + "," + Roles.UsuarioGth;
 
-        private readonly IAreaConsolidadorService _service;
-        private readonly ILogger<AreaConsolidadorController> _logger;
+        private readonly IAreaRevisorRendicionService _service;
+        private readonly ILogger<AreaRevisorRendicionController> _logger;
 
-        public AreaConsolidadorController(
-            IAreaConsolidadorService service, ILogger<AreaConsolidadorController> logger)
+        public AreaRevisorRendicionController(IAreaRevisorRendicionService service, ILogger<AreaRevisorRendicionController> logger)
         {
             _service = service;
             _logger  = logger;
         }
 
         /// <summary>
-        /// Carga inicial: gerencias y áreas estándar con sus n consolidadores + opciones del
-        /// selector. ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las áreas y
-        /// pueden editarlas; un Jefe/Coordinador/Gerente ve solo la suya, de lectura.
+        /// Carga inicial: gerencias y áreas estándar (primer nodo de su tipo en cada rama) con sus n revisores + opciones.
+        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las áreas y pueden
+        /// editarlas; un trabajador con categoría Jefe/Coordinador/Gerente ve solo su área (de
+        /// lectura); el resto no ve ninguna.
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetInitialData()
@@ -50,6 +46,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Presen
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
+                // Ver todas y editar coinciden: los dos roles que configuran esta pantalla.
                 var verTodas = User.IsInRole(Roles.AdministradorSolicitudSalidas)
                                || User.IsInRole(Roles.UsuarioGth);
                 return Ok(await _service.GetInitialDataAsync(userId.Value, verTodas));
@@ -57,42 +54,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Presen
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en AreaConsolidadorController.GetInitialData");
+                _logger.LogError(ex, "Error en AreaRevisorRendicionController.GetInitialData");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 
         /// <summary>
-        /// Reemplaza el conjunto de consolidadores de un área o de un proyecto dentro del área
-        /// (dto.ProjectId con valor).
+        /// Reemplaza el conjunto de revisores de un área (nodo area_scope) o de un proyecto
+        /// dentro del área (dto.ProjectId con valor). Editan el ADMINISTRADOR DE SOLICITUD DE
+        /// SALIDAS y el USUARIO DE GTH.
         /// </summary>
         [HttpPut("{areaScopeId:int}")]
         [Authorize(Roles = RolesQueEditan)]
-        public async Task<IActionResult> UpdateConsolidadores(
-            int areaScopeId, [FromBody] AreaAsignacionUpdateDto dto)
+        public async Task<IActionResult> UpdateRevisores(int areaScopeId, [FromBody] AreaAsignacionUpdateDto dto)
         {
             try
             {
-                await _service.UpdateAreaConsolidadoresAsync(
+                await _service.UpdateAreaRevisoresAsync(
                     areaScopeId, dto?.ProjectId, dto?.Asignados ?? new List<AreaAsignacionInputDto>());
-                return Ok(new { message = "Consolidadores del área actualizados exitosamente." });
+                return Ok(new { message = "Revisores del área actualizados exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en AreaConsolidadorController.UpdateConsolidadores");
+                _logger.LogError(ex, "Error en AreaRevisorRendicionController.UpdateRevisores");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 
         /// <summary>
-        /// Marca/desmarca "filtrar por proyecto" para un área. La bandera es del área y la comparte
-        /// con Revisores de Áreas: cambiarla acá la cambia allá.
+        /// Marca/desmarca "filtrar por proyecto" para un área. Al activarse, el área se
+        /// subdivide por proyecto y sus revisores se asignan por proyecto. La bandera es del área y
+        /// la comparte con Consolidadores de Áreas.
+        /// Editan el ADMINISTRADOR DE SOLICITUD DE SALIDAS y el USUARIO DE GTH.
         /// </summary>
         [HttpPut("{areaScopeId:int}/filtro-proyecto")]
         [Authorize(Roles = RolesQueEditan)]
-        public async Task<IActionResult> SetFiltroProyecto(
-            int areaScopeId, [FromBody] AreaFiltroProyectoUpdateDto dto)
+        public async Task<IActionResult> SetFiltroProyecto(int areaScopeId, [FromBody] AreaFiltroProyectoUpdateDto dto)
         {
             try
             {
@@ -105,7 +103,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Presen
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en AreaConsolidadorController.SetFiltroProyecto");
+                _logger.LogError(ex, "Error en AreaRevisorRendicionController.SetFiltroProyecto");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

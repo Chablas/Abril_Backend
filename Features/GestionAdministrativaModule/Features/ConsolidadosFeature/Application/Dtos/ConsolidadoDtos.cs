@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
@@ -486,6 +486,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public ArchivoFirmadoDto S10 { get; set; } = new();
         /// <summary>Null en los consolidados anteriores a la planilla grupal.</summary>
         public ArchivoFirmadoDto? Grupal { get; set; }
+
+        /// <summary>
+        /// Lugar que ocupó esta firma en la hoja (0 la primera, 1 la de al lado). Viaja hasta la
+        /// escritura para guardarlo con la fila de la firma: así una firma posterior no lo
+        /// recalcula mal y termina encima de otra.
+        /// </summary>
+        public int Slot { get; set; }
     }
 
     /// <summary>

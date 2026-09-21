@@ -1,36 +1,34 @@
-﻿using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Services.Jerarquia;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using AreaRevisoresModel = Abril_Backend.Features.GestionAdministrativa.Shared.Models.AreaRevisores;
+using AreaRevisoresRendicionModel =
+    Abril_Backend.Features.GestionAdministrativa.Shared.Models.AreaRevisoresRendicion;
 
-namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories
+namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Repositories
 {
     /// <summary>
-    /// Lectura/escritura de los revisores de salidas por área (area_revisores):
-    /// n revisores por nodo area_scope, ordenados por prioridad (1 = primero).
+    /// Lectura/escritura de los aprobadores de la PRIMERA REVISIÓN y firmantes del CONSOLIDADO por
+    /// área (<c>area_revisores_rendicion</c>).
     ///
-    /// Los nodos configurables los define <see cref="AreaAsignacionNodos"/> (los mismos que lista
-    /// Consolidadores de Áreas). Estos revisores aplican a los trabajadores del subárbol del nodo
-    /// que no tengan jefe personalizado; sin revisores de área resuelve el algoritmo (el Jefe del
-    /// área o el Gerente de la gerencia) y, en última instancia, GTH. Lo que se fija acá es también
-    /// la jefatura que heredan los consolidadores de un área que no tiene consolidadores propios.
+    /// Es el gemelo de <c>AreaRevisorRepository</c> y reusa sus mismos helpers —los nodos
+    /// configurables, el armador de la tabla y la bandera "filtrar por proyecto" son del ÁREA y no
+    /// de la pantalla—. Lo único propio son las dos casillas por persona: en un área de obra
+    /// intervienen varios y no todos en los dos pasos, así que acá no se elige un ganador como en
+    /// Revisores de Salidas sino que se guarda el conjunto.
     ///
-    /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las
-    /// áreas y pueden editarlas; un trabajador de las categorías
-    /// <c>CategoriaIds.ConVistaDeSuArea</c> (Jefe, Coordinador o Gerente) ve solo el área listada a
-    /// la que pertenece y sin poder editarla; el resto no ve ninguna.
+    /// Visibilidad y edición: exactamente las mismas reglas que su gemelo.
     /// </summary>
-    public class AreaRevisorRepository : IAreaRevisorRepository
+    public class AreaRevisorRendicionRepository : IAreaRevisorRendicionRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _revisorResolver;
 
-        public AreaRevisorRepository(
+        public AreaRevisorRendicionRepository(
             IDbContextFactory<AppDbContext> factory,
             IJefeRevisorResolver revisorResolver)
         {
@@ -40,7 +38,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 
         public async Task<AreaAsignacionInicialDto> GetInitialDataAsync(int userId, bool verTodas)
         {
-            // Tabla + opciones en una sola conexión.
             using var ctx = _factory.CreateDbContext();
 
             var nodos = await AreaAsignacionNodos.LoadNodosAsync(ctx);
@@ -48,8 +45,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 
             if (!verTodas)
             {
-                // Jefe/Coordinador/Gerente: solo el área listada a la que pertenece su worker.
-                // Cualquier otro usuario (sin rol de admin ni de GTH): ninguna.
                 var areaVisible = await AreaAsignacionNodos.AreaVisibleDelUsuarioAsync(ctx, userId, nodos, elegibles);
                 if (areaVisible == null) return new AreaAsignacionInicialDto();
                 elegibles = elegibles.Where(n => n.AreaScopeId == areaVisible.Value).ToList();
@@ -58,10 +53,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var areas = AreaAsignacionArmador.ArmarAreas(elegibles, nodos);
             var areaIds = areas.Select(a => a.AreaScopeId).ToList();
 
-            // Revisores vivos de las áreas listadas, con los datos de cada uno (una sola query).
-            // project_id NULL = revisor a nivel de área; con valor = revisor de ese proyecto.
             var asignaciones = await (
-                from r in ctx.AreaRevisores
+                from r in ctx.AreaRevisoresRendicion
                 where r.State && areaIds.Contains(r.AreaScopeId)
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
@@ -70,20 +63,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 from pu in puj.DefaultIfEmpty()
                 join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
-                orderby r.AreaScopeId, r.OrdenPrioridad, r.AreaRevisoresId
+                orderby r.AreaScopeId, r.OrdenPrioridad, r.AreaRevisoresRendicionId
                 select new AreaAsignacionArmador.AsignacionCruda
                 {
                     AreaScopeId = r.AreaScopeId,
                     ProjectId = r.ProjectId,
                     Asignado = new AreaAsignadoDto
                     {
-                        Id = r.AreaRevisoresId,
+                        Id = r.AreaRevisoresRendicionId,
                         WorkerId = r.RevisorId,
                         FullName = p != null ? p.FullName : null,
                         Email = w.EmailCorporativo,
                         Category = c != null ? c.Nombre : null,
                         OrdenPrioridad = r.OrdenPrioridad,
                         Active = r.Active,
+                        ApruebaPrimeraRevision = r.ApruebaPrimeraRevision,
+                        ApruebaConsolidado = r.ApruebaConsolidado,
                     },
                 }
             ).ToListAsync();
@@ -91,11 +86,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var proyectos = await AreaAsignacionArmador.ProyectosActivosAsync(ctx);
             var flags = await AreaAsignacionArmador.FiltranPorProyectoAsync(ctx, areaIds);
 
-            // El revisor que realmente le toca hoy a cada área/proyecto. Sale del MISMO resolver que
-            // decide a quién se le manda a aprobar una salida, así que la columna no puede mostrar a
-            // alguien distinto de quien va a recibir el correo. Va sin workerId: acá no hay
-            // trabajador del que descartarse, la pregunta es por el área.
-            var efectivos = await _revisorResolver.ResolveByAreaScopeManyAsync(areaIds);
+            // Quién queda vigente hoy, con el MISMO resolver que después aprueba y firma, pero en el
+            // ámbito Rendiciones: lee esta tabla y, en las áreas de obra, señala al administrador de
+            // obra en vez de al residente.
+            var efectivos = await _revisorResolver.ResolveByAreaScopeManyAsync(
+                areaIds, null, EstructuraAreaLoader.AmbitoRevisor.Rendiciones);
 
             AreaAsignacionArmador.Completar(
                 areas, asignaciones, flags, proyectos,
@@ -110,15 +105,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             return new AreaAsignacionInicialDto
             {
                 Areas = areas,
-                // Solo quien ve todas las áreas puede editarlas, así que solo esos necesitan el selector.
                 Options = verTodas ? await AreaAsignacionArmador.OpcionesAsync(ctx) : new List<AreaWorkerOptionDto>(),
             };
         }
 
         /// <summary>
-        /// El revisor efectivo como lo muestra la columna. Es siempre uno solo (o ninguno): el
-        /// algoritmo de revisores elige un ganador. El fallback de GTH es un área y no una persona,
-        /// y se etiqueta como tal.
+        /// El aprobador efectivo como lo muestra la columna. Igual que en su gemelo: el fallback de
+        /// GTH es un área y no una persona, y se etiqueta como tal.
         /// </summary>
         private static List<AreaEfectivoDto> Describir(RevisorElegido? elegido)
             => elegido?.Revisor == null
@@ -139,11 +132,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         {
             using var ctx = _factory.CreateDbContext();
 
-            await AreaAsignacionArmador.ValidarAsync(ctx, areaScopeId, projectId, revisores, "revisor");
+            await AreaAsignacionArmador.ValidarAsync(ctx, areaScopeId, projectId, revisores, "aprobador");
 
             var deseados = revisores ?? new List<AreaAsignacionInputDto>();
             var now = DateTimeOffset.UtcNow;
-            var vivos = await ctx.AreaRevisores
+            var vivos = await ctx.AreaRevisoresRendicion
                 .Where(r => r.State && r.AreaScopeId == areaScopeId && r.ProjectId == projectId)
                 .ToListAsync();
             var vivosByWorker = vivos.ToDictionary(r => r.RevisorId);
@@ -152,21 +145,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             {
                 if (vivosByWorker.TryGetValue(d.WorkerId, out var row))
                 {
-                    if (row.OrdenPrioridad != d.OrdenPrioridad || row.Active != d.Active)
+                    if (row.OrdenPrioridad != d.OrdenPrioridad
+                        || row.Active != d.Active
+                        || row.ApruebaPrimeraRevision != d.ApruebaPrimeraRevision
+                        || row.ApruebaConsolidado != d.ApruebaConsolidado)
                     {
                         row.OrdenPrioridad = d.OrdenPrioridad;
                         row.Active = d.Active;
+                        row.ApruebaPrimeraRevision = d.ApruebaPrimeraRevision;
+                        row.ApruebaConsolidado = d.ApruebaConsolidado;
                         row.UpdatedAt = now;
                     }
                 }
                 else
                 {
-                    ctx.AreaRevisores.Add(new AreaRevisoresModel
+                    ctx.AreaRevisoresRendicion.Add(new AreaRevisoresRendicionModel
                     {
                         AreaScopeId = areaScopeId,
                         ProjectId = projectId,
                         RevisorId = d.WorkerId,
                         OrdenPrioridad = d.OrdenPrioridad,
+                        ApruebaPrimeraRevision = d.ApruebaPrimeraRevision,
+                        ApruebaConsolidado = d.ApruebaConsolidado,
                         Active = d.Active,
                         State = true,
                         CreatedAt = now,
@@ -187,7 +187,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
+        public async Task SetFiltroProyectoAsync(
+            int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -196,6 +197,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 throw new AbrilException(
                     "El área no existe o no admite configuración (solo áreas de tipo Área de Gerencia o Área Estándar).", 404);
 
+            // La bandera es del ÁREA y la comparten las tres pantallas: tocarla desde acá la mueve
+            // también en Revisores de Salidas y en Consolidadores, que es lo correcto.
             await AreaAsignacionNodos.SetFiltroProyectoAsync(
                 ctx, areaScopeId, filtraPorProyecto, firmaConsolidadoPorProyecto);
         }

@@ -959,6 +959,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .ToList();
         }
 
+        public async Task ValidarAgrupacionDeSolicitudes(IEnumerable<int> ids)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return;
+
+            var workerIds = await ctx.GaSolicitudSalida.AsNoTracking()
+                .Where(s => idsList.Contains(s.Id))
+                .Select(s => s.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            await AgrupacionRendicionRule.ValidarAsync(ctx, workerIds, "salidas");
+        }
+
         public async Task<CalendarioNoLaborable> GetCalendarioNoLaborable()
         {
             using var ctx = _factory.CreateDbContext();

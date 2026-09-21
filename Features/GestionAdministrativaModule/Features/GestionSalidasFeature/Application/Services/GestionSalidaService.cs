@@ -376,6 +376,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "Rinde un mes a la vez.", 400);
             }
 
+            // 1.b.quater. Bloqueo: quiénes pueden compartir una planilla. No se mezclan jefaturas
+            //          (JEFE, SUB GERENTE, RESIDENTE) con el resto del equipo —a una jefatura la
+            //          firma su gerencia, y en un documento compartido acabaría firmando uno donde
+            //          ella misma está incluida— y todos tienen que colgar de un mismo nodo de área
+            //          por debajo de la gerencia. La regla es la MISMA que aplica el Consolidado del
+            //          S10 al juntar planillas: vive en AgrupacionRendicionRule para que los dos
+            //          extremos no puedan discrepar.
+            await _repo.ValidarAgrupacionDeSolicitudes(elegiblesIds);
+
             // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros días
             //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
             //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados

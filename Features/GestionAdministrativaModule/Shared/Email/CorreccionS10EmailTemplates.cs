@@ -15,6 +15,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int CorreccionId { get; set; }
         public int RendicionId { get; set; }
 
+        /// <summary>
+        /// Consolidado observado sobre el que se pidió la corrección. Lo usa el aviso de atención:
+        /// su botón abre Consolidados en ese documento, que es donde se reemplaza. Null en las
+        /// correcciones anteriores a la columna.
+        /// </summary>
+        public int? ConsolidadoS10Id { get; set; }
+
         /// <summary>Código(s) REN-AAAA-NNNN de las planillas, separados por coma.</summary>
         public string Codigo { get; set; } = string.Empty;
 
@@ -59,9 +66,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         /// <summary>Comentario del ERP al confirmar. Solo en el correo de atención.</summary>
         public string? ComentarioAtencion { get; set; }
-
-        /// <summary>True si el ERP anuló el registro y hace falta un número de reembolso nuevo (CA-19).</summary>
-        public bool NumeroReembolsoAnulado { get; set; }
     }
 
     /// <summary>
@@ -146,12 +150,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Al consolidador: el ERP ya hizo la corrección en el S10. El botón lo deja en Gestión de
-        /// Rendiciones, que es donde recarga el Consolidado — el paso que esta confirmación acaba de
-        /// habilitar.
-        ///
-        /// Cuando el consolidado se anuló, la franja lo dice en rojo: no alcanza con volver a
-        /// subir el mismo archivo, hay que sacar un número de reembolso nuevo (CA-19).
+        /// Al consolidador: el ERP ya hizo la corrección en el S10. El botón lo deja en Consolidados,
+        /// que es donde recarga el Consolidado — el paso que esta confirmación acaba de habilitar.
         /// </summary>
         public static string Atendida(
             SalidaEmailLayout l, CorreccionS10CorreoDatos d, string urlRecargar)
@@ -165,14 +165,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     $"{quien} confirmó que la corrección ya se hizo en el S10."),
             };
-
-            if (d.NumeroReembolsoAnulado)
-                bloques.Add(l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
-                    "El registro anterior se <b>anuló</b>: genera un número de reembolso nuevo en el S10 — el "
-                    + (string.IsNullOrWhiteSpace(d.NumeroReembolso)
-                        ? "anterior"
-                        : $"<b>{AbrilEmailLayout.Esc(d.NumeroReembolso)}</b>")
-                    + " ya no se puede volver a usar."));
 
             if (!string.IsNullOrWhiteSpace(d.ComentarioAtencion))
                 bloques.Add(l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,

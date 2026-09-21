@@ -51,8 +51,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         /// Escribe la aprobación una vez que las copias firmadas ya están en SharePoint: deja las
         /// salidas en "Firmado" y referencia los PDF firmados. Devuelve las salidas que cambiaron.
         /// </summary>
+        /// <param name="firmadoAt">
+        /// El momento de la firma: el MISMO que quedó impreso en el pie de los PDF.
+        /// </param>
         Task<List<int>> AprobarReembolsoFirmado(
-            IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId);
+            IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId, DateTimeOffset firmadoAt);
+
+        /// <summary>
+        /// Nombre y puesto de quien firma, para el pie de la firma. El puesto sale de su ficha
+        /// vigente: una persona puede tener más de una en <c>workers</c>.
+        /// </summary>
+        Task<FirmanteDto> GetFirmante(int userId);
 
         /// <summary>
         /// Correos de los consolidadores (quien adjuntó cada consolidado) a los que les llegaría la
@@ -93,6 +102,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         /// consolidado no existe o el usuario no ve ninguna de sus salidas.
         /// </summary>
         Task<CorreccionConsolidadoPlanDto?> GetCorreccionPlan(int consolidadoId, ConsolidadoFiltersDto scope, int userId);
+
+        /// <summary>
+        /// Lo que necesita "Reemplazar el consolidado" sobre un consolidado del alcance: si el
+        /// usuario es su consolidador, qué planillas pasan al documento nuevo (las que siguen con el
+        /// reembolso abierto) y a qué jefatura se le avisa. Null si el consolidado no existe o el
+        /// usuario no ve ninguna de sus salidas.
+        /// </summary>
+        Task<ReemplazoConsolidadoPlanDto?> GetReemplazoPlan(int consolidadoId, ConsolidadoFiltersDto scope, int userId);
 
         /// <summary>
         /// Registra la solicitud de corrección del consolidado al Coordinador ERP: una fila por cada

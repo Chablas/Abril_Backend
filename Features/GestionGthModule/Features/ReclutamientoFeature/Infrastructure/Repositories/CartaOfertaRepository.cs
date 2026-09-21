@@ -823,26 +823,31 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             // Guarda contra el índice único de periodo abierto: una ficha de pre-ingreso nunca
             // tiene periodos, pero un 23505 acá tumbaría la aprobación entera.
-            var yaTienePeriodoAbierto = await ctx.WorkersPeriodoLaboral
-                .AnyAsync(pl => pl.WorkerId == ficha.Id && pl.State && pl.FechaRetiro == null);
-            if (!yaTienePeriodoAbierto)
+            var periodo = await ctx.WorkersPeriodoLaboral
+                .FirstOrDefaultAsync(pl => pl.WorkerId == ficha.Id && pl.State && pl.FechaRetiro == null);
+            if (periodo == null)
             {
-                ctx.WorkersPeriodoLaboral.Add(new WorkersPeriodoLaboral
+                periodo = new WorkersPeriodoLaboral
                 {
                     WorkerId        = ficha.Id,
                     FechaIngreso    = fechaIngreso,
                     CreatedDateTime = now,
                     CreatedUserId   = userId,
-                });
+                };
+                ctx.WorkersPeriodoLaboral.Add(periodo);
             }
 
             // La vinculación es lo que lo saca del aislamiento del pre-ingreso: sin ella no aparece
-            // en Habilitación, ni en SSOMA, ni en Control de Acceso.
+            // en Habilitación, ni en SSOMA, ni en Control de Acceso. Es el primer tramo de su
+            // periodo, y cuelga de él por la navegación porque el periodo todavía no tiene id.
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId        = ficha.Id,
+                PeriodoLaboral  = periodo,
                 EmpresaId       = ficha.ContributorId,
                 ProyectoId      = req?.ProjectId,
+                PuestoId        = ficha.PuestoId,
+                ObraOficinaStaffId = ficha.ObraOficinaStaffId,
                 CategoriaId     = categoriaId,
                 FechaInicio     = fechaIngreso,
                 RegistradoPorId = userId,

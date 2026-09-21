@@ -115,6 +115,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public static ConsolidadoS10Dto ToDto(GaConsolidadoS10 c) => new()
         {
             Id          = c.Id,
+            Codigo      = c.Codigo,
             // Sin salida suelta, es de planillas: el consolidado por salida es solo de registros viejos.
             Ambito      = c.SolicitudId != null
                             ? ConsolidadoS10Ambito.Solicitud.ToString()
@@ -123,6 +124,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             PdfFilename = c.PdfFilename,
             MontoTotal  = c.MontoTotal,
             NumeroReembolso  = c.NumeroReembolso,
+            PlanillaGrupalUrl      = c.PlanillaGrupalUrl,
+            PlanillaGrupalFilename = c.PlanillaGrupalFilename,
+            PlanillaGrupalFirmadoUrl      = c.PlanillaGrupalFirmadoUrl,
+            PlanillaGrupalFirmadoFilename = c.PlanillaGrupalFirmadoFilename,
             PdfFirmadoUrl      = c.PdfFirmadoUrl,
             PdfFirmadoFilename = c.PdfFirmadoFilename,
             FirmadoAt          = c.FirmadoAt,

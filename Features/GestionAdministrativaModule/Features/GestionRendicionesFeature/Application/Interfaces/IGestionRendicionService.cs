@@ -48,20 +48,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) UN Consolidado del S10 para las planillas indicadas: una o varias,
-        /// de uno o de varios trabajadores, de las razones sociales que sean. Solo lo sube el
-        /// consolidador, que tiene que estar habilitado por TODOS los trabajadores de esas planillas
+        /// Adjunta el PRIMER Consolidado del S10 de las planillas indicadas: una o varias, de uno o
+        /// de varios trabajadores, de las razones sociales que sean. Solo lo sube el consolidador,
+        /// que tiene que estar habilitado por TODOS los trabajadores de esas planillas
         /// (Consolidados → Configuración → Consolidadores).
         ///
-        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, el
-        /// documento compartido se reemplaza entero) las valida el servicio compartido.
+        /// Ninguna puede tener ya un consolidado (409): reemplazarlo es de Consolidados
+        /// (<c>IConsolidadoService.ReemplazarConsolidado</c>). El resto de las reglas (primera
+        /// revisión APROBADA, reembolso por decidir) las valida el servicio compartido.
+        ///
+        /// Adjuntar TAMBIÉN le avisa a la jefatura, en el mismo paso: consolidar es exactamente lo
+        /// que deja el reembolso esperando su firma, así que el aviso no es un trámite aparte del
+        /// que haya que acordarse. Va best-effort — el resultado dice cómo salió y desde
+        /// Consolidados se puede repetir a mano.
         /// </summary>
         /// <param name="montoTotal">
         /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas
         /// o se rechaza con 400.
         /// </param>
         /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
+        /// <param name="seesAllOverride">Rol que ve toda la organización, para el alcance del aviso.</param>
+        Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
+            int userId, bool seesAllOverride);
     }
 }

@@ -421,8 +421,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ctx.WorkerVinculacion.Add(new WorkerVinculacion
                 {
                     WorkerId = worker.Id,
+                    // El periodo del ingreso, si se registró fecha (ya guardado arriba).
+                    PeriodoLaboral = worker.PeriodosLaborales.FirstOrDefault(),
                     EmpresaId = dto.EmpresaId,
                     ProyectoId = dto.ProyectoId,
+                    PuestoId = dto.PuestoId,
+                    ObraOficinaStaffId = dto.ObraOficinaStaffId,
                     CategoriaId = categoriaDelPuesto,
                     FechaInicio = DateOnly.FromDateTime(DateTime.Today),
                     CreatedAt = now,
@@ -459,6 +463,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == id);
             if (worker == null)
                 throw new AbrilException("Trabajador no encontrado.", 404);
+
+            var puestoAnteriorId = worker.PuestoId;
+            var obraOficinaStaffAnteriorId = worker.ObraOficinaStaffId;
 
             if (worker.Person != null)
             {
@@ -571,6 +578,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.AniosExperiencia.HasValue) worker.AniosExperiencia = dto.AniosExperiencia;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
+            // El cambio de puesto (y la asignación de clasificación a una ficha que no tenía)
+            // tiene que quedar en el historial de tramos, no solo en la ficha.
+            await WorkerVinculacionHelper.RegistrarCambioDeFichaAsync(
+                ctx, worker, puestoAnteriorId, obraOficinaStaffAnteriorId, worker.UpdatedAt.Value);
+
             await GuardarCuidandoEmailUnicoAsync(ctx);
 
             // Jefe personalizado (checkbox del formulario). Solo se toca cuando el formulario
@@ -618,6 +630,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Person.FechaNacimiento = dto.Cumpleanos;
             worker.Person.UpdatedDateTime = DateTime.UtcNow;
 
+            var puestoAnteriorId = worker.PuestoId;
+
             // El puesto es la única vía a la categoría, así que se valida como tal: un
             // puesto muerto dejaría al trabajador fuera de todo filtro y de toda regla.
             if (dto.PuestoId.HasValue && dto.PuestoId != worker.PuestoId)
@@ -638,6 +652,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Person.Email = dto.EmailPersonal;
 
             worker.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await WorkerVinculacionHelper.RegistrarCambioDeFichaAsync(
+                ctx, worker, puestoAnteriorId, worker.ObraOficinaStaffId, worker.UpdatedAt.Value);
 
             await GuardarCuidandoEmailUnicoAsync(ctx);
         }

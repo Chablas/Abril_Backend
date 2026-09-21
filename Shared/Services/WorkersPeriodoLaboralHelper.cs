@@ -46,18 +46,21 @@ namespace Abril_Backend.Shared.Services
         ///
         /// Si ya hay un periodo abierto no crea otro (el índice único lo rechazaría):
         /// se entiende como una corrección de la fecha de ingreso del que está vigente.
+        ///
+        /// Devuelve el periodo que quedó abierto — puede estar recién agregado y sin id —
+        /// para colgarle el tramo de <c>worker_vinculaciones</c> por la navegación.
         /// </summary>
-        public static async Task AbrirAsync(
+        public static async Task<WorkersPeriodoLaboral> AbrirAsync(
             AppDbContext ctx, int workerId, DateOnly fechaIngreso, DateTimeOffset ahora, int? userId = null)
         {
             var abierto = await VigenteAsync(ctx, workerId);
             if (abierto != null)
             {
-                if (abierto.FechaIngreso == fechaIngreso) return;
+                if (abierto.FechaIngreso == fechaIngreso) return abierto;
                 abierto.FechaIngreso = fechaIngreso;
                 abierto.UpdatedDateTime = ahora;
                 abierto.UpdatedUserId = userId;
-                return;
+                return abierto;
             }
 
             // Un periodo con la misma fecha de ingreso ya cerrado tampoco se duplica: el
@@ -70,16 +73,18 @@ namespace Abril_Backend.Shared.Services
                 mismoIngreso.FechaRetiro = null;
                 mismoIngreso.UpdatedDateTime = ahora;
                 mismoIngreso.UpdatedUserId = userId;
-                return;
+                return mismoIngreso;
             }
 
-            ctx.WorkersPeriodoLaboral.Add(new WorkersPeriodoLaboral
+            var nuevo = new WorkersPeriodoLaboral
             {
                 WorkerId = workerId,
                 FechaIngreso = fechaIngreso,
                 CreatedDateTime = ahora,
                 CreatedUserId = userId,
-            });
+            };
+            ctx.WorkersPeriodoLaboral.Add(nuevo);
+            return nuevo;
         }
 
         /// <summary>

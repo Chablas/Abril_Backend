@@ -6,8 +6,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// <summary>
     /// La regla de reembolso de un trayecto en un solo lugar. Es asimétrica:
     /// <list type="number">
-    ///   <item>Lo <b>concede</b> el motivo del catálogo (<c>ga_motivo_salida.es_reembolsable</c>,
-    ///   Configuración → Motivos), que arranca en false.</item>
+    ///   <item>Lo <b>concede</b> el motivo (<c>ga_motivo_salida.es_reembolsable</c>,
+    ///   Configuración → Motivos), que arranca en false. Incluye a "Otro motivo": el texto libre
+    ///   apunta a su propia fila del catálogo (<c>es_motivo_libre</c>), que lleva el mismo flag.</item>
     ///   <item>El par (origen, destino) elegido solo puede <b>anularlo</b>
     ///   (<c>ga_trayecto.es_reembolsable = false</c>), nunca al revés.</item>
     /// </list>
@@ -37,13 +38,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <summary>
-        /// Si un trayecto genera reembolso de movilidad. Devuelve <c>null</c> cuando el motivo es
-        /// libre (<c>motivo_id</c> NULL): ese no está en el catálogo, así que no tiene el flag
-        /// configurado y no hay nada que afirmar — quien lo muestre debe omitir el dato en vez de
-        /// inventar un "no reembolsable" que nadie configuró.
+        /// Si un trayecto genera reembolso de movilidad. Devuelve <c>null</c> solo cuando el
+        /// trayecto no apunta a ninguna fila del catálogo (<c>motivo_id</c> NULL): son las
+        /// solicitudes anteriores a la fila que configura "Otro motivo", donde el flag no existe y
+        /// no hay nada que afirmar — quien lo muestre debe omitir el dato en vez de inventar un
+        /// "no reembolsable" que nadie configuró.
         /// </summary>
-        /// <param name="esMotivoDeCatalogo">false = motivo libre escrito por el trabajador.</param>
-        /// <param name="motivoEsReembolsable">El flag del motivo del catálogo.</param>
+        /// <param name="esMotivoDeCatalogo">false = trayecto sin fila de motivo (histórico).</param>
+        /// <param name="motivoEsReembolsable">El flag del motivo, sea del desplegable o "Otro motivo".</param>
         public static bool? Resolver(
             bool esMotivoDeCatalogo,
             bool motivoEsReembolsable,
@@ -67,6 +69,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// total que se contrasta contra el Consolidado del S10. Los que quedan fuera (motivo no
         /// reembolsable, motivo libre, o par origen-destino excluido del catálogo) se siguen viendo
         /// en el detalle de la salida con su pill SIN REEMBOLSO, pero no son gasto que rendir.
+        /// "Otro motivo" ya no queda fuera por definición: entra o no según el flag de su fila.
         ///
         /// Son dos consultas fijas —los pares excluidos y el motivo de cada trayecto—, no una por
         /// trayecto: la pide en lote quien arma la planilla o decide si una salida es apta.
@@ -87,8 +90,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 select new
                 {
                     t.Id,
-                    // El motivo libre (sin fila en el catálogo) no tiene el flag configurado: por
-                    // eso se distingue del motivo que lo tiene en false.
+                    // Sin fila de motivo (histórico) no hay flag configurado: por eso se distingue
+                    // del motivo que lo tiene en false.
                     EsMotivoDeCatalogo   = m != null,
                     MotivoEsReembolsable = m != null && m.EsReembolsable,
                     t.LugarOrigenId,

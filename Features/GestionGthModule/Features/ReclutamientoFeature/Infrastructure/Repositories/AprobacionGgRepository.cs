@@ -377,6 +377,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     r.Codigo,
                     r.EsFft,
                     TipoCodigo  = t.Codigo,
+                    // El nombre y el orden del catálogo, además del código: es lo que se lee en la
+                    // columna «Tipo» y en el desplegable que filtra por ella.
+                    TipoNombre  = t.Nombre,
+                    TipoOrden   = t.Orden,
                     // Ver RutaAprobacion.De: un FFT solo entra a la aprobación si tiene detalle.
                     FftLegado   = d != null,
                     AprobadoGg  = d != null ? d.AprobadoGerenteGeneral : null,
@@ -395,7 +399,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // dos firmas van en orden: GTH no ve las que el gerente del área todavía no
                 // aprobó (ver RutaAprobacion.LeTocaAhora).
                 var vs = porAprobacion[c.GthAprobacionGgId]
-                    .Select(v => new { v.Codigo, v.AprobadoGg, v.AprobadoGa, v.AprobadoGt,
+                    .Select(v => new { v.Codigo, v.EsFft, v.TipoCodigo, v.TipoNombre, v.TipoOrden,
+                                       v.AprobadoGg, v.AprobadoGa, v.AprobadoGt,
                                        Ruta = RutaAprobacion.De(v.EsFft, v.TipoCodigo, v.FftLegado) })
                     .Where(v => RutaAprobacion.LeTocaAhora(v.Ruta, scope.Nivel, v.AprobadoGa, v.AprobadoGt))
                     .ToList();
@@ -455,6 +460,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     Justificacion          = c.Justificacion,
                     Enviado                = c.CreatedDateTime.ToOffset(PeruOffset).DateTime,
                     TotalVacantes          = mias,
+                    // Los tipos salen de `vs` y no de todas las vacantes de la solicitud: siguen el
+                    // mismo recorte de visibilidad que los códigos y los conteos.
+                    Tipos                  = vs
+                        .GroupBy(v => new { v.TipoCodigo, v.TipoNombre, v.TipoOrden })
+                        .OrderBy(g => g.Key.TipoOrden)
+                        .Select(g => new AprobacionGgTipoDto
+                        {
+                            Codigo = g.Key.TipoCodigo,
+                            Nombre = g.Key.TipoNombre,
+                            Total  = g.Count(),
+                        })
+                        .ToList(),
+                    EsFft                  = vs.Any(v => v.EsFft),
                     GerenteGeneral         = gg,
                     GerenteArea            = ga,
                     Gth                    = gth,

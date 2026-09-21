@@ -23,8 +23,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         /// <summary>Opciones de los filtros. 404 nunca: si no hay nada, vienen vacías.</summary>
         Task<CorreccionS10FilterDataDto> GetFilterData();
 
-        /// <summary>Una corrección por id. 404 si no existe o si ya se cerró.</summary>
-        Task<CorreccionS10ListItemDto> GetDetalle(int correccionId);
+        /// <summary>
+        /// Una corrección por id, con las rendiciones de su consolidado y sus salidas. 404 si no
+        /// existe o si ya se cerró.
+        /// </summary>
+        Task<CorreccionS10DetalleDto> GetDetalle(int correccionId);
+
+        /// <summary>
+        /// El detalle de una salida de la bandeja (el ojo de la tabla de salidas): trayectos,
+        /// capturas y adjuntos. Solo consulta: 404 si no está en la bandeja.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId);
 
         /// <summary>
         /// A quién le llegaría el aviso de atención si se confirmara la selección indicada. Se

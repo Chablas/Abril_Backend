@@ -44,6 +44,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
                     PideHorasLugares        = m.PideHorasLugares,
                     EsReembolsable          = m.EsReembolsable,
+                    EsMotivoLibre           = m.EsMotivoLibre,
                 })
                 .ToListAsync();
 
@@ -175,9 +176,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 {
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
-                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
-                    // motivo libre no tiene el flag y por eso no concede nada.
+                    // "Otro motivo" se muestra con lo que escribió el trabajador, no con la
+                    // descripción de la fila que lo configura.
+                    Motivo       = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
+                    // Reembolsable lo concede el motivo (Configuración → Motivos), incluido
+                    // "Otro motivo": su fila también lleva el flag.
                     EsMotivoDeCatalogo = m != null,
                     EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
@@ -192,15 +195,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var trayectosBySolicitud = trayectos.GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
 
-            // Trayectos con al menos 1 captura — misma regla de cobertura que Gestión de Salidas.
+            // Lo cargado por trayecto: su existencia decide la COBERTURA (misma regla que Gestión
+            // de Salidas) y su suma, el IMPORTE. Vienen del mismo viaje porque las dos preguntas
+            // se responden abajo, en la misma pasada.
             var trayectoIds = trayectos.Select(t => t.Id).ToList();
-            var trayectosConCapturas = trayectoIds.Count == 0
-                ? new HashSet<int>()
-                : (await ctx.GaSolicitudCaptura
+            var sumaCapturas = trayectoIds.Count == 0
+                ? new Dictionary<int, decimal>()
+                : await ctx.GaSolicitudCaptura
                     .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .Select(c => c.TrayectoId)
-                    .Distinct()
-                    .ToListAsync()).ToHashSet();
+                    .GroupBy(c => c.TrayectoId)
+                    .Select(g => new { TrayectoId = g.Key, Total = g.Sum(x => x.Monto) })
+                    .ToDictionaryAsync(x => x.TrayectoId, x => x.Total);
+            var trayectosConCapturas = sumaCapturas.Keys.ToHashSet();
 
             // Regla relajada para TI: un trayecto también se considera cubierto si su
             // (origen, destino) está en el catálogo ga_trayecto.
@@ -263,9 +269,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     && trList.Where(t => trayectosRendibles.Contains(t.Id))
                              .All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
 
-                // Basta un trayecto reembolsable: una salida mixta sigue generando gasto de
-                // movilidad y tiene algo que rendir (solo ese trayecto).
-                var esReembolsable = trList.Any(t => trayectosRendibles.Contains(t.Id));
+                // Cuánto rinde un trayecto, con la misma precedencia que la planilla
+                // (ImporteRendidoLoader): mandan las capturas y el tarifario de TI cuenta solo si
+                // el trayecto queda en cero. Se resuelve acá, con lo ya cargado, para no repetir
+                // el viaje que ese loader haría por su cuenta.
+                decimal importeDe(int trayectoId, int? origenId, int? destinoId)
+                {
+                    if (sumaCapturas.TryGetValue(trayectoId, out var suma) && suma > 0m) return suma;
+                    if (esTI && origenId.HasValue && destinoId.HasValue
+                        && catalogoMap.TryGetValue((origenId.Value, destinoId.Value), out var monto))
+                        return monto;
+                    return 0m;
+                }
+
+                // Basta un trayecto que deje gasto: una salida mixta sigue generando movilidad y
+                // tiene algo que rendir (solo ese trayecto). El que resuelve a S/ 0.00 —el
+                // tarifario de TI en cero— no cuenta: no se imprime y no hay qué reembolsar.
+                var esReembolsable = trList.Any(t => trayectosRendibles.Contains(t.Id)
+                                                  && importeDe(t.Id, t.LugarOrigenId, t.LugarDestinoId) > 0m);
 
                 // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
                 // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).

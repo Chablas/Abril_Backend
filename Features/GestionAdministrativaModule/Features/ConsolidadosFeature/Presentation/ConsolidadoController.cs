@@ -220,6 +220,44 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
             }
         }
 
+        /// <summary>
+        /// El consolidador reemplaza el Consolidado del S10 —normalmente por una observación—. Es el
+        /// único lugar donde se reemplaza: Gestión de Rendiciones solo adjunta el primero.
+        /// </summary>
+        [HttpPost("{id:int}/reemplazar")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(25 * 1024 * 1024)]
+        public async Task<IActionResult> ReemplazarConsolidado(
+            int id,
+            [FromForm] IFormFile file,
+            // El monto viaja como texto y se parsea con InvariantCulture, igual que al adjuntar: el
+            // binder de formularios usa la cultura del servidor.
+            [FromForm] string montoTotal,
+            [FromForm] string numeroReembolso)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (!decimal.TryParse(montoTotal, System.Globalization.NumberStyles.Number,
+                                      System.Globalization.CultureInfo.InvariantCulture, out var monto))
+                    return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
+
+                return Ok(await _service.ReemplazarConsolidado(
+                    id, file, monto, numeroReembolso, Scope(), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ConsolidadoController.ReemplazarConsolidado");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         private async Task<IActionResult> DecidirAsync(ConsolidadoAccionDto dto, bool aprobar, string accion)
         {
             try

@@ -18,6 +18,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     ///   <item>CORREO → <see cref="Correo"/> (dirección literal; puede ser un grupo de correos opaco).</item>
     ///   <item>ROL → <see cref="RoleId"/> (se expande a los email_corporativo de TODOS los que hoy
     ///     tengan ese rol; quién entra cambia solo cuando cambian los roles, sin tocar esta fila).</item>
+    ///   <item>JEFE_AREA → <b>ninguno</b>: los cuatro campos van NULL. Es el único tipo cuyo
+    ///     destinatario no sale de la fila ni de una consulta sino del CONTEXTO del envío (el jefe
+    ///     del área de quien registró la solicitud), así que lo aporta el servicio que manda el
+    ///     correo. El CHECK <c>chk_ga_correo_regla_target</c> exige exactamente un campo para todos
+    ///     los tipos y exactamente cero para este.</item>
     /// </list>
     /// </summary>
     [Table("ga_correo_regla")]

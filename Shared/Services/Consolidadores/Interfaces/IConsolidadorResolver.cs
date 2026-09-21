@@ -6,20 +6,22 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Interfaces
     /// Es el mismo algoritmo que el del jefe/revisor de un trabajador —se parte del nodo
     /// <c>puesto.area_destino_scope_id</c> y se sube por el árbol hasta el primer nodo que
     /// resuelva; en cada nodo mandan primero las asignaciones a mano (acá
-    /// <c>area_consolidadores</c>, primero las del proyecto del trabajador y después las del área)
-    /// y, si no hay ninguna, el ALGORITMO: el residente de la obra si el nodo filtra por proyecto,
-    /// y si no el Jefe del área o el Gerente de la gerencia— con UNA diferencia: no gana uno solo.
-    /// En revisores la solicitud se manda al primer revisor activo; acá TODOS los activos del nodo
-    /// que resuelve quedan habilitados, porque consolidar no es decidir: es hacer el trámite del S10
-    /// por las rendiciones del área.
+    /// <c>area_consolidadores</c>, primero las del proyecto del trabajador y después las del área);
+    /// si no hay ninguna, la jefatura del nodo tal como la leen los revisores: el jefe fijado a mano
+    /// en Revisores (<c>area_revisores</c>, con la misma herencia área → proyectos) y, si tampoco
+    /// hay, el ALGORITMO: el residente de la obra si el nodo filtra por proyecto, y si no el Jefe
+    /// del área o el Gerente de la gerencia— con UNA diferencia: no gana uno solo. En revisores la
+    /// solicitud se manda al primer revisor activo; acá TODOS los activos del nodo que resuelve
+    /// quedan habilitados, porque consolidar no es decidir: es hacer el trámite del S10 por las
+    /// rendiciones del área.
     ///
     /// El propio trabajador NO consolida lo suyo (desde el 2026-09-15): después de la primera
     /// revisión todo el trámite del S10 es del consolidador de su área. Por eso esta lista es
     /// exactamente la que muestra Consolidados → Configuración → Consolidadores, y nadie más.
     ///
-    /// La estructura de la que se deduce el candidato automático sale de
-    /// <c>EstructuraAreaLoader</c>, compartido con <c>IJefeRevisorResolver</c>: el Jefe de un área
-    /// tiene que ser el mismo para las dos pantallas.
+    /// La jefatura de la que sale el candidato cuando el área no tiene consolidadores propios —la de
+    /// Revisores y la que deduce el árbol— la carga <c>EstructuraAreaLoader</c>, compartido con
+    /// <c>IJefeRevisorResolver</c>: el jefe de un área tiene que ser el mismo para las dos pantallas.
     /// </summary>
     public interface IConsolidadorResolver
     {
@@ -69,8 +71,9 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Interfaces
         Personalizado = 0,
 
         /// <summary>
-        /// Lo dedujo el sistema de la estructura —el Jefe/Gerente del área o el residente de la
-        /// obra— o subió por el árbol hasta la configuración de otra área.
+        /// Lo dedujo el sistema de la jefatura del área —el jefe fijado en Revisores o, si no hay,
+        /// el Jefe/Gerente del área o el residente de la obra— o subió por el árbol hasta la
+        /// configuración de otra área.
         /// </summary>
         Algoritmo = 1,
     }

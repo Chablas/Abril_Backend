@@ -86,7 +86,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 AtendidaPor        = Nombre(c.AtendidaPorId),
                 AtendidaAt         = c.AtendidaAt,
                 ComentarioAtencion = c.ComentarioAtencion,
-                NumeroReembolsoAnulado        = c.NumeroReembolsoAnulado,
                 EsperandoErp       = c.EstadoId == EstadosSalida.CorreccionS10.Solicitada,
             };
         }

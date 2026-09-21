@@ -74,6 +74,10 @@ using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Applic
 using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Archivos.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Archivos.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Archivos.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Archivos.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa
@@ -121,6 +125,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();
             services.AddScoped<IGestionSalidaService, GestionSalidaService>();
+
+            // Archivos (los PDF e imágenes que los modales de las siete pantallas muestran
+            // embebidos: el navegador no puede leer SharePoint directo)
+            services.AddScoped<IArchivoSalidaRepository, ArchivoSalidaRepository>();
+            services.AddScoped<IArchivoSalidaService, ArchivoSalidaService>();
 
             // Lugares (configuración)
             services.AddScoped<IGaLugarRepository, GaLugarRepository>();

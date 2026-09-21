@@ -17,6 +17,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
         [Column("area_type_id")]
         public int AreaTypeId { get; set; }
 
+        /// <summary>
+        /// Sigla del área (GTH, SSOMA, UDP...). Arma el código de la rendición grupal de Gestión
+        /// Administrativa: <c>CONS-&lt;abreviatura&gt;-AAAA-NNN</c>. Se mantiene por base de datos; sin
+        /// sigla, el código la deduce de las iniciales del nombre.
+        /// </summary>
+        [Column("abreviatura")]
+        public string? Abreviatura { get; set; }
+
         [Column("active")]
         public bool Active { get; set; }
 

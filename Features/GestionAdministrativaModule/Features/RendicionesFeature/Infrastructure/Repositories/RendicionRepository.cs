@@ -202,18 +202,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         {
             using var ctx = _factory.CreateDbContext();
 
-            var trayectoIds = await (
+            var trayectos = await (
                 from t in ctx.GaSolicitudTrayecto
                 join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 where s.RendicionId == rendicionId && per.UserId == userId
-                select t.Id
+                select new { t.Id, w.Subarea, t.LugarOrigenId, t.LugarDestinoId }
             ).ToListAsync();
 
             // Solo los trayectos que se rindieron: el número viaja en el correo a la jefatura y
-            // tiene que cuadrar con las filas que trae la planilla adjunta.
-            return (await ReembolsoTrayectoRule.CargarRendiblesAsync(ctx, trayectoIds)).Count;
+            // tiene que cuadrar con las filas que trae la planilla adjunta. Por eso se cuenta con
+            // la misma regla que las imprime —y que deja fuera al trayecto de S/ 0.00— en vez de
+            // con la del motivo, que no mira el importe.
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos.Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                    t.Id, t.Subarea, t.LugarOrigenId, t.LugarDestinoId)).ToList());
+
+            return importes.Count(x => x.Value.EsReembolsable && x.Value.Importe > 0m);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
@@ -339,7 +346,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
                     Id           = t.Id,
                     SolicitudId  = t.SolicitudId,
                     Orden        = t.Orden,
-                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    Motivo       = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                  : lo.Nombre,

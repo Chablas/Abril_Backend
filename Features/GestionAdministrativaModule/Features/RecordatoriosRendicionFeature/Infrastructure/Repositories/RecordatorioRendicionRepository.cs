@@ -153,8 +153,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
                     t.Orden,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
-                    Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    // Motivo libre = fuera del catálogo: no tiene el flag y por eso no concede nada.
+                    // "Otro motivo" se muestra con lo que escribió el trabajador, no con la
+                    // descripción de la fila que lo configura.
+                    Motivo = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                     EsMotivoDeCatalogo   = m != null,
                     MotivoEsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre

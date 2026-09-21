@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
@@ -91,8 +92,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// <summary>
         /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla: tiene que ser
         /// consolidador de sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado
-        /// en Consolidados → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce
-        /// el algoritmo), y hace falta poder por TODOS los trabajadores de
+        /// en Consolidados → Configuración → Consolidadores o, si no hay, la jefatura del área: la
+        /// de Revisores o el Jefe/Gerente/residente que deduce el algoritmo), y hace falta poder por
+        /// TODOS los trabajadores de
         /// <see cref="ConsolidadoConjunto"/>: el consolidado es uno solo y cubre esos documentos
         /// enteros, también a los trabajadores que el usuario no ve. El propio trabajador no
         /// consolida lo suyo.
@@ -104,10 +106,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool PuedeConsolidar { get; set; }
 
         /// <summary>
-        /// True si a esta planilla se le puede adjuntar (o cambiar) el Consolidado del S10: la
-        /// primera revisión está APROBADA (RG-35) y el reembolso de TODAS sus salidas sigue por
-        /// decidir. Es la misma condición que valida la subida, sin mirar permisos (para eso está
-        /// <see cref="PuedeConsolidar"/>).
+        /// True si a esta planilla se le puede adjuntar su PRIMER Consolidado del S10: la primera
+        /// revisión está APROBADA (RG-35), el reembolso de TODAS sus salidas sigue por decidir y
+        /// todavía no tiene consolidado. Reemplazarlo ya no se hace acá sino en Consolidados, que es
+        /// donde vuelve la observación. Es la misma condición que valida la subida, sin mirar
+        /// permisos (para eso está <see cref="PuedeConsolidar"/>).
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 

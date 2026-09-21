@@ -188,7 +188,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     g => g.Count(t => importes.TryGetValue(t.Id, out var imp) && imp.EsReembolsable));
 
             var detalle = conDetalle
-                ? await CargarDetalleTrayectosAsync(ctx, solicitudIds)
+                ? await CargarDetalleTrayectosAsync(ctx, solicitudIds, importes)
                 : new Dictionary<int, (string Motivo, string? Origen, string? Destino)>();
 
             var porRendicion = salidas.GroupBy(x => x.RendicionId).ToDictionary(g => g.Key, g => g.ToList());
@@ -287,9 +287,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return result.OrderByDescending(r => r.RendidoAt).ToList();
         }
 
-        /// <summary>Motivo, origen y destino de cada salida (primer y último trayecto).</summary>
+        /// <summary>
+        /// Motivo, origen y destino de cada salida (primer y último trayecto). Los importes ya
+        /// resueltos llegan de afuera: son los mismos que deciden qué se imprime, y volver a
+        /// calcularlos acá gastaría otro viaje para responder lo mismo.
+        /// </summary>
         private static async Task<Dictionary<int, (string Motivo, string? Origen, string? Destino)>>
-            CargarDetalleTrayectosAsync(AppDbContext ctx, List<int> solicitudIds)
+            CargarDetalleTrayectosAsync(
+                AppDbContext ctx,
+                List<int> solicitudIds,
+                IReadOnlyDictionary<int, ImporteRendidoLoader.ImporteResuelto> importes)
         {
             var filas = await (
                 from t  in ctx.GaSolicitudTrayecto
@@ -310,7 +317,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     t.Id,
                     t.SolicitudId,
                     t.Orden,
-                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    Motivo       = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                  : lo.Nombre,
@@ -321,10 +328,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             ).ToListAsync();
 
             // El recorrido que se resume es el RENDIDO: es la planilla lo que estas pantallas
-            // muestran, y los trayectos sin reembolso no están en ella.
-            var rendibles = await ReembolsoTrayectoRule.CargarRendiblesAsync(
-                ctx, filas.Select(t => t.Id).ToList());
-
+            // muestran, y no están en ella ni los trayectos sin reembolso ni los que quedaron en
+            // S/ 0.00.
             return filas
                 .GroupBy(t => t.SolicitudId)
                 .ToDictionary(
@@ -332,7 +337,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     g =>
                     {
                         var ordenados = g.OrderBy(x => x.Orden).ToList();
-                        var rendidos  = ordenados.Where(x => rendibles.Contains(x.Id)).ToList();
+                        var rendidos  = ordenados
+                            .Where(x => importes.TryGetValue(x.Id, out var imp) && imp.EsReembolsable)
+                            .ToList();
 
                         // Si el catálogo cambió después de rendir y no queda ninguno, se resume el
                         // recorrido completo: la fila igual tiene que ser identificable.

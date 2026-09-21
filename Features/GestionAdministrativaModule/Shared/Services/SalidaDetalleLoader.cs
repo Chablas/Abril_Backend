@@ -92,7 +92,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         Orden       = t.Orden,
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
-                        Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                        Motivo      = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                         MotivoAdicional = t.MotivoAdicional,
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -103,8 +103,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
-                    // Las dos mitades de la regla de reembolso: el motivo libre (sin fila en el
-                    // catálogo) no tiene el flag, y por eso se distingue del que lo tiene en false.
+                    // Las dos mitades de la regla de reembolso. Sin fila de motivo (solicitudes
+                    // anteriores a la fila de "Otro motivo") no hay flag, y por eso ese caso se
+                    // distingue del motivo que lo tiene en false.
                     EsMotivoDeCatalogo   = m != null,
                     MotivoEsReembolsable = m != null && m.EsReembolsable,
                     // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
@@ -212,10 +213,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 && trayectosRaw.Count > 0
                 && solicitud.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
                 && solicitud.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                // Basta un trayecto reembolsable: es la misma regla que aplica GetIdsNoReembolsables
-                // al rendir, con el par (origen, destino) excluido incluido — lo que el pill del
-                // trayecto marca SIN REEMBOLSO no entra en la planilla y no vuelve apta a la salida.
-                && trayectosRaw.Any(t => t.Dto.EsReembolsable == true))
+                // Basta un trayecto que deje gasto que rendir: es la misma regla que aplica
+                // GetIdsNoReembolsables al rendir. Lo que el pill marca SIN REEMBOLSO no entra en
+                // la planilla, y tampoco el que resuelve a S/ 0.00 —el tarifario de TI en cero—:
+                // ninguno de los dos vuelve apta a la salida porque no dejan ni una fila impresa.
+                && trayectosRaw.Any(t => t.Dto.EsReembolsable == true && t.Dto.MontoTotal > 0m))
             {
                 var calendario   = await CalendarioNoLaborable.CargarAsync(ctx);
                 var plazoVencido = MesAnteriorPeru.HoyPeru()

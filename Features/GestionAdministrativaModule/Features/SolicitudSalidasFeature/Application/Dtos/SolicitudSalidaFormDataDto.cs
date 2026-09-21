@@ -2,6 +2,12 @@
 {
     public class SolicitudSalidaFormDataDto
     {
+        /// <summary>
+        /// Motivos activos. Incluye la fila de "Otro motivo" (<see cref="MotivoSalidaDto.EsMotivoLibre"/>),
+        /// que NO va en el desplegable —la elige el checkbox de texto libre— pero cuyas exigencias
+        /// el formulario tiene que poder consultar igual que las de cualquier otro motivo. Si no
+        /// viene (está desactivada), la pantalla no ofrece escribir un motivo a mano.
+        /// </summary>
         public List<MotivoSalidaDto> Motivos { get; set; } = new();
         public List<LugarSalidaDto> Lugares { get; set; } = new();
 
@@ -17,6 +23,17 @@
 
         /// <summary>Los que van en copia de ese mismo aviso. Puede quedar vacío.</summary>
         public List<string> CorreoRevisorCopia { get; set; } = new();
+
+        /// <summary>
+        /// Lo mismo para el aviso informativo al jefe del área, que solo sale cuando el revisor de
+        /// este trabajador es un residente: la salida la aprueba el residente de la obra y el jefe
+        /// del área se entera. Vacío en el caso normal (revisor que no es residente), y también si
+        /// el correo está apagado o el área no resuelve jefe.
+        /// </summary>
+        public List<string> CorreoJefeAreaPara { get; set; } = new();
+
+        /// <summary>Los que van en copia de ese aviso informativo. Puede quedar vacío.</summary>
+        public List<string> CorreoJefeAreaCopia { get; set; } = new();
 
         /// <summary>
         /// Lo mismo para el OTRO correo que sale al registrar la solicitud: la confirmación
@@ -76,6 +93,9 @@
         /// (origen, destino) elegido puede anularlo — ver
         /// <see cref="SolicitudSalidaFormDataDto.TrayectosNoReembolsables"/>.</summary>
         public bool EsReembolsable { get; set; }
+        /// <summary>true en la fila de "Otro motivo": el formulario la saca del desplegable y la
+        /// usa cuando el trabajador marca el checkbox de texto libre.</summary>
+        public bool EsMotivoLibre { get; set; }
     }
 
     public class LugarSalidaDto

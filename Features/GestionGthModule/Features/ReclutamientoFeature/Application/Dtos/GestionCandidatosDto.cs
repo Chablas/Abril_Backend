@@ -91,8 +91,23 @@
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
 
-        /// <summary>Candidatos cargados por GTH en la long list, en orden.</summary>
+        /// <summary>
+        /// Candidatos que el solicitante tiene que decidir: los PENDIENTE de la long list vigente,
+        /// en orden. Los ya decididos no vuelven a aparecer — GTH puede mandar CVs en cualquier
+        /// fase, así que una misma long list mezcla candidatos de varios envíos y volver a
+        /// preguntar por los antiguos sería revivir decisiones que ya arrastraron trabajo.
+        ///
+        /// La excepción es <see cref="YaDecidida"/>: sin nada pendiente se devuelve la long list
+        /// completa, para consulta.
+        /// </summary>
         public List<CandidatoRevisionDto> Candidatos { get; set; } = new();
+
+        /// <summary>
+        /// true si no queda ningún CV por decidir: la pantalla es de solo lectura y muestra la
+        /// long list completa con la decisión que ya se tomó. Es lo que ve quien vuelve a abrir el
+        /// enlace del correo después de haber respondido.
+        /// </summary>
+        public bool YaDecidida { get; set; }
     }
 
     /// <summary>Un candidato de la long list como lo ve el solicitante en la revisión.</summary>

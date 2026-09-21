@@ -104,6 +104,13 @@
         public string? ProyectoObra { get; set; }
         /// <summary>SLA del tipo de proceso asignado (null si aún no se clasificó).</summary>
         public int? SlaDias { get; set; }
+
+        /// <summary>
+        /// true si estos CVs se suman a un proceso que ya tenía candidatos (GTH puede enviar más en
+        /// cualquier fase) en vez de abrir la long list. Solo cambia cómo se presenta el correo: el
+        /// solicitante tiene que entender que son candidatos NUEVOS y no la lista otra vez.
+        /// </summary>
+        public bool EsEnvioAdicional { get; set; }
         /// <summary>
         /// Correo del solicitante que registró la solicitud (app_user del <c>SolicitanteUserId</c>).
         /// Es SIEMPRE el destinatario principal de la long list; null si no se pudo resolver.

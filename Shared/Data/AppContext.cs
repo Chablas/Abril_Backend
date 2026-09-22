@@ -42,6 +42,7 @@ using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -571,6 +572,19 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
         public DbSet<SsKit> SsKit => Set<SsKit>();
         public DbSet<SsKitItem> SsKitItem => Set<SsKitItem>();
+
+        public DbSet<SsResiduoTipo> SsResiduoTipo => Set<SsResiduoTipo>();
+        public DbSet<SsResiduoTipoFactor> SsResiduoTipoFactor => Set<SsResiduoTipoFactor>();
+        public DbSet<SsResiduoEoRs> SsResiduoEoRs => Set<SsResiduoEoRs>();
+        public DbSet<SsResiduoEoRsDocumento> SsResiduoEoRsDocumento => Set<SsResiduoEoRsDocumento>();
+        public DbSet<SsResiduoAutorizacionDme> SsResiduoAutorizacionDme => Set<SsResiduoAutorizacionDme>();
+        public DbSet<SsResiduoViaje> SsResiduoViaje => Set<SsResiduoViaje>();
+        public DbSet<SsResiduoDeclaracion> SsResiduoDeclaracion => Set<SsResiduoDeclaracion>();
+        public DbSet<SsResiduoDeclaracionDetalle> SsResiduoDeclaracionDetalle => Set<SsResiduoDeclaracionDetalle>();
+        public DbSet<SsResiduoDeclaracionEoRs> SsResiduoDeclaracionEoRs => Set<SsResiduoDeclaracionEoRs>();
+        public DbSet<SsResiduoConstancia> SsResiduoConstancia => Set<SsResiduoConstancia>();
+        public DbSet<SsResiduoConstanciaFinal> SsResiduoConstanciaFinal => Set<SsResiduoConstanciaFinal>();
+        public DbSet<SsResiduoDocumentoReferencia> SsResiduoDocumentoReferencia => Set<SsResiduoDocumentoReferencia>();
 
         public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
         public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
@@ -1299,6 +1313,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.Sexo)
                 .WithMany()
                 .HasForeignKey(p => p.SexoId);
+
+            // FactorM3aTon snake-casea por convención a "factor_m3a_ton", pero la columna real
+            // (Migrations_Manual/2026-09-22_ss_residuo_gestion.sql) es "factor_m3_a_ton".
+            modelBuilder.Entity<Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Models.SsResiduoTipoFactor>()
+                .Property(f => f.FactorM3aTon).HasColumnName("factor_m3_a_ton");
 
             // Las columnas fecha/*_at de ac_revisiones y ac_revision_observaciones se crearon
             // como TIMESTAMP (sin zona horaria) en la migración manual, pero Npgsql por defecto

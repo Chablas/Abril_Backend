@@ -54,6 +54,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         // Forma de pago en días hábiles (paso 2) — usado en "pago a x días hábiles" de la hoja resumen
         public int PaymentDays { get; set; } = 7;
 
+        // Por enviar al SC (paso 4) — true cuando el envío del contrato completo se omitió
+        // porque ya se había mandado por correo fuera del sistema. La adjudicación avanza
+        // al paso 5 sin que el sistema envíe ningún correo al subcontratista.
+        public bool ScNotificationSkipped { get; set; }
+
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }
         public string? ArrivalObservation { get; set; }

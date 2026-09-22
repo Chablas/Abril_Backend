@@ -224,6 +224,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public int VecinoLicenciaControlDestinatarioId { get; set; }
         public string Rol { get; set; } = null!;
         public string Email { get; set; } = null!;
+
+        /// <summary>
+        /// true si este correo coincide con la ficha de un trabajador ya retirado: sigue en la
+        /// lista (el admin lo borra a mano cuando corresponda), pero el cron ya no le envía nada
+        /// — ver <c>FiltrarEmailsRetirados</c>. La pantalla debe avisar de esto, no ocultarlo.
+        /// </summary>
+        public bool Retirado { get; set; }
     }
 
     public class VecinoLicenciaDestinatarioUpsertDto
@@ -244,6 +251,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         public int VecinoLicenciaControlRecordatorioId { get; set; }
         public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = null!;
+        public string? ProjectCodigo { get; set; }
+        public string? ContributorName { get; set; }
+        public string? ContributorRuc { get; set; }
         public string TipoDescripcion { get; set; } = null!;
         public DateOnly FechaVencimiento { get; set; }
         public int DiasAntes { get; set; }
@@ -254,6 +265,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         public int VecinoLicenciaControlVisitaId { get; set; }
         public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = null!;
+        public string? ProjectCodigo { get; set; }
+        public string? ContributorName { get; set; }
+        public string? ContributorRuc { get; set; }
         public string TipoDescripcion { get; set; } = null!;
         public DateOnly FechaVisita { get; set; }
     }

@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Http;
 using System.Text.RegularExpressions;
@@ -14,22 +15,26 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         private static readonly string[] AllowedExtensions =
             { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp" };
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+        private const string UrlControlLicencias = "https://intranet.abril.pe/vecinos/control-licencias";
 
         private readonly IControlLicenciasRepository _repository;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
 
         public ControlLicenciasService(
             IControlLicenciasRepository repository,
             IFileStorageService fileStorageService,
             IStorageContainerResolver containerResolver,
-            IEmailService emailService)
+            IEmailService emailService,
+            IConfiguration configuration)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
             _emailService = emailService;
+            _configuration = configuration;
         }
 
         public Task<List<ProjectOptionDto>> GetProyectos() => _repository.GetProyectos();
@@ -195,6 +200,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var result = new RecordatoriosResultDto();
             var emailsPorProyecto = new Dictionary<int, List<string>>();
             List<string>? emailsUdp = null;
+            var layout = ControlLicenciasEmailLayout.Desde(_configuration);
 
             foreach (var recordatorio in pendientes)
             {
@@ -209,7 +215,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         // Unidad de Proyectos (UDP) se avisa de todos los vencimientos, de cualquier obra.
                         var automaticos = await _repository.ResolverDestinatariosAutomaticos(recordatorio.ProjectId);
                         var adicionales = await _repository.GetDestinatariosAdicionales(recordatorio.ProjectId);
-                        emails = automaticos.Concat(adicionales).Concat(emailsUdp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        var todos = automaticos.Concat(adicionales).Concat(emailsUdp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        // Filtro final, sin importar de qué origen vino el correo (automático, a mano
+                        // o UDP): si es de un trabajador ya retirado, no se le envía.
+                        emails = await _repository.FiltrarEmailsRetirados(todos);
                         emailsPorProyecto[recordatorio.ProjectId] = emails;
                     }
 
@@ -225,24 +234,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         : $"Alerta: la licencia \"{recordatorio.TipoDescripcion}\" venció el {recordatorio.FechaVencimiento:dd/MM/yyyy}";
                     var subject = esInterferenciaVias ? $"🔴 URGENTE: {subjectBase}" : subjectBase;
 
-                    var detalleDias = diasRestantes > 1 ? $"Faltan <b>{diasRestantes} días</b> para su vencimiento."
-                        : diasRestantes == 1 ? "Vence <b>mañana</b>."
-                        : diasRestantes == 0 ? "Vence <b>hoy</b>."
-                        : $"Venció hace <b>{-diasRestantes} día(s)</b>.";
+                    var proyecto = new ControlLicenciasEmailTemplates.Proyecto(
+                        recordatorio.ProjectDescription, recordatorio.ProjectCodigo,
+                        recordatorio.ContributorName, recordatorio.ContributorRuc);
 
-                    var avisoUrgente = esInterferenciaVias
-                        ? """<p style="background:#fdecea;color:#b71c1c;border-left:4px solid #b71c1c;padding:8px 12px;"><b>URGENTE — Interferencia de vías.</b> Este trámite requiere gestión inmediata ante la municipalidad.</p>"""
-                        : "";
-
-                    var body = $"""
-                        <p>Estimados,</p>
-                        {avisoUrgente}
-                        <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
-                        <p>La licencia <b>{recordatorio.TipoDescripcion}</b> vence el <b>{recordatorio.FechaVencimiento:dd/MM/yyyy}</b>. {detalleDias}</p>
-                        <p>Puede revisarla en la intranet:
-                        <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
-                        <p>Este es un mensaje automático, por favor no responder.</p>
-                        """;
+                    var body = ControlLicenciasEmailTemplates.Vencimiento(
+                        layout, proyecto, recordatorio.TipoDescripcion, recordatorio.FechaVencimiento,
+                        diasRestantes, esInterferenciaVias, UrlControlLicencias);
 
                     await _emailService.SendAsync(emails, subject, body, isHtml: true);
                     await _repository.MarcarRecordatorioEnviado(recordatorio.VecinoLicenciaControlRecordatorioId);
@@ -270,6 +268,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         {
             var pendientes = await _repository.GetPendientesVisita(hoy);
             var emailsPorProyecto = new Dictionary<int, List<string>>();
+            var layout = ControlLicenciasEmailLayout.Desde(_configuration);
 
             foreach (var visita in pendientes)
             {
@@ -285,14 +284,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         continue; // Proyecto sin Residente/Administración resueltos: no hay a quién avisar.
 
                     var subject = $"Recordatorio: visita de {visita.TipoDescripcion} el {visita.FechaVisita:dd/MM/yyyy}";
-                    var body = $"""
-                        <p>Estimados,</p>
-                        <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
-                        <p>Hay una visita de <b>{visita.TipoDescripcion}</b> programada para el <b>{visita.FechaVisita:dd/MM/yyyy}</b>.</p>
-                        <p>Puede revisarla en la intranet:
-                        <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
-                        <p>Este es un mensaje automático, por favor no responder.</p>
-                        """;
+
+                    var proyecto = new ControlLicenciasEmailTemplates.Proyecto(
+                        visita.ProjectDescription, visita.ProjectCodigo,
+                        visita.ContributorName, visita.ContributorRuc);
+
+                    var body = ControlLicenciasEmailTemplates.Visita(
+                        layout, proyecto, visita.TipoDescripcion, visita.FechaVisita, UrlControlLicencias);
 
                     await _emailService.SendAsync(emails, subject, body, isHtml: true);
                     await _repository.MarcarVisitaRecordatorioEnviado(visita.VecinoLicenciaControlVisitaId);

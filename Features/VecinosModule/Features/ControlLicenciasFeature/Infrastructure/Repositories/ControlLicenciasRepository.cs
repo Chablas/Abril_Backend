@@ -30,6 +30,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 .ToListAsync();
         }
 
+        public async Task<string?> GetLogoUrl(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project.Where(p => p.ProjectId == projectId).Select(p => p.LogoUrl).FirstOrDefaultAsync();
+        }
+
         public async Task UpdateLogoUrl(int projectId, string logoUrl, int userId)
         {
             using var ctx = _factory.CreateDbContext();

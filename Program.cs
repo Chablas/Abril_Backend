@@ -33,6 +33,7 @@ using Abril_Backend.Features.GestionGthModule;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
 using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
 using Abril_Backend.Features.NotificacionesModule;
+using Abril_Backend.Features.MiPerfilModule;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Features.Evaluaciones;
@@ -202,6 +203,7 @@ builder.Services.AddHostedService<Abril_Backend.Features.SsomaModule.Indicadores
 builder.Services.AddGestionAdministrativaModule();
 builder.Services.AddGestionGthModule();
 builder.Services.AddNotificacionesModule();
+builder.Services.AddMiPerfilModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();
 builder.Services.AddUnidadDeProyectosModule();

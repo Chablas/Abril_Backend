@@ -63,6 +63,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                     NumeroPlanilla     = p.NumeroPlanilla,
                     EstadoReembolso    = p.EstadoReembolso,
                     MontoTotalPlanilla = p.MontoTotalPlanilla,
+                    PdfUrl             = p.PdfUrl,
+                    PdfFilename        = p.PdfFilename,
                 });
                 detalle.Salidas.AddRange(p.Salidas.Select(s => new CorreccionS10SalidaDto
                 {

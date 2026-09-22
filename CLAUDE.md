@@ -88,6 +88,7 @@ Modules wired in `Program.cs` (each `AddXxxModule` call is the only thing regist
 - `VecinosModule` — `GestionVecinosFeature`, `ControlLicenciasFeature`, `CroquisFeature`.
 - `AccountingModule` — `InvoicesFeature`, `Configuration`.
 - `BoletinModule` (flat) — `BirthdayClubFeature`.
+- `MiPerfilModule` — `MiFirmaFeature` (`api/v1/mi-perfil/mi-firma`: the logged-in user's own signature, opened from their name in the sidebar). It only contributes the controller; `IFirmaPersonalService` stays registered globally in `Program.cs` because Contabilidad, Gestión GTH and Gestión Administrativa also stamp with it.
 
 `ArquitecturaComercial` stays in the traditional layer (see below), not under `Features/`, despite being a large active domain.
 

@@ -5,15 +5,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
-namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeature.Presentation
+namespace Abril_Backend.Features.MiPerfilModule.Features.MiFirmaFeature.Presentation
 {
     /// <summary>
-    /// Las firmas del usuario que está logueado. Es a propósito el mismo endpoint para todos: una
-    /// persona tiene una firma POR TIPO (<c>person_firma</c> → <c>firma_tipo</c>: dibujada con el
-    /// mouse y/o subida como imagen), las registre desde donde las registre (Contabilidad →
-    /// Configuración → Firma, Gestión Administrativa → Configuración → Tu firma, o el modal que
-    /// salta al aprobar un consolidado), y esas mismas firmas son las que se estampan en las
-    /// facturas, en la carta oferta y en la planilla de rendición de salidas.
+    /// Mi Perfil → Mi Firma: las firmas del usuario que está logueado. Es a propósito el mismo
+    /// endpoint para todos: una persona tiene una firma POR TIPO (<c>person_firma</c> →
+    /// <c>firma_tipo</c>: dibujada con el mouse y/o subida como imagen), las registre desde donde
+    /// las registre (Mi Perfil → Mi Firma, Contabilidad → Configuración → Firma, o el modal que salta
+    /// al firmar sin tener firma), y esas mismas firmas son las que se estampan en las facturas, en
+    /// la carta oferta y en la planilla de rendición de salidas.
     ///
     /// El GET devuelve también qué tipos están habilitados, porque quien pide la firma necesita
     /// saber en el mismo viaje si tiene que mostrar el lienzo, el selector de imagen o los dos.
@@ -21,18 +21,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
     /// Sin restricción de rol: cualquier usuario autenticado registra la suya y solo la suya — el
     /// user id sale del token, nunca de la petición.
     ///
-    /// Reemplaza al antiguo <c>api/v1/ManagerSignature</c>, que vivía dentro de Contabilidad pese a
-    /// no ser de Contabilidad.
+    /// Vivía en <c>api/v1/configuracion/mi-firma</c> (ConfigurationModule) mientras la firma se
+    /// registraba desde Gestión Administrativa → Configuración → Tu firma; se mudó con la pantalla
+    /// al perfil del usuario (2026-09-22).
     /// </summary>
     [ApiController]
-    [Route("api/v1/configuracion/mi-firma")]
+    [Route("api/v1/mi-perfil/mi-firma")]
     [Authorize]
-    public class FirmaPersonalController : ControllerBase
+    public class MiFirmaController : ControllerBase
     {
         private readonly IFirmaPersonalService _service;
-        private readonly ILogger<FirmaPersonalController> _logger;
+        private readonly ILogger<MiFirmaController> _logger;
 
-        public FirmaPersonalController(IFirmaPersonalService service, ILogger<FirmaPersonalController> logger)
+        public MiFirmaController(IFirmaPersonalService service, ILogger<MiFirmaController> logger)
         {
             _service = service;
             _logger  = logger;
@@ -58,7 +59,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en FirmaPersonalController.Get");
+                _logger.LogError(ex, "Error en MiFirmaController.Get");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -83,7 +84,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en FirmaPersonalController.Save");
+                _logger.LogError(ex, "Error en MiFirmaController.Save");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

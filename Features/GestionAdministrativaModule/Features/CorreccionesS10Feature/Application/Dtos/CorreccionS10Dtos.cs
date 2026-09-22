@@ -106,6 +106,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
         /// <summary>Monto de la planilla completa: lo que suma contra el importe del S10.</summary>
         public decimal MontoTotalPlanilla { get; set; }
+
+        /// <summary>
+        /// El PDF de ESTA planilla (el original: es el que miró la jefatura al observar). Va con
+        /// cada una y no solo con la de la fila, porque el consolidado observado puede cubrir
+        /// varias y el modal enlaza cada planilla junto a su tabla.
+        /// </summary>
+        public string? PdfUrl { get; set; }
+        public string? PdfFilename { get; set; }
     }
 
     public class CorreccionS10SalidaDto

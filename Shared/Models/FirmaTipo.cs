@@ -33,9 +33,10 @@ namespace Abril_Backend.Shared.Models
 
         /// <summary>
         /// El tipo se ofrece al firmar. Son los dos checkboxes de Consolidados → Configuración →
-        /// Firmas, y HOY los honra únicamente esa pantalla: al aprobar un consolidado se exige tener
-        /// registrada una firma de alguno de los tipos activos. Contabilidad y "Tu firma" siguen
-        /// ofreciendo solo el dibujo, así que desactivar un tipo no les cambia nada.
+        /// Firmas: al aprobar un consolidado se exige tener registrada una firma de alguno de los
+        /// tipos activos, y el modal que salta en ese momento y Mi Perfil → Mi Firma ofrecen solo los
+        /// activos. Contabilidad → Firma sigue ofreciendo solo el dibujo, así que desactivar un tipo
+        /// no le cambia nada.
         /// </summary>
         [Column("active")]
         public bool Active { get; set; } = true;

@@ -7,5 +7,6 @@ namespace Abril_Backend.Shared.Constants
         public const int InduccionObra = 12;
         public const int Sctr = 11;
         public const int VidaLey = 13;
+        public const int CarnetRetcc = 3;
     }
 }

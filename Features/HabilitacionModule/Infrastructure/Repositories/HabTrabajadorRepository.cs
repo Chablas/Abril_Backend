@@ -58,7 +58,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
             int? areaScopeId = null, bool soloSinLectura = false, bool soloSinCertificado = false, bool soloSinInterconsulta = false,
-            bool soloSinEmoCompleto = false)
+            bool soloSinEmoCompleto = false, int? emoPorVencerDias = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -292,6 +292,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                        && e.Activo
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
+
+            if (emoPorVencerDias.HasValue)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                var limite = hoy.AddDays(emoPorVencerDias.Value);
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= limite));
             }
 
             if (soloSinLectura)

@@ -191,6 +191,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             }
         }
 
+        /// <summary>Sube/reemplaza el logo de un proyecto, para el encabezado del PDF "Control de Licencias".</summary>
+        [HttpPost("proyectos/{projectId:int}/logo")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadLogo(int projectId, [FromForm] IFormFile file)
+        {
+            try
+            {
+                var logoUrl = await _service.UploadLogo(projectId, file, CurrentUserId());
+                return Ok(new VecinoLicenciaLogoDto { LogoUrl = logoUrl });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS LOGO UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Dashboard gerencial: todos los proyectos (o los indicados por projectIds), ordenado de más a menos crítico.</summary>
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard([FromQuery] List<int>? projectIds)

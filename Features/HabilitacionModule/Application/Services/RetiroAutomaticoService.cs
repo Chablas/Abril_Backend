@@ -205,8 +205,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                                 worker.Id, nombre, dni, empresaId, proyectoId, esCasa,
                                 diasGracia, entregablesInfo.Nombres, diasEnMora);
 
+                            // El retiro automático solo aplica a contratistas externos. El personal
+                            // de Abril (Casa) nunca se retira por este proceso — si acumula mora se
+                            // reporta como aviso (igual que el día previo a vencer la gracia) para que
+                            // GTH/SSOMA gestione la regularización manualmente.
                             if (diasEnMora >= diasGracia)
-                                workersARetirar.Add(clasificado);
+                            {
+                                if (esCasa)
+                                    workersAviso.Add(clasificado);
+                                else
+                                    workersARetirar.Add(clasificado);
+                            }
                             else if (diasEnMora == diasGracia - 1)
                                 workersAviso.Add(clasificado);
                         }

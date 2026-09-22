@@ -346,6 +346,15 @@ public class ConsumoRepository : IConsumoRepository
         var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
         if (linea == null) return;
         linea.EstadoRevision = decision;
+        if (decision == "RECHAZADO")
+        {
+            // Un rechazo manual también significa "esto no es gasto SSOMA" — sin esto, la línea
+            // quedaba con pertenece_ssoma=true (su valor por defecto) y caía en un limbo: excluida
+            // del gasto SSOMA por el estado RECHAZADO, pero invisible en el filtro "No pertenece a
+            // SSOMA" porque ese filtro mira pertenece_ssoma directamente. El rechazo automático
+            // (MarcarRechazadoAutomaticoAsync) ya hacía esto bien; este camino manual no.
+            linea.PerteneceSsoma = false;
+        }
         if (itemIdConfirmado.HasValue)
         {
             linea.ItemId = itemIdConfirmado.Value;

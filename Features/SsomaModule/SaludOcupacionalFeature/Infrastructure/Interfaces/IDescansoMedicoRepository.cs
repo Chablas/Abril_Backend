@@ -23,6 +23,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task AsignarDiagnosticoCie10(int id, string? codigo);
         Task Aprobar(int id, DescansoAprobarDto dto, int? userId);
         Task Rechazar(int id, DescansoRechazarDto dto, int? userId);
+        /// <summary>Correo de quien registró el descanso (app_user.email) + correo del área GTH
+        /// (area_scope.email) — usados en la notificación de aprobación/rechazo.</summary>
+        Task<DescansoResolucionNotifDatosDto> GetDatosNotificacionResolucionAsync(int workerId, int? registradoPorId);
 
         /// <summary>Da de alta el CASO (no un descanso individual) — cierra ss_descanso_caso.</summary>
         Task DarAlta(int casoId, DarAltaDto dto, int? userId);

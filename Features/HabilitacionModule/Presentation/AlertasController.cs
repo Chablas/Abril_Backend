@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,17 +11,20 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     {
         private readonly IVigenciaRevisionService _vigenciaService;
         private readonly IRetiroAutomaticoService _retiroService;
+        private readonly IEmoRepository _emoRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AlertasController> _logger;
 
         public AlertasController(
             IVigenciaRevisionService vigenciaService,
             IRetiroAutomaticoService retiroService,
+            IEmoRepository emoRepository,
             IConfiguration configuration,
             ILogger<AlertasController> logger)
         {
             _vigenciaService = vigenciaService;
             _retiroService = retiroService;
+            _emoRepository = emoRepository;
             _configuration = configuration;
             _logger = logger;
         }
@@ -79,6 +83,34 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en AlertasController.RetiroAutomatico");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Red de seguridad para el Certificado de Aptitud (EMO) en ss_hab_trabajador: recalcula
+        /// su estado/vigencia a partir del EMO activo real de cada trabajador, en vez de depender
+        /// solo de los disparos reactivos al crear/editar un EMO. Pensado para correr on-demand
+        /// (ya mismo, para arreglos puntuales) y programado periódico (mismo cron externo que
+        /// retiro-automatico), así este tipo de desfase se autocorrige solo en vez de necesitar un
+        /// parche nuevo cada vez que aparece un camino distinto que se salta el sync.
+        /// </summary>
+        [HttpPost("reconciliar-cert-aptitud")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ReconciliarCertAptitud()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var result = await _emoRepository.ReconciliarCertAptitudAsync();
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en AlertasController.ReconciliarCertAptitud");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

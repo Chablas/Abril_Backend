@@ -984,6 +984,149 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             return hab;
         }
 
+        /// <summary>
+        /// Ver comentario en IEmoRepository.ReconciliarCertAptitudAsync: esto es la red de seguridad
+        /// para cualquier EMO activo cuya fila de ss_hab_trabajador haya quedado desfasada porque el
+        /// disparo reactivo (Create/Update/CompletarLecturaAbril) nunca corrió o se saltó un caso —
+        /// en vez de parchar cada hueco nuevo uno por uno, esto vuelve a calcular el estado real de
+        /// TODOS a partir del último WorkerEmo activo de cada uno.
+        /// </summary>
+        // "Último EMO activo por trabajador", calculado una sola vez y reutilizado por cada UPDATE
+        // de abajo. Recorrer 1000+ trabajadores en un loop de aplicación (un round-trip a la base
+        // remota por cada uno) es lo que hacía que esto tardara varios minutos y nunca terminara a
+        // tiempo. Un UPDATE en bloque resuelve todo en la base en un solo viaje — es exactamente el
+        // mismo criterio que SincronizarEntregableEmoAsync, expresado como SQL set-based en vez de
+        // un loop en C#.
+        private const string UltimoEmoActivoCte = @"
+            ultimo_emo AS (
+                SELECT DISTINCT ON (worker_id) *
+                FROM worker_emos
+                WHERE activo = true
+                ORDER BY worker_id, fecha_emo DESC, id DESC
+            )";
+
+        /// <summary>
+        /// Ver comentario en IEmoRepository.ReconciliarCertAptitudAsync: esto es la red de seguridad
+        /// para cualquier EMO activo cuya fila de ss_hab_trabajador haya quedado desfasada porque el
+        /// disparo reactivo (Create/Update/CompletarLecturaAbril) nunca corrió o se saltó un caso —
+        /// en vez de parchar cada hueco nuevo uno por uno, esto vuelve a calcular el estado real de
+        /// TODOS a partir del último WorkerEmo activo de cada uno, con la misma lógica de
+        /// SincronizarEntregableEmoAsync pero como UPDATEs en bloque (ver comentario en
+        /// UltimoEmoActivoCte de por qué no se hace un loop por trabajador).
+        /// </summary>
+        public async Task<ReconciliacionCertAptitudResultDto> ReconciliarCertAptitudAsync()
+        {
+            var result = new ReconciliacionCertAptitudResultDto();
+            using var ctx = _factory.CreateDbContext();
+            var itemId = HabItemIds.CertAptitud;
+
+            // 1) Crear la fila de habilitación para cualquier trabajador con EMO activo que todavía
+            // no tenga una (ObtenerOCrearHabAsync hace esto mismo, uno por uno, en el camino reactivo).
+            var filasCreadas = await ctx.Database.ExecuteSqlRawAsync($@"
+                WITH {UltimoEmoActivoCte}
+                INSERT INTO ss_hab_trabajador (worker_id, item_id, estado, created_at, updated_at)
+                SELECT e.worker_id, {itemId}, 'Falta', now(), now()
+                FROM ultimo_emo e
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM ss_hab_trabajador h
+                    WHERE h.worker_id = e.worker_id AND h.item_id = {itemId}
+                );");
+
+            // 2) No Apto -> Rechazado
+            var rechazados = await ctx.Database.ExecuteSqlRawAsync($@"
+                WITH {UltimoEmoActivoCte}
+                UPDATE ss_hab_trabajador h
+                SET estado = 'Rechazado', updated_at = now()
+                FROM ultimo_emo e
+                WHERE h.worker_id = e.worker_id AND h.item_id = {itemId}
+                  AND e.aptitud = 'No Apto'
+                  AND h.estado <> 'Rechazado';");
+
+            // 3) Observado -> En plazo
+            var observados = await ctx.Database.ExecuteSqlRawAsync($@"
+                WITH {UltimoEmoActivoCte}
+                UPDATE ss_hab_trabajador h
+                SET estado = 'En plazo', updated_at = now()
+                FROM ultimo_emo e
+                WHERE h.worker_id = e.worker_id AND h.item_id = {itemId}
+                  AND e.aptitud = 'Observado'
+                  AND h.estado <> 'En plazo';");
+
+            // 4) Apto/Apto con Restricciones pero con interconsulta ligada todavía Pendiente -> Falta
+            var faltaPorInterconsulta = await ctx.Database.ExecuteSqlRawAsync($@"
+                WITH {UltimoEmoActivoCte}
+                UPDATE ss_hab_trabajador h
+                SET estado = 'Falta', updated_at = now()
+                FROM ultimo_emo e
+                WHERE h.worker_id = e.worker_id AND h.item_id = {itemId}
+                  AND e.aptitud IN ('Apto', 'Apto con Restricciones')
+                  AND EXISTS (SELECT 1 FROM ss_interconsultas si WHERE si.emo_id = e.id AND si.estado = 'Pendiente')
+                  AND h.estado <> 'Falta';");
+
+            // 5) Apto/Apto con Restricciones, sin interconsulta pendiente, y (sin cambio de
+            // empresa/puesto/riesgo posterior sin convalidar, O ya tiene alguna convalidación
+            // registrada -aunque haya sido descartada, cuenta como "ya resuelto"-) -> Aprobado.
+            var aprobados = await ctx.Database.ExecuteSqlRawAsync($@"
+                WITH {UltimoEmoActivoCte}
+                UPDATE ss_hab_trabajador h
+                SET estado = 'Aprobado',
+                    vigencia = COALESCE(e.fecha_vencimiento_calculada, e.fecha_vencimiento, h.vigencia)::timestamp,
+                    updated_at = now()
+                FROM ultimo_emo e
+                WHERE h.worker_id = e.worker_id AND h.item_id = {itemId}
+                  AND e.aptitud IN ('Apto', 'Apto con Restricciones')
+                  AND NOT EXISTS (SELECT 1 FROM ss_interconsultas si WHERE si.emo_id = e.id AND si.estado = 'Pendiente')
+                  AND (
+                        NOT EXISTS (
+                            SELECT 1 FROM worker_eventos we2
+                            WHERE we2.worker_id = h.worker_id
+                              AND we2.tipo_evento IN ('CAMBIO_EMPRESA','CAMBIO_PUESTO','CAMBIO_RIESGO')
+                              AND we2.created_at > e.fecha_emo
+                        )
+                        OR EXISTS (SELECT 1 FROM worker_emo_convalidaciones wec WHERE wec.emo_id = e.id)
+                      )
+                  AND (
+                        h.estado <> 'Aprobado'
+                        OR h.vigencia IS DISTINCT FROM COALESCE(e.fecha_vencimiento_calculada, e.fecha_vencimiento)::timestamp
+                      );");
+
+            // 6) El único caso que de verdad necesita el camino reactivo (Create/Update de EMO):
+            // cambio de empresa/puesto/riesgo posterior al EMO que todavía no tiene NINGUNA
+            // convalidación creada. Crear esa convalidación requiere resolver la vinculación actual
+            // del trabajador (misma lógica de negocio de SincronizarEntregableEmoAsync) — no se
+            // replica en SQL para no arriesgar datos mal armados; se reporta para revisar a mano.
+            var pendientesRevision = await ctx.WorkerEmo
+                .FromSqlRaw($@"
+                    WITH {UltimoEmoActivoCte}
+                    SELECT e.* FROM ultimo_emo e
+                    JOIN ss_hab_trabajador h ON h.worker_id = e.worker_id AND h.item_id = {itemId}
+                    WHERE e.aptitud IN ('Apto', 'Apto con Restricciones')
+                      AND NOT EXISTS (SELECT 1 FROM ss_interconsultas si WHERE si.emo_id = e.id AND si.estado = 'Pendiente')
+                      AND EXISTS (
+                          SELECT 1 FROM worker_eventos we2
+                          WHERE we2.worker_id = h.worker_id
+                            AND we2.tipo_evento IN ('CAMBIO_EMPRESA','CAMBIO_PUESTO','CAMBIO_RIESGO')
+                            AND we2.created_at > e.fecha_emo
+                      )
+                      AND NOT EXISTS (SELECT 1 FROM worker_emo_convalidaciones wec WHERE wec.emo_id = e.id)")
+                .AsNoTracking()
+                .ToListAsync();
+
+            result.TotalEvaluados = filasCreadas + rechazados + observados + faltaPorInterconsulta + aprobados
+                + pendientesRevision.Count;
+            result.TotalCorregidos = filasCreadas + rechazados + observados + faltaPorInterconsulta + aprobados;
+            result.Errores = pendientesRevision.Count;
+            if (pendientesRevision.Count > 0)
+            {
+                result.Detalles.Add(
+                    $"{pendientesRevision.Count} worker(s) con cambio de empresa/puesto sin convalidar "
+                    + "todavía y ninguna convalidación creada — requieren revisión manual: "
+                    + string.Join(", ", pendientesRevision.Select(e => e.WorkerId)));
+            }
+
+            return result;
+        }
+
         internal static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
         {
             var hab = await ObtenerOCrearHabAsync(ctx, emo.WorkerId, HabItemIds.CertAptitud);

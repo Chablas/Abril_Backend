@@ -76,6 +76,8 @@ using Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.EppFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.HojaRutaContratistaFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.HojaRutaContratistaFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Features.Ssoma.Penalidad.Services;
@@ -325,6 +327,11 @@ namespace Abril_Backend.Features.Ssoma
                 Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories.EppPedidoRepository>();
             services.AddScoped<Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces.IEppPedidoService,
                 Abril_Backend.Features.SsomaModule.EppFeature.Application.Services.EppPedidoService>();
+
+            // Hoja de Ruta de Contratista — resumen semanal de cumplimiento para valorización,
+            // agregador de solo lectura sobre Habilitación (trabajador/empresa/equipo), Dossier,
+            // Charlas, RAC y Entregables de accidente. No escribe nada nuevo.
+            services.AddScoped<IHojaRutaService, HojaRutaService>();
 
             return services;
         }

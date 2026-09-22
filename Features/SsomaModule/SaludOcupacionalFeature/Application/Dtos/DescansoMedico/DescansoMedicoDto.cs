@@ -283,4 +283,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public int ObraOficinaStaffId { get; set; }
         public string Name { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// Datos para la notificación por correo al aprobar/rechazar un descanso médico:
+    /// correo de quien lo registró (app_user.email) + correo del área GTH (area_scope.email).
+    /// </summary>
+    public class DescansoResolucionNotifDatosDto
+    {
+        public string? WorkerNombre { get; set; }
+        public string? WorkerDni { get; set; }
+        public string? RegistradorEmail { get; set; }
+        public string? GthEmail { get; set; }
+    }
 }

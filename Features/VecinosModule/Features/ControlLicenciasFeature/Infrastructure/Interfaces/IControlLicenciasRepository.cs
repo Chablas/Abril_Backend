@@ -97,6 +97,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// </summary>
         Task<List<string>> ResolverDestinatariosUdp();
 
+        /// <summary>
+        /// Filtro de última instancia antes de enviar: saca de <paramref name="emails"/> cualquiera
+        /// que coincida con el correo corporativo de un trabajador ya retirado (workers_estado_id),
+        /// sin importar de qué fuente vino (automático, adicional a mano, UDP). Un correo que no
+        /// coincide con ningún trabajador (ej. un contacto externo) se deja pasar tal cual.
+        /// </summary>
+        Task<List<string>> FiltrarEmailsRetirados(IEnumerable<string> emails);
+
         /// <summary>Edita las fechas ampliadas del dashboard (inscripción/inicio/renovación) y Mes Activo.</summary>
         Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId);
 
@@ -105,5 +113,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <paramref name="projectIds"/> es null/vacío), con semáforo de criticidad ya calculado.
         /// </summary>
         Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds);
+
+        /// <summary>Guarda la URL del logo del proyecto (Project.LogoUrl), subido para el encabezado del PDF.</summary>
+        Task UpdateLogoUrl(int projectId, string logoUrl, int userId);
     }
 }

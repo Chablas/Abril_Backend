@@ -110,6 +110,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         /// </summary>
         public bool AptaParaRendir { get; set; }
 
+        /// <summary>
+        /// El recorrido del reembolso de esta salida —de la solicitud al pago—, para el pipeline del
+        /// modal de detalle. Lo arma <c>ReembolsoPipelineBuilder</c> con lo que este loader ya trajo:
+        /// no cuesta ni un viaje más a la base.
+        /// </summary>
+        public ReembolsoPipelineDto Pipeline { get; set; } = new();
+
         public List<TrayectoDetalleDto> Trayectos { get; set; } = new();
     }
 }

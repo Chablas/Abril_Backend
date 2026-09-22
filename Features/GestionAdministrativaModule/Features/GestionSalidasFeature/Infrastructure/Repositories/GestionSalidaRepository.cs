@@ -173,7 +173,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // planillas: con dos copias las pantallas podrían discrepar sobre quién ve qué.
             // El servicio ya resolvió el alcance (override o algoritmo).
             solicitudQuery = SalidaVisibilidadFilter.Aplicar(
-                solicitudQuery, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
+                solicitudQuery, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds,
+                filters.TrabajadoresDeSusObras);
 
             // Filtro de área elegido por el usuario (cascada): trabajadores cuya área (la de
             // destino de su puesto) esté dentro del nodo seleccionado + sus descendientes
@@ -436,7 +437,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return filters.SoloAptas ? result.Where(x => x.AptaParaRendir).ToList() : result;
         }
 
-        public async Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId)
+        public async Task<GestionSalidaFilterDataDto> GetFilterData(
+            bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId, List<int> trabajadoresDeSusObras)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -447,17 +449,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             // Base: trabajadores con al menos una solicitud.
             var trabajadoresQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
+            var deSusObras = trabajadoresDeSusObras ?? new List<int>();
 
             // Recorte por visibilidad: solo trabajadores cuya área esté en el alcance del usuario
             // (área actual hacia abajo). El propio trabajador del usuario siempre entra, porque
-            // siempre ve sus propias solicitudes. Si ve todo (recepción/GTH), no se recorta.
+            // siempre ve sus propias solicitudes, y los de su obra si es residente o administrador.
+            // Si ve todo (recepción/GTH), no se recorta.
             if (!seesAll)
             {
                 trabajadoresQuery = trabajadoresQuery.Where(w =>
                     (w.PuestoCatalogo!.AreaDestinoScopeId != null
                      && visibleAreaScopeIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
                     || (currentUserId != null &&
-                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == currentUserId)));
+                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == currentUserId))
+                    || deSusObras.Contains(w.Id));
             }
 
             var trabajadores = await (
@@ -484,12 +489,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
             ).ToListAsync();
 
+            // Las áreas de los trabajadores de su obra entran al árbol para poder filtrar por ellas:
+            // el frontend toma como raíz a cualquier nodo cuyo padre no vino.
             var areaTree = await (
                 from s in ctx.AreaScope
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                 where s.State && ai.State && at.State
-                   && (seesAll || visibleAreaScopeIds.Contains(s.AreaScopeId))
+                   && (seesAll
+                       || visibleAreaScopeIds.Contains(s.AreaScopeId)
+                       || ctx.Worker.Any(w => deSusObras.Contains(w.Id)
+                                           && w.PuestoCatalogo!.AreaDestinoScopeId == s.AreaScopeId))
                 orderby s.DisplayOrder
                 select new AreaNodeDto
                 {
@@ -926,7 +936,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // un trabajador de un área que el usuario no ve, aunque mande su id a mano.
             var visibles = SalidaVisibilidadFilter.Aplicar(
                 ctx.GaSolicitudSalida.Where(s => idsList.Contains(s.Id)),
-                ctx, scope.CurrentUserId, scope.SeesAll, scope.VisibleAreaScopeIds);
+                ctx, scope.CurrentUserId, scope.SeesAll, scope.VisibleAreaScopeIds,
+                scope.TrabajadoresDeSusObras);
 
             return await (
                 from s   in visibles
@@ -1053,6 +1064,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     s.EstadoReembolsoId, s.ObservacionReembolso,
                     s.ReembolsoDecididoPorId, s.ReembolsoDecididoAt,
                     s.FirmadoPorId, s.FirmadoAt, s.PagadoPorId, s.PagadoAt,
+                    // Sellos que solo mira el pipeline del modal: de quién es la observación
+                    // vigente, cuándo se decidió la salida, cuándo la revisó Tesorería y en qué anda
+                    // la primera revisión de su planilla. Van en esta misma consulta —la salida y su
+                    // planilla ya están unidas acá—, así que no cuestan un viaje más.
+                    s.FechaDecision, s.ObservacionReembolsoOrigenId, s.RevisionTesoreriaAt,
+                    EstadoPrimeraRevisionId    = r == null ? (int?)null : r.EstadoPrimeraRevisionId,
+                    EnviadaRevisionAt          = r == null ? null : r.EnviadaRevisionAt,
+                    PrimeraRevisionAt          = r == null ? null : r.PrimeraRevisionAt,
                     Rendicion = r == null ? null : new GestionSalidaRendicionDto
                     {
                         Id            = r.Id,
@@ -1213,6 +1232,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     .Select(pe => new { UserId = pe.UserId!.Value, Nombre = pe.FullName ?? "" })
                     .ToDictionaryAsync(x => x.UserId, x => x.Nombre);
 
+            var consolidado = (await ConsolidadoS10Loader.LoadAsync(
+                                   ctx, new Dictionary<int, int?> { [head.Id] = head.RendicionId }))
+                              .GetValueOrDefault(head.Id);
+
+            // Lo que el pipeline necesita de los trayectos: si la salida deja gasto de movilidad y
+            // si lo que deja ya está sustentado (captura propia o tarifario de TI). Solo se le exige
+            // sustento a lo que se va a rendir: el trayecto sin reembolso no entra en la planilla.
+            var generaReembolso = trayectos.Any(t => t.EsReembolsable == true);
+            var todosCubiertos  = trayectos
+                .Where(t => t.EsReembolsable == true)
+                .All(t => t.Capturas.Count > 0 || t.MontoCatalogo != null);
+
             return new GestionSalidaDetalleDto
             {
                 Id               = head.Id,
@@ -1240,10 +1271,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 PagadoAt             = head.PagadoAt,
 
                 Rendicion        = head.Rendicion,
-                ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
-                                        ctx, new Dictionary<int, int?> { [head.Id] = head.RendicionId }))
-                                    .GetValueOrDefault(head.Id),
+                ConsolidadoS10   = consolidado,
                 Trayectos        = trayectos,
+                Pipeline         = ReembolsoPipelineBuilder.Build(new ReembolsoPipelineInput
+                {
+                    Tipo                       = ReembolsoPipelineItem.Salida,
+                    Codigo                     = head.Codigo,
+                    SolicitadaAt               = head.CreatedAt,
+                    EstadoAprobacionId         = head.EstadoAprobacionId,
+                    AprobadaAt                 = head.FechaDecision,
+                    EsReembolsable             = generaReembolso,
+                    SustentosCompletos         = todosCubiertos,
+                    Rendida                    = head.EstadoRendicionId == EstadosSalida.Rendicion.Rendido,
+                    RendidaAt                  = head.Rendicion?.RendidoAt,
+                    EstadoPrimeraRevisionId    = head.EstadoPrimeraRevisionId,
+                    EnviadaRevisionAt          = head.EnviadaRevisionAt,
+                    PrimeraRevisionAt          = head.PrimeraRevisionAt,
+                    TieneConsolidado           = consolidado != null,
+                    ConsolidadoAt              = consolidado?.UploadedAt,
+                    FirmadoAt                  = head.FirmadoAt,
+                    EstadoReembolsoId          = head.EstadoReembolsoId,
+                    // El origen no da texto: decide si el rojo va en la firma o en Tesorería.
+                    ObservacionOrigenId        = head.ObservacionReembolsoOrigenId,
+                    RevisionTesoreriaAt        = head.RevisionTesoreriaAt,
+                    PagadoAt                   = head.PagadoAt,
+                }),
             };
         }
 

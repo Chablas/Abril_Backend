@@ -173,7 +173,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
+        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -182,8 +182,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
                 throw new AbrilException(
                     "El área no existe o no admite configuración (solo áreas de tipo Área de Gerencia o Área Estándar).", 404);
 
-            await AreaAsignacionNodos.SetFiltroProyectoAsync(
-                ctx, areaScopeId, filtraPorProyecto, firmaConsolidadoPorProyecto);
+            await AreaAsignacionNodos.SetFiltroProyectoAsync(ctx, areaScopeId, filtraPorProyecto);
         }
     }
 }

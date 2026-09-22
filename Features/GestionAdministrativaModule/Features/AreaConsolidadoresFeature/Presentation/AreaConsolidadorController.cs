@@ -96,10 +96,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Presen
         {
             try
             {
-                await _service.SetFiltroProyectoAsync(
-                    areaScopeId,
-                    dto?.FiltraPorProyecto ?? false,
-                    dto?.FirmaConsolidadoPorProyecto ?? false);
+                await _service.SetFiltroProyectoAsync(areaScopeId, dto?.FiltraPorProyecto ?? false);
                 return Ok(new { message = "Configuración del área actualizada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

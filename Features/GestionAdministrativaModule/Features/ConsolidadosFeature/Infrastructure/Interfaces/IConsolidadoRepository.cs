@@ -48,14 +48,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             IEnumerable<int> ids, int reviewerUserId);
 
         /// <summary>
-        /// Escribe la aprobación una vez que las copias firmadas ya están en SharePoint: deja las
-        /// salidas en "Firmado" y referencia los PDF firmados. Devuelve las salidas que cambiaron.
+        /// Escribe la aprobación una vez que las copias firmadas ya están en SharePoint: referencia
+        /// los PDF firmados y deja en "Firmado" las salidas cuyo documento ya reunió TODAS las
+        /// firmas que su área exige. Las que siguen esperando otra firma quedan como estaban, con
+        /// la estampa ya puesta en el papel.
         /// </summary>
         /// <param name="firmadoAt">
         /// El momento de la firma: el MISMO que quedó impreso en el pie de los PDF.
         /// </param>
-        Task<List<int>> AprobarReembolsoFirmado(
+        Task<ReembolsoFirmaResultDto> AprobarReembolsoFirmado(
             IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId, DateTimeOffset firmadoAt);
+
+        /// <summary>
+        /// Los consolidados de la selección que este usuario puede volver a firmar, con todo lo que
+        /// hace falta para rehacer sus copias firmadas desde el original. 409 si en ninguno le
+        /// corresponde: solo se puede mientras el documento siga esperando la firma de quien va
+        /// detrás (ver <c>PuedeVolverAFirmar</c>).
+        /// </summary>
+        Task<List<ConsolidadoParaRefirmarDto>> GetConsolidadosParaVolverAFirmar(
+            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope, int userId);
+
+        /// <summary>
+        /// Escribe las copias rehechas: reemplaza las referencias a los PDF firmados y pone al día
+        /// la fecha de la firma de este usuario. NO agrega una firma más —es la misma— ni mueve el
+        /// estado del reembolso: el documento sigue esperando exactamente lo que esperaba.
+        /// </summary>
+        Task<int> RegistrarVolverAFirmar(
+            IReadOnlyCollection<ConsolidadoRefirmadoDto> refirmados, int userId, DateTimeOffset firmadoAt);
 
         /// <summary>
         /// Nombre y puesto de quien firma, para el pie de la firma. El puesto sale de su ficha
@@ -73,6 +92,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
         /// <summary>Correos corporativos de quien tiene el rol TESORERO.</summary>
         Task<List<string>> GetCorreosTesoreria();
+
+        /// <summary>
+        /// Qué pasaría si el usuario firmara ahora los consolidados de la selección: a quién le
+        /// pasaría el turno y si alguno reuniría todas sus firmas. En obra el documento lo firman
+        /// dos, así que la primera firma no avisa al consolidador ni a Tesorería —el reembolso sigue
+        /// Pendiente— y el único correo que sale es el que le pasa el turno al residente.
+        /// </summary>
+        Task<ProximaFirmaDto> GetProximaFirma(
+            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope, int? userId);
 
         /// <summary>Carpeta de SharePoint donde viven las planillas y sus copias firmadas.</summary>
         Task<string?> GetRendicionFolderUrl();
@@ -93,6 +121,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         /// usuario no ve ninguna de sus salidas.
         /// </summary>
         Task<AvisoJefaturaInfoDto?> GetAvisoJefatura(int consolidadoId, ConsolidadoFiltersDto scope, int userId);
+
+        /// <summary>
+        /// Lo mismo, pero para el aviso que dispara una firma: a quién le toca firmar ahora que el
+        /// anterior ya firmó. Sin alcance ni consolidador de por medio —no lo pide un usuario— y
+        /// null si el consolidado no existe. Con todas las firmas puestas devuelve la lista de
+        /// destinatarios vacía y no hay nada que mandar.
+        /// </summary>
+        Task<AvisoJefaturaInfoDto?> GetAvisoSiguienteFirmante(int consolidadoId);
 
         /// <summary>Estampa en esas salidas que se le avisó a la jefatura, y quién lo hizo.</summary>
         Task MarcarJefaturaAvisada(IReadOnlyCollection<int> solicitudIds, int userId);

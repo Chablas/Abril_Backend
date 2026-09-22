@@ -75,6 +75,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             detalle.Salidas = armado.Salidas.TryGetValue(consolidadoId, out var salidas)
                 ? salidas
                 : new List<ConsolidadoSalidaDto>();
+
+            // El pipeline sale de la cabecera ya armada —no de las filas crudas— para que diga
+            // exactamente lo mismo que los badges de arriba del modal. Todo lo anterior al paso del
+            // consolidado va cumplido por definición: solo se consolida lo rendido y aprobado en la
+            // primera revisión, así que el documento no podría existir de otra forma.
+            detalle.Pipeline = ReembolsoPipelineBuilder.Build(new ReembolsoPipelineInput
+            {
+                Tipo                    = ReembolsoPipelineItem.Consolidado,
+                Codigo                  = cabecera.Codigo,
+                Rendida                 = true,
+                SustentosCompletos      = true,
+                EstadoPrimeraRevisionId = EstadosSalida.PrimeraRevision.Aprobada,
+                TieneConsolidado        = true,
+                ConsolidadoAt           = cabecera.UploadedAt,
+                // En obra el documento lo firman dos (administrador y residente): mientras falte
+                // alguno FirmadoAt sigue en null y el paso de la firma sigue siendo de la jefatura.
+                // A quién se espera lo dice el propio modal, en su bloque de firmas.
+                FirmadoAt               = cabecera.FirmadoAt,
+                EstadoReembolsoId       = EstadosSalida.Reembolso.IdFromNombre(cabecera.EstadoReembolso)
+                                          ?? EstadosSalida.Reembolso.Pendiente,
+                // El origen no da texto: decide si el rojo va en la firma o en Tesorería.
+                ObservacionOrigenId     = EstadosSalida.OrigenObservacionReembolso.IdFromNombre(
+                                              cabecera.ObservacionReembolsoOrigen),
+                Mixto                   = cabecera.ReembolsoMixto,
+            });
+
             return detalle;
         }
 
@@ -95,9 +121,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         {
             using var ctx = _factory.CreateDbContext();
 
-            var seesAll = scope.SeesAll;
-            var areaIds = scope.VisibleAreaScopeIds ?? new List<int>();
-            var uid     = scope.CurrentUserId;
+            var seesAll    = scope.SeesAll;
+            var areaIds    = scope.VisibleAreaScopeIds ?? new List<int>();
+            var deSusObras = scope.TrabajadoresDeSusObras ?? new List<int>();
+            var uid        = scope.CurrentUserId;
 
             // Trabajadores con al menos una salida ya rendida: los demás todavía no tienen planilla
             // y, por lo tanto, tampoco consolidado.
@@ -107,13 +134,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Distinct()
                 .ToListAsync();
 
+            // Mismo alcance que la tabla: su área, él mismo y, si es residente o administrador de
+            // obra, los trabajadores de su obra.
             var trabajadoresQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
             if (!seesAll)
             {
                 trabajadoresQuery = trabajadoresQuery.Where(w =>
                     (w.PuestoCatalogo!.AreaDestinoScopeId != null
                      && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
-                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)));
+                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
+                    || deSusObras.Contains(w.Id));
             }
 
             var trabajadores = await (
@@ -128,12 +158,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 }
             ).ToListAsync();
 
+            // Las áreas de los trabajadores de su obra también, para poder filtrar por ellas: el
+            // frontend toma como raíz a cualquier nodo cuyo padre no vino.
             var areaTree = await (
                 from s  in ctx.AreaScope
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                 where s.State && ai.State && at.State
-                   && (seesAll || areaIds.Contains(s.AreaScopeId))
+                   && (seesAll
+                       || areaIds.Contains(s.AreaScopeId)
+                       || ctx.Worker.Any(w => deSusObras.Contains(w.Id)
+                                           && w.PuestoCatalogo!.AreaDestinoScopeId == s.AreaScopeId))
                 orderby s.DisplayOrder
                 select new AreaNodeDto
                 {
@@ -272,6 +307,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             // La corrección con el ERP viva de cada planilla (casi ninguna la tiene).
             var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, cubiertas);
 
+            // Las firmas de cada documento y en qué punto de la cadena está ESTE usuario: un
+            // consolidado de obra lo firman dos (el administrador y detrás el residente) y hasta
+            // que no estén las dos sus salidas siguen Pendientes. Los trabajadores con los que se
+            // resuelven los firmantes son los MISMOS que usa la decisión (ver
+            // DecidiblesPorUsuarioAsync), así que la pantalla no puede ofrecer algo que la
+            // escritura después rechace.
+            var workersPorConsolidado = grupos.ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyCollection<int>)g.Value
+                    .SelectMany(x => x.Salidas)
+                    .Where(s => porDecidir.Contains(s.Id))
+                    .Select(s => s.WorkerId)
+                    .Distinct()
+                    .ToList());
+
+            var firmasPorConsolidado = await EstadoDeFirmasAsync(ctx, workersPorConsolidado, currentUserId);
+
             // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador.
             var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
             var razones   = await RazonSocialConsolidador.LoadPorUsuarioAsync(
@@ -366,6 +418,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 subidoPor.TryGetValue(dto.Id, out var quienSubio);
                 var razon = quienSubio.UserId > 0 ? razones.GetValueOrDefault(quienSubio.UserId) : null;
 
+                var firmas = firmasPorConsolidado.GetValueOrDefault(consolidadoId) ?? new EstadoFirmas();
+
                 items.Add(new ConsolidadoListItemDto
                 {
                     Id              = dto.Id,
@@ -407,6 +461,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     // consolidados, o un consolidado con trabajadores de dos jefaturas, decide su
                     // parte (las firmas se acumulan sobre el mismo documento).
                     PorDecidirCount = visibles.Count(s => decidibles.Contains(s.Id)),
+
+                    // Firmar no es decidir: con una sola de las dos firmas el documento sigue
+                    // esperando, y quien ya firmó no vuelve a aprobar (vuelve a firmar, si hace
+                    // falta, mientras el que sigue no haya firmado).
+                    Firmas             = firmas.Puestas,
+                    FirmasPendientes   = firmas.Pendientes,
+                    YaFirme            = firmas.YaFirme,
+                    EsperaFirmaPrevia  = firmas.EsperaFirmaPrevia,
+                    PuedeVolverAFirmar = firmas.PuedeVolverAFirmar,
 
                     // Avisar tiene sentido si algo Pendiente espera a OTRA jefatura: un consolidador
                     // que además es el jefe de esos trabajadores lo decide él mismo.
@@ -599,7 +662,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var planillas = await ctx.GaRendicion
                 .Where(r => rendicionIds.Contains(r.Id))
-                .Select(r => new { r.Id, r.PdfUrl, r.PdfFilename })
+                .Select(r => new { r.Id, r.PdfUrl, r.PdfFilename, r.PdfFirmadoUrl })
                 .ToListAsync();
 
             // El consolidado de cada salida con la MISMA precedencia que usa todo el módulo (el
@@ -631,18 +694,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 ctx, consolidadoIds, solicitudes.Select(s => s.WorkerId).Distinct().ToList(),
                 reviewerUserId);
 
-            return planillas.Select(p =>
-            {
-                var solicitudIds = porRendicion[p.Id];
+            var resultado = new List<PlanillaParaFirmarDto>(planillas.Count);
+            var hayFueraDeTurno = false;
 
-                var docs = solicitudIds
-                    .Select(sid => consolidadoPorSolicitud.TryGetValue(sid, out var dto) ? dto.Id : (int?)null)
-                    .Where(cid => cid != null)
-                    .Select(cid => cid!.Value)
+            foreach (var p in planillas)
+            {
+                // Las salidas de la planilla que este usuario puede firmar HOY, con el consolidado
+                // que respalda a cada una. Una salida cuyo documento todavía espera una firma
+                // ANTERIOR a la suya queda fuera: sin esto el residente podía aprobar (y con eso
+                // dar por pagable) un consolidado que el administrador de obra ni vio.
+                var porSolicitud = new Dictionary<int, int>();
+                foreach (var sid in porRendicion[p.Id])
+                {
+                    if (!consolidadoPorSolicitud.TryGetValue(sid, out var dto)) continue;
+                    if (!consolidados.ContainsKey(dto.Id))                      continue;
+                    if (fueraDeTurno.Contains(dto.Id)) { hayFueraDeTurno = true; continue; }
+                    porSolicitud[sid] = dto.Id;
+                }
+
+                // Sin ninguna, la planilla no se toca: firmarla igual dejaría su PDF con una firma
+                // nueva y sus salidas decididas sin que al usuario le tocara.
+                if (porSolicitud.Count == 0) continue;
+
+                var docs = porSolicitud.Values
                     .Distinct()
-                    .Where(cid => consolidados.ContainsKey(cid))
+                    // Un consolidado que este usuario YA firmó no se vuelve a estampar —firmar dos
+                    // veces no lo completa—, pero sus salidas siguen en juego: pasan a Firmado solo
+                    // si el documento ya no debe ninguna firma, y de eso se ocupa la escritura con
+                    // ConsolidadoPorSolicitud.
                     .Where(cid => !(firmantes.TryGetValue(cid, out var yaFirmaron) && yaFirmaron.Contains(reviewerUserId)))
-                    .Where(cid => !fueraDeTurno.Contains(cid))
                     .Select(cid =>
                     {
                         var c = consolidados[cid];
@@ -670,21 +750,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     })
                     .ToList();
 
-                return new PlanillaParaFirmarDto
+                // La planilla acumula las firmas igual que su consolidado: desde el 2026-09-21 un
+                // consolidado se decide ENTERO, así que quien lo firma firma todas sus planillas y
+                // la firma va en el mismo lugar. Partir siempre del original hacía que la segunda
+                // firma —la del residente— borrara la del administrador de obra.
+                var slotPlanilla    = docs.Count == 0 ? 0 : docs.Max(d => d.Slot);
+                var planillaFirmada = slotPlanilla > 0 && p.PdfFirmadoUrl != null;
+
+                resultado.Add(new PlanillaParaFirmarDto
                 {
-                    RendicionId      = p.Id,
-                    SolicitudIds     = solicitudIds,
-                    PlanillaUrl      = p.PdfUrl,
-                    PlanillaFilename = p.PdfFilename,
-                    Consolidados     = docs,
-                };
-            }).ToList();
+                    RendicionId             = p.Id,
+                    SolicitudIds            = porSolicitud.Keys.ToList(),
+                    PlanillaUrl             = planillaFirmada ? p.PdfFirmadoUrl! : p.PdfUrl,
+                    PlanillaFilename        = p.PdfFilename,
+                    PlanillaSlot            = planillaFirmada ? slotPlanilla : 0,
+                    Consolidados            = docs,
+                    ConsolidadoPorSolicitud = porSolicitud,
+                });
+            }
+
+            // Nada que firmar PORQUE todavía no le toca: se dice así y no con el 400 genérico de
+            // "no hay nada por decidir", que mandaría a buscar el problema donde no está.
+            if (resultado.Count == 0 && hayFueraDeTurno)
+                throw new AbrilException(
+                    "Todavía no te toca firmar este consolidado: falta la firma de quien va antes que tú.", 409);
+
+            return resultado;
         }
 
-        public async Task<List<int>> AprobarReembolsoFirmado(
+        public async Task<ReembolsoFirmaResultDto> AprobarReembolsoFirmado(
             IReadOnlyCollection<PlanillaFirmadaDto> planillas, int reviewerUserId, DateTimeOffset firmadoAt)
         {
-            if (planillas.Count == 0) return new();
+            var resultado = new ReembolsoFirmaResultDto();
+            if (planillas.Count == 0) return resultado;
 
             using var ctx = _factory.CreateDbContext();
             // La hora que quedó impresa en el pie de las firmas: la base y el papel dicen lo mismo.
@@ -697,7 +795,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Where(r => rendicionIds.Contains(r.Id))
                 .ToDictionaryAsync(r => r.Id);
 
+            // Dos conjuntos distintos y no uno: los que hay que ESTAMPAR (los que este usuario no
+            // había firmado) y los que CUBREN las salidas. Con una sola firma puesta, volver a
+            // aprobar no estampa nada, pero el documento sigue debiendo la otra firma y sus salidas
+            // no pueden pasar a Firmado — que es justo lo que se escapaba cuando el conteo salía
+            // de lo estampado.
             var consolidadoIds = planillas.SelectMany(p => p.Consolidados.Keys).Distinct().ToList();
+            var cubrientes     = planillas.SelectMany(p => p.ConsolidadoPorSolicitud.Values).Distinct().ToList();
             var consolidados = await ctx.GaConsolidadoS10
                 .Where(c => consolidadoIds.Contains(c.Id))
                 .ToDictionaryAsync(c => c.Id);
@@ -721,11 +825,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Select(f => f.ConsolidadoS10Id)
                 .ToListAsync();
 
+            // Una persona puede tener más de una ficha (reingresos): gana la vigente, el mismo
+            // criterio que GetFirmante usa para el puesto del pie. Que la firma quede con la ficha
+            // buena no es cosmético — es contra ella que se contrasta quién falta firmar, aunque
+            // FirmoYa cubra además el caso de que el aprobador esté configurado con otra.
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
             var fichaDelFirmante = await (
                 from w in ctx.Worker.AsNoTracking()
                 join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
                 where per.UserId == reviewerUserId && w.State
-                orderby w.Id
+                orderby ctx.WorkerVinculacion.Any(v =>
+                            v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)) descending,
+                        w.WorkersEstadoId == WorkersEstadoIds.Activo descending,
+                        w.Id descending
                 select (int?)w.Id
             ).FirstOrDefaultAsync();
 
@@ -735,7 +847,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 // quedan en SharePoint sin referencia, que es mejor que pisar una firma ajena.
                 if (!p.SolicitudIds.Any(vivas.Contains)) continue;
 
-                if (rendiciones.TryGetValue(p.RendicionId, out var r))
+                // Sin copia nueva no se toca nada: la que ya existe lleva la firma de este mismo
+                // usuario, puesta cuando aprobó otra planilla del mismo consolidado.
+                if (p.Planilla != null && rendiciones.TryGetValue(p.RendicionId, out var r))
                 {
                     r.PdfFirmadoUrl      = p.Planilla.Url;
                     r.PdfFirmadoItemId   = p.Planilla.ItemId;
@@ -775,6 +889,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                             CreatedAt        = now,
                         });
                         yaFirmadosPorMi.Add(consolidadoId);
+                        resultado.ConsolidadosFirmados.Add(consolidadoId);
                     }
                 }
             }
@@ -784,16 +899,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             // a "Firmado" —que es lo que Tesorería ve como pagable— cuando están todas las firmas
             // que su área exige; con una sola se queda esperando a la otra.
             var faltanFirmas = await ConsolidadosIncompletosAsync(
-                ctx, consolidadoIds, solicitudes.Select(s => s.WorkerId).Distinct().ToList());
+                ctx, cubrientes, solicitudes.Select(s => s.WorkerId).Distinct().ToList());
 
+            // El documento de CADA salida, tal como lo resolvió el guard: en una planilla con
+            // consolidados por salida (registros antiguos) no todas cuelgan del mismo.
             var consolidadoDeSolicitud = new Dictionary<int, int>();
             foreach (var p in planillas)
-                foreach (var sid in p.SolicitudIds)
-                    foreach (var cid in p.Consolidados.Keys)
-                        consolidadoDeSolicitud[sid] = cid;
+                foreach (var (sid, cid) in p.ConsolidadoPorSolicitud)
+                    consolidadoDeSolicitud[sid] = cid;
 
             foreach (var s in solicitudes)
             {
+                resultado.Firmadas.Add(s.Id);
+
                 // Aprobar ES la firma. La salida salta a "Firmado" —lo que Tesorería ve como
                 // pagable— solo si el consolidado ya reunió TODAS sus firmas; si falta alguna se
                 // queda como está, esperando al siguiente firmante, con su firma ya estampada en
@@ -817,10 +935,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 // planilla que ya volvió firmada.
                 s.ObservacionReembolso         = null;
                 s.ObservacionReembolsoOrigenId = null;
+
+                resultado.Completadas.Add(s.Id);
             }
 
+            // Lo pagable, que es por planilla: solo las que dejaron alguna salida en "Firmado".
+            resultado.RendicionesCompletadas = planillas
+                .Where(p => p.SolicitudIds.Any(resultado.Completadas.Contains))
+                .Select(p => p.RendicionId)
+                .Distinct()
+                .ToList();
+
             await ctx.SaveChangesAsync();
-            return solicitudes.Select(s => s.Id).ToList();
+            return resultado;
         }
 
         /// <summary>
@@ -1109,14 +1236,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             using var ctx = _factory.CreateDbContext();
 
-            var info = new AvisoJefaturaInfoDto
-            {
-                PuedeConsolidar = await PuedeConsolidarAsync(ctx, consolidadoId, userId),
-            };
+            var info = await ArmarAvisoJefaturaAsync(ctx, consolidadoId, visibles);
+            info.PuedeConsolidar = await PuedeConsolidarAsync(ctx, consolidadoId, userId);
+            return info;
+        }
+
+        public async Task<AvisoJefaturaInfoDto?> GetAvisoSiguienteFirmante(int consolidadoId)
+        {
+            // Este aviso no lo pide nadie: lo dispara la firma anterior. Por eso se resuelve sobre
+            // el documento ENTERO y no sobre lo que ve un usuario —el que acaba de firmar puede no
+            // ver el área del que sigue— y por eso tampoco pregunta quién es el consolidador.
+            var todas = await ResolverSolicitudIds(
+                new[] { consolidadoId }, new ConsolidadoFiltersDto { SeesAll = true });
+            if (todas.Count == 0) return null;
+
+            using var ctx = _factory.CreateDbContext();
+            return await ArmarAvisoJefaturaAsync(ctx, consolidadoId, todas);
+        }
+
+        /// <summary>
+        /// El aviso de un consolidado: qué salidas están esperando una firma y a QUIÉN le toca
+        /// ponerla hoy. Lo comparten el aviso que manda el consolidador («Avisar a la jefatura», y
+        /// el automático de adjuntar) y el que sale solo cuando alguien firma, para que las dos
+        /// vías nombren exactamente al mismo destinatario.
+        /// </summary>
+        /// <param name="candidatas">Salidas del consolidado ya acotadas (por alcance, o todas).</param>
+        private async Task<AvisoJefaturaInfoDto> ArmarAvisoJefaturaAsync(
+            AppDbContext ctx, int consolidadoId, List<int> candidatas)
+        {
+            var info = new AvisoJefaturaInfoDto();
 
             // Lo que está esperando a la jefatura: rendido, con consolidado y todavía Pendiente. Lo
-            // Observado no: ahí la pelota está en el consolidador.
-            var revisables = await IdsConReembolsoRevisableAsync(ctx, visibles);
+            // Observado no: ahí la pelota está en el consolidador. Una salida ya firmada por
+            // completo tampoco: pasó a Firmado y es de Tesorería.
+            var revisables = await IdsConReembolsoRevisableAsync(ctx, candidatas);
             var pendientes = await ctx.GaSolicitudSalida
                 .Where(s => revisables.Contains(s.Id) && s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente)
                 .Select(s => new { s.Id, s.WorkerId })
@@ -1125,17 +1278,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             info.SolicitudIds = pendientes.Select(p => p.Id).ToList();
 
-            // Quien firma el documento: UNO para el consolidado entero, el MISMO que después lo
-            // decide en esta pantalla. No se resuelve por trabajador — eso daría varios dueños para
-            // un solo documento y el aviso saldría a gente que no puede firmarlo.
+            // Quiénes firman el documento: se resuelve por DOCUMENTO y no por trabajador —eso daría
+            // varios dueños para un solo papel— con el mismo resolver que después habilita el botón
+            // de firmar en esta pantalla.
             var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
                 pendientes.Select(p => p.WorkerId).Distinct().ToList(),
                 PasoAprobacion.Consolidado);
 
-            // Les llega a TODOS los que tienen que firmar, no solo al primero: el segundo se entera
-            // igual de que el documento existe, y sin eso el residente se enteraria recien cuando el
-            // administrador ya firmo, sin aviso propio.
-            var jefaturas = firmantes
+            // Y de ellos, SOLO a quien le toca ahora: las firmas van en cadena (en obra el
+            // administrador y recién después el residente), así que al segundo se le avisa cuando
+            // el primero firmó y no antes. Ver FirmaEnTurno.
+            var enTurno = FirmaEnTurno.De(firmantes, await FirmasPuestasAsync(ctx, consolidadoId));
+
+            var jefaturas = enTurno
                 .Select(f => f.Persona)
                 .Where(p => !string.IsNullOrWhiteSpace(p.Email))
                 .ToList();
@@ -1154,6 +1309,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             return info;
         }
+
+        /// <summary>Fichas que ya firmaron un consolidado (<c>ga_consolidado_s10_firma</c>).</summary>
+        private static async Task<HashSet<int>> FirmasPuestasAsync(AppDbContext ctx, int consolidadoId)
+            => (await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && f.ConsolidadoS10Id == consolidadoId && f.WorkerId != null)
+                .Select(f => f.WorkerId!.Value)
+                .ToListAsync()).ToHashSet();
 
         public async Task MarcarJefaturaAvisada(IReadOnlyCollection<int> solicitudIds, int userId)
         {
@@ -1238,12 +1400,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             if (abiertas.Count == 0) return plan;
 
             // El reemplazo deja el reembolso Pendiente otra vez: el aviso va a quien va a poder
-            // firmarlo, que es UNO para el documento entero y no uno por trabajador.
+            // firmarlo, que se resuelve por DOCUMENTO y no por trabajador.
             var firmantesCorreccion = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
                 abiertas.SelectMany(a => a.WorkerIds).Distinct().ToList(),
                 PasoAprobacion.Consolidado);
 
-            plan.JefaturaEmails = firmantesCorreccion
+            // Y solo al PRIMERO de la cadena: reemplazar crea un consolidado NUEVO, sin ninguna
+            // firma puesta, así que las que tenga el que se está reemplazando no cuentan.
+            plan.JefaturaEmails = FirmaEnTurno.De(firmantesCorreccion, new HashSet<int>())
                 .Select(f => f.Persona.Email?.Trim() ?? string.Empty)
                 .Where(e => e.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1314,6 +1478,212 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             ctx.GaCorreccionS10.AddRange(nuevas);
             await ctx.SaveChangesAsync();
             return nuevas;
+        }
+
+        public async Task<List<ConsolidadoParaRefirmarDto>> GetConsolidadosParaVolverAFirmar(
+            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope, int userId)
+        {
+            var ids = consolidadoIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return new();
+
+            // El mismo recorte que la decisión: mandar un id no alcanza salidas que el usuario no ve.
+            var visibles = await ResolverSolicitudIds(ids, scope);
+            if (visibles.Count == 0)
+                throw new AbrilException("El Consolidado del S10 no existe o no está en tu alcance.", 404);
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo lo que sigue esperando una firma: un documento completo ya pasó a Tesorería y su
+            // respaldo no se vuelve a tocar.
+            var revisables = await IdsConReembolsoRevisableAsync(ctx, visibles);
+            if (revisables.Count == 0)
+                throw new AbrilException(await MotivoSinNadaQueDecidirAsync(ctx, visibles), 400);
+
+            var salidas = await ctx.GaSolicitudSalida.AsNoTracking()
+                .Where(s => revisables.Contains(s.Id))
+                .Select(s => new { s.Id, s.WorkerId, s.RendicionId })
+                .ToListAsync();
+
+            var consolidadoPorSolicitud = await ConsolidadoS10Loader.LoadAsync(
+                ctx, salidas.ToDictionary(s => s.Id, s => s.RendicionId));
+
+            var workersPorConsolidado = salidas
+                .Where(s => consolidadoPorSolicitud.ContainsKey(s.Id))
+                .GroupBy(s => consolidadoPorSolicitud[s.Id].Id)
+                .Where(g => ids.Contains(g.Key))
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyCollection<int>)g.Select(s => s.WorkerId).Distinct().ToList());
+
+            var estados = await EstadoDeFirmasAsync(ctx, workersPorConsolidado, userId);
+
+            var elegibles = estados.Where(kv => kv.Value.PuedeVolverAFirmar).Select(kv => kv.Key).ToList();
+            if (elegibles.Count == 0)
+                throw new AbrilException(
+                    "No puedes volver a firmar este consolidado: o todavía no lo firmaste, o ya lo firmó "
+                    + "quien va detrás de ti.", 409);
+
+            // Se parte SIEMPRE del original: la copia firmada se rehace entera, con las mismas
+            // firmas que tenía y la de este usuario al día.
+            var documentos = await ctx.GaConsolidadoS10.AsNoTracking()
+                .Where(c => elegibles.Contains(c.Id))
+                .Select(c => new
+                {
+                    c.Id, c.PdfUrl, c.PdfFilename, c.PlanillaGrupalUrl, c.PlanillaGrupalFilename,
+                })
+                .ToListAsync();
+
+            var firmas = await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && elegibles.Contains(f.ConsolidadoS10Id))
+                .Select(f => new { f.Id, f.ConsolidadoS10Id, f.FirmadoPorId, f.Slot, f.FirmadoAt })
+                .ToListAsync();
+
+            // Las planillas que firmó ESTE usuario: su copia firmada se rehace también, para que la
+            // fecha impresa sea la misma en todo el juego de documentos.
+            var vinculos = await ctx.GaConsolidadoS10Rendicion.AsNoTracking()
+                .Where(cr => cr.State && elegibles.Contains(cr.ConsolidadoS10Id))
+                .Select(cr => new { cr.ConsolidadoS10Id, cr.RendicionId })
+                .ToListAsync();
+
+            var rendicionIds = vinculos.Select(v => v.RendicionId).Distinct().ToList();
+            var planillas = await ctx.GaRendicion.AsNoTracking()
+                .Where(r => rendicionIds.Contains(r.Id) && r.FirmadoPorId == userId)
+                .Select(r => new { r.Id, r.PdfUrl, r.PdfFilename })
+                .ToDictionaryAsync(r => r.Id);
+
+            return documentos.Select(c => new ConsolidadoParaRefirmarDto
+            {
+                Id             = c.Id,
+                PdfUrl         = c.PdfUrl,
+                PdfFilename    = c.PdfFilename,
+                GrupalUrl      = c.PlanillaGrupalUrl,
+                GrupalFilename = c.PlanillaGrupalFilename,
+                Firmas = firmas
+                    .Where(f => f.ConsolidadoS10Id == c.Id)
+                    .OrderBy(f => f.Slot).ThenBy(f => f.Id)
+                    .Select(f => new FirmaPuestaDto
+                    {
+                        Id           = f.Id,
+                        FirmadoPorId = f.FirmadoPorId,
+                        Slot         = f.Slot,
+                        FirmadoAt    = f.FirmadoAt,
+                    })
+                    .ToList(),
+                Planillas = vinculos
+                    .Where(v => v.ConsolidadoS10Id == c.Id && planillas.ContainsKey(v.RendicionId))
+                    .Select(v => new PlanillaParaRefirmarDto
+                    {
+                        RendicionId = v.RendicionId,
+                        PdfUrl      = planillas[v.RendicionId].PdfUrl,
+                        PdfFilename = planillas[v.RendicionId].PdfFilename,
+                    })
+                    .ToList(),
+            }).ToList();
+        }
+
+        public async Task<int> RegistrarVolverAFirmar(
+            IReadOnlyCollection<ConsolidadoRefirmadoDto> refirmados, int userId, DateTimeOffset firmadoAt)
+        {
+            if (refirmados.Count == 0) return 0;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var ids = refirmados.Select(r => r.ConsolidadoId).Distinct().ToList();
+
+            var consolidados = await ctx.GaConsolidadoS10
+                .Where(c => ids.Contains(c.Id))
+                .ToDictionaryAsync(c => c.Id);
+
+            var rendicionIds = refirmados.SelectMany(r => r.Planillas.Keys).Distinct().ToList();
+            var rendiciones = await ctx.GaRendicion
+                .Where(r => rendicionIds.Contains(r.Id))
+                .ToDictionaryAsync(r => r.Id);
+
+            // NO se agrega una fila: es la MISMA firma, con la fecha al día. Agregar otra la
+            // contaría dos veces contra las que el área exige y daría el documento por completo.
+            var mias = await ctx.GaConsolidadoS10Firma
+                .Where(f => f.State && f.FirmadoPorId == userId && ids.Contains(f.ConsolidadoS10Id))
+                .ToListAsync();
+
+            foreach (var r in refirmados)
+            {
+                if (consolidados.TryGetValue(r.ConsolidadoId, out var c))
+                {
+                    c.PdfFirmadoUrl      = r.S10.Url;
+                    c.PdfFirmadoItemId   = r.S10.ItemId;
+                    c.PdfFirmadoFilename = r.S10.Filename;
+                    c.FirmadoPorId       = userId;
+                    c.FirmadoAt          = firmadoAt;
+
+                    if (r.Grupal != null)
+                    {
+                        c.PlanillaGrupalFirmadoUrl      = r.Grupal.Url;
+                        c.PlanillaGrupalFirmadoItemId   = r.Grupal.ItemId;
+                        c.PlanillaGrupalFirmadoFilename = r.Grupal.Filename;
+                    }
+                }
+
+                foreach (var (rendicionId, archivo) in r.Planillas)
+                {
+                    if (!rendiciones.TryGetValue(rendicionId, out var rend)) continue;
+                    rend.PdfFirmadoUrl      = archivo.Url;
+                    rend.PdfFirmadoItemId   = archivo.ItemId;
+                    rend.PdfFirmadoFilename = archivo.Filename;
+                    rend.FirmadoPorId       = userId;
+                    rend.FirmadoAt          = firmadoAt;
+                }
+
+                foreach (var f in mias.Where(f => f.ConsolidadoS10Id == r.ConsolidadoId))
+                    f.FirmadoAt = firmadoAt;
+            }
+
+            await ctx.SaveChangesAsync();
+            return refirmados.Count;
+        }
+
+        public async Task<ProximaFirmaDto> GetProximaFirma(
+            IEnumerable<int> consolidadoIds, ConsolidadoFiltersDto scope, int? userId)
+        {
+            var resultado = new ProximaFirmaDto();
+
+            var ids = consolidadoIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return resultado;
+
+            // El mismo recorte que la decisión: lo que el usuario no ve no entra en la cuenta.
+            var visibles = await ResolverSolicitudIds(ids, scope);
+            if (visibles.Count == 0) return resultado;
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo lo que de verdad está esperando una firma: lo ya firmado por completo es de
+            // Tesorería y no cambia de manos con esta decisión.
+            var revisables = await IdsConReembolsoRevisableAsync(ctx, visibles);
+            if (revisables.Count == 0) return resultado;
+
+            var salidas = await ctx.GaSolicitudSalida.AsNoTracking()
+                .Where(s => revisables.Contains(s.Id))
+                .Select(s => new { s.Id, s.WorkerId, s.RendicionId })
+                .ToListAsync();
+
+            var consolidadoPorSolicitud = await ConsolidadoS10Loader.LoadAsync(
+                ctx, salidas.ToDictionary(s => s.Id, s => s.RendicionId));
+
+            var workersPorConsolidado = salidas
+                .Where(s => consolidadoPorSolicitud.ContainsKey(s.Id))
+                .GroupBy(s => consolidadoPorSolicitud[s.Id].Id)
+                .Where(g => ids.Contains(g.Key))
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyCollection<int>)g.Select(s => s.WorkerId).Distinct().ToList());
+
+            foreach (var estado in (await EstadoDeFirmasAsync(ctx, workersPorConsolidado, userId)).Values)
+            {
+                if (estado.SeCompletaConMiFirma) resultado.AlgunoSeCompleta = true;
+                resultado.Emails.AddRange(estado.ProximosEmails);
+            }
+
+            resultado.Emails = resultado.Emails.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return resultado;
         }
 
         public async Task<FirmanteDto> GetFirmante(int userId)
@@ -1404,15 +1774,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             }
 
             return SalidaVisibilidadFilter.Aplicar(
-                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
+                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds,
+                filters.TrabajadoresDeSusObras);
         }
 
         /// <summary>Copia solo el alcance del usuario, sin los filtros de la pantalla.</summary>
         private static ConsolidadoFiltersDto SoloVisibilidad(ConsolidadoFiltersDto scope) => new()
         {
-            CurrentUserId       = scope.CurrentUserId,
-            SeesAll             = scope.SeesAll,
-            VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+            CurrentUserId          = scope.CurrentUserId,
+            SeesAll                = scope.SeesAll,
+            VisibleAreaScopeIds    = scope.VisibleAreaScopeIds,
+            TrabajadoresDeSusObras = scope.TrabajadoresDeSusObras,
         };
 
         /// <summary>
@@ -1488,51 +1860,224 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         private async Task<HashSet<int>> ConsolidadosFueraDeTurnoAsync(
             AppDbContext ctx, List<int> consolidadoIds, List<int> workerIds, int reviewerUserId)
         {
-            var fuera = new HashSet<int>();
-            if (consolidadoIds.Count == 0 || workerIds.Count == 0) return fuera;
+            if (consolidadoIds.Count == 0 || workerIds.Count == 0) return new();
 
-            var misFichas = await (
-                from w in ctx.Worker.AsNoTracking()
-                join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
-                where per.UserId == reviewerUserId && w.State
-                select w.Id
-            ).ToListAsync();
-            if (misFichas.Count == 0) return fuera;
-
-            var esperados = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+            var estados = await EstadoDeFirmasAsync(
+                ctx,
                 consolidadoIds.ToDictionary(id => id, _ => (IReadOnlyCollection<int>)workerIds),
-                PasoAprobacion.Consolidado);
+                reviewerUserId);
 
+            return estados.Where(kv => kv.Value.EsperaFirmaPrevia).Select(kv => kv.Key).ToHashSet();
+        }
+
+        /// <summary>
+        /// En qué punto de la cadena de firmas está cada consolidado, visto por UN usuario: quiénes
+        /// firmaron, quiénes faltan, y qué puede hacer él hoy.
+        ///
+        /// Es el ÚNICO lugar donde se cruzan las firmas puestas
+        /// (<c>ga_consolidado_s10_firma</c>) con las que el área exige (el algoritmo o
+        /// <c>area_revisores_rendicion</c>), y por eso lo miran las dos cosas que tienen que decir
+        /// lo mismo: los botones de la pantalla y el guard que deja firmar. Sin esto, la pantalla
+        /// seguía ofreciendo "Aprobar" a quien ya había firmado.
+        /// </summary>
+        /// <param name="workersPorConsolidado">
+        /// Los trabajadores con los que se resuelven los firmantes de cada documento. Es el mismo
+        /// recorte que hace la decisión: un documento se resuelve entero, no trabajador por
+        /// trabajador.
+        /// </param>
+        private async Task<Dictionary<int, EstadoFirmas>> EstadoDeFirmasAsync(
+            AppDbContext ctx,
+            IReadOnlyDictionary<int, IReadOnlyCollection<int>> workersPorConsolidado,
+            int? reviewerUserId)
+        {
+            var estados = workersPorConsolidado.Keys.ToDictionary(id => id, _ => new EstadoFirmas());
+            if (estados.Count == 0) return estados;
+
+            var consolidadoIds = estados.Keys.ToList();
+
+            // Mis fichas: los aprobadores se resuelven por workers.id y no por usuario, y una
+            // persona puede tener más de una (reingresos).
+            var misFichas = reviewerUserId == null
+                ? new List<int>()
+                : await (
+                    from w in ctx.Worker.AsNoTracking()
+                    join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
+                    where per.UserId == reviewerUserId && w.State
+                    select w.Id
+                ).ToListAsync();
+
+            var conTrabajadores = workersPorConsolidado
+                .Where(kv => kv.Value.Count > 0)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            var esperados = conTrabajadores.Count == 0
+                ? new Dictionary<int, List<AprobadorDocumento>>()
+                : await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                    conTrabajadores, PasoAprobacion.Consolidado);
+
+            // Las firmas puestas, con quién las puso y con qué cargo: es lo que la pantalla muestra
+            // al lado del estado para explicar por qué el reembolso sigue Pendiente.
             var puestas = await ctx.GaConsolidadoS10Firma.AsNoTracking()
-                .Where(f => f.State && consolidadoIds.Contains(f.ConsolidadoS10Id) && f.WorkerId != null)
-                .Select(f => new { f.ConsolidadoS10Id, WorkerId = f.WorkerId!.Value })
+                .Where(f => f.State && consolidadoIds.Contains(f.ConsolidadoS10Id))
+                .Select(f => new
+                {
+                    f.ConsolidadoS10Id,
+                    f.FirmadoPorId,
+                    f.WorkerId,
+                    f.Slot,
+                    f.FirmadoAt,
+                    Nombre = ctx.Person.Where(p => p.UserId == f.FirmadoPorId)
+                                 .Select(p => p.FullName).FirstOrDefault(),
+                    Puesto = ctx.Worker.Where(w => w.Id == f.WorkerId)
+                                 .Select(w => w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null)
+                                 .FirstOrDefault(),
+                    // La PERSONA de la ficha que firmó. Ver FirmoYa: un reingreso deja varias
+                    // fichas y la firma se guarda con una sola.
+                    PersonId = ctx.Worker.Where(w => w.Id == f.WorkerId)
+                                 .Select(w => w.PersonId).FirstOrDefault(),
+                })
                 .ToListAsync();
 
-            var firmaronPorDoc = puestas
-                .GroupBy(f => f.ConsolidadoS10Id)
-                .ToDictionary(g => g.Key, g => g.Select(f => f.WorkerId).ToHashSet());
-
-            foreach (var (cid, aprobadores) in esperados)
+            foreach (var (cid, estado) in estados)
             {
-                var miTurno = aprobadores
-                    .Where(a => a.Persona.WorkerId != null && misFichas.Contains(a.Persona.WorkerId.Value))
+                var filas = puestas
+                    .Where(f => f.ConsolidadoS10Id == cid)
+                    .OrderBy(f => f.Slot).ThenBy(f => f.FirmadoAt)
+                    .ToList();
+
+                var firmaron = filas
+                    .Where(f => f.WorkerId != null)
+                    .Select(f => f.WorkerId!.Value)
+                    .ToHashSet();
+
+                var firmaronPersonas = filas
+                    .Where(f => f.PersonId != null)
+                    .Select(f => f.PersonId!.Value)
+                    .ToHashSet();
+
+                estado.Puestas.AddRange(filas.Select(f => new ConsolidadoFirmaDto
+                {
+                    Nombre    = NombrePropio(f.Nombre),
+                    Puesto    = string.IsNullOrWhiteSpace(f.Puesto) ? null : f.Puesto.Trim(),
+                    FirmadoAt = f.FirmadoAt,
+                    Yo        = reviewerUserId != null && f.FirmadoPorId == reviewerUserId,
+                }));
+
+                estado.YaFirme = reviewerUserId != null && filas.Any(f => f.FirmadoPorId == reviewerUserId);
+
+                var aprobadores = esperados.GetValueOrDefault(cid) ?? new List<AprobadorDocumento>();
+
+                // Un aprobador sin ficha resuelta (el fallback de GTH, que es un área) no se puede
+                // contrastar contra las firmas puestas: esos documentos se dan por completos con una
+                // firma, igual que antes de que existieran las firmas múltiples. Mismo criterio que
+                // ConsolidadosIncompletosAsync, que es quien escribe el estado.
+                var conFicha = aprobadores.Where(a => a.Persona.WorkerId != null).ToList();
+
+                bool YaLoFirmo(AprobadorDocumento a) =>
+                    FirmoYa(a, firmaron, firmaronPersonas);
+
+                estado.Incompleto = conFicha.Any(a => !YaLoFirmo(a));
+
+                // Sin nombre cargado se nombra por el correo, igual que el aviso a la jefatura: la
+                // pantalla tiene que poder decir a quién se está esperando.
+                if (estado.Incompleto)
+                    estado.Pendientes.AddRange(conFicha
+                        .Where(a => !YaLoFirmo(a))
+                        .OrderBy(a => a.Orden)
+                        .Select(a => string.IsNullOrWhiteSpace(a.Persona.Nombre)
+                            ? a.Persona.Email.Trim()
+                            : NombrePropio(a.Persona.Nombre))
+                        .Where(n => n.Length > 0)
+                        .Distinct());
+
+                // Qué quedaría si ESTE usuario firmara ahora: o el documento reúne todas sus
+                // firmas, o le pasa el turno al que sigue. Lo mira la confirmación de aprobar, que
+                // con una firma pendiente detrás tiene que nombrar al que sigue y no al
+                // consolidador. Un documento sin aprobadores con ficha (el fallback de GTH, que es
+                // un área) se completa con una firma, mismo criterio que el resto del método.
+                var restantes = conFicha
+                    .Where(a => !YaLoFirmo(a) && !misFichas.Contains(a.Persona.WorkerId!.Value))
+                    .ToList();
+
+                estado.SeCompletaConMiFirma = restantes.Count == 0;
+                estado.ProximosEmails.AddRange(FirmaEnTurno.De(restantes, new HashSet<int>())
+                    .Select(a => (a.Persona.Email ?? string.Empty).Trim())
+                    .Where(c => c.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
+
+                if (misFichas.Count == 0) continue;
+
+                var miTurno = conFicha
+                    .Where(a => misFichas.Contains(a.Persona.WorkerId!.Value))
                     .Select(a => (int?)a.Orden)
-                    .FirstOrDefault();
+                    .Min();
 
                 if (miTurno == null) continue;
 
-                var firmaron = firmaronPorDoc.TryGetValue(cid, out var set) ? set : new HashSet<int>();
+                estado.EsperaFirmaPrevia = conFicha.Any(a => a.Orden < miTurno && !YaLoFirmo(a));
 
-                var faltaAlguienAntes = aprobadores.Any(a =>
-                    a.Orden < miTurno
-                    && a.Persona.WorkerId != null
-                    && !firmaron.Contains(a.Persona.WorkerId.Value));
+                // Volver a firmar rehace el documento desde el original, así que solo se ofrece
+                // mientras nadie DETRÁS haya firmado: si no, habría que volver a estampar una firma
+                // ajena con una fecha que ya no le corresponde.
+                var firmoAlguienDespues = conFicha.Any(a => a.Orden > miTurno && YaLoFirmo(a));
 
-                if (faltaAlguienAntes) fuera.Add(cid);
+                estado.PuedeVolverAFirmar = estado.YaFirme && estado.Incompleto && !firmoAlguienDespues;
             }
 
-            return fuera;
+            return estados;
         }
+
+        /// <summary>
+        /// Las firmas de un consolidado vistas por un usuario. Ver <see cref="EstadoDeFirmasAsync"/>.
+        /// </summary>
+        private sealed class EstadoFirmas
+        {
+            /// <summary>Las que ya están estampadas, por el lugar que ocupan en la hoja.</summary>
+            public List<ConsolidadoFirmaDto> Puestas { get; } = new();
+
+            /// <summary>Nombres de los que faltan, en el orden en que les toca.</summary>
+            public List<string> Pendientes { get; } = new();
+
+            /// <summary>Correos de a quién le tocaría firmar si este usuario firmara ahora.</summary>
+            public List<string> ProximosEmails { get; } = new();
+
+            /// <summary>Con la firma de este usuario el documento las reuniría todas.</summary>
+            public bool SeCompletaConMiFirma { get; set; }
+
+            /// <summary>Este usuario ya firmó.</summary>
+            public bool YaFirme { get; set; }
+
+            /// <summary>Al documento le falta alguna de las firmas que su área exige.</summary>
+            public bool Incompleto { get; set; }
+
+            /// <summary>Le toca firmar, pero alguien que va antes que él todavía no lo hizo.</summary>
+            public bool EsperaFirmaPrevia { get; set; }
+
+            /// <summary>Puede rehacer su firma: ya firmó, falta la del que sigue y nadie detrás firmó.</summary>
+            public bool PuedeVolverAFirmar { get; set; }
+        }
+
+        /// <summary>
+        /// Si este aprobador ya firmó. Se compara por PERSONA y no solo por ficha: un reingreso deja
+        /// varias filas en <c>workers</c> para la misma persona, la firma se guarda con una de ellas
+        /// y el aprobador puede estar configurado con otra (<c>project.residente_workers_id</c>,
+        /// <c>workers_coord_admin_id</c>). Comparando solo fichas, ese documento quedaría esperando
+        /// para siempre una firma que ya está puesta y el reembolso no llegaría nunca a Tesorería.
+        /// </summary>
+        private static bool FirmoYa(
+            AprobadorDocumento aprobador, IReadOnlySet<int> fichas, IReadOnlySet<int> personas) =>
+            (aprobador.Persona.WorkerId != null && fichas.Contains(aprobador.Persona.WorkerId.Value))
+            || (aprobador.Persona.PersonId != null && personas.Contains(aprobador.Persona.PersonId.Value));
+
+        /// <summary>
+        /// Un nombre de la base (viene en MAYÚSCULAS) como se muestra y como se imprime en el pie de
+        /// la firma: "Roberto Vidal". Vacío si no hay nombre.
+        /// </summary>
+        private static string NombrePropio(string? nombre) =>
+            string.IsNullOrWhiteSpace(nombre)
+                ? string.Empty
+                : System.Globalization.CultureInfo.GetCultureInfo("es-PE").TextInfo
+                    .ToTitleCase(nombre.Trim().ToLowerInvariant());
         /// <summary>
         /// De los consolidados dados, los que TODAVÍA no reunieron todas las firmas que su área
         /// exige. Compara las firmas ya estampadas (incluida la que se está por guardar, que ya
@@ -1559,29 +2104,48 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Select(f => new { f.ConsolidadoS10Id, f.WorkerId })
                 .ToListAsync();
 
-            var porConsolidado = consolidadoIds.ToDictionary(id => id, _ => new HashSet<int>());
-            foreach (var f in puestas)
-                if (f.WorkerId != null && porConsolidado.TryGetValue(f.ConsolidadoS10Id, out var set))
-                    set.Add(f.WorkerId.Value);
+            var nuevas = ctx.ChangeTracker.Entries<GaConsolidadoS10Firma>()
+                .Where(e => e.State == EntityState.Added)
+                .Select(e => new { e.Entity.ConsolidadoS10Id, e.Entity.WorkerId })
+                .ToList();
 
-            foreach (var nueva in ctx.ChangeTracker.Entries<GaConsolidadoS10Firma>()
-                         .Where(e => e.State == EntityState.Added)
-                         .Select(e => e.Entity))
-                if (nueva.WorkerId != null && porConsolidado.TryGetValue(nueva.ConsolidadoS10Id, out var set))
-                    set.Add(nueva.WorkerId.Value);
+            // La persona de cada ficha que firmó: la comparación va por persona (ver FirmoYa).
+            var fichasFirmantes = puestas.Concat(nuevas)
+                .Where(f => f.WorkerId != null)
+                .Select(f => f.WorkerId!.Value)
+                .Distinct()
+                .ToList();
+
+            var personaDeFicha = fichasFirmantes.Count == 0
+                ? new Dictionary<int, int?>()
+                : await ctx.Worker.AsNoTracking()
+                    .Where(w => fichasFirmantes.Contains(w.Id))
+                    .Select(w => new { w.Id, w.PersonId })
+                    .ToDictionaryAsync(w => w.Id, w => w.PersonId);
+
+            var porConsolidado = consolidadoIds.ToDictionary(id => id, _ => new HashSet<int>());
+            var personasPorConsolidado = consolidadoIds.ToDictionary(id => id, _ => new HashSet<int>());
+
+            foreach (var f in puestas.Concat(nuevas))
+            {
+                if (f.WorkerId == null) continue;
+                if (porConsolidado.TryGetValue(f.ConsolidadoS10Id, out var set)) set.Add(f.WorkerId.Value);
+                if (personaDeFicha.GetValueOrDefault(f.WorkerId.Value) is int personId
+                    && personasPorConsolidado.TryGetValue(f.ConsolidadoS10Id, out var personas))
+                    personas.Add(personId);
+            }
 
             foreach (var (cid, aprobadores) in esperados)
             {
-                var fichas = aprobadores
-                    .Select(a => a.Persona.WorkerId)
-                    .Where(w => w != null)
-                    .Select(w => w!.Value)
-                    .ToList();
-
-                if (fichas.Count == 0) continue;
+                var conFicha = aprobadores.Where(a => a.Persona.WorkerId != null).ToList();
+                if (conFicha.Count == 0) continue;
 
                 var firmaron = porConsolidado.TryGetValue(cid, out var set) ? set : new HashSet<int>();
-                if (fichas.Any(f => !firmaron.Contains(f))) incompletos.Add(cid);
+                var personasQueFirmaron = personasPorConsolidado.TryGetValue(cid, out var ps)
+                    ? ps
+                    : new HashSet<int>();
+
+                if (conFicha.Any(a => !FirmoYa(a, firmaron, personasQueFirmaron))) incompletos.Add(cid);
             }
 
             return incompletos;
@@ -1605,6 +2169,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             d.ObservacionReembolso = o.ObservacionReembolso;
             d.ObservacionReembolsoOrigen = o.ObservacionReembolsoOrigen;
             d.PorDecidirCount = o.PorDecidirCount;
+            d.Firmas = o.Firmas; d.FirmasPendientes = o.FirmasPendientes;
+            d.YaFirme = o.YaFirme; d.EsperaFirmaPrevia = o.EsperaFirmaPrevia;
+            d.PuedeVolverAFirmar = o.PuedeVolverAFirmar;
             d.PuedeConsolidar = o.PuedeConsolidar; d.PuedeAvisarJefatura = o.PuedeAvisarJefatura;
             d.JefaturaAvisadaAt = o.JefaturaAvisadaAt; d.PuedeSolicitarCorreccion = o.PuedeSolicitarCorreccion;
             d.PuedeReemplazar = o.PuedeReemplazar;

@@ -8,6 +8,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.In
 
         Task UpdateAreaRevisoresAsync(int areaScopeId, int? projectId, List<AreaAsignacionInputDto> revisores);
 
-        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto);
+        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto);
     }
 }

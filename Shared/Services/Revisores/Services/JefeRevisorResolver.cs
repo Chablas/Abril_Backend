@@ -187,20 +187,10 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             var estructura = await EstructuraAreaLoader.CargarAsync(
                 ctx, todosLosNodos, EstructuraAreaLoader.AmbitoRevisor.Rendiciones);
 
-            var config = await ctx.GaSalidasAreaConfig.AsNoTracking()
-                .Where(f => f.State && todosLosNodos.Contains(f.AreaScopeId))
-                .Select(f => new { f.AreaScopeId, f.FiltraPorProyecto, f.FirmaConsolidadoPorProyecto })
-                .ToListAsync();
-
-            var nodosFiltranProyecto = config
-                .Where(c => c.FiltraPorProyecto)
-                .Select(c => c.AreaScopeId)
-                .ToHashSet();
-
-            var nodosFirmanPorProyecto = config
-                .Where(c => c.FiltraPorProyecto && c.FirmaConsolidadoPorProyecto)
-                .Select(c => c.AreaScopeId)
-                .ToHashSet();
+            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig.AsNoTracking()
+                .Where(f => f.State && f.FiltraPorProyecto && todosLosNodos.Contains(f.AreaScopeId))
+                .Select(f => f.AreaScopeId)
+                .ToListAsync()).ToHashSet();
 
             var proyectoPorWorker = await ProyectosVigentesAsync(ctx, todosLosWorkers);
 
@@ -208,7 +198,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             foreach (var (documentoId, ids) in docs)
                 resultado[documentoId] = AprobadoresDe(
                     ids, paso, personalizados, fichas, cadenaPorNodo, estructura, gth,
-                    nodosFiltranProyecto, nodosFirmanPorProyecto, proyectoPorWorker);
+                    nodosFiltranProyecto, proyectoPorWorker);
 
             return resultado;
         }
@@ -227,7 +217,6 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             EstructuraAreaLoader.EstructuraArea estructura,
             JefeRevisorResolution? gth,
             IReadOnlySet<int> nodosFiltranProyecto,
-            IReadOnlySet<int> nodosFirmanPorProyecto,
             IReadOnlyDictionary<int, int?> proyectoPorWorker)
         {
             static List<AprobadorDocumento> Uno(JefeRevisorResolution? r) =>
@@ -257,12 +246,10 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             var cadena = CadenaComun(nodos, cadenaPorNodo);
             if (cadena == null) return Uno(gth);
 
-            // La firma es del ÁREA salvo que un nodo de la rama la baje a la obra (el checkbox de
-            // Revisores de Áreas) Y el documento sea de una sola obra: con obras mezcladas no hay
-            // un revisor de proyecto único que pueda firmarlo entero.
-            var proyecto = cadena.Any(nodosFirmanPorProyecto.Contains)
-                ? ProyectoUnico(ids, proyectoPorWorker)
-                : null;
+            // La obra del documento, si es de UNA sola: en un área filtrada por proyecto la revisa y
+            // la firma su gente (el administrador de obra y el residente), sin ningún otro permiso
+            // de por medio. Con obras mezcladas no hay una sola a quién dársela y responde el área.
+            var proyecto = ProyectoUnico(ids, proyectoPorWorker);
 
             // Si alguno del grupo es jefatura lo es todo el grupo —la regla de agrupación no deja
             // mezclarlos—, y a una jefatura la firma su gerencia.
@@ -281,13 +268,43 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                 dentroWorkers.Contains(workerId)
                 || (personId != null && dentroPersons.Contains(personId.Value));
 
-            // El primer nodo de la rama que resuelva ALGUIEN corta la búsqueda, y devuelve a TODOS
-            // los suyos que intervienen en este paso: acá no se elige un ganador como al aprobar una
-            // salida, porque en obra el consolidado lo firman dos personas.
+            return AprobadoresDeLaCadena(
+                cadena, paso, estructura, nodosFiltranProyecto, proyecto, soloGerencia, EstaDentro, gth);
+        }
+
+        /// <summary>
+        /// El recorrido de una rama área → raíz buscando a los que intervienen en
+        /// <paramref name="paso"/>. Es el NÚCLEO de los aprobadores de rendiciones: lo usan tanto la
+        /// resolución de un documento real (<see cref="AprobadoresDe"/>, que antes le arma el
+        /// contexto del grupo) como la previsualización de la pantalla
+        /// (<see cref="ResolveAprobadoresByAreaScopeManyAsync"/>, que pregunta por un área sin nadie
+        /// dentro). Copiarlo afuera volvería a dejar que la pantalla muestre a alguien distinto de
+        /// quien va a tener que aprobar.
+        ///
+        /// El primer nodo de la rama que resuelva ALGUIEN corta la búsqueda y devuelve a TODOS los
+        /// suyos: acá no se elige un ganador como al aprobar una salida, porque en obra el
+        /// consolidado lo firman dos personas.
+        /// </summary>
+        /// <param name="proyecto">La obra, o null para resolver a nivel de área.</param>
+        /// <param name="soloGerencia">true = del algoritmo solo se aceptan GERENTES (el grupo es jefatura).</param>
+        /// <param name="estaDentro">
+        /// (workerId, personId) → true para quien no puede aprobar por estar incluido en el
+        /// documento. En la previsualización por área no hay nadie dentro y nunca descarta.
+        /// </param>
+        private static List<AprobadorDocumento> AprobadoresDeLaCadena(
+            List<int> cadena,
+            PasoAprobacion paso,
+            EstructuraAreaLoader.EstructuraArea estructura,
+            IReadOnlySet<int> nodosFiltranProyecto,
+            int? proyecto,
+            bool soloGerencia,
+            Func<int, int?, bool> estaDentro,
+            JefeRevisorResolution? gth)
+        {
             foreach (var nodo in cadena)
             {
                 var filtra = nodosFiltranProyecto.Contains(nodo) && proyecto != null;
-                var candidatos = new List<(EstructuraAreaLoader.PersonaDeArea Persona, int Orden)>();
+                var candidatos = new List<RevisorCandidato>();
 
                 // a) Lo asignado a mano en Revisores de Áreas de Rendiciones, con la casilla de ESTE
                 //    paso marcada. Manda sobre el algoritmo, como en todo el resto del resolver.
@@ -300,7 +317,8 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
                 if (aMano.Count > 0)
                 {
-                    candidatos.AddRange(aMano.Select((r, i) => (r.Persona, i + 1)));
+                    candidatos.AddRange(aMano.Select(
+                        r => Candidato(r.AreaScopeId, r.Persona, RevisorOrigen.Personalizado)));
                 }
                 else if (filtra)
                 {
@@ -308,33 +326,35 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
                     //    firma; el RESIDENTE solo firma. Ese es el reparto pedido, y el orden de la
                     //    lista es el orden de las firmas: primero el administrador.
                     if (estructura.AdministradorPorProyecto.TryGetValue(proyecto!.Value, out var adm))
-                        candidatos.Add((adm, candidatos.Count + 1));
+                        candidatos.Add(Candidato(nodo, adm, RevisorOrigen.Algoritmo));
 
                     if (paso == PasoAprobacion.Consolidado
                         && estructura.ResidentePorProyecto.TryGetValue(proyecto!.Value, out var res))
-                        candidatos.Add((res, candidatos.Count + 1));
+                        candidatos.Add(Candidato(nodo, res, RevisorOrigen.Algoritmo));
                 }
 
                 // c) Y si el nodo no aportó nada por obra, la jefatura del área.
                 if (candidatos.Count == 0)
-                    candidatos.AddRange(estructura.JefePorNodo[nodo].Select((p, i) => (p, i + 1)));
+                    candidatos.AddRange(estructura.JefePorNodo[nodo]
+                        .Select(p => Candidato(nodo, p, RevisorOrigen.Algoritmo)));
 
                 var validos = candidatos
-                    .Where(c => !EstaDentro(c.Persona.WorkerId, c.Persona.PersonId))
-                    .Where(c => !soloGerencia || c.Persona.CategoriaId == CategoriaIds.Gerente)
+                    .Where(c => !estaDentro(c.RevisorWorkerId, c.RevisorPersonId))
+                    .Where(c => !soloGerencia || c.CategoriaId == CategoriaIds.Gerente)
                     .ToList();
 
+                // El origen se mide desde el área por la que se preguntó, igual que en el ranking
+                // del revisor: lo asignado más arriba del árbol le llega a esta área porque el
+                // sistema fue a buscarlo, así que para ella es Algoritmo.
                 if (validos.Count > 0)
                     return validos
-                        .Select((c, i) => new AprobadorDocumento(
-                            new JefeRevisorResolution(
-                                c.Persona.WorkerId, null, c.Persona.Email.Trim(), c.Persona.Nombre,
-                                c.Persona.PersonId, RevisorOrigen.Algoritmo, c.Persona.CategoriaId),
-                            i + 1))
+                        .Select((c, i) => new AprobadorDocumento(AResolucion(c, cadena[0]), i + 1))
                         .ToList();
             }
 
-            return Uno(gth);
+            return gth == null
+                ? new List<AprobadorDocumento>()
+                : new List<AprobadorDocumento> { new(gth, 1) };
         }
 
         /// <summary>Identidad de un revisor para compararlo: la persona si la tiene, si no la ficha.</summary>
@@ -365,23 +385,13 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         }
 
         /// <summary>
-        /// La obra vigente de cada trabajador (vinculación con fecha_fin NULL), con el mismo
-        /// criterio y orden que usa la resolución del revisor.
+        /// La obra vigente de cada trabajador (vinculación con fecha_fin NULL). La regla vive en
+        /// <see cref="ObrasLoader"/>, que es la misma que usa la visibilidad de las bandejas: quien
+        /// firma por una obra tiene que poder ver los documentos de esa obra.
         /// </summary>
-        private static async Task<Dictionary<int, int?>> ProyectosVigentesAsync(
+        private static Task<Dictionary<int, int?>> ProyectosVigentesAsync(
             AppDbContext ctx, List<int> ids)
-        {
-            var vinculaciones = await ctx.WorkerVinculacion.AsNoTracking()
-                .Where(v => ids.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
-                .OrderByDescending(v => v.CreatedAt)
-                .ThenByDescending(v => v.Id)
-                .Select(v => new { v.WorkerId, v.ProyectoId })
-                .ToListAsync();
-
-            return vinculaciones
-                .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First().ProyectoId);
-        }
+            => ObrasLoader.ObraVigentePorTrabajadorAsync(ctx, ids);
 
         /// <summary>
         /// La obra del grupo, si es UNA sola. null si no comparten obra o si a alguno le falta: ahí
@@ -459,8 +469,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             && CategoriaIds.JefaturaDeAreaPorPrecedencia.Contains(categoriaId.Value);
 
         public async Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
-            IReadOnlyCollection<int> areaScopeIds, int? workerId = null,
-            EstructuraAreaLoader.AmbitoRevisor ambito = EstructuraAreaLoader.AmbitoRevisor.Salidas)
+            IReadOnlyCollection<int> areaScopeIds, int? workerId = null)
         {
             var resultado = new Dictionary<int, AreaScopeRevisorPreview>();
 
@@ -498,7 +507,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             // La jefatura de cada nodo en juego (lo fijado en Revisores y lo que deduce el árbol) la
             // carga EstructuraAreaLoader, compartido con ConsolidadorResolver: los dos algoritmos
             // tienen que deducir a la MISMA persona de la misma área.
-            var estructura = await EstructuraAreaLoader.CargarAsync(ctx, nodos, ambito);
+            var estructura = await EstructuraAreaLoader.CargarAsync(ctx, nodos);
             var gth = await GetFallbackGthAsync(ctx);
 
             // Proyectos a evaluar en los nodos que filtran: TODOS los activos, no solo los que
@@ -533,6 +542,89 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             }
 
             return resultado;
+        }
+
+        public async Task<Dictionary<int, AreaScopeAprobadoresPreview>> ResolveAprobadoresByAreaScopeManyAsync(
+            IReadOnlyCollection<int> areaScopeIds)
+        {
+            var resultado = new Dictionary<int, AreaScopeAprobadoresPreview>();
+
+            var ids = areaScopeIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return resultado;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var parentById = await EstructuraAreaLoader.CargarArbolAsync(ctx);
+            var cadenaPorNodo = EstructuraAreaLoader.ConstruirCadenas(ids, parentById);
+            var nodos = cadenaPorNodo.Values.SelectMany(c => c).Distinct().ToList();
+
+            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig.AsNoTracking()
+                .Where(f => f.State && f.FiltraPorProyecto && nodos.Contains(f.AreaScopeId))
+                .Select(f => f.AreaScopeId)
+                .ToListAsync()).ToHashSet();
+
+            // Ámbito Rendiciones: los asignados salen de area_revisores_rendicion y, en las áreas
+            // filtradas por proyecto, el algoritmo señala al administrador de obra.
+            var estructura = await EstructuraAreaLoader.CargarAsync(
+                ctx, nodos, EstructuraAreaLoader.AmbitoRevisor.Rendiciones);
+            var gth = await GetFallbackGthAsync(ctx);
+
+            // Los mismos proyectos que evalúa la previsualización de salidas: TODOS los activos y no
+            // solo los que tienen algo asignado, porque el algoritmo también resuelve los que no.
+            var proyectosActivos = nodosFiltranProyecto.Count == 0
+                ? new List<int>()
+                : await ctx.Project.AsNoTracking()
+                    .Where(p => p.State && p.Active)
+                    .Select(p => p.ProjectId)
+                    .ToListAsync();
+
+            // Los dos pasos se resuelven por separado —son dos preguntas distintas y pueden caer en
+            // nodos distintos— y recién después se fusionan en una persona por fila.
+            List<AprobadorDeArea> Aprobadores(List<int> cadena, int? proyecto) => Fusionar(
+                AprobadoresDeLaCadena(
+                    cadena, PasoAprobacion.PrimeraRevision, estructura, nodosFiltranProyecto,
+                    proyecto, soloGerencia: false, estaDentro: (_, _) => false, gth),
+                AprobadoresDeLaCadena(
+                    cadena, PasoAprobacion.Consolidado, estructura, nodosFiltranProyecto,
+                    proyecto, soloGerencia: false, estaDentro: (_, _) => false, gth));
+
+            foreach (var (nodoId, cadena) in cadenaPorNodo)
+            {
+                var area = Aprobadores(cadena, proyecto: null);
+
+                var porProyecto = new Dictionary<int, List<AprobadorDeArea>>();
+                if (cadena.Any(nodosFiltranProyecto.Contains))
+                    foreach (var projectId in proyectosActivos)
+                        porProyecto[projectId] = Aprobadores(cadena, projectId);
+
+                resultado[nodoId] = new AreaScopeAprobadoresPreview(area, porProyecto);
+            }
+
+            return resultado;
+        }
+
+        /// <summary>
+        /// Las dos resoluciones en UNA lista de personas, cada una con los pasos en los que salió.
+        /// Primero los de la primera revisión y detrás los que solo firman, que es el orden en que
+        /// las dos cosas pasan (y, en una obra, el orden de las firmas: administrador y después
+        /// residente). Alguien puede aparecer en uno solo de los dos pasos sin que nadie lo haya
+        /// configurado: es lo que hace el algoritmo con el residente.
+        /// </summary>
+        private static List<AprobadorDeArea> Fusionar(
+            List<AprobadorDocumento> primeraRevision, List<AprobadorDocumento> consolidado)
+        {
+            var orden = new List<JefeRevisorResolution>();
+            var vistos = new HashSet<string>();
+            var enPrimeraRevision = primeraRevision.Select(a => ClaveDe(a.Persona)).ToHashSet();
+            var enConsolidado = consolidado.Select(a => ClaveDe(a.Persona)).ToHashSet();
+
+            foreach (var a in primeraRevision.Concat(consolidado))
+                if (vistos.Add(ClaveDe(a.Persona))) orden.Add(a.Persona);
+
+            return orden
+                .Select(p => new AprobadorDeArea(
+                    p, enPrimeraRevision.Contains(ClaveDe(p)), enConsolidado.Contains(ClaveDe(p))))
+                .ToList();
         }
 
         /// <summary>
@@ -826,19 +918,9 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
             // vinculación vigente y cae al revisor a nivel de área, que es lo correcto.
             // Con ignorarProyecto no se consulta: sin obra, Ranking trata a todos los nodos como
             // si no filtraran y el residente nunca entra al ranking.
-            var proyectoDe = new Dictionary<int, int?>();
-            if (!ignorarProyecto)
-            {
-                var proyectoPorWorker = await ctx.WorkerVinculacion.AsNoTracking()
-                    .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
-                    .OrderByDescending(v => v.CreatedAt)
-                    .ThenByDescending(v => v.Id)
-                    .Select(v => new { v.WorkerId, v.ProyectoId })
-                    .ToListAsync();
-                proyectoDe = proyectoPorWorker
-                    .GroupBy(v => v.WorkerId)
-                    .ToDictionary(g => g.Key, g => g.First().ProyectoId);
-            }
+            var proyectoDe = ignorarProyecto
+                ? new Dictionary<int, int?>()
+                : await ObrasLoader.ObraVigentePorTrabajadorAsync(ctx, workerIds);
 
             // Sin proyecto la bandera no cambia nada (Ranking solo filtra cuando hay obra), así que
             // esa consulta no se hace.

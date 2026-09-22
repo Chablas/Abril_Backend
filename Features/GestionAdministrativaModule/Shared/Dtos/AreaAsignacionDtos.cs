@@ -38,14 +38,6 @@
         public bool FiltraPorProyecto { get; set; }
 
         /// <summary>
-        /// Solo tiene efecto con <see cref="FiltraPorProyecto"/> en true, y por eso la pantalla lo
-        /// ofrece únicamente en esas áreas. Si es true, el consolidado y la planilla grupal los
-        /// firma el revisor POR PROYECTO —el mismo que aprueba las salidas— en vez del revisor del
-        /// área. No trae lista propia: usa los revisores por proyecto que ya están más abajo.
-        /// </summary>
-        public bool FirmaConsolidadoPorProyecto { get; set; }
-
-        /// <summary>
         /// Solo cuando <see cref="FiltraPorProyecto"/> es true: TODOS los proyectos activos, cada
         /// uno con lo suyo asignado (vacío si no se asignó nada) y con sus efectivos resueltos. Van
         /// todos y no solo los asignados porque desde que existe el algoritmo un proyecto sin nada
@@ -111,6 +103,17 @@
         /// subió por el árbol hasta otra área) o "Gth" (último recurso, solo en revisores).
         /// </summary>
         public string? Origen { get; set; }
+
+        /// <summary>
+        /// Solo en Revisores de Rendiciones: interviene en la PRIMERA REVISIÓN de la planilla. No es
+        /// lo que alguien marcó sino el resultado de resolver ese paso, así que en una obra sin nada
+        /// cargado el administrador sale en true y el residente en false. En las otras dos pantallas
+        /// viaja en true y no se muestra.
+        /// </summary>
+        public bool ApruebaPrimeraRevision { get; set; } = true;
+
+        /// <summary>Idem para la firma del CONSOLIDADO y su planilla grupal.</summary>
+        public bool ApruebaConsolidado { get; set; } = true;
     }
 
     /// <summary>Opción del selector: worker con correo corporativo @abril.pe.</summary>
@@ -170,11 +173,5 @@
     public class AreaFiltroProyectoUpdateDto
     {
         public bool FiltraPorProyecto { get; set; }
-
-        /// <summary>
-        /// Solo se guarda en true si <see cref="FiltraPorProyecto"/> también lo está: sin subdividir
-        /// el área no hay revisor de obra al que bajarle la firma.
-        /// </summary>
-        public bool FirmaConsolidadoPorProyecto { get; set; }
     }
 }

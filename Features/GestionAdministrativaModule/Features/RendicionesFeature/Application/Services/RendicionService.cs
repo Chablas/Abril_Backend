@@ -106,10 +106,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             var solicitante = await _repo.GetSolicitante(rendicionId, userId)
                 ?? throw new AbrilException("No se pudo identificar al trabajador de la planilla.", 409);
 
-            var revisor = await _revisorResolver.ResolveAsync(solicitante.WorkerId);
-            if (string.IsNullOrWhiteSpace(revisor?.Email))
+            // Quién revisa la PLANILLA no es quien aprueba la SALIDA: en un área filtrada por
+            // proyecto la salida la aprueba el residente, pero la primera revisión es del
+            // ADMINISTRADOR DE OBRA y solo de él (el residente recién aparece al firmar el
+            // consolidado). Por eso se pregunta por el PASO y por el DOCUMENTO entero —todos los
+            // trabajadores que agrupa la planilla—, que es exactamente lo que mira el guard que
+            // habilita los botones en Gestión de Rendiciones: así el correo no puede caer en
+            // alguien que después no va a poder decidir.
+            var revisores = await _revisorResolver.ResolveAprobadoresDeDocumentoAsync(
+                solicitante.WorkersDeLaPlanilla, PasoAprobacion.PrimeraRevision);
+
+            var correosRevisores = revisores
+                .Select(a => a.Persona.Email?.Trim() ?? string.Empty)
+                .Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (correosRevisores.Count == 0)
                 throw new AbrilException(
                     "No se pudo determinar el correo de tu jefe/revisor. Avisa a Gestión del Talento Humano.", 409);
+
+            var nombreRevisores = string.Join(", ", revisores
+                .Select(a => a.Persona.Nombre?.Trim())
+                .Where(n => !string.IsNullOrWhiteSpace(n))!);
 
             var datos = new RendicionRevisionCorreoDatos
             {
@@ -130,10 +149,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
             // mandaría al jefe a una pantalla donde no tiene nada que decidir.
             await _repo.MarcarEnviadaAPrimeraRevision(rendicionId, userId);
 
-            var enviadoRevisorA = await NotificarRevisorPrimeraRevisionAsync(datos, revisor!.Email!);
-            await ConfirmarEnvioAlSolicitanteAsync(datos, solicitante, revisor, enviadoRevisorA);
+            var enviadoRevisorA = await NotificarRevisorPrimeraRevisionAsync(datos, correosRevisores);
+            await ConfirmarEnvioAlSolicitanteAsync(datos, solicitante, nombreRevisores, enviadoRevisorA);
 
-            var nombre = string.IsNullOrWhiteSpace(revisor.Nombre) ? "tu revisor" : revisor.Nombre;
+            var nombre = string.IsNullOrWhiteSpace(nombreRevisores) ? "tu revisor" : nombreRevisores;
             return $"Rendición {planilla.Codigo} enviada a {nombre} para su primera revisión.";
         }
 
@@ -237,8 +256,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
         // ── Correos de la primera revisión ───────────────────────────────────
 
         /// <summary>
-        /// Le avisa al jefe/revisor que tiene una rendición esperando su primera revisión, con los
-        /// dos botones (aprobar / observar) que lo llevan a la pantalla con la acción planteada.
+        /// Le avisa a quien tiene que revisar la planilla que hay una esperando su primera revisión,
+        /// con los dos botones (aprobar / observar) que lo llevan a la pantalla con la acción
+        /// planteada. Normalmente es una sola persona; son varias solo si el área marcó a más de una
+        /// en Revisores de Áreas de Rendiciones, y entonces le llega a todas porque cualquiera
+        /// puede decidir.
         ///
         /// Es best-effort: la rendición ya quedó en revisión y no se revierte porque un correo
         /// falle. Devuelve los correos a los que salió realmente —vacío si está apagado en
@@ -246,13 +268,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
         /// avisó a alguien que nunca lo recibió.
         /// </summary>
         private async Task<List<string>> NotificarRevisorPrimeraRevisionAsync(
-            RendicionRevisionCorreoDatos datos, string revisorEmail)
+            RendicionRevisionCorreoDatos datos, IReadOnlyCollection<string> revisorEmails)
         {
             try
             {
                 var envio = await _correoResolver.ResolveEnvioAsync(
-                    CorreoEventoCodigos.RendicionPrimeraRevision,
-                    new List<string> { revisorEmail });
+                    CorreoEventoCodigos.RendicionPrimeraRevision, revisorEmails);
 
                 if (!envio.Enviar)
                 {
@@ -294,7 +315,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
         private async Task ConfirmarEnvioAlSolicitanteAsync(
             RendicionRevisionCorreoDatos datos,
             RendicionSolicitanteDto solicitante,
-            JefeRevisorResolution revisor,
+            string? revisorNombre,
             IReadOnlyList<string> enviadoRevisorA)
         {
             try
@@ -321,7 +342,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
 
                 var url  = SalidaEnlaces.Rendiciones(_configuration, datos.RendicionId);
                 var body = RendicionRevisionEmailTemplates.EnRevision(
-                    SalidaEmailLayout.Desde(_configuration), datos, url, enviadoRevisorA, revisor.Nombre);
+                    SalidaEmailLayout.Desde(_configuration), datos, url, enviadoRevisorA, revisorNombre);
 
                 await _emailService.SendAsync(
                     to: envio.Para,

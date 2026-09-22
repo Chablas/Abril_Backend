@@ -139,21 +139,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
                     default:
                     {
-                        var consolidadores = await _repo.GetCorreosConsolidadorPorDecidir(
-                            request.ConsolidadoIds, scope, userId);
+                        // Con una firma pendiente detrás —en obra el residente firma después del
+                        // administrador— aprobar NO avisa al consolidador ni a Tesorería: el
+                        // reembolso sigue Pendiente y el único correo que sale es el que le pasa el
+                        // turno al que firma. Observar no firma nada, así que ahí no se pregunta.
+                        var proxima = request.Aprobar
+                            ? await _repo.GetProximaFirma(request.ConsolidadoIds, scope, userId)
+                            : new ProximaFirmaDto { AlgunoSeCompleta = true };
 
-                        await AgregarAvisoAsync(
-                            avisos, "Al consolidador",
-                            request.Aprobar ? CorreoEventoCodigos.ReembolsoAprobado : CorreoEventoCodigos.ReembolsoObservado,
-                            consolidadores);
+                        if (proxima.AlgunoSeCompleta)
+                        {
+                            var consolidadores = await _repo.GetCorreosConsolidadorPorDecidir(
+                                request.ConsolidadoIds, scope, userId);
 
-                        // Aprobar el reembolso ES firmar, y la firma es lo que mete la planilla en la
-                        // bandeja de Tesorería: por eso esa acción dispara un segundo correo.
-                        if (request.Aprobar)
                             await AgregarAvisoAsync(
-                                avisos, "A Tesorería",
-                                CorreoEventoCodigos.TesoreriaReembolso,
-                                await _repo.GetCorreosTesoreria());
+                                avisos, "Al consolidador",
+                                request.Aprobar ? CorreoEventoCodigos.ReembolsoAprobado : CorreoEventoCodigos.ReembolsoObservado,
+                                consolidadores);
+
+                            // Aprobar el reembolso ES firmar, y la firma completa es lo que mete la
+                            // planilla en la bandeja de Tesorería: por eso dispara un segundo correo.
+                            if (request.Aprobar)
+                                await AgregarAvisoAsync(
+                                    avisos, "A Tesorería",
+                                    CorreoEventoCodigos.TesoreriaReembolso,
+                                    await _repo.GetCorreosTesoreria());
+                        }
+
+                        if (proxima.Emails.Count > 0)
+                            await AgregarAvisoAsync(
+                                avisos, "A quien firma después",
+                                CorreoEventoCodigos.S10Revisor, proxima.Emails);
                         break;
                     }
                 }
@@ -199,48 +215,75 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             if (ids.Count == 0)
                 throw new AbrilException("No hay salidas en la selección dentro de tu alcance.", 400);
 
-            var rendicionesFirmadas = new List<int>();
-            var decididas = aprobar
-                ? await AprobarFirmandoAsync(ids, reviewerUserId, rendicionesFirmadas)
-                : await _repo.ObservarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
+            if (!aprobar)
+            {
+                var observadas = await _repo.ObservarReembolso(
+                    ids, accion.Observacion ?? string.Empty, reviewerUserId);
 
-            // El aviso al consolidador es best-effort: la decisión ya está guardada y no se revierte
-            // porque un correo falle (mismo criterio que la aprobación de la salida).
-            await NotificarDecisionAsync(decididas, aprobar);
+                // El aviso al consolidador es best-effort: la decisión ya está guardada y no se
+                // revierte porque un correo falle (mismo criterio que la aprobación de la salida).
+                await NotificarDecisionAsync(observadas, aprobado: false);
 
-            // Y el aviso a Tesorería, que es por PLANILLA: lo que se paga es el documento entero.
-            if (decididas.Count > 0)
-                foreach (var rendicionId in rendicionesFirmadas.Distinct())
-                    await NotificarTesoreriaAsync(rendicionId);
+                return new ReembolsoBulkResultDto
+                {
+                    Procesadas = observadas.Count,
+                    Message    = $"{observadas.Count} reembolso(s) observado(s).",
+                };
+            }
+
+            var firma = await AprobarFirmandoAsync(ids, reviewerUserId);
+
+            // «Aprobado» se avisa solo cuando el reembolso quedó aprobado DE VERDAD: con la primera
+            // de dos firmas el documento sigue esperando a la otra, y decirle al consolidador que
+            // ya está —o a Tesorería que lo pague— sería falso.
+            await NotificarDecisionAsync(firma.Completadas, aprobado: true);
+
+            // El aviso a Tesorería es por PLANILLA: lo que se paga es el documento entero.
+            foreach (var rendicionId in firma.RendicionesCompletadas)
+                await NotificarTesoreriaAsync(rendicionId);
+
+            // Las firmas van en cadena: al que sigue se le avisa recién ahora, con la anterior ya
+            // puesta. Con el documento completo no queda nadie en turno y no sale ningún correo.
+            if (firma.ConsolidadosFirmados.Count > 0)
+            {
+                // Quién acaba de firmar: es lo primero que el correo tiene que decirle al que sigue
+                // («X ya firmó, falta tu firma»). Se resuelve una vez para todo el lote.
+                var quienFirmo = (await _repo.GetFirmante(reviewerUserId)).Nombre;
+
+                foreach (var consolidadoId in firma.ConsolidadosFirmados)
+                    await AvisarSiguienteFirmanteAsync(consolidadoId, reviewerUserId, quienFirmo);
+            }
 
             return new ReembolsoBulkResultDto
             {
-                Procesadas        = decididas.Count,
-                PlanillasFirmadas = rendicionesFirmadas.Distinct().Count(),
-                Message = aprobar
-                    ? $"{decididas.Count} reembolso(s) aprobado(s)."
-                    : $"{decididas.Count} reembolso(s) observado(s).",
+                Procesadas        = firma.Completadas.Count,
+                PlanillasFirmadas = firma.RendicionesCompletadas.Count,
+                Message = firma.Completadas.Count > 0
+                    ? $"{firma.Completadas.Count} reembolso(s) aprobado(s)."
+                    : "Tu firma quedó estampada. El reembolso pasa a Tesorería cuando firme quien sigue.",
             };
         }
 
         /// <summary>
         /// Aprueba el reembolso FIRMANDO: estampa la firma del revisor —con su pie: puesto, nombre,
         /// fecha y hora— en todas las hojas de los documentos de cada planilla —su PDF, el
-        /// Consolidado del S10 y la planilla grupal— y deja las salidas en "Firmado", que es lo que
-        /// Tesorería ve como pagable. Aprobar y firmar son el mismo acto:
-        /// lo que el jefe respalda con su firma es justamente lo que está aprobando.
+        /// Consolidado del S10 y la planilla grupal— y deja en "Firmado" —lo que Tesorería ve como
+        /// pagable— las salidas cuyo documento ya no debe ninguna firma. Aprobar y firmar son el
+        /// mismo acto: lo que el jefe respalda con su firma es justamente lo que está aprobando.
+        ///
+        /// En obra el consolidado lo firman DOS (el administrador y detrás el residente): con la
+        /// primera firma el papel ya queda estampado pero el reembolso sigue Pendiente, esperando
+        /// la otra.
         ///
         /// Los PDF se suben ANTES de escribir el estado: si algo falla en SharePoint no queda una
         /// salida aprobada sin su respaldo firmado (al revés solo deja archivos huérfanos, que no
         /// rompen nada).
         /// </summary>
-        /// <param name="rendicionesFirmadas">
-        /// Se llena con las planillas que se firmaron. Sale por acá y no en el retorno porque el
-        /// aviso a Tesorería es por planilla mientras que la decisión es por salida: sin esta lista
-        /// habría que volver a la base a agrupar lo mismo.
-        /// </param>
-        private async Task<List<int>> AprobarFirmandoAsync(
-            List<int> ids, int userId, List<int> rendicionesFirmadas)
+        /// <returns>
+        /// Qué quedó firmado y qué quedó además APROBADO: en obra el consolidado lleva dos firmas y
+        /// con la primera el reembolso sigue Pendiente. Los avisos se disparan con eso.
+        /// </returns>
+        private async Task<ReembolsoFirmaResultDto> AprobarFirmandoAsync(List<int> ids, int userId)
         {
             // Solo valen las firmas del tipo que hoy pide Consolidados → Configuración → Firmas: si
             // la configuración pide imagen, una firma dibujada no sirve para firmar acá (aunque la
@@ -280,7 +323,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 {
                     RendicionId  = p.RendicionId,
                     SolicitudIds = p.SolicitudIds,
-                    Planilla     = await FirmarYSubirAsync(carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes, pie),
+                    // Lo que respalda a cada salida, también cuando no hay nada que estampar porque
+                    // este usuario ya firmó ese consolidado: es contra eso que se mide si el
+                    // documento reunió todas sus firmas.
+                    ConsolidadoPorSolicitud = p.ConsolidadoPorSolicitud,
+                    // Sin ningún consolidado que estampar tampoco hay nada que firmar en la
+                    // planilla: este usuario ya la firmó en el mismo acto en que firmó el documento.
+                    Planilla     = p.Consolidados.Count == 0
+                        ? null
+                        : await FirmarYSubirAsync(
+                            carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes, pie, p.PlanillaSlot),
                 };
 
                 foreach (var doc in p.Consolidados)
@@ -305,11 +357,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 firmadas.Add(firmada);
             }
 
-            var decididas = await _repo.AprobarReembolsoFirmado(firmadas, userId, firmadoAt);
-            if (decididas.Count > 0)
-                rendicionesFirmadas.AddRange(firmadas.Select(f => f.RendicionId));
-
-            return decididas;
+            return await _repo.AprobarReembolsoFirmado(firmadas, userId, firmadoAt);
         }
 
         /// <summary>
@@ -324,9 +372,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// <param name="pdfFilename">Nombre del ORIGINAL: la copia se llama igual, con -FIRMADO.</param>
         /// <param name="pie">Puesto, nombre y fecha que van impresos debajo de la firma.</param>
         /// <param name="slot">Lugar de la firma en la hoja (0 = la esquina de siempre).</param>
-        private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
+        private Task<ArchivoFirmadoDto> FirmarYSubirAsync(
             ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng,
             SignaturePdfStamper.PieFirma pie, int slot = 0)
+            => FirmarYSubirAsync(carpeta, pdfUrl, pdfFilename, new[] { new Estampa(firmaPng, pie, slot) });
+
+        /// <summary>Una firma a estampar: su imagen, su pie y el lugar que ocupa en la hoja.</summary>
+        private sealed record Estampa(byte[] Firma, SignaturePdfStamper.PieFirma Pie, int Slot);
+
+        /// <summary>
+        /// Igual que la anterior pero con VARIAS firmas sobre el mismo PDF, en una sola bajada y una
+        /// sola subida. Lo usa «Volver a firmar», que rehace la copia firmada desde el original y
+        /// por eso tiene que volver a poner todas las firmas que el documento ya tenía.
+        /// </summary>
+        private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
+            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename,
+            IReadOnlyList<Estampa> estampas)
         {
             byte[] original;
             try
@@ -346,7 +407,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 // Una planilla agrupa a varios trabajadores y cada grupo termina con su propia
                 // línea de firma, así que la firma va en TODAS las hojas: solo al pie de la última
                 // dejaría sin firma a todos los grupos menos el último.
-                firmado = SignaturePdfStamper.Stamp(original, firmaPng, pie, slot);
+                firmado = original;
+                foreach (var e in estampas)
+                    firmado = SignaturePdfStamper.Stamp(firmado, e.Firma, e.Pie, e.Slot);
             }
             catch (Exception ex)
             {
@@ -378,6 +441,104 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 _logger.LogError(ex, "Falló la subida de {Archivo}.", filename);
                 throw new AbrilException($"No se pudo guardar {filename} en SharePoint.", 502);
             }
+        }
+
+        /// <summary>
+        /// Vuelve a estampar la firma de este usuario sobre consolidados que ya firmó y que siguen
+        /// esperando la de quien va detrás. Las copias firmadas se REHACEN desde el original, con
+        /// las firmas que tenían y la suya al día: no se agrega una segunda estampa de la misma
+        /// persona ni una fila de firma más, así que el documento sigue debiendo exactamente lo
+        /// que debía y sus salidas no se mueven de estado.
+        ///
+        /// El guard (quién y hasta cuándo) vive en el repositorio, en el mismo lugar que decide el
+        /// botón de la pantalla. Acá solo se arma el papel.
+        /// </summary>
+        public async Task<ReembolsoBulkResultDto> VolverAFirmar(
+            ConsolidadoAccionDto accion, ConsolidadoFiltersDto scope, int userId)
+        {
+            if (accion.ConsolidadoIds.Count == 0)
+                throw new AbrilException("Selecciona al menos un Consolidado del S10.", 400);
+
+            await ApplyVisibilityAsync(scope);
+
+            // Mismo criterio que aprobar: vale la firma del tipo que hoy pide Configuración → Firmas.
+            var tiposHabilitados = (await _firmaRepository.GetTipos())
+                .Where(t => t.Activo)
+                .Select(t => t.Codigo)
+                .ToList();
+
+            var mia = await _firmaRepository.GetActiveBytesByUserId(userId, tiposHabilitados)
+                ?? throw new AbrilException(
+                    "Todavía no registraste tu firma. Regístrala una vez y vuelve a intentarlo.", 409);
+
+            var documentos = await _repo.GetConsolidadosParaVolverAFirmar(accion.ConsolidadoIds, scope, userId);
+            if (documentos.Count == 0)
+                throw new AbrilException("No hay ningún consolidado que puedas volver a firmar.", 400);
+
+            var carpeta   = await ResolverCarpetaRendicionesAsync();
+            var firmante  = await _repo.GetFirmante(userId);
+            var firmadoAt = DateTimeOffset.UtcNow;
+            var miPie     = new SignaturePdfStamper.PieFirma(firmante.Nombre, firmante.Puesto, firmadoAt);
+
+            var refirmados = new List<ConsolidadoRefirmadoDto>(documentos.Count);
+            foreach (var doc in documentos)
+            {
+                // Como se parte del original hay que volver a poner TODAS las firmas vivas: la de
+                // este usuario al día y las ajenas tal como estaban, con la fecha con la que se
+                // firmaron. Si alguna no se puede recuperar se corta acá: rehacer el documento
+                // perdiendo una firma sería peor que no rehacerlo.
+                var estampas = new List<Estampa>(doc.Firmas.Count);
+                foreach (var f in doc.Firmas)
+                {
+                    if (f.FirmadoPorId == userId)
+                    {
+                        estampas.Add(new Estampa(mia.Bytes, miPie, f.Slot));
+                        continue;
+                    }
+
+                    var otra = await _firmaRepository.GetActiveBytesByUserId(f.FirmadoPorId, tiposHabilitados)
+                        ?? throw new AbrilException(
+                            "No se puede rehacer el documento: falta la firma registrada de alguien que ya lo firmó.",
+                            409);
+
+                    var quien = await _repo.GetFirmante(f.FirmadoPorId);
+                    estampas.Add(new Estampa(
+                        otra.Bytes,
+                        new SignaturePdfStamper.PieFirma(quien.Nombre, quien.Puesto, f.FirmadoAt),
+                        f.Slot));
+                }
+
+                var refirmado = new ConsolidadoRefirmadoDto
+                {
+                    ConsolidadoId = doc.Id,
+                    S10 = await FirmarYSubirAsync(carpeta, doc.PdfUrl, doc.PdfFilename, estampas),
+                    // La planilla grupal lleva las mismas firmas que el consolidado: se firman en
+                    // el mismo acto.
+                    Grupal = doc.GrupalUrl == null || doc.GrupalFilename == null
+                        ? null
+                        : await FirmarYSubirAsync(carpeta, doc.GrupalUrl, doc.GrupalFilename, estampas),
+                };
+
+                // Las planillas llevan las MISMAS firmas que su consolidado —se decide entero, así
+                // que quien lo firma firma todas— y se rehacen igual: desde el original, con todas
+                // las estampas en su lugar.
+                foreach (var planilla in doc.Planillas)
+                    refirmado.Planillas[planilla.RendicionId] = await FirmarYSubirAsync(
+                        carpeta, planilla.PdfUrl, planilla.PdfFilename, estampas);
+
+                refirmados.Add(refirmado);
+            }
+
+            var procesados = await _repo.RegistrarVolverAFirmar(refirmados, userId, firmadoAt);
+
+            return new ReembolsoBulkResultDto
+            {
+                Procesadas        = procesados,
+                PlanillasFirmadas = refirmados.Sum(r => r.Planillas.Count),
+                Message = procesados == 1
+                    ? "Tu firma se volvió a estampar."
+                    : $"Tu firma se volvió a estampar en {procesados} consolidados.",
+            };
         }
 
         /// <summary>Carpeta de SharePoint donde viven las planillas y sus copias firmadas.</summary>
@@ -418,8 +579,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                     "No se pudo determinar el correo de la jefatura de estos trabajadores. Avisa a Gestión del Talento Humano.",
                     409);
 
-            // A diferencia de las decisiones, este aviso ES el correo: si no le llega a nadie se corta
-            // acá en vez de marcar un aviso que nunca salió.
+            return await EnviarAvisoJefaturaAsync(info, consolidadoId, userId);
+        }
+
+        /// <summary>
+        /// Manda el aviso «Reembolso por revisar» a quien tiene que firmar HOY —uno solo, porque las
+        /// firmas van en cadena— y deja la marca de avisado en sus salidas. Lo comparten el botón
+        /// del consolidador y el aviso automático que dispara la firma anterior, para que el correo
+        /// y su marca sean los mismos por las dos vías.
+        ///
+        /// A diferencia de las decisiones, este aviso ES el correo: si está apagado se corta acá en
+        /// vez de marcar un aviso que nunca salió.
+        /// </summary>
+        private async Task<string> EnviarAvisoJefaturaAsync(
+            AvisoJefaturaInfoDto info, int consolidadoId, int userId)
+        {
             var envio = await _correoResolver.ResolveEnvioAsync(
                 CorreoEventoCodigos.S10Revisor, info.JefaturaEmails);
 
@@ -429,15 +603,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             var url  = SalidaEnlaces.Consolidados(_configuration, consolidadoId);
             var body = ReembolsoEmailTemplates.ConsolidadoPorRevisar(
-                SalidaEmailLayout.Desde(_configuration), info.Datos, url);
+                SalidaEmailLayout.Desde(_configuration), info.Datos!, url);
 
-            var numero = string.IsNullOrWhiteSpace(info.Datos.NumeroReembolso)
+            var numero = string.IsNullOrWhiteSpace(info.Datos!.NumeroReembolso)
                 ? string.Empty
                 : $" N.° {info.Datos.NumeroReembolso}";
 
+            // El asunto dice de qué se trata antes de abrirlo: al que firma en segundo lugar le
+            // llega «Falta tu firma» y no otro «por revisar» igual al que ya vio.
+            var asunto = string.IsNullOrWhiteSpace(info.Datos.FirmoAntes)
+                ? $"Reembolso por revisar - Consolidado del S10{numero}"
+                : $"Falta tu firma - Consolidado del S10{numero}";
+
             await _emailService.SendAsync(
                 to: envio.Para,
-                subject: $"Reembolso por revisar - Consolidado del S10{numero}",
+                subject: asunto,
                 body: body,
                 isHtml: true,
                 cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -445,6 +625,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             await _repo.MarcarJefaturaAvisada(info.SolicitudIds, userId);
 
             return $"Se le avisó a {ConsolidadoS10Agrupacion.Enumerar(info.JefaturaNombres)}.";
+        }
+
+        /// <summary>
+        /// El aviso al SIGUIENTE firmante, que sale recién cuando el anterior firmó: en una obra el
+        /// consolidado lo firman el administrador y después el residente, y al residente no se le
+        /// avisa antes de que le toque —mismo criterio que las aprobaciones de GTH, donde el
+        /// reemplazo le llega a GTH cuando el gerente del área ya lo aprobó—.
+        ///
+        /// Si el documento reunió todas sus firmas no queda nadie en turno y no sale nada. Es
+        /// best-effort, igual que el resto de los avisos: la firma ya está guardada y estampada en
+        /// el papel, así que un correo que no sale no la deshace.
+        /// </summary>
+        /// <param name="quienFirmo">
+        /// Nombre del que acaba de firmar. Es lo que distingue este aviso del que manda el
+        /// consolidador al adjuntar: al residente no le sirve enterarse de que el documento se
+        /// adjuntó, sino de que el administrador de obra ya lo firmó y ahora le toca a él.
+        /// </param>
+        private async Task AvisarSiguienteFirmanteAsync(int consolidadoId, int userId, string? quienFirmo)
+        {
+            try
+            {
+                var info = await _repo.GetAvisoSiguienteFirmante(consolidadoId);
+                if (info?.Datos == null || info.SolicitudIds.Count == 0 || info.JefaturaEmails.Count == 0)
+                    return;
+
+                info.Datos.FirmoAntes = quienFirmo;
+                await EnviarAvisoJefaturaAsync(info, consolidadoId, userId);
+            }
+            catch (AbrilException ex)
+            {
+                _logger.LogInformation(
+                    "Consolidado {ConsolidadoId} firmado, pero sin aviso al siguiente firmante: {Motivo}",
+                    consolidadoId, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando al siguiente firmante del consolidado {ConsolidadoId}", consolidadoId);
+            }
         }
 
         public async Task<string> SolicitarCorreccionS10(
@@ -617,8 +836,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             var vis = await _visibilityResolver.ResolveAsync(
                 filters.CurrentUserId.Value, VisibilidadAmbitoIds.Consolidados);
-            filters.SeesAll             = vis.SeesAll;
-            filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+            filters.SeesAll                = vis.SeesAll;
+            filters.VisibleAreaScopeIds    = vis.AreaScopeIds.ToList();
+            filters.TrabajadoresDeSusObras = vis.TrabajadoresDeSusObras.ToList();
         }
 
         // ── Correos de la decisión ───────────────────────────────────────────

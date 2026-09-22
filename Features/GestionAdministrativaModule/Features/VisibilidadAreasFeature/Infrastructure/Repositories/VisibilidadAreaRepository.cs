@@ -5,6 +5,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services.Jerarquia;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastructure.Repositories
@@ -76,6 +77,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
             foreach (var w in workers)
                 if (counts.TryGetValue(w.WorkerId, out var n)) w.AreasAsignadas = n;
 
+            // Las obras a cargo de cada ficha (residente o administrador de obra): las ve enteras
+            // con o sin override. Qué cuenta como obra lo dice ObrasLoader, el mismo que usa el
+            // resolver, para que la lista no prometa una obra que la bandeja no muestra.
+            var obras = await ObrasLoader.Obras(ctx)
+                .Where(p => p.ResidenteWorkersId != null || p.WorkersCoordAdminId != null)
+                .Select(p => new { p.ProjectDescription, p.ResidenteWorkersId, p.WorkersCoordAdminId })
+                .ToListAsync();
+
+            var obrasPorFicha = obras
+                .SelectMany(o => new[] { o.ResidenteWorkersId, o.WorkersCoordAdminId }
+                    .Where(id => id != null)
+                    .Distinct()
+                    .Select(id => (WorkerId: id!.Value, Nombre: o.ProjectDescription.Trim())))
+                .ToLookup(x => x.WorkerId, x => x.Nombre);
+
+            foreach (var w in workers)
+                w.Obras = obrasPorFicha[w.WorkerId]
+                    .OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+
             return workers;
         }
 
@@ -104,6 +125,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadAreas.Infrastr
                 Efectivas = efectiva.AreaScopeIds.ToList(),
                 EsPersonalizado = asignaciones.Count > 0,
                 VeTodo = efectiva.SeesAll,
+                Obras = efectiva.Obras
+                    .Select(o => new VisibilidadObraDto
+                    {
+                        ProjectId = o.ProjectId,
+                        Nombre    = o.Nombre,
+                        Rol       = (o.EsResidente, o.EsAdministrador) switch
+                        {
+                            (true, true) => "Residente y administrador de obra",
+                            (true, _)    => "Residente",
+                            _            => "Administrador de obra",
+                        },
+                    })
+                    .ToList(),
             };
         }
 

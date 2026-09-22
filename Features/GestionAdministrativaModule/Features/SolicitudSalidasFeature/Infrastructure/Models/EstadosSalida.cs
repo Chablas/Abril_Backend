@@ -175,6 +175,18 @@
                 Tesoreria => NombreTesoreria,
                 _         => string.Empty,
             };
+
+            /// <summary>
+            /// nombre → id, o null si no es ninguno. La vuelta de <see cref="Nombre"/>: las
+            /// pantallas de planillas y de consolidados resumen el origen a su nombre y el pipeline
+            /// del detalle necesita el id para saber si el rojo va en la firma o en Tesorería.
+            /// </summary>
+            public static int? IdFromNombre(string? nombre) => nombre?.Trim() switch
+            {
+                NombreJefatura  => Jefatura,
+                NombreTesoreria => Tesoreria,
+                _               => null,
+            };
         }
 
         /// <summary>

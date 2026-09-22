@@ -81,11 +81,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
         // ── Qué se puede hacer con esta planilla ─────────────────────────
         /// <summary>
-        /// True si el usuario puede decidir la primera revisión de esta planilla. Es false cuando
-        /// incluye salidas SUYAS y él no es su propio revisor: nadie decide lo suyo, y la única
-        /// excepción es tener el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de
-        /// Ingresos → ficha del trabajador). La pantalla lo usa para apagar las acciones antes de
-        /// que el backend las rechace.
+        /// True si al usuario le toca decidir la primera revisión de esta planilla: está entre los
+        /// aprobadores que resuelve el documento entero (en obra, el administrador). Es false para
+        /// cualquier otro que la vea —incluido quien la ve porque incluye salidas suyas, que
+        /// nadie decide sobre lo propio salvo con el jefe personalizado apuntándose a sí mismo—.
+        /// La pantalla lo usa para NO mostrar Aprobar/Observar, antes de que el backend los
+        /// rechace.
         /// </summary>
         public bool PuedeDecidir { get; set; } = true;
 
@@ -157,6 +158,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
     public class GestionRendicionDetalleDto : GestionRendicionListItemDto
     {
+        /// <summary>
+        /// El recorrido del reembolso de esta planilla —de la solicitud al pago—, para el pipeline
+        /// del modal de detalle. Lo arma <c>ReembolsoPipelineBuilder</c>, el mismo de las otras
+        /// pantallas del ciclo.
+        /// </summary>
+        public ReembolsoPipelineDto Pipeline { get; set; } = new();
+
         public List<GestionRendicionSalidaDto> Salidas { get; set; } = new();
 
         // Los destinatarios de los correos de las decisiones NO viajan acá: se piden aparte con
@@ -189,6 +197,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool SeesAll { get; set; }
         public bool SeesAllOverride { get; set; }
         public List<int>? VisibleAreaScopeIds { get; set; }
+        /// <summary>Trabajadores de las obras de las que el usuario es residente o administrador.</summary>
+        public List<int>? TrabajadoresDeSusObras { get; set; }
     }
 
     /// <summary>

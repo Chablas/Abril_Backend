@@ -64,6 +64,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var detalle  = new GestionRendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
+            // El pipeline sale de la cabecera ya armada —no de la planilla cruda— para que diga
+            // exactamente lo mismo que los badges de arriba del modal.
+            detalle.Pipeline = ReembolsoPipelineBuilder.ParaPlanilla(
+                codigo:                     cabecera.Codigo,
+                rendidoAt:                  cabecera.RendidoAt,
+                estadoPrimeraRevision:      cabecera.EstadoPrimeraRevision,
+                enviadaRevisionAt:          cabecera.EnviadaRevisionAt,
+                primeraRevisionAt:          cabecera.PrimeraRevisionAt,
+                consolidado:                cabecera.ConsolidadoS10,
+                firmadoAt:                  cabecera.FirmadoAt,
+                estadoReembolso:            cabecera.EstadoReembolso,
+                observacionOrigen:          cabecera.ObservacionReembolsoOrigen,
+                mixto:                      cabecera.ReembolsoMixto);
+
             detalle.Salidas = planilla.Salidas
                 .Select(s => new GestionRendicionSalidaDto
                 {
@@ -102,9 +116,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         {
             using var ctx = _factory.CreateDbContext();
 
-            var seesAll  = scope.SeesAll;
-            var areaIds  = scope.VisibleAreaScopeIds ?? new List<int>();
-            var uid      = scope.CurrentUserId;
+            var seesAll    = scope.SeesAll;
+            var areaIds    = scope.VisibleAreaScopeIds ?? new List<int>();
+            var deSusObras = scope.TrabajadoresDeSusObras ?? new List<int>();
+            var uid        = scope.CurrentUserId;
 
             // Trabajadores con al menos una salida YA RENDIDA: los que no rindieron nada todavía
             // no tienen planilla, y ofrecerlos en el filtro sería ofrecer un resultado vacío.
@@ -114,13 +129,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .Distinct()
                 .ToListAsync();
 
+            // Mismo alcance que la tabla: su área, él mismo y, si es residente o administrador de
+            // obra, los trabajadores de su obra.
             var trabajadoresQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
             if (!seesAll)
             {
                 trabajadoresQuery = trabajadoresQuery.Where(w =>
                     (w.PuestoCatalogo!.AreaDestinoScopeId != null
                      && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
-                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)));
+                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
+                    || deSusObras.Contains(w.Id));
             }
 
             var trabajadores = await (
@@ -135,12 +153,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 }
             ).ToListAsync();
 
+            // Las áreas de los trabajadores de su obra también, para poder filtrar por ellas: el
+            // frontend toma como raíz a cualquier nodo cuyo padre no vino.
             var areaTree = await (
                 from s  in ctx.AreaScope
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                 where s.State && ai.State && at.State
-                   && (seesAll || areaIds.Contains(s.AreaScopeId))
+                   && (seesAll
+                       || areaIds.Contains(s.AreaScopeId)
+                       || ctx.Worker.Any(w => deSusObras.Contains(w.Id)
+                                           && w.PuestoCatalogo!.AreaDestinoScopeId == s.AreaScopeId))
                 orderby s.DisplayOrder
                 select new AreaNodeDto
                 {
@@ -461,15 +484,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             }
 
             return SalidaVisibilidadFilter.Aplicar(
-                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
+                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds,
+                filters.TrabajadoresDeSusObras);
         }
 
         /// <summary>Copia solo el alcance del usuario, sin los filtros de la pantalla.</summary>
         private static GestionRendicionFiltersDto SoloVisibilidad(GestionRendicionFiltersDto scope) => new()
         {
-            CurrentUserId       = scope.CurrentUserId,
-            SeesAll             = scope.SeesAll,
-            VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+            CurrentUserId          = scope.CurrentUserId,
+            SeesAll                = scope.SeesAll,
+            VisibleAreaScopeIds    = scope.VisibleAreaScopeIds,
+            TrabajadoresDeSusObras = scope.TrabajadoresDeSusObras,
         };
 
 

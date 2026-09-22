@@ -159,13 +159,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
             if (workerIds.Count == 0) return avisos;
 
-            // Quien va a firmar el consolidado que se está por adjuntar: UNO para el documento
-            // entero. Se pregunta al MISMO resolver que después manda el correo y que habilita el
-            // botón, así que la confirmación no puede anunciar a alguien que no va a poder firmar.
+            // Quién va a firmar el consolidado que se está por adjuntar. Se pregunta al MISMO
+            // resolver que después manda el correo y que habilita el botón, así que la confirmación
+            // no puede anunciar a alguien que no va a poder firmar.
             var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
                 workerIds, PasoAprobacion.Consolidado);
 
-            var jefaturas = firmantes
+            // Y solo al PRIMERO: el documento todavía no existe, así que no hay ninguna firma
+            // puesta y en obra el residente recién se entera cuando el administrador firme.
+            var jefaturas = FirmaEnTurno.De(firmantes, new HashSet<int>())
                 .Select(f => f.Persona.Email?.Trim() ?? string.Empty)
                 .Where(e => e.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -349,8 +351,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
             var vis = await _visibilityResolver.ResolveAsync(
                 filters.CurrentUserId.Value, VisibilidadAmbitoIds.Rendiciones);
-            filters.SeesAll             = vis.SeesAll;
-            filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+            filters.SeesAll                = vis.SeesAll;
+            filters.VisibleAreaScopeIds    = vis.AreaScopeIds.ToList();
+            filters.TrabajadoresDeSusObras = vis.TrabajadoresDeSusObras.ToList();
         }
 
         // ── Correos de la primera revisión ───────────────────────────────────

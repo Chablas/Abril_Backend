@@ -50,6 +50,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             ConsolidadoAccionDto accion, bool aprobar, ConsolidadoFiltersDto scope, int reviewerUserId);
 
         /// <summary>
+        /// Vuelve a estampar la firma de este usuario sobre un consolidado que ya firmó y que sigue
+        /// esperando la de quien va detrás (en obra: el administrador de obra antes de que firme el
+        /// residente). No es una segunda firma: las copias firmadas se REHACEN desde el original con
+        /// las mismas firmas que tenían y la suya al día, así que el documento no queda con dos
+        /// estampas de la misma persona ni se da por completo antes de tiempo.
+        ///
+        /// 409 si ya no le corresponde: o no lo firmó, o el siguiente ya firmó (y ahí rehacer el
+        /// documento obligaría a volver a estampar una firma ajena).
+        /// </summary>
+        Task<ReembolsoBulkResultDto> VolverAFirmar(
+            ConsolidadoAccionDto accion, ConsolidadoFiltersDto scope, int userId);
+
+        /// <summary>
         /// El consolidador le avisa a la jefatura que el consolidado tiene reembolsos esperando su
         /// visto bueno. Se puede repetir a propósito (un correo se pierde); la fecha del último aviso
         /// queda a la vista. Este aviso ES el correo: si no le llega a nadie, responde 409.

@@ -3,7 +3,6 @@ using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infras
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Shared.Services.Jerarquia;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using AreaRevisoresRendicionModel =
@@ -86,11 +85,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.In
             var proyectos = await AreaAsignacionArmador.ProyectosActivosAsync(ctx);
             var flags = await AreaAsignacionArmador.FiltranPorProyectoAsync(ctx, areaIds);
 
-            // Quién queda vigente hoy, con el MISMO resolver que después aprueba y firma, pero en el
-            // ámbito Rendiciones: lee esta tabla y, en las áreas de obra, señala al administrador de
-            // obra en vez de al residente.
-            var efectivos = await _revisorResolver.ResolveByAreaScopeManyAsync(
-                areaIds, null, EstructuraAreaLoader.AmbitoRevisor.Rendiciones);
+            // Quiénes quedan vigentes hoy, con el MISMO recorrido que después aprueba y firma: lee
+            // esta tabla y, en las áreas de obra, devuelve la PAREJA que el algoritmo propone —el
+            // administrador de obra (revisa y firma) y el residente (solo firma)—, cada uno con el
+            // paso que le toca. No se recorta a uno: la pantalla responde "quiénes pueden aprobar
+            // esta área", y con un solo ganador el residente no aparecía por ningún lado.
+            var efectivos = await _revisorResolver.ResolveAprobadoresByAreaScopeManyAsync(areaIds);
 
             AreaAsignacionArmador.Completar(
                 areas, asignaciones, flags, proyectos,
@@ -110,22 +110,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.In
         }
 
         /// <summary>
-        /// El aprobador efectivo como lo muestra la columna. Igual que en su gemelo: el fallback de
-        /// GTH es un área y no una persona, y se etiqueta como tal.
+        /// Los aprobadores vigentes como los muestra la pantalla: la columna pinta al primero y
+        /// cuenta al resto, y el modal Ver los lista a todos con las dos casillas en solo lectura.
+        /// Igual que en su gemelo, el fallback de GTH es un área y no una persona, y se etiqueta
+        /// como tal.
         /// </summary>
-        private static List<AreaEfectivoDto> Describir(RevisorElegido? elegido)
-            => elegido?.Revisor == null
-                ? new List<AreaEfectivoDto>()
-                : new List<AreaEfectivoDto>
+        private static List<AreaEfectivoDto> Describir(List<AprobadorDeArea> aprobadores)
+            => aprobadores
+                .Select(a => new AreaEfectivoDto
                 {
-                    new()
-                    {
-                        WorkerId = elegido.Revisor.WorkerId,
-                        Nombre = elegido.Revisor.Nombre,
-                        Email = elegido.Revisor.Email,
-                        Origen = elegido.Revisor.Origen.ToString(),
-                    },
-                };
+                    WorkerId = a.Persona.WorkerId,
+                    Nombre = a.Persona.Nombre,
+                    Email = a.Persona.Email,
+                    Origen = a.Persona.Origen.ToString(),
+                    ApruebaPrimeraRevision = a.ApruebaPrimeraRevision,
+                    ApruebaConsolidado = a.ApruebaConsolidado,
+                })
+                .ToList();
 
         public async Task UpdateAreaRevisoresAsync(
             int areaScopeId, int? projectId, List<AreaAsignacionInputDto> revisores)
@@ -187,8 +188,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.In
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetFiltroProyectoAsync(
-            int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
+        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -199,8 +199,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.In
 
             // La bandera es del ÁREA y la comparten las tres pantallas: tocarla desde acá la mueve
             // también en Revisores de Salidas y en Consolidadores, que es lo correcto.
-            await AreaAsignacionNodos.SetFiltroProyectoAsync(
-                ctx, areaScopeId, filtraPorProyecto, firmaConsolidadoPorProyecto);
+            await AreaAsignacionNodos.SetFiltroProyectoAsync(ctx, areaScopeId, filtraPorProyecto);
         }
     }
 }

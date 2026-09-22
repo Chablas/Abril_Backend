@@ -86,6 +86,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
             var detalle  = new RendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
 
+            // El pipeline sale de la cabecera ya armada —no de la planilla cruda— para que diga
+            // exactamente lo mismo que los badges de arriba del modal.
+            detalle.Pipeline = ReembolsoPipelineBuilder.ParaPlanilla(
+                codigo:                     cabecera.Codigo,
+                rendidoAt:                  cabecera.RendidoAt,
+                estadoPrimeraRevision:      cabecera.EstadoPrimeraRevision,
+                enviadaRevisionAt:          cabecera.EnviadaRevisionAt,
+                primeraRevisionAt:          cabecera.PrimeraRevisionAt,
+                consolidado:                cabecera.ConsolidadoS10,
+                firmadoAt:                  cabecera.FirmadoAt,
+                estadoReembolso:            cabecera.EstadoReembolso,
+                observacionOrigen:          cabecera.ObservacionReembolsoOrigen,
+                mixto:                      cabecera.ReembolsoMixto);
+
             detalle.Salidas = propias
                 .OrderBy(s => s.FechaSalida).ThenBy(s => s.Id)
                 .Select(s =>
@@ -170,31 +184,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
         {
             using var ctx = _factory.CreateDbContext();
 
-            var quien = await (
+            // La planilla ENTERA en una sola consulta: de ella salen el solicitante (la fila del
+            // usuario, que es además el guard de propiedad) y el conjunto de trabajadores que
+            // identifica al documento. Pedir las dos cosas por separado sería un roundtrip más
+            // sobre las mismas filas.
+            var filas = await (
                 from s in ctx.GaSolicitudSalida
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 join u in ctx.User on (int?)per.UserId equals (int?)u.UserId into uGroup
                 from u in uGroup.DefaultIfEmpty()
-                where s.RendicionId == rendicionId && per.UserId == userId
+                where s.RendicionId == rendicionId
                 select new
                 {
                     WorkerId    = w.Id,
+                    UserId      = per.UserId,
                     Trabajador  = per.FullName ?? "Trabajador",
                     Email       = u != null ? u.Email : null,
                     // El área del trabajador sale del puesto, no de workers.
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
                 }
-            ).FirstOrDefaultAsync();
+            ).ToListAsync();
 
+            var quien = filas.FirstOrDefault(f => f.UserId == userId);
             if (quien == null) return null;
 
             return new RendicionSolicitanteDto
             {
-                WorkerId   = quien.WorkerId,
-                Trabajador = quien.Trabajador,
-                Email      = quien.Email,
-                Area       = await ResolveAreaNombreAsync(ctx, quien.AreaScopeId),
+                WorkerId            = quien.WorkerId,
+                Trabajador          = quien.Trabajador,
+                Email               = quien.Email,
+                Area                = await ResolveAreaNombreAsync(ctx, quien.AreaScopeId),
+                WorkersDeLaPlanilla = filas.Select(f => f.WorkerId).Distinct().ToList(),
             };
         }
 

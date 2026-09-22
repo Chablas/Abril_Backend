@@ -7,10 +7,11 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Interfaces
     /// <c>puesto.area_destino_scope_id</c> y se sube por el árbol hasta el primer nodo que
     /// resuelva; en cada nodo mandan primero las asignaciones a mano (acá
     /// <c>area_consolidadores</c>, primero las del proyecto del trabajador y después las del área);
-    /// si no hay ninguna, la jefatura del nodo tal como la leen los revisores: el jefe fijado a mano
-    /// en Revisores (<c>area_revisores</c>, con la misma herencia área → proyectos) y, si tampoco
-    /// hay, el ALGORITMO: el residente de la obra si el nodo filtra por proyecto, y si no el Jefe
-    /// del área o el Gerente de la gerencia— con UNA diferencia: no gana uno solo. En revisores la
+    /// si no hay ninguna, la jefatura del nodo tal como la leen los revisores de rendiciones: el
+    /// jefe fijado a mano en esa pantalla (<c>area_revisores_rendicion</c>, con la misma herencia
+    /// área → proyectos) y, si tampoco hay, el ALGORITMO: el ADMINISTRADOR DE OBRA —y nadie más— si
+    /// el nodo filtra por proyecto y la obra lo tiene cargado, y si no el Jefe del área o el Gerente
+    /// de la gerencia— con UNA diferencia: no gana uno solo. En revisores la
     /// solicitud se manda al primer revisor activo; acá TODOS los activos del nodo que resuelve
     /// quedan habilitados, porque consolidar no es decidir: es hacer el trámite del S10 por las
     /// rendiciones del área.

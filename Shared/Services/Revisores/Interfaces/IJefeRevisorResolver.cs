@@ -74,6 +74,10 @@
         /// poder aplicar "nadie puede ser su propio jefe" — sin él se devuelve el ranking completo
         /// sin descartar a nadie, que es lo correcto para un trabajador que aún no existe.
         ///
+        /// Es la previsualización del ámbito SALIDAS, donde la solicitud la aprueba UNA persona. La
+        /// de Rendiciones es <see cref="ResolveAprobadoresByAreaScopeManyAsync"/>: ahí intervienen
+        /// varios a la vez y devolver un ganador escondería a la mitad.
+        ///
         /// El árbol se pide una sola vez y cubre toda la pantalla, sin volver al servidor al cambiar
         /// de puesto. Un número FIJO de consultas sea para 1 o para todos los nodos del árbol.
         /// </summary>
@@ -82,15 +86,25 @@
         /// Trabajador que se está editando, para descartarlo de sus propios candidatos. Null al
         /// crear uno nuevo (no hay a quién descartar).
         /// </param>
-        /// <param name="ambito">
-        /// Para que pantalla se previsualiza. <c>Salidas</c> (default) lee area_revisores y senala
-        /// al residente de la obra; <c>Rendiciones</c> lee area_revisores_rendicion y senala al
-        /// administrador de obra. Es lo unico que distingue las dos secciones de Revisores de Areas.
-        /// </param>
         Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
-            IReadOnlyCollection<int> areaScopeIds, int? workerId = null,
-            Jerarquia.EstructuraAreaLoader.AmbitoRevisor ambito
-                = Jerarquia.EstructuraAreaLoader.AmbitoRevisor.Salidas);
+            IReadOnlyCollection<int> areaScopeIds, int? workerId = null);
+
+        /// <summary>
+        /// Previsualización por ÁREA de RENDICIONES: para cada nodo <c>area_scope</c> pedido (y, en
+        /// los que filtran por proyecto, para cada proyecto activo) TODOS los que tendrían que
+        /// aprobar la planilla o firmar el consolidado de un trabajador ubicado ahí, con la casilla
+        /// de cada paso ya resuelta.
+        ///
+        /// Es el gemelo de <see cref="ResolveByAreaScopeManyAsync"/> para la otra sección de
+        /// Revisores de Áreas, y existe porque acá <b>no gana uno solo</b>: en una obra el
+        /// administrador revisa la planilla y firma, y el residente solo firma, así que un único
+        /// ganador dejaba al residente fuera de la pantalla aunque el sistema fuera a pedirle la
+        /// firma. Sale de <see cref="ResolveAprobadoresDeDocumentoAsync"/> —el mismo recorrido,
+        /// corrido una vez por paso— sin ningún trabajador dentro al que haya que saltarse, así que
+        /// la pantalla no puede mostrar a alguien distinto de quien va a tener que aprobar.
+        /// </summary>
+        Task<Dictionary<int, AreaScopeAprobadoresPreview>> ResolveAprobadoresByAreaScopeManyAsync(
+            IReadOnlyCollection<int> areaScopeIds);
 
         /// <summary>
         /// El <b>jefe del área</b> de un trabajador: el mismo paso 2 de <see cref="ResolveAsync"/>
@@ -134,10 +148,12 @@
         ///      cualquiera que esté incluido en el documento;
         ///   3. a una jefatura la firma su gerencia, igual que en la resolución por trabajador.
         ///
-        /// En un área marcada "filtrar por proyecto", la firma la lleva el revisor del ÁREA y no el
-        /// de la obra, salvo que esa área tenga activado
-        /// <c>ga_salidas_area_config.firma_consolidado_por_proyecto</c> y el documento sea de una
-        /// sola obra.
+        /// En un área marcada "filtrar por proyecto" manda la OBRA —el administrador de obra revisa
+        /// y firma, el residente firma detrás— siempre que el documento sea de una sola: con obras
+        /// mezcladas no hay una a quién dárselo y vuelve a responder el área. Hasta el 2026-09-21
+        /// hacía falta además el checkbox "Firma por obra"
+        /// (<c>ga_salidas_area_config.firma_consolidado_por_proyecto</c>), que se quitó: con él
+        /// apagado el administrador no intervenía en nada y firmaba el Jefe del área.
         /// </summary>
         /// <returns>
         /// Los aprobadores en ORDEN. Vacio si la rama no resuelve ninguno ni llega al fallback de
@@ -196,6 +212,26 @@
     public record AreaScopeRevisorPreview(
         RevisorElegido Area,
         Dictionary<int, RevisorElegido> PorProyecto);
+
+    /// <summary>
+    /// Lo mismo que <see cref="AreaScopeRevisorPreview"/> para RENDICIONES, con la única diferencia
+    /// que importa: cada combinación (nodo, proyecto) devuelve la LISTA de los que intervienen y no
+    /// un ganador.
+    /// </summary>
+    /// <param name="Area">Aprobadores a nivel de área (los que aplican sin obra de por medio).</param>
+    /// <param name="PorProyecto">projectId -> aprobadores, solo si algún nodo de la rama filtra por proyecto.</param>
+    public record AreaScopeAprobadoresPreview(
+        List<AprobadorDeArea> Area,
+        Dictionary<int, List<AprobadorDeArea>> PorProyecto);
+
+    /// <summary>
+    /// Uno de los que intervienen en el ciclo de la rendición de un área, con en cuál de los dos
+    /// pasos lo hace. Las dos banderas son el resultado de resolver el paso, no lo que alguien
+    /// marcó: en una obra el administrador sale con los dos en true y el residente solo con
+    /// <paramref name="ApruebaConsolidado"/>, sin que nadie haya cargado una fila.
+    /// </summary>
+    public record AprobadorDeArea(
+        JefeRevisorResolution Persona, bool ApruebaPrimeraRevision, bool ApruebaConsolidado);
 
     /// <summary>
     /// El revisor ya elegido para una combinación (nodo, proyecto).

@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Applic
             int areaScopeId, int? projectId, List<AreaAsignacionInputDto> consolidadores)
             => _repo.UpdateAreaConsolidadoresAsync(areaScopeId, projectId, consolidadores);
 
-        public Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto)
-            => _repo.SetFiltroProyectoAsync(areaScopeId, filtraPorProyecto, firmaConsolidadoPorProyecto);
+        public Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
+            => _repo.SetFiltroProyectoAsync(areaScopeId, filtraPorProyecto);
     }
 }

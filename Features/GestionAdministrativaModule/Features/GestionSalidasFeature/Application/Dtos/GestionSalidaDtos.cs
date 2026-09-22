@@ -173,6 +173,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public List<int>? VisibleAreaScopeIds { get; set; }
 
         /// <summary>
+        /// Trabajadores de las obras de las que el usuario es residente o administrador de obra:
+        /// sus solicitudes se ven enteras, sea cual sea su área (ver SalidaVisibilityResolver).
+        /// </summary>
+        public List<int>? TrabajadoresDeSusObras { get; set; }
+
+        /// <summary>
         /// Filtro de área elegido por el usuario en la UI (desplegable en cascada): nodo
         /// seleccionado + sus descendientes, resueltos en el frontend. Null/vacío = sin filtro.
         /// Es independiente de <see cref="VisibleAreaScopeIds"/> (visibilidad obligatoria).
@@ -408,6 +414,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public GestionSalidaRendicionDto? Rendicion { get; set; }
         /// <summary>PDF Consolidado del S10 vigente (propio de la salida o heredado de su planilla). Null si no hay.</summary>
         public Abril_Backend.Features.GestionAdministrativa.Shared.Dtos.ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
+
+        /// <summary>
+        /// El recorrido del reembolso de esta salida —de la solicitud al pago—, para el pipeline del
+        /// modal de detalle. Lo arma <c>ReembolsoPipelineBuilder</c>, el mismo que usan las otras
+        /// cuatro pantallas del ciclo: una salida no puede decir que está en dos pasos distintos
+        /// según desde dónde se la mire.
+        /// </summary>
+        public ReembolsoPipelineDto Pipeline { get; set; } = new();
+
         public List<GestionSalidaTrayectoDto> Trayectos { get; set; } = new();
     }
 

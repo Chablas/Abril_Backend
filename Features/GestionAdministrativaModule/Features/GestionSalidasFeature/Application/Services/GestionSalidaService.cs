@@ -62,18 +62,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //   • El árbol: los nodos tope del conjunto visible (cuyo padre queda fuera) los toma el
             //     frontend como raíces del cascada, así un jefe arranca en su área y un gerente en su
             //     gerencia sin lógica adicional en el cliente.
-            //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario).
+            //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario y, si es
+            //     residente o administrador de obra, los de su obra).
             bool seesAll = seesAllOverride || !currentUserId.HasValue;
             var visibleIds = new List<int>();
+            var deSusObras = new List<int>();
 
             if (!seesAll)
             {
                 var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value, VisibilidadAmbitoIds.Salidas);
                 seesAll = vis.SeesAll;
                 visibleIds = vis.AreaScopeIds.ToList();
+                deSusObras = vis.TrabajadoresDeSusObras.ToList();
             }
 
-            var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
+            var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId, deSusObras);
 
             // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
             // tarjetas— porque son las opciones de un control: se arman con el alcance completo del
@@ -81,9 +84,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // pantalla vuelve a pedir filter-data después de cada acción que los mueve.
             data.MesesRendicion = await MesesRendicionAsync(new GestionSalidaFiltersDto
             {
-                CurrentUserId       = currentUserId,
-                SeesAll             = seesAll,
-                VisibleAreaScopeIds = visibleIds,
+                CurrentUserId          = currentUserId,
+                SeesAll                = seesAll,
+                VisibleAreaScopeIds    = visibleIds,
+                TrabajadoresDeSusObras = deSusObras,
             });
 
             return data;
@@ -101,11 +105,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             var pendientes = await _repo.GetAll(new GestionSalidaFiltersDto
             {
-                CurrentUserId       = scope.CurrentUserId,
-                SeesAll             = scope.SeesAll,
-                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
-                EstadoAprobacion    = EstadosSalida.Aprobacion.NombreAprobado,
-                EstadoRendicion     = EstadosSalida.Rendicion.NombreNoRendido,
+                CurrentUserId          = scope.CurrentUserId,
+                SeesAll                = scope.SeesAll,
+                VisibleAreaScopeIds    = scope.VisibleAreaScopeIds,
+                TrabajadoresDeSusObras = scope.TrabajadoresDeSusObras,
+                EstadoAprobacion       = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion        = EstadosSalida.Rendicion.NombreNoRendido,
             });
 
             var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
@@ -174,6 +179,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 filters.CurrentUserId.Value, VisibilidadAmbitoIds.Salidas);
             filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+            filters.TrabajadoresDeSusObras = vis.TrabajadoresDeSusObras.ToList();
         }
 
         public async Task<byte[]> GetExcel(GestionSalidaFiltersDto filters)

@@ -28,22 +28,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public bool FiltraPorProyecto { get; set; }
 
         /// <summary>
-        /// Solo tiene sentido con <see cref="FiltraPorProyecto"/> en true, y por eso la pantalla lo
-        /// ofrece únicamente en esas áreas.
-        ///
-        /// En un área filtrada por proyecto conviven dos revisores: el de la OBRA (el residente, o
-        /// el que se haya asignado a ese proyecto) y el del ÁREA entera. Por defecto el de la obra
-        /// aprueba las salidas y el del área firma el consolidado y la planilla grupal —son
-        /// documentos del área, no de una obra—. Con este flag en true la firma también baja a la
-        /// obra: firma el mismo revisor por proyecto que aprueba las salidas.
-        ///
-        /// No trae lista propia: lee los revisores por proyecto que ya existen en Revisores de
-        /// Áreas. Si el documento mezcla obras no hay un revisor de obra único y se cae al del área.
-        /// </summary>
-        [Column("firma_consolidado_por_proyecto")]
-        public bool FirmaConsolidadoPorProyecto { get; set; }
-
-        /// <summary>
         /// Si true (default), los trabajadores del área deben subir una captura de movilidad por
         /// cada trayecto antes de poder rendir la salida. En false, la salida se puede rendir de
         /// frente sin capturas. Se configura en Gestión Administrativa → Configuración → Capturas.

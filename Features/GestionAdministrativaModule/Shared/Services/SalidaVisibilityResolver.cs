@@ -1,5 +1,6 @@
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Jerarquia;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
@@ -10,8 +11,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// Piso obligatorio: si el usuario está designado como revisor de un nodo
     /// (<c>area_revisores</c>) ve ese nodo y todo su subárbol SIEMPRE, sin importar su categoría de
     /// trabajador; en los ámbitos de RENDICIONES y CONSOLIDADOS lo mismo vale para los nodos donde
-    /// está designado como consolidador (<c>area_consolidadores</c>). No es un caso más del
-    /// algoritmo: se suma
+    /// está designado como consolidador (<c>area_consolidadores</c>) o como revisor de rendiciones
+    /// (<c>area_revisores_rendicion</c>). No es un caso más del algoritmo: se suma
     /// tanto al override manual como al algoritmo, porque a esa persona le toca hacer un trabajo
     /// sobre toda esa rama y tiene que poder verla.
     ///
@@ -32,6 +33,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     ///                                                                  (workers.obra_oficina_staff_id).
     /// Las áreas se resuelven por texto (el árbol es administrable por UI); la categoría, por
     /// id, para que renombrarla desde Configuración no apague la regla.
+    ///
+    /// Piso por OBRA (se suma a todo lo anterior, override incluido, en los tres ámbitos): el
+    /// residente y el administrador de obra de un proyecto ven a TODOS los trabajadores cuya obra
+    /// vigente es ese proyecto, sea cual sea su área. No se expresa en áreas —el árbol no tiene
+    /// dimensión de obra y dar el área entera les abriría las demás obras— sino como lista de
+    /// trabajadores (<see cref="SalidaVisibility.TrabajadoresDeSusObras"/>). Sale de
+    /// <see cref="ObrasLoader"/>, la misma regla con la que el algoritmo les pide aprobar y firmar,
+    /// así que el que hoy es residente ve exactamente lo que se le va a pedir, y el anterior deja de
+    /// verlo (salvo lo que él mismo aprobó, que se ve por fila).
     /// </summary>
     public class SalidaVisibilityResolver : ISalidaVisibilityResolver
     {
@@ -48,6 +58,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public async Task<SalidaVisibility> ResolveAsync(int userId, int ambitoId)
         {
             using var ctx = _factory.CreateDbContext();
+            var obras = ObrasLoader.Obras(ctx);
 
             // 1. Worker(s) del usuario (un user puede mapear a más de un worker).
             var workers = await (
@@ -59,7 +70,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     // El área y la categoría salen las dos del puesto: workers ya no las guarda.
                     Id = w.Id,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
+                    ACargoDeObra = obras.Any(o => o.ResidenteWorkersId == w.Id || o.WorkersCoordAdminId == w.Id),
                 }
             ).ToListAsync();
 
@@ -69,6 +81,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         public async Task<SalidaVisibility> ResolveByWorkerAsync(int workerId, int ambitoId)
         {
             using var ctx = _factory.CreateDbContext();
+            var obras = ObrasLoader.Obras(ctx);
 
             var workers = await (
                 from w in ctx.Worker
@@ -77,7 +90,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 {
                     Id = w.Id,
                     AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null,
-                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null
+                    CategoriaId = w.PuestoCatalogo != null ? w.PuestoCatalogo.CategoriaId : (int?)null,
+                    ACargoDeObra = obras.Any(o => o.ResidenteWorkersId == w.Id || o.WorkersCoordAdminId == w.Id),
                 }
             ).ToListAsync();
 
@@ -90,6 +104,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         {
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());
 
+            var porArea = await ResolverAreasAsync(ctx, workers, ambitoId);
+
+            // Piso por OBRA: el residente y el administrador de obra ven todo lo de su obra. Se
+            // suma también sobre el override: aprobar y firmar por la obra no depende de que alguien
+            // se acuerde de darle visibilidad a quien hoy ocupa el puesto. Quien no está a cargo de
+            // ninguna (casi todos) no paga ninguna consulta más: lo dijo ya la de sus fichas.
+            if (!workers.Any(w => w.ACargoDeObra)) return porArea;
+
+            var obras = await ObrasLoader.ObrasACargoAsync(ctx, workers.Select(w => w.Id).ToList());
+            if (obras.Count == 0) return porArea;
+
+            return porArea with
+            {
+                Obras = obras,
+                // Quien ya ve todo no necesita la lista: no hay nada que recortar.
+                TrabajadoresDeSusObras = porArea.SeesAll
+                    ? new HashSet<int>()
+                    : await ObrasLoader.TrabajadoresDeLasObrasAsync(
+                        ctx, obras.Select(o => o.ProjectId).ToList()),
+            };
+        }
+
+        /// <summary>
+        /// El alcance por ÁREA: piso de revisor/consolidador, override del ámbito y, si no hay
+        /// override, el algoritmo de jerarquía.
+        /// </summary>
+        private async Task<SalidaVisibility> ResolverAreasAsync(
+            AppDbContext ctx, List<WorkerContexto> workers, int ambitoId)
+        {
             var workerIds = workers.Select(w => w.Id).ToList();
 
             // 2. Topología del árbol (tabla chica) para expandir descendientes y correr el algoritmo.
@@ -124,13 +167,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             // Consolidar el S10 de una planilla exige verla, así que el consolidador de un nodo
             // tiene el mismo piso que su revisor — pero solo en las bandejas donde consolida: la
-            // que le adjunta el consolidado a la planilla y la que después lo muestra.
+            // que le adjunta el consolidado a la planilla y la que después lo muestra. Lo mismo
+            // quien está asignado a mano en Revisores de Áreas de RENDICIONES
+            // (area_revisores_rendicion): revisa la planilla o firma el consolidado de esa rama.
+            // Las dos tablas van en una sola consulta.
             if (ambitoId == VisibilidadAmbitoIds.Rendiciones
              || ambitoId == VisibilidadAmbitoIds.Consolidados)
                 nodosAsignados = nodosAsignados
                     .Concat(await ctx.AreaConsolidadores
                         .Where(c => c.State && c.Active && workerIds.Contains(c.ConsolidadorId))
                         .Select(c => c.AreaScopeId)
+                        .Concat(ctx.AreaRevisoresRendicion
+                            .Where(r => r.State && r.Active && workerIds.Contains(r.RevisorId))
+                            .Select(r => r.AreaScopeId))
                         .Distinct()
                         .ToListAsync())
                     .Distinct()
@@ -237,12 +286,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return new SalidaVisibility(false, visible);
         }
 
-        /// <summary>Lo que el algoritmo necesita saber de una ficha: dónde está y qué categoría tiene.</summary>
+        /// <summary>
+        /// Lo que el algoritmo necesita saber de una ficha: dónde está, qué categoría tiene y si hoy
+        /// es residente o administrador de alguna obra.
+        /// </summary>
         private class WorkerContexto
         {
             public int Id { get; set; }
             public int? AreaScopeId { get; set; }
             public int? CategoriaId { get; set; }
+            public bool ACargoDeObra { get; set; }
         }
 
         /// <summary>Cadena (self, padre, abuelo, …, raíz) caminando hacia arriba. Corta ciclos.</summary>

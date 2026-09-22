@@ -170,6 +170,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
             DecidirAsync(dto, aprobar: false, nameof(ObservarReembolso));
 
         /// <summary>
+        /// Vuelve a estampar la firma de quien ya firmó, mientras el consolidado siga esperando la
+        /// del que viene detrás. Rehace las copias firmadas desde el original: no agrega una segunda
+        /// estampa de la misma persona ni completa el documento.
+        /// </summary>
+        [HttpPatch("reembolso/volver-a-firmar")]
+        public async Task<IActionResult> VolverAFirmar([FromBody] ConsolidadoAccionDto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.VolverAFirmar(dto, Scope(), userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ConsolidadoController.VolverAFirmar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// El consolidador le avisa a la jefatura que el consolidado tiene reembolsos esperando su
         /// visto bueno.
         /// </summary>

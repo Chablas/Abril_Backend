@@ -12,6 +12,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         Task UpdateAreaRevisoresAsync(int areaScopeId, int? projectId, List<AreaAsignacionInputDto> revisores);
 
         /// <summary>Marca/desmarca "filtrar por proyecto" para el área (upsert en ga_salidas_area_config).</summary>
-        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto, bool firmaConsolidadoPorProyecto);
+        Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto);
     }
 }

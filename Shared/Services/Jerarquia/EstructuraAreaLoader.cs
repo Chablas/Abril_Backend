@@ -27,13 +27,6 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         public const string EmailDomainCorp = "@abril.pe";
 
         /// <summary>
-        /// Identifica a OFICINA CENTRAL, que es una fila más de <c>project</c> sin bandera que la
-        /// distinga de una obra: la única salida es el nombre normalizado (en prod va en mayúsculas
-        /// y en dev como "Oficina Central"). Mismo criterio que usa el aviso de obra del Onboarding.
-        /// </summary>
-        private const string ProyectoOficinaCentral = "OFICINA CENTRAL";
-
-        /// <summary>
         /// Para QUE se esta resolviendo. Cambia dos cosas y solo dos: de que tabla salen los
         /// asignados a mano, y a quien de la obra senala el algoritmo cuando el nodo filtra por
         /// proyecto. El recorrido del arbol y la jefatura por categoria son identicos.
@@ -281,14 +274,11 @@ namespace Abril_Backend.Shared.Services.Jerarquia
             // (project.workers_coord_admin_id — el campo que la pantalla de Proyectos llama
             // "Administrador de obra"), que desde el 2026-09-21 revisa la planilla y firma el
             // consolidado. Se piden por join explícito y no por navegación: `project` solo tiene
-            // mapeada la del coordinador, y agregar la otra traería una FK sombra.
-            var obras = await (
-                from p in ctx.Project.AsNoTracking()
-                where p.State
-                      && p.ProjectDescription != null
-                      && p.ProjectDescription.ToUpper().Trim() != ProyectoOficinaCentral
-                select new { p.ProjectId, p.ResidenteWorkersId, p.WorkersCoordAdminId }
-            ).ToListAsync();
+            // mapeada la del coordinador, y agregar la otra traería una FK sombra. Qué es una obra
+            // (OFICINA CENTRAL no) lo dice ObrasLoader, el mismo que usa la visibilidad.
+            var obras = await ObrasLoader.Obras(ctx)
+                .Select(p => new { p.ProjectId, p.ResidenteWorkersId, p.WorkersCoordAdminId })
+                .ToListAsync();
 
             var personasDeObra = await PersonasAsync(
                 ctx,

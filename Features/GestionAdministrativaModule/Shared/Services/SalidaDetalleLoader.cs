@@ -45,6 +45,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     s.Id, s.Codigo, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
                     s.CreatedAt, s.MotivoRechazo, s.RendicionId,
                     Trabajador = per != null ? per.FullName : null,
+                    // Los sellos del recorrido del reembolso: alimentan el pipeline del modal y
+                    // viajan en esta misma consulta (la salida y su planilla ya están unidas acá).
+                    s.FechaDecision, s.EstadoReembolsoId, s.ObservacionReembolso,
+                    s.ObservacionReembolsoOrigenId, s.FirmadoAt, s.RevisionTesoreriaAt, s.PagadoAt,
+                    EstadoPrimeraRevisionId    = r == null ? (int?)null : r.EstadoPrimeraRevisionId,
+                    EnviadaRevisionAt          = r == null ? null : r.EnviadaRevisionAt,
+                    PrimeraRevisionAt          = r == null ? null : r.PrimeraRevisionAt,
                     // Regla TI ("Tecnología de la Información") y área del dueño de la salida: el área
                     // sale del puesto (workers ya no la guarda) y decide si las capturas le son
                     // obligatorias.
@@ -208,34 +215,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             // Va en cascada y de lo barato a lo caro: los dos primeros cortes salen de lo que ya
             // está cargado, así que el detalle de una salida pendiente, rendida o sin motivo
             // reembolsable —el caso normal— no gasta ni un viaje extra a la base.
+
+            // Si la salida genera gasto de movilidad y si lo que genera ya está sustentado. Las dos
+            // se calculan siempre —son en memoria— porque además de la aptitud alimentan los pasos
+            // "Sustentos" y "Rendición" del pipeline, que se muestra en cualquier estado.
+            //
+            // Basta un trayecto que deje gasto que rendir: es la misma regla que aplica
+            // GetIdsNoReembolsables al rendir. Lo que el pill marca SIN REEMBOLSO no entra en la
+            // planilla, y tampoco el que resuelve a S/ 0.00 —el tarifario de TI en cero—: ninguno
+            // de los dos vuelve apta a la salida porque no dejan ni una fila impresa.
+            var generaReembolso = trayectosRaw.Any(t => t.Dto.EsReembolsable == true);
+            var hayGastoQueRendir = trayectosRaw.Any(t => t.Dto.EsReembolsable == true && t.Dto.MontoTotal > 0m);
+
+            // Cobertura: captura propia o, para TI, match contra el catálogo (que es justo lo que
+            // dejó puesto MontoCatalogo unas líneas más arriba). Solo se le exige sustento a lo que
+            // se va a rendir: el trayecto sin reembolso no entra en la planilla.
+            var todosCubiertos = trayectosRaw
+                .Where(t => t.Dto.EsReembolsable == true)
+                .All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
+
             var aptaParaRendir = false;
             if (conAptitudParaRendir
                 && trayectosRaw.Count > 0
                 && solicitud.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
                 && solicitud.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                // Basta un trayecto que deje gasto que rendir: es la misma regla que aplica
-                // GetIdsNoReembolsables al rendir. Lo que el pill marca SIN REEMBOLSO no entra en
-                // la planilla, y tampoco el que resuelve a S/ 0.00 —el tarifario de TI en cero—:
-                // ninguno de los dos vuelve apta a la salida porque no dejan ni una fila impresa.
-                && trayectosRaw.Any(t => t.Dto.EsReembolsable == true && t.Dto.MontoTotal > 0m))
+                && hayGastoQueRendir)
             {
                 var calendario   = await CalendarioNoLaborable.CargarAsync(ctx);
                 var plazoVencido = MesAnteriorPeru.HoyPeru()
                                  > calendario.LimiteDeRendicion(solicitud.FechaSalida.Year, solicitud.FechaSalida.Month);
 
-                // Cobertura de los trayectos: captura propia o, para TI, match contra el catálogo
-                // (que es justo lo que dejó puesto MontoCatalogo unas líneas más arriba). Solo se
-                // le exige sustento a lo que se va a rendir: el trayecto sin reembolso no entra en
-                // la planilla, así que no necesita captura. El área con las capturas en OPCIONAL
-                // solo se consulta si quedó alguno sin cubrir.
-                var todosCubiertos = trayectosRaw
-                    .Where(t => t.Dto.EsReembolsable == true)
-                    .All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
-
+                // El área con las capturas en OPCIONAL solo se consulta si quedó alguno sin cubrir.
                 aptaParaRendir = !plazoVencido
                     && (todosCubiertos
                         || await CapturasObligatoriasLoader.SonOpcionalesAsync(ctx, solicitud.AreaScopeId));
             }
+
+            var consolidado = (await ConsolidadoS10Loader.LoadAsync(
+                                   ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
+                              .GetValueOrDefault(solicitud.Id);
 
             return new SolicitudSalidaDetalleDto
             {
@@ -252,10 +270,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 // un día no aguanta se reparte al imprimir la planilla, no se corta acá.
                 LimiteMovilidadTrayecto = TopeMovilidad.Acotar(solicitud.LimiteMovilidad),
                 AptaParaRendir   = aptaParaRendir,
-                ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
-                                        ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
-                                    .GetValueOrDefault(solicitud.Id),
+                ConsolidadoS10   = consolidado,
                 Trayectos        = trayectosListado,
+                Pipeline         = ReembolsoPipelineBuilder.Build(new ReembolsoPipelineInput
+                {
+                    Tipo                       = ReembolsoPipelineItem.Salida,
+                    Codigo                     = solicitud.Codigo,
+                    SolicitadaAt               = solicitud.CreatedAt,
+                    EstadoAprobacionId         = solicitud.EstadoAprobacionId,
+                    AprobadaAt                 = solicitud.FechaDecision,
+                    EsReembolsable             = generaReembolso,
+                    SustentosCompletos         = todosCubiertos,
+                    AptaParaRendir             = aptaParaRendir,
+                    Rendida                    = solicitud.EstadoRendicionId == EstadosSalida.Rendicion.Rendido,
+                    RendidaAt                  = solicitud.Rendicion?.RendidoAt,
+                    EstadoPrimeraRevisionId    = solicitud.EstadoPrimeraRevisionId,
+                    EnviadaRevisionAt          = solicitud.EnviadaRevisionAt,
+                    PrimeraRevisionAt          = solicitud.PrimeraRevisionAt,
+                    TieneConsolidado           = consolidado != null,
+                    ConsolidadoAt              = consolidado?.UploadedAt,
+                    FirmadoAt                  = solicitud.FirmadoAt,
+                    EstadoReembolsoId          = solicitud.EstadoReembolsoId,
+                    // El origen no da texto: decide si el rojo va en la firma o en Tesorería.
+                    ObservacionOrigenId        = solicitud.ObservacionReembolsoOrigenId,
+                    RevisionTesoreriaAt        = solicitud.RevisionTesoreriaAt,
+                    PagadoAt                   = solicitud.PagadoAt,
+                }),
             };
         }
 

@@ -85,8 +85,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaObs        = "req-comentario";
 
         /// <summary>
-        /// Al solicitante: su rendición quedó registrada y salió a primera revisión. No lleva botón
-        /// a propósito —es informativo y no le pide nada—, solo el enlace por si quiere entrar.
+        /// Al solicitante: su rendición quedó registrada y salió a primera revisión. Es informativo
+        /// —no le pide nada— pero lleva botón igual, como el acuse de la solicitud de salida: lo
+        /// único que puede hacer es mirarla, y para eso no tiene que buscar el enlace.
         /// <paramref name="enviadoRevisorA"/> son los correos a los que realmente salió el aviso al
         /// jefe (vacío si ese correo está apagado en Configuración) y
         /// <paramref name="revisorAsignado"/> el jefe que la tiene aunque no le haya llegado el
@@ -114,6 +115,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     + "revisión de tu jefatura."),
                 l.Franja(IconoFranjaAviso, tono, aviso),
                 l.Tarjeta(Filas(d, conTrabajador: false, estado: "Primera revisión")),
+                l.Boton("Ver mi rendición", urlVer),
                 l.EnlaceDirecto(urlVer));
         }
 

@@ -43,18 +43,11 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
                 })
                 .ToListAsync();
 
-            // Obra de cada trabajador: la de su vinculación vigente (fecha_fin NULL), mismo criterio
-            // y mismo orden que usa la resolución del revisor. Un trabajador retirado no tiene
-            // vinculación vigente y cae al consolidador a nivel de área, que es lo correcto.
-            var vinculaciones = await ctx.WorkerVinculacion.AsNoTracking()
-                .Where(v => ids.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
-                .OrderByDescending(v => v.CreatedAt)
-                .ThenByDescending(v => v.Id)
-                .Select(v => new { v.WorkerId, v.ProyectoId })
-                .ToListAsync();
-            var proyectoDe = vinculaciones
-                .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First().ProyectoId);
+            // Obra de cada trabajador: la de su vinculación vigente (fecha_fin NULL), la MISMA regla
+            // que usan la resolución del revisor y la visibilidad (ObrasLoader). Un trabajador
+            // retirado no tiene vinculación vigente y cae al consolidador a nivel de área, que es
+            // lo correcto.
+            var proyectoDe = await ObrasLoader.ObraVigentePorTrabajadorAsync(ctx, ids);
 
             var contexto = await CargarContextoAsync(
                 ctx, fichas.Where(f => f.AreaScopeId != null).Select(f => f.AreaScopeId!.Value));
@@ -164,10 +157,11 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
         ///   2. en cada nodo, si hay consolidadores asignados a mano vivos y activos esos SON la
         ///      respuesta — primero los del <paramref name="proyecto"/> y detrás los del área, que
         ///      por eso valen para todos los proyectos sin asignación propia;
-        ///   3. si no hay, responde la jefatura del nodo tal como la leen los revisores: la fijada a
-        ///      mano en Revisores (con la misma herencia área → proyectos) y, solo si tampoco hay,
-        ///      el algoritmo: el residente de la obra cuando el nodo filtra por proyecto y ese
-        ///      proyecto es una obra con residente, más el Jefe/Gerente del área;
+        ///   3. si no hay, responde la jefatura del nodo tal como la leen los revisores de
+        ///      rendiciones: la fijada a mano en esa pantalla (con la misma herencia área →
+        ///      proyectos) y, solo si tampoco hay, el algoritmo: el ADMINISTRADOR DE OBRA —él solo—
+        ///      cuando el nodo filtra por proyecto y ese proyecto es una obra que lo tiene cargado,
+        ///      y el Jefe/Gerente del área en cualquier otro caso;
         ///   4. el primer nodo que devuelva alguien corta la búsqueda. Un área sin jefe no se queda
         ///      sin consolidador: se sigue subiendo y acaba en el Gerente de su gerencia.
         ///
@@ -210,9 +204,16 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Services
 
                 if (jefatura.Count == 0)
                 {
+                    // En un área filtrada por proyecto consolida el ADMINISTRADOR DE OBRA y NADIE
+                    // más. El Jefe del área se sumaba detrás y, como acá ganan todos los del nodo
+                    // (no el primero como en el revisor), terminaba consolidando —y recibiendo el
+                    // aviso de "planilla aprobada, disponible para consolidar"— de todas las obras
+                    // de su área. Queda solo como respaldo: obra sin administrador cargado,
+                    // OFICINA CENTRAL (que no está en el diccionario) o nodo que no filtra.
                     if (filtra && contexto.Estructura.TryPersonaDeLaObra(proyecto!.Value, out var deLaObra))
                         jefatura.Add(deLaObra);
-                    jefatura.AddRange(contexto.Estructura.JefePorNodo[nodo]);
+                    else
+                        jefatura.AddRange(contexto.Estructura.JefePorNodo[nodo]);
                 }
 
                 if (jefatura.Count > 0)

@@ -31,6 +31,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public string? ConsolidadorEmail { get; set; }
         /// <summary>Nombre de quien decidió u observó (jefatura o Tesorería). Null si no aplica.</summary>
         public string? DecididoPor { get; set; }
+
+        /// <summary>
+        /// Quién acaba de firmar, cuando el aviso sale porque ALGUIEN FIRMÓ y el documento todavía
+        /// debe otra firma (en obra: el administrador de obra, y detrás el residente). Null cuando
+        /// el aviso es el del consolidador al adjuntar, que es el otro camino al mismo correo.
+        /// </summary>
+        public string? FirmoAntes { get; set; }
         /// <summary>Observación vigente de esas salidas. Solo la usan los correos de observado.</summary>
         public string? Observacion { get; set; }
     }
@@ -107,24 +114,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaReembolso       = "req-ti";
 
         /// <summary>
-        /// A la jefatura: el consolidador adjuntó un Consolidado del S10 y el reembolso está
+        /// A la jefatura que tiene que firmar AHORA: el reembolso de un Consolidado del S10 está
         /// esperando su visto bueno. El botón abre ese consolidado en Consolidados, que es donde la
         /// jefatura lo aprueba (firma) u observa.
+        ///
+        /// Sale por dos caminos y lo dice en la primera línea, porque a quien lo recibe le cambia lo
+        /// que tiene delante: el consolidador que acaba de adjuntar el documento, o —en obra— la
+        /// firma anterior, que es la que le pasa el turno (<see cref="ConsolidadoCorreoDatos.FirmoAntes"/>).
         /// </summary>
         public static string ConsolidadoPorRevisar(SalidaEmailLayout l, ConsolidadoCorreoDatos d, string urlRevisar)
         {
-            var quien = string.IsNullOrWhiteSpace(d.Consolidador)
-                ? "El consolidador"
-                : $"<b>{AbrilEmailLayout.Esc(d.Consolidador)}</b>";
+            var enCadena = !string.IsNullOrWhiteSpace(d.FirmoAntes);
+
+            var bajada = enCadena
+                ? $"<b>{AbrilEmailLayout.Esc(d.FirmoAntes!)}</b> ya firmó el Consolidado del S10{Numero(d)}."
+                : $"{(string.IsNullOrWhiteSpace(d.Consolidador)
+                        ? "El consolidador"
+                        : $"<b>{AbrilEmailLayout.Esc(d.Consolidador)}</b>")}"
+                  + $" adjuntó el Consolidado del S10{Numero(d)}.";
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoRevisar,
-                    "Reembolso por revisar",
-                    $"{quien} adjuntó el Consolidado del S10{Numero(d)}."),
+                    enCadena ? "Falta tu firma" : "Reembolso por revisar",
+                    bajada),
                 l.Tarjeta(FilasConsolidado(d)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
-                    "Falta tu visto bueno para que el reembolso pase a firma y a Tesorería."),
+                    enCadena
+                        ? "Con tu firma el reembolso queda aprobado y pasa a Tesorería."
+                        : "Falta tu visto bueno para que el reembolso pase a firma y a Tesorería."),
                 l.Boton("Revisar el consolidado", urlRevisar),
                 l.EnlaceDirecto(urlRevisar));
         }

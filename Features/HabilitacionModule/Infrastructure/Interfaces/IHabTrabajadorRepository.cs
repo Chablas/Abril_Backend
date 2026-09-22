@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
             int? areaScopeId = null, bool soloSinLectura = false, bool soloSinCertificado = false, bool soloSinInterconsulta = false,
-            bool soloSinEmoCompleto = false);
+            bool soloSinEmoCompleto = false, int? emoPorVencerDias = null);
 
         Task<List<WorkerEntregableDto>> GetEntregablesWorkerAsync(int workerId);
 

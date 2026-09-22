@@ -106,6 +106,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 estadoHabilitacion: null, contratistaCasa: null,
                 page: 1, pageSize: 200, soloEmoVencido: true);
 
+            // ── EMOs por vencer en 14 y 5 días (mismos rangos que pide SSOMA para anticipar
+            // la reprogramación de exámenes, sin esperar a que ya estén vencidos) ──
+            var (_, emoPorVencer14Total) = await _habTrabajadorRepo.GetWorkersHabilitacionAsync(
+                search: null, empresaId: null, proyectoId: proyectoId,
+                estadoHabilitacion: null, contratistaCasa: null,
+                page: 1, pageSize: 1, emoPorVencerDias: 14);
+
+            var (_, emoPorVencer5Total) = await _habTrabajadorRepo.GetWorkersHabilitacionAsync(
+                search: null, empresaId: null, proyectoId: proyectoId,
+                estadoHabilitacion: null, contratistaCasa: null,
+                page: 1, pageSize: 1, emoPorVencerDias: 5);
+
             var emosVencidos = emoVencidosWorkers
                 .OrderBy(w => w.ApellidoNombre)
                 .Take(TopN)
@@ -216,6 +228,8 @@ SELECT project_description FROM project WHERE project_id = @ProyectoId;";
                     EntregablesCasaVencidos = casaVencidosRaw.Count,
                     EntregablesCasaFalta = casaFaltaRaw.Count,
                     EmosVencidos = emoVencidosTotal,
+                    EmosPorVencer14 = emoPorVencer14Total,
+                    EmosPorVencer5 = emoPorVencer5Total,
                     InterconsultasPendientes = interconsultasRaw.Count,
                     PersonalCasaTotal = casa.Count,
                     PersonalCasaHabilitado = casa.Count(w => w.EstadoHabilitacion == "Habilitado"),

@@ -47,7 +47,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 query = query.Where(p => p.ProjectDescription.ToLower().Contains(token));
             }
 
-            query = query.OrderByDescending(p => p.ProjectId);
+            // Alfabético por nombre: es el orden con el que se busca un proyecto en la pantalla
+            // de Configuración. ToLower() para que no se separen los nombres en MAYÚSCULAS de los
+            // capitalizados (el collation de la BD ordenaría "ROBLES" antes que "Post Venta").
+            query = query.OrderBy(p => p.ProjectDescription.ToLower()).ThenBy(p => p.ProjectId);
 
             var totalRecords = await query.CountAsync();
 

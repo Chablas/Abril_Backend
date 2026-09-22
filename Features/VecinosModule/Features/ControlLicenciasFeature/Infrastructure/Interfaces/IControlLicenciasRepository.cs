@@ -113,5 +113,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <paramref name="projectIds"/> es null/vacío), con semáforo de criticidad ya calculado.
         /// </summary>
         Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds);
+
+        /// <summary>Guarda la URL del logo del proyecto (Project.LogoUrl), subido para el encabezado del PDF.</summary>
+        Task UpdateLogoUrl(int projectId, string logoUrl, int userId);
     }
 }

@@ -10,6 +10,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
     {
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
+        /// <summary>Null si el proyecto todavía no tiene logo cargado (ver <see cref="VecinoLicenciaLogoDto"/>).</summary>
+        public string? LogoUrl { get; set; }
+    }
+
+    /// <summary>Resultado de subir el logo de un proyecto.</summary>
+    public class VecinoLicenciaLogoDto
+    {
+        public string LogoUrl { get; set; } = null!;
     }
 
     /// <summary>Un tipo de licencia dentro de la plantilla de un proyecto (base o propio).</summary>
@@ -153,6 +161,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// <summary>Razón social y RUC del proyecto (vía Project.ContributorId), para el encabezado del PDF del comité.</summary>
         public string? RazonSocial { get; set; }
         public string? Ruc { get; set; }
+        /// <summary>Logo del proyecto (Project.LogoUrl), para el encabezado del PDF. Null si aún no lo subieron.</summary>
+        public string? LogoUrl { get; set; }
         public string TipoDescripcion { get; set; } = null!;
         public string EstadoDescripcion { get; set; } = null!;
         public DateOnly? FechaInscripcion { get; set; }

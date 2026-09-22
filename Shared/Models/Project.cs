@@ -102,6 +102,12 @@ namespace Abril_Backend.Shared.Models {
         // Foto
         public string? FotoUrl {get; set;}
 
+        /// <summary>
+        /// Logo del proyecto (no confundir con <see cref="FotoUrl"/>, la foto de obra de BIM/SharePoint).
+        /// Se imprime junto al logo ABRIL en el encabezado del PDF de Control de Licencias.
+        /// </summary>
+        public string? LogoUrl {get; set;}
+
         // Geolocalización (geofencing de Tareos)
         public decimal? Lat {get; set;}
         public decimal? Lng {get; set;}

@@ -26,9 +26,23 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId
                         && f.FuncionalidadId == ProyectoFiltroFuncionalidades.ControlLicencias && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
-                .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription })
+                .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription, LogoUrl = p.LogoUrl })
                 .ToListAsync();
         }
+
+        public async Task UpdateLogoUrl(int projectId, string logoUrl, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId);
+            if (project is null)
+                throw new InvalidOperationException("El proyecto no existe.");
+
+            project.LogoUrl = logoUrl;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            project.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
 
         public async Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId)
         {
@@ -1011,7 +1025,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var plantilla = await GetPlantillaTodos(projectIds);
 
             var proyectosEnResultado = plantilla.Items.Select(i => i.ProjectId!.Value).Distinct().ToList();
-            Dictionary<int, (string? RazonSocial, string? Ruc)> contributorPorProyecto;
+            Dictionary<int, (string? RazonSocial, string? Ruc, string? LogoUrl)> contributorPorProyecto;
             using (var ctx = _factory.CreateDbContext())
             {
                 contributorPorProyecto = await (
@@ -1019,8 +1033,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     where proyectosEnResultado.Contains(p.ProjectId)
                     join c in ctx.Contributor.AsNoTracking() on p.ContributorId equals c.ContributorId into cj
                     from c in cj.DefaultIfEmpty()
-                    select new { p.ProjectId, RazonSocial = c != null ? c.ContributorName : null, Ruc = c != null ? c.ContributorRuc : null }
-                ).ToDictionaryAsync(x => x.ProjectId, x => (x.RazonSocial, x.Ruc));
+                    select new { p.ProjectId, RazonSocial = c != null ? c.ContributorName : null, Ruc = c != null ? c.ContributorRuc : null, p.LogoUrl }
+                ).ToDictionaryAsync(x => x.ProjectId, x => (x.RazonSocial, x.Ruc, x.LogoUrl));
             }
 
             var items = new List<VecinoLicenciaDashboardItemDto>();
@@ -1029,7 +1043,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             foreach (var item in plantilla.Items)
             {
                 var (dias, semaforo) = CalcularSemaforo(item.EstadoDescripcion, item.FechaVencimiento, hoy);
-                var contributor = contributorPorProyecto.TryGetValue(item.ProjectId!.Value, out var c2) ? c2 : (null, null);
+                var contributor = contributorPorProyecto.TryGetValue(item.ProjectId!.Value, out var c2) ? c2 : (null, null, null);
 
                 items.Add(new VecinoLicenciaDashboardItemDto
                 {
@@ -1037,6 +1051,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     ProjectDescription = item.ProjectDescription!,
                     RazonSocial = contributor.Item1,
                     Ruc = contributor.Item2,
+                    LogoUrl = contributor.Item3,
                     TipoDescripcion = item.TipoDescripcion,
                     EstadoDescripcion = item.EstadoDescripcion,
                     FechaInscripcion = item.FechaInscripcion,

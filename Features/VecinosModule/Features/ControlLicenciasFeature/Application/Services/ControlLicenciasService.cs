@@ -14,6 +14,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         private const long MaxBytes = 15 * 1024 * 1024;
         private static readonly string[] AllowedExtensions =
             { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp" };
+        private static readonly string[] AllowedLogoExtensions = { ".png", ".jpg", ".jpeg", ".webp" };
+        private const long MaxLogoBytes = 5 * 1024 * 1024; // 5 MB
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
         private const string UrlControlLicencias = "https://intranet.abril.pe/vecinos/control-licencias";
 
@@ -191,6 +193,32 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         }
 
         public Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds) => _repository.GetDashboard(projectIds);
+
+        public async Task<string> UploadLogo(int projectId, IFormFile file, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("No se adjuntó ninguna imagen.", 400);
+            if (file.Length > MaxLogoBytes)
+                throw new AbrilException("El logo supera el tamaño máximo permitido (5 MB).", 400);
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!AllowedLogoExtensions.Contains(extension))
+                throw new AbrilException("Formato no válido. Use PNG, JPG o WEBP.", 400);
+
+            var container = _containerResolver.GetProjectLogoContainerName();
+
+            string logoUrl;
+            using (var stream = file.OpenReadStream())
+            {
+                var uploaded = await _fileStorageService.UploadFilesAsync(
+                    new[] { (stream, $"{Guid.NewGuid()}{extension}") },
+                    container);
+                logoUrl = uploaded.First();
+            }
+
+            await _repository.UpdateLogoUrl(projectId, logoUrl, userId);
+            return logoUrl;
+        }
 
         public async Task<RecordatoriosResultDto> ProcesarRecordatorios()
         {

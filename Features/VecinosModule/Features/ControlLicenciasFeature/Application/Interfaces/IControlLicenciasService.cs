@@ -38,5 +38,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         /// <summary>Cron: envía los recordatorios de licencias cuya fecha de recordatorio ya llegó, en todos los proyectos.</summary>
         Task<RecordatoriosResultDto> ProcesarRecordatorios();
+
+        /// <summary>Sube/reemplaza el logo del proyecto, para el encabezado del PDF de Control de Licencias.</summary>
+        Task<string> UploadLogo(int projectId, IFormFile file, int userId);
     }
 }

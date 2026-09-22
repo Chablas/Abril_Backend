@@ -19,6 +19,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructu
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Features.CursoModule.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
@@ -317,6 +318,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
         public DbSet<ProjectActivity> ProjectActivity { get; set; }
         public DbSet<EvPeriodo> EvPeriodos => Set<EvPeriodo>();
+
+        // ── CursoModule (cursos de capacitación interactivos, evaluación auditable SUNAFIL) ──
+        public DbSet<Curso> Cursos => Set<Curso>();
+        public DbSet<CursoSlide> CursoSlides => Set<CursoSlide>();
+        public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
+        public DbSet<CursoIntentoRespuesta> CursoIntentoRespuestas => Set<CursoIntentoRespuesta>();
+        public DbSet<CursoIntentoEvidencia> CursoIntentoEvidencias => Set<CursoIntentoEvidencia>();
         public DbSet<EvPlantilla> EvPlantillas => Set<EvPlantilla>();
         public DbSet<EvEvaluacionResidente> EvEvaluacionesResidente => Set<EvEvaluacionResidente>();
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
@@ -1503,6 +1511,10 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
+
+            // ── CursoModule ──────────────────────────────────────────────────
+            modelBuilder.Entity<CursoSlide>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
+            modelBuilder.Entity<CursoIntentoRespuesta>().Property(e => e.RespuestaJson).HasColumnType("jsonb");
 
             // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // ScopeItem: evitar ambigüedad en FK self-referential con snake_case

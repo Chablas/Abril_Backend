@@ -741,6 +741,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     GuaranteeFundDays        = x.psc.GuaranteeFundDays,
                     GuaranteeValidityDays    = x.psc.GuaranteeValidityDays,
                     PaymentDays              = x.psc.PaymentDays,
+                    ScNotificationSkipped    = x.psc.ScNotificationSkipped,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     ArrivalObservation       = x.psc.ArrivalObservation,
                     Step6SignedCostos              = x.psc.Step6SignedCostos,
@@ -1178,6 +1179,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
             string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
             string cPscPaymentDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentDays));
+            string cPscScNotificationSkipped = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ScNotificationSkipped));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
             string cPscArrivalObservation = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivalObservation));
             string cPscStep6SignedCostos = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Step6SignedCostos));
@@ -1529,6 +1531,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
        psc.{cPscPaymentDays} AS ""PaymentDays"",
+       psc.{cPscScNotificationSkipped} AS ""ScNotificationSkipped"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscArrivalObservation} AS ""ArrivalObservation"",
        psc.{cPscStep6SignedCostos} AS ""Step6SignedCostos"",
@@ -1766,6 +1769,7 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
                     GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
                     GuaranteeValidityDays = (int?)raw.GuaranteeValidityDays,
                     PaymentDays = (int)raw.PaymentDays,
+                    ScNotificationSkipped = (bool)raw.ScNotificationSkipped,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
                     ArrivalObservation = (string?)raw.ArrivalObservation,
                     Step6SignedCostos = (bool)raw.Step6SignedCostos,
@@ -1933,6 +1937,28 @@ SELECT COALESCE((SELECT {cStepOptionEnabled} FROM {tStepOption} WHERE {cStepOpti
             psc.ProjectSubContractorStatusId = statusId;
             psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
+
+            await _context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Paso 4 → 5 sin enviar el correo al subcontratista: el contrato completo ya se
+        /// mandó por fuera del sistema. Deja marcado el salto para no confundirlo después
+        /// con un envío hecho desde la aplicación.
+        /// </summary>
+        public async Task SkipScNotificationAsync(int projectSubContractorId, int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            if (psc.ProjectSubContractorStatusId != 4)
+                throw new AbrilException("La adjudicación no está en el paso de envío al subcontratista.");
+
+            psc.ScNotificationSkipped        = true;
+            psc.ProjectSubContractorStatusId = 5;
+            psc.UpdatedDateTime              = DateTimeOffset.UtcNow;
+            psc.UpdatedUserId                = userId;
 
             await _context.SaveChangesAsync();
         }

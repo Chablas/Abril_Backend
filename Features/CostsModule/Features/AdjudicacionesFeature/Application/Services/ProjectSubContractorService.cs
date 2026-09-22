@@ -466,6 +466,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 5, userId);
         }
 
+        /// <summary>
+        /// Omite el envío al subcontratista (paso 4 → 5). No se genera ni se sube nada y no
+        /// sale ningún correo: se usa cuando el contrato completo ya se mandó por fuera del
+        /// sistema. El salto queda marcado en la adjudicación.
+        /// </summary>
+        public async Task SkipScNotificationAsync(int projectSubContractorId, int userId)
+        {
+            await _projectSubContractorRepository.SkipScNotificationAsync(projectSubContractorId, userId);
+        }
+
         public async Task SetArrivalOptionAsync(int projectSubContractorId, bool arrivedWithObservations, int userId)
         {
             await _projectSubContractorRepository.SetArrivalOptionAsync(projectSubContractorId, arrivedWithObservations, userId);

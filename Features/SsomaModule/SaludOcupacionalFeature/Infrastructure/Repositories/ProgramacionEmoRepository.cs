@@ -359,12 +359,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     + "que no se le puede programar el EMO de Ingreso del proceso de reclutamiento. "
                     + "Reporta el caso al administrador antes de continuar.", 409);
 
+            // Lo que llego del modal es una razon social ELEGIDA —y no un dato que el trabajador ya
+            // tenia— en dos casos: la ficha no trae ninguna, o es de pre-ingreso. Al finalista se le
+            // puede cambiar aunque ya traiga una, porque hasta que firme es una decision de GTH y no
+            // un dato de su contrato: los requerimientos de antes del 2026-09-11 la traen de
+            // Reclutamiento, elegida con un tope que no sabia de reemplazos.
+            var eligeRazonSocial = dto.EmpresaId != null
+                && (worker.ContributorId == null || esFinalistaAprobado);
+
             // La vinculacion vigente se consulta en dos casos: cuando el modal no mando empresa
-            // (hay que resolverla), y cuando la ficha no tiene razon social propia — ahi hace falta
-            // para saber si lo que llego del modal es un dato que el trabajador ya tenia o la razon
-            // social que el usuario le acaba de ELEGIR (ver mas abajo).
+            // (hay que resolverla), y cuando se esta eligiendo una — ahi hace falta para saber si la
+            // ficha ya tiene contrato, y entonces lo que llego del modal es la razon social que ya
+            // tenia y no una eleccion (ver mas abajo).
             int? empresaVinculacion = null;
-            if (dto.EmpresaId == null || worker.ContributorId == null)
+            if (dto.EmpresaId == null || eligeRazonSocial)
             {
                 var hoy = DateOnly.FromDateTime(DateTime.Today);
                 empresaVinculacion = await ctx.WorkerVinculacion
@@ -391,43 +399,48 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     "Este trabajador no tiene razón social asignada: elígele una antes de "
                     + "programarle el EMO.", 400);
 
-            // Ficha sin razon social y sin vinculacion de la que sacarla: lo que llego del modal no
-            // es un dato que ya tuviera, es la razon social que el usuario le acaba de elegir. Y
-            // elegirla es ASIGNARSELA, no usarla solo para esta cita: la ficha se queda con ella y
-            // el resto del proceso (contrato, onboarding, correos de EMO) la encuentra.
-            if (worker.ContributorId == null && empresaVinculacion == null && dto.EmpresaId != null)
+            // Razon social elegida y sin vinculacion que la contradiga: elegirla es ASIGNARSELA, no
+            // usarla solo para esta cita. La ficha se queda con ella y el resto del proceso
+            // (contrato, onboarding, correos de EMO) la encuentra.
+            if (eligeRazonSocial && empresaVinculacion == null && dto.EmpresaId is int elegida)
             {
                 // Se revalida contra la MISMA lista que se le ofrecio: lo que no esta ahi tampoco
                 // se acepta, venga de donde venga el id.
-                if (!await RazonSocialCuposHelper.EsValidaAsync(ctx, dto.EmpresaId.Value))
+                if (!await RazonSocialCuposHelper.EsValidaAsync(ctx, elegida))
                     throw new AbrilException("La razón social seleccionada no es válida.", 400);
 
                 // Y con cupo libre: elegirla aca es ASIGNARSELA a la ficha, asi que una razon
                 // social llena metería un trabajador mas por encima del tope. El modal ya lo avisa
                 // y no deja guardar, pero el tope se cuenta de nuevo acá: entre que se abrio el
-                // modal y este momento otro pudo ocupar el ultimo cupo.
+                // modal y este momento otro pudo ocupar el ultimo cupo. Vale tambien cuando es la
+                // que la ficha ya traia: la de pre-ingreso no ocupa cupo, asi que una razon social
+                // que se lleno despues de asignarsela tampoco tiene lugar para ella.
                 //
                 // Salvo que la vacante sea un REEMPLAZO: ahi el tope se pasa a proposito, porque el
                 // que entra y el que sale conviven un mes. Ver IReclutamientoEmoIngresoService
                 // .EsReemplazoAsync. Se pregunta solo cuando la razon social esta llena, que es el
                 // unico momento en que la respuesta cambia algo.
-                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, dto.EmpresaId.Value) == 0
+                if (await RazonSocialCuposHelper.CuposDisponiblesAsync(ctx, elegida) == 0
                     && !await _reclutamiento.EsReemplazoAsync(ctx, worker))
                 {
                     var nombre = await ctx.Contributor
-                        .Where(c => c.ContributorId == dto.EmpresaId.Value)
+                        .Where(c => c.ContributorId == elegida)
                         .Select(c => c.ContributorName)
                         .FirstOrDefaultAsync();
                     throw new AbrilException(RazonSocialCuposHelper.MensajeSinCupos(nombre), 400);
                 }
 
-                worker.ContributorId = dto.EmpresaId;
-                worker.UpdatedAt     = DateTimeOffset.UtcNow;
+                if (worker.ContributorId != elegida)
+                {
+                    worker.ContributorId = elegida;
+                    worker.UpdatedAt     = DateTimeOffset.UtcNow;
+                }
 
-                // Y se le baja al requerimiento del que salio la ficha, si viene de uno: la pantalla
-                // de Reclutamiento lee la razon social de ahi, y dejarla vacia haria que asignar
-                // otra despues le pisara a la ficha la que se acaba de elegir aca.
-                await _reclutamiento.SincronizarRazonSocialAsync(ctx, worker, dto.EmpresaId.Value, userId);
+                // Y se le baja al requerimiento del que salio la ficha, si viene de uno: la carta
+                // oferta la lee de la ficha y el onboarding del requerimiento, asi que quedarse con
+                // la vieja en uno de los dos haria que la persona firme con una empresa y entre a
+                // otra.
+                await _reclutamiento.SincronizarRazonSocialAsync(ctx, worker, elegida, userId);
             }
 
             // El modal "Programar EMO con clinica" ya no pide elegir medico (lo pidio GTH), pero el
@@ -783,9 +796,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
         /// <summary>
         /// Razones sociales del grupo con sus cupos para el desplegable que el modal muestra cuando
-        /// el trabajador llegó sin ninguna, y si a esa ficha le aplica el tope de 20. La cuenta vive
-        /// en Shared para que esta pantalla y Configuración → Razones Sociales no puedan discrepar
-        /// (ver <see cref="RazonSocialCuposHelper"/>).
+        /// hay que elegirla (la ficha llegó sin ninguna o es de pre-ingreso), y si a esa ficha le
+        /// aplica el tope de 20. La cuenta vive en Shared para que esta pantalla y Configuración →
+        /// Razones Sociales no puedan discrepar (ver <see cref="RazonSocialCuposHelper"/>).
         ///
         /// <para>Dos roundtrips como mucho: el de la lista y —solo si viene ficha— el que resuelve
         /// de qué vacante sale. Sin <paramref name="workerId"/> se responde con el tope puesto, que

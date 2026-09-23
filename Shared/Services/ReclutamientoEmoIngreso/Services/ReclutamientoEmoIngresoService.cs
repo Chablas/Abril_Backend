@@ -175,9 +175,10 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services
             if (worker.PersonId == null) return false;
 
             var req = await RequerimientoDeLaFichaAsync(ctx, worker.PersonId.Value);
-            // Una razón social ya escrita manda sobre esta pantalla: reprogramar el EMO no la
-            // cambia.
-            if (req == null || req.ContributorId != null) return false;
+            // La del EMO manda también sobre una que el requerimiento ya tuviera: GTH la puede
+            // corregir al reprogramar, y la ficha y el requerimiento no pueden quedar con dos
+            // distintas (la carta oferta lee la de la ficha y el onboarding la de acá).
+            if (req == null || req.ContributorId == contributorId) return false;
 
             req.ContributorId   = contributorId;
             req.UpdatedDateTime = DateTimeOffset.UtcNow;

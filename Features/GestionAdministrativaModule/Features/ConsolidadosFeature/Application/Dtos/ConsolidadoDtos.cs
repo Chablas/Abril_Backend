@@ -603,8 +603,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// </summary>
         public List<int> Completadas { get; set; } = new();
 
-        /// <summary>Planillas con alguna salida completada: es lo que se le avisa a Tesorería.</summary>
+        /// <summary>Planillas con alguna salida completada.</summary>
         public List<int> RendicionesCompletadas { get; set; } = new();
+
+        /// <summary>
+        /// Consolidados con alguna salida completada: es lo que se le avisa a Tesorería, UN correo
+        /// por documento. Cuando el aviso salía por planilla, un consolidado de tres planillas le
+        /// llegaba tres veces.
+        /// </summary>
+        public List<int> ConsolidadosCompletados { get; set; } = new();
 
         /// <summary>
         /// Consolidados en los que esta firma es NUEVA. Es lo que dispara el aviso al siguiente
@@ -686,25 +693,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     }
 
     /// <summary>
-    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. El destinatario
-    /// principal se resuelve por ROL (TESORERO), que es la misma condición que abre la bandeja de
-    /// Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él, sin depender
-    /// de un área ni de una lista de nombres.
+    /// El aviso a Tesorería de que un consolidado quedó firmado y ya se puede revisar para pagarlo.
+    /// El destinatario principal se resuelve por ROL (TESORERO), que es la misma condición que abre
+    /// la bandeja de Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él,
+    /// sin depender de un área ni de una lista de nombres.
     ///
-    /// Los demás —el Coordinador ERP, por ejemplo— NO salen de acá: son destinatarios normales de
-    /// Configuración → Correos (tipo ROL) y los agrega el resolver al enviar. Este DTO solo trae
-    /// el principal.
+    /// Los demás NO salen de acá: son destinatarios normales de Consolidados → Configuración →
+    /// Correos y los agrega el resolver al enviar. Este DTO solo trae el principal.
     /// </summary>
     public class TesoreriaCorreoInfoDto
     {
-        public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
+        public ConsolidadoTesoreriaCorreoDatos Datos { get; set; } = new();
         /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
         public List<string> Destinatarios { get; set; } = new();
-        /// <summary>
-        /// Consolidado del S10 que respalda a la planilla: es lo que abre el botón del correo,
-        /// porque la bandeja de Tesorería lista por documento. Null solo si la planilla no tiene
-        /// consolidado vigente, y ahí el botón lleva a la bandeja sin abrir nada.
-        /// </summary>
-        public int? ConsolidadoId { get; set; }
     }
 }

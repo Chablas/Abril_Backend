@@ -111,8 +111,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         /// </summary>
         Task<List<ConsolidadoCorreoDatos>> GetConsolidadoCorreoDatos(IReadOnlyCollection<int> solicitudIds);
 
-        /// <summary>Lo que necesita el aviso a Tesorería de UNA planilla firmada.</summary>
-        Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId);
+        /// <summary>
+        /// Lo que necesita el aviso a Tesorería de UN consolidado firmado: el resumen del documento
+        /// entero y quiénes tienen el rol TESORERO. Null si el consolidado no existe.
+        /// </summary>
+        Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int consolidadoId);
 
         // ── Trámites del consolidador ────────────────────────────────────────
 

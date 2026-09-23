@@ -90,13 +90,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/consolidados?consolidado={consolidadoId}";
 
         /// <summary>
-        /// Reembolsos sin abrir nada — la bandeja de Tesorería, donde se confirma la revisión
-        /// documental y se paga.
-        /// </summary>
-        public static string Reembolsos(IConfiguration configuration) =>
-            $"{Base(configuration)}/gestion-administrativa/reembolsos";
-
-        /// <summary>
         /// Reembolsos abierta en ese Consolidado del S10. La unidad es el CONSOLIDADO y no la
         /// planilla —igual que en <see cref="Consolidados"/>— porque lo que Tesorería revisa y
         /// paga es el documento entero. Es el destino del aviso que le llega cuando la jefatura

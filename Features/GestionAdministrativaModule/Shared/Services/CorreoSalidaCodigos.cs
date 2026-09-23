@@ -99,11 +99,11 @@
         // ── Tesorería ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// A Tesorería: la jefatura ya firmó una planilla y su reembolso entró a la bandeja de
-        /// pago (RF-TES-01). Se origina en Consolidados, que es donde se firma; el
-        /// destinatario principal se resuelve por ROL (TESORERO), no por área. Quién más lo recibe
-        /// —el Coordinador ERP, por ejemplo— sale de Configuración → Correos como cualquier otro
-        /// destinatario, con su propio interruptor.
+        /// A Tesorería: la jefatura terminó de firmar un consolidado y su reembolso entró a la
+        /// bandeja de pago (RF-TES-01). Sale UNO por consolidado, no uno por planilla. Se origina
+        /// en Consolidados, que es donde se firma; el destinatario principal se resuelve por ROL
+        /// (TESORERO), no por área. Quién más lo recibe sale de Configuración → Correos como
+        /// cualquier otro destinatario, con su propio interruptor.
         /// </summary>
         public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
 

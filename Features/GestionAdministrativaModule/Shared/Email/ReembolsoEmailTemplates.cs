@@ -43,8 +43,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
-    /// Lo que necesitan los correos de una PLANILLA entera y no de un consolidado: el aviso a
-    /// Tesorería de que se firmó y el aviso de pago al trabajador.
+    /// Lo que necesita el aviso a Tesorería de que la jefatura terminó de firmar un Consolidado del
+    /// S10. Describe el DOCUMENTO entero —lo que Tesorería abre, revisa y paga—, no las planillas
+    /// sueltas: con un aviso por planilla, un consolidado de tres le llegaba tres veces.
+    /// </summary>
+    public sealed class ConsolidadoTesoreriaCorreoDatos
+    {
+        public int ConsolidadoId { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN. Null en los consolidados anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
+        /// <summary>Área con la que se armó el código (la del consolidador). Null en los antiguos.</summary>
+        public string? Area { get; set; }
+        /// <summary>Número de reembolso que devolvió el S10. Null en los consolidados viejos.</summary>
+        public string? NumeroReembolso { get; set; }
+        /// <summary>Cuántas planillas cubre el documento.</summary>
+        public int RendicionesCount { get; set; }
+        /// <summary>
+        /// Suma de las planillas COMPLETAS que cubre: el «Total Abril One» que Tesorería ve al
+        /// abrirlo, contra el que se declaró el importe del S10.
+        /// </summary>
+        public decimal MontoRendido { get; set; }
+        /// <summary>
+        /// Quiénes lo firmaron, en el orden de la cadena (en obra, el administrador y después el
+        /// residente). El último es quien lo terminó de firmar y disparó el aviso.
+        /// </summary>
+        public List<string> Firmantes { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Lo que necesitan los correos de una PLANILLA entera y no de un consolidado: el aviso de
+    /// pago al trabajador.
     /// </summary>
     public sealed class ReembolsoPlanillaCorreoDatos
     {
@@ -65,8 +93,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public decimal MontoTotal { get; set; }
         /// <summary>Número de reembolso del Consolidado del S10. Null si la planilla no lo tiene.</summary>
         public string? NumeroReembolso { get; set; }
-        /// <summary>Nombre de quien firmó la planilla. Lo usa el aviso a Tesorería.</summary>
-        public string? FirmadoPor { get; set; }
         /// <summary>Nombre del tesorero que registró el pago. Lo usa el aviso de pago.</summary>
         public string? PagadoPor { get; set; }
     }
@@ -80,7 +106,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///     visto bueno.</item>
     ///   <item>Al consolidador: la jefatura aprobó (y firmó) el consolidado.</item>
     ///   <item>Al consolidador: la jefatura lo observó, con el comentario a subsanar.</item>
-    ///   <item>A Tesorería: la jefatura firmó una planilla y su reembolso entró a la bandeja.</item>
+    ///   <item>A Tesorería: la jefatura terminó de firmar el consolidado y su reembolso entró a la
+    ///     bandeja. Uno por consolidado, no uno por planilla.</item>
     ///   <item>Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49).</item>
     ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo.</item>
     /// </list>
@@ -104,7 +131,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string IconoFranjaAviso = "req-aviso";
 
         private const string IconoPago        = "req-aprobada";
-        private const string IconoPorPagar    = "req-sustento";
 
         private const string FilaTrabajador = "req-solicitante";
         private const string FilaArea       = "req-area";
@@ -112,6 +138,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaPlanilla   = "req-codigo";
         private const string FilaMonto      = "req-sustento";
         private const string FilaReembolso       = "req-ti";
+        private const string FilaRendiciones = "req-formulario";
+        private const string FilaFirma       = "req-vistobueno";
 
         /// <summary>
         /// A la jefatura que tiene que firmar AHORA: el reembolso de un Consolidado del S10 está
@@ -193,24 +221,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// A Tesorería: la jefatura firmó una planilla y su reembolso ya está en la bandeja de
-        /// pago (RF-TES-01). El botón abre esa planilla en Reembolsos, que es donde Tesorería
-        /// confirma la revisión documental y recién después puede pagar.
+        /// A Tesorería: la jefatura terminó de firmar un Consolidado del S10 y su reembolso ya está
+        /// en la bandeja de pago (RF-TES-01). Va UNO por consolidado —lo que Tesorería revisa y paga
+        /// es el documento—, con el resumen de lo que cubre. El botón lo abre en Reembolsos, que es
+        /// donde Tesorería confirma la revisión documental y recién después puede pagar.
+        ///
+        /// La franja nombra lo que va a encontrar al abrirlo, en el orden en que lo muestra el
+        /// detalle de Reembolsos: si ese detalle cambia de orden o de documentos, cambia esta línea.
         /// </summary>
-        public static string PorPagarTesoreria(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlRevisar)
+        public static string ConsolidadoParaTesoreria(
+            SalidaEmailLayout l, ConsolidadoTesoreriaCorreoDatos d, string urlRevisar)
         {
-            var firma = string.IsNullOrWhiteSpace(d.FirmadoPor)
-                ? "La jefatura ya firmó la planilla y el Consolidado del S10."
-                : $"Firmada por <b>{AbrilEmailLayout.Esc(d.FirmadoPor)}</b>.";
+            var quien = d.Firmantes.Count == 0
+                ? "La jefatura"
+                : $"<b>{AbrilEmailLayout.Esc(d.Firmantes[^1])}</b>";
+            var codigo = string.IsNullOrWhiteSpace(d.Codigo)
+                ? string.Empty
+                : $" <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>";
+            var area = string.IsNullOrWhiteSpace(d.Area)
+                ? string.Empty
+                : $" del área <b>{AbrilEmailLayout.Esc(d.Area)}</b>";
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
-                    IconoPorPagar,
-                    "Reembolso por pagar",
-                    $"El reembolso de <b>{AbrilEmailLayout.Esc(d.Trabajador)}</b> quedó firmado y pasó a Tesorería."),
-                l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde, firma),
-                l.Tarjeta(FilasPlanilla(d)),
-                l.Boton("Revisar el reembolso", urlRevisar),
+                    IconoRevisar,
+                    "Consolidado pendiente de revisión",
+                    $"{quien} firmó digitalmente el Consolidado del S10{codigo}{area}."),
+                l.Tarjeta(FilasTesoreria(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
+                    "En <b>Reembolsos</b> encontrarás la planilla grupal, el Consolidado del S10 y las "
+                    + "rendiciones incluidas, con sus salidas y vouchers."),
+                l.Boton("Revisar el consolidado", urlRevisar),
                 l.EnlaceDirecto(urlRevisar));
         }
 
@@ -298,6 +339,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (d.MontoTotal is > 0m)
                 filas.Add(new(FilaMonto, "Monto del consolidado",
                     $"S/ {d.MontoTotal.Value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Filas del aviso a Tesorería: el resumen del documento que va a revisar. Las que no tienen
+        /// dato (consolidados anteriores al código o al área) no se agregan.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasTesoreria(ConsolidadoTesoreriaCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>();
+
+            if (!string.IsNullOrWhiteSpace(d.Codigo))
+                filas.Add(new(FilaPlanilla, "Consolidado", AbrilEmailLayout.Esc(d.Codigo)));
+
+            if (!string.IsNullOrWhiteSpace(d.Area))
+                filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+
+            if (d.RendicionesCount > 0)
+                filas.Add(new(FilaRendiciones, "Rendiciones incluidas", d.RendicionesCount.ToString()));
+
+            // Siempre, aunque sea cero: es el dato que Tesorería va a pagar.
+            filas.Add(new(FilaMonto, "Monto rendido",
+                $"S/ {d.MontoRendido.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            if (d.Firmantes.Count > 0)
+                filas.Add(new(FilaFirma, "Firmado por",
+                    string.Join("<br />", d.Firmantes.Select(AbrilEmailLayout.Esc))));
 
             return filas;
         }

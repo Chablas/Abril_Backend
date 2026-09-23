@@ -238,9 +238,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             // ya está —o a Tesorería que lo pague— sería falso.
             await NotificarDecisionAsync(firma.Completadas, aprobado: true);
 
-            // El aviso a Tesorería es por PLANILLA: lo que se paga es el documento entero.
-            foreach (var rendicionId in firma.RendicionesCompletadas)
-                await NotificarTesoreriaAsync(rendicionId);
+            // El aviso a Tesorería es por CONSOLIDADO: es el documento que revisa y paga. Por planilla
+            // le llegaba el mismo consolidado repetido tantas veces como planillas cubría.
+            foreach (var consolidadoId in firma.ConsolidadosCompletados)
+                await NotificarTesoreriaAsync(consolidadoId);
 
             // Las firmas van en cadena: al que sigue se le avisa recién ahora, con la anterior ya
             // puesta. Con el documento completo no queda nadie en turno y no sale ningún correo.
@@ -908,16 +909,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         }
 
         /// <summary>
-        /// Avisa a Tesorería que una planilla quedó firmada y su reembolso ya está en su bandeja
-        /// (RF-TES-01). Los destinatarios salen del rol TESORERO y no de una lista escrita a mano;
-        /// los de <c>Configuración → Correos</c> se suman como copia. Best-effort, igual que el
-        /// resto: la firma ya está guardada.
+        /// Avisa a Tesorería que un consolidado quedó firmado y su reembolso ya está en su bandeja
+        /// (RF-TES-01): UN correo por consolidado, con el resumen del documento entero. Los
+        /// destinatarios salen del rol TESORERO y no de una lista escrita a mano; los de
+        /// <c>Configuración → Correos</c> se suman como copia. Best-effort, igual que el resto: la
+        /// firma ya está guardada.
         /// </summary>
-        private async Task NotificarTesoreriaAsync(int rendicionId)
+        private async Task NotificarTesoreriaAsync(int consolidadoId)
         {
             try
             {
-                var info = await _repo.GetTesoreriaCorreoInfo(rendicionId);
+                var info = await _repo.GetTesoreriaCorreoInfo(consolidadoId);
                 if (info == null) return;
 
                 var envio = await _correoResolver.ResolveEnvioAsync(
@@ -926,29 +928,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 if (!envio.Enviar)
                 {
                     _logger.LogInformation(
-                        "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado, "
+                        "Correo {Codigo} no enviado para el consolidado {ConsolidadoId}: está apagado, "
                         + "sin destinatarios configurados o sin nadie con el rol de Tesorería.",
-                        CorreoEventoCodigos.TesoreriaReembolso, rendicionId);
+                        CorreoEventoCodigos.TesoreriaReembolso, consolidadoId);
                     return;
                 }
 
                 var layout = SalidaEmailLayout.Desde(_configuration);
-                // El botón abre el CONSOLIDADO: es la unidad de la bandeja de Tesorería, la misma
-                // que se acaba de firmar. Sin consolidado vigente se cae a la bandeja sin abrir nada.
-                var url    = info.ConsolidadoId is int consolidadoId
-                    ? SalidaEnlaces.Reembolsos(_configuration, consolidadoId)
-                    : SalidaEnlaces.Reembolsos(_configuration);
+                // El botón abre el consolidado en Reembolsos: es la unidad de la bandeja de Tesorería.
+                var url    = SalidaEnlaces.Reembolsos(_configuration, consolidadoId);
+
+                // Los consolidados anteriores al código se nombran por su número de reembolso.
+                var d = info.Datos;
+                var nombre = !string.IsNullOrWhiteSpace(d.Codigo) ? $" - {d.Codigo}"
+                           : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - N.° {d.NumeroReembolso}"
+                           : string.Empty;
 
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Reembolso por pagar - rendición {info.Datos.Codigo}",
-                    body: ReembolsoEmailTemplates.PorPagarTesoreria(layout, info.Datos, url),
+                    subject: $"Consolidado pendiente de revisión{nombre}",
+                    body: ReembolsoEmailTemplates.ConsolidadoParaTesoreria(layout, d, url),
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error avisando a Tesorería de la rendición firmada {RendicionId}", rendicionId);
+                _logger.LogError(ex, "Error avisando a Tesorería del consolidado firmado {ConsolidadoId}", consolidadoId);
             }
         }
     }

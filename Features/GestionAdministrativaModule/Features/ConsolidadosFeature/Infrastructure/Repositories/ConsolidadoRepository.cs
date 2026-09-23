@@ -946,6 +946,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Distinct()
                 .ToList();
 
+            // Y los documentos que las respaldan: el aviso a Tesorería va uno por consolidado.
+            resultado.ConsolidadosCompletados = resultado.Completadas
+                .Where(consolidadoDeSolicitud.ContainsKey)
+                .Select(id => consolidadoDeSolicitud[id])
+                .Distinct()
+                .ToList();
+
             await ctx.SaveChangesAsync();
             return resultado;
         }
@@ -1100,12 +1107,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         public async Task<List<string>> GetCorreosTesoreria()
         {
             using var ctx = _factory.CreateDbContext();
+            return await CorreosTesoreriaAsync(ctx);
+        }
 
-            // El mismo requisito que abre la bandeja y que usa el envío
-            // (GetTesoreriaCorreoInfo): el rol TESORERO. No se pide además el puesto de categoría
-            // Tesorero — si se pidiera, el aviso dejaría fuera a gente que sí entra.
+        /// <summary>
+        /// Destinatario principal del aviso a Tesorería. Lo usan el preview y el envío
+        /// (<see cref="GetTesoreriaCorreoInfo"/>), así la confirmación no puede prometer otra lista.
+        /// El requisito es el mismo que abre la bandeja: el rol TESORERO. No se pide además el
+        /// puesto de categoría Tesorero — si se pidiera, el aviso dejaría fuera a gente que sí entra.
+        /// </summary>
+        private static Task<List<string>> CorreosTesoreriaAsync(AppDbContext ctx)
+        {
             var rolTesorero = int.Parse(Roles.Tesorero);
-            return await (
+            return (
                 from w   in ctx.Worker
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId
                 join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
@@ -1131,97 +1145,61 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             return await ConsolidadoCorreoLoader.LoadAsync(ctx, solicitudIds);
         }
 
-        public async Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int rendicionId)
+        public async Task<TesoreriaCorreoInfoDto?> GetTesoreriaCorreoInfo(int consolidadoId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var planilla = await ctx.GaRendicion
-                .Where(r => r.Id == rendicionId)
-                .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla, r.FirmadoPorId })
-                .FirstOrDefaultAsync();
-            if (planilla == null) return null;
+            // El área es la del consolidador, la misma con la que se armó el código CONS-SIGLA.
+            var consolidado = await (
+                from c  in ctx.GaConsolidadoS10.AsNoTracking()
+                join s  in ctx.AreaScope on c.AreaScopeId equals (int?)s.AreaScopeId into sGroup
+                from s  in sGroup.DefaultIfEmpty()
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai in aiGroup.DefaultIfEmpty()
+                where c.Id == consolidadoId
+                select new { c.Id, c.Codigo, c.NumeroReembolso, Area = ai != null ? ai.AreaItemName : null }
+            ).FirstOrDefaultAsync();
+            if (consolidado == null) return null;
 
-            // Todas las salidas de la planilla, sin recorte de visibilidad: lo que Tesorería va a
-            // pagar es el documento completo, no la parte que ve el revisor que firmó.
-            var salidas = await (
-                from s   in ctx.GaSolicitudSalida.Where(x => x.RendicionId == rendicionId)
-                join w   in ctx.Worker on s.WorkerId equals w.Id
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
-                from per in perGroup.DefaultIfEmpty()
-                select new
-                {
-                    s.Id,
-                    w.Subarea,
-                    Trabajador = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    Area       = w.Area,
-                    s.FechaSalida,
-                }
-            ).ToListAsync();
-            if (salidas.Count == 0) return null;
+            // Todas las planillas que cubre, sin recorte de visibilidad y con su monto COMPLETO: es
+            // el «Total Abril One» que Tesorería ve al abrirlo, contra el que se declaró el S10.
+            var rendicionIds = await RendicionesCubiertasAsync(ctx, consolidadoId);
+            var totales      = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
 
-            var solicitudIds = salidas.Select(s => s.Id).ToList();
-
-            var trayectos = await ctx.GaSolicitudTrayecto
-                .Where(t => solicitudIds.Contains(t.SolicitudId))
-                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+            // Quiénes lo firmaron, en el orden de la cadena: el último es el que lo completó.
+            var firmanteIds = await ctx.GaConsolidadoS10Firma.AsNoTracking()
+                .Where(f => f.State && f.ConsolidadoS10Id == consolidadoId)
+                .OrderBy(f => f.FirmadoAt).ThenBy(f => f.Slot)
+                .Select(f => f.FirmadoPorId)
                 .ToListAsync();
 
-            var subareaPorSolicitud = salidas.ToDictionary(s => s.Id, s => s.Subarea);
-            var importes = await ImporteRendidoLoader.LoadAsync(
-                ctx,
-                trayectos
-                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
-                        t.Id,
-                        subareaPorSolicitud.TryGetValue(t.SolicitudId, out var sub) ? sub : null,
-                        t.LugarOrigenId,
-                        t.LugarDestinoId))
-                    .ToList());
-
-            var consolidado = (await ConsolidadoS10Loader.LoadPorRendicionAsync(
-                ctx, new List<int> { rendicionId })).GetValueOrDefault(rendicionId);
-
-            string? firmadoPor = null;
-            if (planilla.FirmadoPorId.HasValue)
-            {
-                firmadoPor = await ctx.Person
-                    .Where(p => p.UserId == planilla.FirmadoPorId.Value)
-                    .Select(p => p.FullName)
-                    .FirstOrDefaultAsync();
-            }
-
-            // El mismo requisito que abre la bandeja: el rol TESORERO. La categoría del puesto ya
-            // no entra en la cuenta, así que el aviso llega a todos los que pueden trabajarlo.
-            var rolTesorero = int.Parse(Roles.Tesorero);
-            var destinatarios = await (
-                from w   in ctx.Worker
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
-                where ur.RoleId == rolTesorero && ur.State && ur.Active
-                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
-                select w.EmailCorporativo!
-            ).Distinct().ToListAsync();
-
-            var nombres = salidas.Select(s => s.Trabajador).Distinct().ToList();
-            var primera = salidas[0];
+            var nombreDe = firmanteIds.Count == 0
+                ? new Dictionary<int, string>()
+                : (await ctx.Person.AsNoTracking()
+                    .Where(p => p.UserId != null && firmanteIds.Contains(p.UserId.Value) && p.FullName != null)
+                    .Select(p => new { UserId = p.UserId!.Value, p.FullName })
+                    .ToListAsync())
+                    .GroupBy(p => p.UserId)
+                    .ToDictionary(g => g.Key, g => g.First().FullName!.Trim());
 
             return new TesoreriaCorreoInfoDto
             {
-                Destinatarios = destinatarios,
-                ConsolidadoId = consolidado?.Id,
-                Datos = new ReembolsoPlanillaCorreoDatos
+                Destinatarios = await CorreosTesoreriaAsync(ctx),
+                Datos = new ConsolidadoTesoreriaCorreoDatos
                 {
-                    RendicionId    = rendicionId,
-                    Codigo         = PlanillaRendicionHelper.CodigoRendicion(planilla.Codigo, rendicionId),
-                    // Una planilla puede agrupar a varios: se nombra al primero y se cuenta el resto.
-                    Trabajador     = nombres.Count > 1 ? $"{nombres[0]} +{nombres.Count - 1}" : nombres[0],
-                    Area           = nombres.Count > 1 ? null : primera.Area,
-                    NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla.NumeroPlanilla),
-                    Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(
-                                        salidas.Min(s => s.FechaSalida), salidas.Max(s => s.FechaSalida)),
-                    SalidasCount   = salidas.Count,
-                    MontoTotal     = trayectos.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m),
-                    NumeroReembolso = consolidado?.NumeroReembolso,
-                    FirmadoPor     = firmadoPor,
+                    ConsolidadoId    = consolidado.Id,
+                    Codigo           = consolidado.Codigo,
+                    Area             = consolidado.Area,
+                    NumeroReembolso  = consolidado.NumeroReembolso,
+                    RendicionesCount = rendicionIds.Count,
+                    MontoRendido     = totales.Values.Sum(),
+                    // Una firma cuyo nombre no se resuelve no se inventa: sin ninguno, el correo
+                    // dice «La jefatura».
+                    Firmantes        = firmanteIds
+                        .Where(nombreDe.ContainsKey)
+                        .Select(id => nombreDe[id])
+                        .Distinct()
+                        .ToList(),
                 },
             };
         }

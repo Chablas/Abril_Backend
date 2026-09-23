@@ -310,7 +310,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
     /// <summary>
     /// Cuerpo del rechazo. Todo opcional: aprobar no lleva cuerpo y rechazar puede ir sin motivo
-    /// (el botón bulk de la tabla rechaza sin pedirlo).
+    /// (el detalle y el botón bulk de la tabla lo piden, pero no lo exigen).
     /// </summary>
     public class RechazarSalidaDto
     {

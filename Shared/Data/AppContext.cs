@@ -19,6 +19,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructu
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Features.CursoModule.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
@@ -41,6 +42,7 @@ using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.SsomaModule.InduccionProgramacionFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionCruzadaProgramacionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -329,6 +331,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
         public DbSet<ProjectActivity> ProjectActivity { get; set; }
         public DbSet<EvPeriodo> EvPeriodos => Set<EvPeriodo>();
+
+        // ── CursoModule (cursos de capacitación interactivos, evaluación auditable SUNAFIL) ──
+        public DbSet<Curso> Cursos => Set<Curso>();
+        public DbSet<CursoSlide> CursoSlides => Set<CursoSlide>();
+        public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
+        public DbSet<CursoIntentoRespuesta> CursoIntentoRespuestas => Set<CursoIntentoRespuesta>();
+        public DbSet<CursoIntentoEvidencia> CursoIntentoEvidencias => Set<CursoIntentoEvidencia>();
         public DbSet<EvPlantilla> EvPlantillas => Set<EvPlantilla>();
         public DbSet<EvEvaluacionResidente> EvEvaluacionesResidente => Set<EvEvaluacionResidente>();
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
@@ -575,6 +584,19 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
         public DbSet<SsKit> SsKit => Set<SsKit>();
         public DbSet<SsKitItem> SsKitItem => Set<SsKitItem>();
+
+        public DbSet<SsResiduoTipo> SsResiduoTipo => Set<SsResiduoTipo>();
+        public DbSet<SsResiduoTipoFactor> SsResiduoTipoFactor => Set<SsResiduoTipoFactor>();
+        public DbSet<SsResiduoEoRs> SsResiduoEoRs => Set<SsResiduoEoRs>();
+        public DbSet<SsResiduoEoRsDocumento> SsResiduoEoRsDocumento => Set<SsResiduoEoRsDocumento>();
+        public DbSet<SsResiduoAutorizacionDme> SsResiduoAutorizacionDme => Set<SsResiduoAutorizacionDme>();
+        public DbSet<SsResiduoViaje> SsResiduoViaje => Set<SsResiduoViaje>();
+        public DbSet<SsResiduoDeclaracion> SsResiduoDeclaracion => Set<SsResiduoDeclaracion>();
+        public DbSet<SsResiduoDeclaracionDetalle> SsResiduoDeclaracionDetalle => Set<SsResiduoDeclaracionDetalle>();
+        public DbSet<SsResiduoDeclaracionEoRs> SsResiduoDeclaracionEoRs => Set<SsResiduoDeclaracionEoRs>();
+        public DbSet<SsResiduoConstancia> SsResiduoConstancia => Set<SsResiduoConstancia>();
+        public DbSet<SsResiduoConstanciaFinal> SsResiduoConstanciaFinal => Set<SsResiduoConstanciaFinal>();
+        public DbSet<SsResiduoDocumentoReferencia> SsResiduoDocumentoReferencia => Set<SsResiduoDocumentoReferencia>();
 
         public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
         public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
@@ -1304,6 +1326,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(p => p.SexoId);
 
+            // FactorM3aTon snake-casea por convención a "factor_m3a_ton", pero la columna real
+            // (Migrations_Manual/2026-09-22_ss_residuo_gestion.sql) es "factor_m3_a_ton".
+            modelBuilder.Entity<Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Models.SsResiduoTipoFactor>()
+                .Property(f => f.FactorM3aTon).HasColumnName("factor_m3_a_ton");
+
             // Las columnas fecha/*_at de ac_revisiones y ac_revision_observaciones se crearon
             // como TIMESTAMP (sin zona horaria) en la migración manual, pero Npgsql por defecto
             // mapea DateTime a "timestamp with time zone" y exige Kind=Utc — sin este override
@@ -1515,6 +1542,10 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
+
+            // ── CursoModule ──────────────────────────────────────────────────
+            modelBuilder.Entity<CursoSlide>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
+            modelBuilder.Entity<CursoIntentoRespuesta>().Property(e => e.RespuestaJson).HasColumnType("jsonb");
 
             // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // ScopeItem: evitar ambigüedad en FK self-referential con snake_case

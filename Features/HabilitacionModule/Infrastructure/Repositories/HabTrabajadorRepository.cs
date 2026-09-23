@@ -1407,7 +1407,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await EnviarEmailSilenciosoAsync(to, subject, body);
         }
 
-        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false)
+        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1423,39 +1423,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
-            // Si el retiro más reciente fue AUTOMÁTICO (por documentación vencida/rechazada), no se
-            // puede reingresar hasta levantar esa observación: mientras siga habiendo un ítem sin
-            // aprobar, es el mismo incumplimiento por el que se retiró, solo que ahora reingresado.
-            // Bandeja ya deja aprobar el documento de un trabajador retirado (no lo filtra por
-            // estado), así que "subsanar" no requiere estar activo — lo que faltaba era este freno.
-            // Solo bloquea si el ÚLTIMO retiro fue automático: uno manual (renuncia, despido, etc.)
-            // no tiene "observación" que levantar. El override es exclusivo de Administrador/
-            // Coordinador SSOMA de Abril — nunca disponible para una sesión de contratista.
-            if (!esOverrideAutorizado && worker.WorkersEstadoId == WorkersEstadoIds.Retirado)
-            {
-                var ultimoRetiroFueAutomatico = await ctx.SsRetiroAutomaticoLog
-                    .Where(l => l.WorkerId == workerId)
-                    .OrderByDescending(l => l.EjecutadoEn)
-                    .Select(l => l.TipoRetiro)
-                    .FirstOrDefaultAsync() == "AUTOMATICO";
-
-                if (ultimoRetiroFueAutomatico)
-                {
-                    var pendientes = await ctx.SsHabTrabajador
-                        .Where(h => h.WorkerId == workerId && h.ItemId != HabItemIds.LecturaEmo
-                                 && (h.Estado == "Falta" || h.Estado == "Vencido" || h.Estado == "Rechazado"))
-                        .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
-                              h => h.ItemId, i => i.Id, (h, i) => i.Nombre)
-                        .ToListAsync();
-
-                    if (pendientes.Count > 0)
-                        throw new AbrilException(
-                            "No se puede reingresar: sigue pendiente de aprobación " +
-                            string.Join(", ", pendientes) +
-                            ". Suba y apruebe la evidencia en Bandeja antes de reingresar, o pida a un " +
-                            "Administrador/Coordinador SSOMA que lo autorice de forma excepcional.", 400);
-                }
-            }
+            // Antes esto bloqueaba el reingreso si el último retiro fue automático (doc vencida/
+            // rechazada) y seguía pendiente de aprobación. Se quitó: el trabajador quedaba
+            // reingresado sin poder subsanar (no podía subir evidencia sin antes reingresar), y el
+            // override manual era el único escape. Ahora se deja reingresar siempre — si no
+            // regulariza la documentación, RetiroAutomaticoService.EjecutarAsync lo vuelve a retirar
+            // en la misma cantidad de días de gracia (ver DiasGraciaOnboarding: solo aplica al
+            // primer ingreso real, no a un reingreso, para no darle otras 3 semanas de ventana).
 
             // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
             // workerId — es ciega a que exista otro worker_id distinto para la misma persona

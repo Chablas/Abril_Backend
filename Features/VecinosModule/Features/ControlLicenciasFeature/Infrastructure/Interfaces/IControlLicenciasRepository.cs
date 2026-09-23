@@ -116,5 +116,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         /// <summary>Guarda la URL del logo del proyecto (Project.LogoUrl), subido para el encabezado del PDF.</summary>
         Task UpdateLogoUrl(int projectId, string logoUrl, int userId);
+
+        /// <summary>URL del logo guardado del proyecto (Project.LogoUrl), o null si aún no tiene.</summary>
+        Task<string?> GetLogoUrl(int projectId);
     }
 }

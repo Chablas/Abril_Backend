@@ -212,6 +212,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             }
         }
 
+        /// <summary>
+        /// Sirve el logo del proyecto a través del backend (que ya tiene CORS habilitado), para que el navegador
+        /// pueda cargarlo al armar el PDF sin depender del CORS del storage subyacente (Azure Blob no lo tiene configurado).
+        /// </summary>
+        [HttpGet("proyectos/{projectId:int}/logo")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetLogo(int projectId)
+        {
+            try
+            {
+                var logo = await _service.GetLogoBytes(projectId);
+                if (logo is null) return NotFound();
+                return File(logo.Value.Bytes, logo.Value.ContentType);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL LICENCIAS LOGO GET: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Dashboard gerencial: todos los proyectos (o los indicados por projectIds), ordenado de más a menos crítico.</summary>
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard([FromQuery] List<int>? projectIds)

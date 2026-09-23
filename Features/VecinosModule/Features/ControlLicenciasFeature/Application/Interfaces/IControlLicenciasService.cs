@@ -41,5 +41,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         /// <summary>Sube/reemplaza el logo del proyecto, para el encabezado del PDF de Control de Licencias.</summary>
         Task<string> UploadLogo(int projectId, IFormFile file, int userId);
+
+        /// <summary>Descarga el logo guardado del proyecto (bytes + content-type), para servirlo sin problemas de CORS del storage. Null si no tiene logo.</summary>
+        Task<(byte[] Bytes, string ContentType)?> GetLogoBytes(int projectId);
     }
 }

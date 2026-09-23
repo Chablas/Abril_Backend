@@ -173,14 +173,24 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                             // proceso normal de habilitación. Se usa la fecha de ingreso del período
                             // laboral vigente (mismo campo que ya usa el resto de la app); si no hay
                             // ninguno registrado, no se aplica la gracia (caso legado/excepcional).
-                            var fechaIngreso = worker.PeriodosLaborales
-                                .Where(p => p.State)
+                            //
+                            // Solo aplica al PRIMER periodo laboral de la ficha (un solo periodo en
+                            // total, ese vigente). Un reingreso abre un periodo nuevo con fecha_ingreso
+                            // de hoy (WorkersPeriodoLaboralHelper), y si la gracia se aplicara igual ahí
+                            // le regalaría otras 3 semanas a alguien que ya conocía el incumplimiento
+                            // por el que se había retirado antes — el reingreso ya no bloquea por
+                            // documentación pendiente (ver ReingresoAsync) precisamente para que sea
+                            // este cron el que lo retire de nuevo, con la gracia corta normal (2 o 7
+                            // días), no con la de onboarding.
+                            var periodos = worker.PeriodosLaborales.Where(p => p.State).ToList();
+                            var fechaIngreso = periodos
                                 .OrderByDescending(p => p.FechaIngreso)
                                 .ThenByDescending(p => p.WorkersPeriodoLaboralId)
                                 .Select(p => (DateOnly?)p.FechaIngreso)
                                 .FirstOrDefault();
 
-                            if (fechaIngreso.HasValue && (hoy.DayNumber - fechaIngreso.Value.DayNumber) < DiasGraciaOnboarding)
+                            if (periodos.Count <= 1 && fechaIngreso.HasValue
+                                && (hoy.DayNumber - fechaIngreso.Value.DayNumber) < DiasGraciaOnboarding)
                                 continue;
 
                             vinculacionDict.TryGetValue(worker.Id, out var vinc);

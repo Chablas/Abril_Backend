@@ -24,19 +24,25 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IWebHostEnvironment _env;
 
         public ControlLicenciasService(
             IControlLicenciasRepository repository,
             IFileStorageService fileStorageService,
             IStorageContainerResolver containerResolver,
             IEmailService emailService,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IHttpClientFactory httpClientFactory,
+            IWebHostEnvironment env)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
             _emailService = emailService;
             _configuration = configuration;
+            _httpClientFactory = httpClientFactory;
+            _env = env;
         }
 
         public Task<List<ProjectOptionDto>> GetProyectos() => _repository.GetProyectos();
@@ -218,6 +224,38 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
             await _repository.UpdateLogoUrl(projectId, logoUrl, userId);
             return logoUrl;
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)?> GetLogoBytes(int projectId)
+        {
+            var url = await _repository.GetLogoUrl(projectId);
+            if (string.IsNullOrEmpty(url)) return null;
+
+            // El storage local guarda ruta relativa (/images/...); Azure Blob guarda URL absoluta.
+            // Server-to-server no tiene restricción CORS, así que esto sirve de proxy para el navegador.
+            if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                var client = _httpClientFactory.CreateClient();
+                var response = await client.GetAsync(url);
+                if (!response.IsSuccessStatusCode) return null;
+
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+                return (bytes, contentType);
+            }
+
+            var physicalPath = Path.Combine(_env.WebRootPath, url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(physicalPath)) return null;
+
+            var localBytes = await File.ReadAllBytesAsync(physicalPath);
+            var localContentType = Path.GetExtension(physicalPath).ToLowerInvariant() switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                _ => "application/octet-stream",
+            };
+            return (localBytes, localContentType);
         }
 
         public async Task<RecordatoriosResultDto> ProcesarRecordatorios()

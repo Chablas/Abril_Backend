@@ -877,11 +877,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 from v in vj.DefaultIfEmpty()
                 join lo in ctx.VecinoLote on v.VecinoLoteId equals lo.VecinoLoteId into loj
                 from lo in loj.DefaultIfEmpty()
-                orderby l.Fecha, l.VecinoLimpiezaId
+                // Dentro del día, por horario; las que no tienen hora van al final.
+                orderby l.Fecha, l.HoraInicio == null, l.HoraInicio, l.VecinoLimpiezaId
                 select new VecinoLimpiezaDto
                 {
                     VecinoLimpiezaId = l.VecinoLimpiezaId,
                     Fecha = l.Fecha,
+                    HoraInicio = l.HoraInicio,
+                    HoraFin = l.HoraFin,
                     VecinoLimpiezaTipoId = l.VecinoLimpiezaTipoId,
                     TipoDescripcion = t.Descripcion,
                     VecinoId = l.VecinoId,
@@ -977,6 +980,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 VecinoLimpiezaTipoId = tipo.VecinoLimpiezaTipoId,
                 VecinoId = vecinoId,
                 Fecha = dto.Fecha,
+                HoraInicio = dto.HoraInicio,
+                HoraFin = dto.HoraFin,
                 Descripcion = string.IsNullOrWhiteSpace(dto.Descripcion) ? null : dto.Descripcion.Trim(),
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
@@ -991,6 +996,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             {
                 VecinoLimpiezaId = entity.VecinoLimpiezaId,
                 Fecha = entity.Fecha,
+                HoraInicio = entity.HoraInicio,
+                HoraFin = entity.HoraFin,
                 VecinoLimpiezaTipoId = tipo.VecinoLimpiezaTipoId,
                 TipoDescripcion = tipo.Descripcion,
                 VecinoId = vecinoId,

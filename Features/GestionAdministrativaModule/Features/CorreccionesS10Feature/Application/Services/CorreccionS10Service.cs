@@ -96,14 +96,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
             // El aviso al consolidador es best-effort: la confirmación ya está guardada y no se
             // revierte porque un correo falle — la ve igual en Consolidados (mismo criterio que las
             // decisiones de la jefatura).
-            await NotificarAtencionAsync(atendidas);
+            await NotificarAtencionAsync(atendidas.Select(c => c.Id).ToList());
+
+            // El aviso cuenta pedidos, no filas: la bandeja muestra una fila por planilla, pero el
+            // consolidador pidió UNA corrección por consolidado aunque cubra varias.
+            var solicitudes = atendidas.Select(c => c.ConsolidadoS10Id ?? -c.Id).Distinct().Count();
 
             return new CorreccionS10BulkResultDto
             {
                 Procesadas = atendidas.Count,
-                Message = atendidas.Count == 1
-                    ? "Corrección marcada como atendida. Le avisamos al consolidador para que recargue el Consolidado del S10."
-                    : $"{atendidas.Count} correcciones marcadas como atendidas.",
+                Message    = solicitudes == 1 ? "Solicitud atendida" : "Solicitudes atendidas",
             };
         }
 
@@ -142,7 +144,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Corrección del S10 atendida - {datos.Codigo}",
+                        subject: $"Corrección del S10 atendida{CorreccionS10EmailTemplates.NombreEnAsunto(datos)}",
                         body: body,
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);

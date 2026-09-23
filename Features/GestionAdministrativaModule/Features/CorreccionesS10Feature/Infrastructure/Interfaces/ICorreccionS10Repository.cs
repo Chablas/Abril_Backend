@@ -1,6 +1,7 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastructure.Interfaces
 {
@@ -10,7 +11,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
     /// </summary>
     public interface ICorreccionS10Repository
     {
-        /// <summary>Las correcciones vivas que pasan los filtros, ordenadas por antigüedad del pedido.</summary>
+        /// <summary>
+        /// Las correcciones vivas que pasan los filtros: primero las por atender y, dentro de cada
+        /// estado, por antigüedad del pedido.
+        /// </summary>
         Task<List<CorreccionS10ListItemDto>> GetAll(CorreccionS10FiltersDto filters);
 
         /// <summary>
@@ -30,14 +34,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
 
         /// <summary>
         /// Marca como atendidas las correcciones indicadas (el check de RG-22 / RF-OBS-07) y
-        /// devuelve los ids que efectivamente se movieron. Las que ya estaban atendidas se ignoran
+        /// devuelve las que efectivamente se movieron. Las que ya estaban atendidas se ignoran
         /// en silencio: en una acción masiva la selección puede traer filas que otro ya resolvió.
         ///
         /// Lo que se corrige es el Consolidado del S10, así que atender una planilla atiende
         /// también las demás planillas del MISMO consolidado que siguen por atender: el pedido del
         /// consolidador es uno solo aunque la bandeja lo muestre por planilla.
         /// </summary>
-        Task<List<int>> Atender(
+        Task<List<GaCorreccionS10>> Atender(
             IEnumerable<int> correccionIds, string? comentario, int erpUserId);
 
         /// <summary>

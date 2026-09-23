@@ -250,8 +250,10 @@
         /// vuelve a adjuntar el consolidado (eso devuelve el reembolso a
         /// <see cref="Reembolso.Pendiente"/> y da de baja la corrección).
         ///
-        /// Los nombres son los dos estados que el requerimiento lista en §6.1 y describen quién
-        /// tiene que actuar, no qué pasó: es lo que la pantalla muestra.
+        /// El primer nombre dice quién tiene que actuar (el ERP). El segundo, «Atendido», dice qué
+        /// pasó: quien lo lee es el Coordinador ERP en su bandeja, y para él el pedido ya terminó.
+        /// La recarga que falta es del consolidador, y Consolidados la rotula aparte
+        /// («Por recargar»).
         /// Los ids reflejan las filas de <c>ga_estado_correccion_s10</c>.
         /// </summary>
         public static class CorreccionS10
@@ -265,7 +267,7 @@
             public const int Atendida   = 2;
 
             public const string NombreSolicitada = "Pendiente de corrección S10";
-            public const string NombreAtendida   = "Pendiente de recarga S10";
+            public const string NombreAtendida   = "Atendido";
 
             /// <summary>id → nombre para exponer en DTOs.</summary>
             public static string Nombre(int id) => id switch

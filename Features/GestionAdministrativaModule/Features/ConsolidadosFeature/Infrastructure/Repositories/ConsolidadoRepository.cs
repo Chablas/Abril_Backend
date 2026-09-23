@@ -1326,7 +1326,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var consolidado = await ctx.GaConsolidadoS10
                 .Where(c => c.Id == consolidadoId && c.State)
-                .Select(c => new { c.Id, c.NumeroReembolso })
+                .Select(c => new { c.Id, c.Codigo, c.NumeroReembolso })
                 .FirstOrDefaultAsync();
             if (consolidado == null) return null;
 
@@ -1344,6 +1344,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 RendicionIdsObservadas = observadas.Select(o => o.RendicionId).Distinct().ToList(),
                 HayCorreccionEnCurso   = await ctx.GaCorreccionS10
                                             .AnyAsync(c => c.State && cubiertas.Contains(c.RendicionId)),
+                Codigo                 = consolidado.Codigo,
                 NumeroReembolso        = consolidado.NumeroReembolso,
                 Solicitante            = await ctx.Person
                                             .Where(p => p.UserId == userId && p.FullName != null)

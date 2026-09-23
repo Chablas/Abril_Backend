@@ -13,7 +13,7 @@
         public int Id { get; set; }
         public int RendicionId { get; set; }
 
-        /// <summary>"Pendiente de corrección S10" | "Pendiente de recarga S10".</summary>
+        /// <summary>"Pendiente de corrección S10" | "Atendido".</summary>
         public string Estado { get; set; } = string.Empty;
 
         /// <summary>El «MOTIVO *» que escribió el consolidador: qué necesita del ERP.</summary>

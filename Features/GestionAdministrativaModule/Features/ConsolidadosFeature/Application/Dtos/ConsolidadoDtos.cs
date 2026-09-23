@@ -444,6 +444,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// <summary>Planillas del consolidado con alguna salida Observada: se pide una corrección por cada una.</summary>
         public List<int> RendicionIdsObservadas { get; set; } = new();
         public bool HayCorreccionEnCurso { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN: el correo al ERP nombra el pedido por él.</summary>
+        public string? Codigo { get; set; }
         public string? NumeroReembolso { get; set; }
         /// <summary>Nombre de quien pide la corrección (el usuario), para el correo al ERP.</summary>
         public string? Solicitante { get; set; }

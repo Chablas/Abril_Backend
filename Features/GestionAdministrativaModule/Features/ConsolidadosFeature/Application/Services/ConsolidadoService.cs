@@ -718,22 +718,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 var d = plan.Datos;
                 var datos = new CorreccionS10CorreoDatos
                 {
-                    CorreccionId     = primera.Id,
-                    RendicionId      = primera.RendicionId,
-                    Codigo           = d != null && d.Rendiciones.Count > 0
-                                        ? string.Join(", ", d.Rendiciones)
-                                        : $"#{primera.RendicionId}",
-                    RendicionesCount = d?.Rendiciones.Count ?? 1,
-                    Trabajador       = d != null && d.Trabajadores.Count > 0
-                                        ? string.Join(", ", d.Trabajadores)
-                                        : "Colaborador",
-                    SolicitadaPor    = plan.Solicitante,
-                    Periodo          = d?.Periodo,
-                    NumeroReembolso  = plan.NumeroReembolso,
-                    MontoTotal       = d?.MontoTotal ?? 0m,
-                    Motivo           = texto,
-                    MotivoJefatura   = primera.MotivoJefatura,
-                    MotivoOrigen     = EstadosSalida.OrigenObservacionReembolso.Nombre(primera.MotivoOrigenId),
+                    CorreccionId      = primera.Id,
+                    RendicionId       = primera.RendicionId,
+                    ConsolidadoS10Id  = consolidadoId,
+                    ConsolidadoCodigo = plan.Codigo,
+                    Trabajador        = d != null && d.Trabajadores.Count > 0
+                                         ? string.Join(", ", d.Trabajadores)
+                                         : "Colaborador",
+                    SolicitadaPor     = plan.Solicitante,
+                    Periodo           = d?.Periodo,
+                    NumeroReembolso   = plan.NumeroReembolso,
+                    MontoTotal        = d?.MontoTotal ?? 0m,
+                    Motivo            = texto,
+                    MotivoJefatura    = primera.MotivoJefatura,
+                    MotivoOrigen      = EstadosSalida.OrigenObservacionReembolso.Nombre(primera.MotivoOrigenId),
                 };
 
                 // El botón abre la bandeja del ERP en esta corrección: es donde marca el check.
@@ -741,13 +739,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 var body = CorreccionS10EmailTemplates.Solicitada(
                     SalidaEmailLayout.Desde(_configuration), datos, url);
 
-                var numero = string.IsNullOrWhiteSpace(plan.NumeroReembolso)
-                    ? string.Empty
-                    : $" N.° {plan.NumeroReembolso}";
-
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Corrección del S10 solicitada - Consolidado del S10{numero}",
+                    subject: $"Corrección del S10 solicitada{CorreccionS10EmailTemplates.NombreEnAsunto(datos)}",
                     body: body,
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);

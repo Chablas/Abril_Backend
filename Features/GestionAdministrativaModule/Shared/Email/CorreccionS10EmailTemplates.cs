@@ -22,11 +22,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// </summary>
         public int? ConsolidadoS10Id { get; set; }
 
-        /// <summary>Código(s) REN-AAAA-NNNN de las planillas, separados por coma.</summary>
-        public string Codigo { get; set; } = string.Empty;
-
-        /// <summary>Cuántas planillas cubre el pedido: decide si se habla de "la rendición" o de "las rendiciones".</summary>
-        public int RendicionesCount { get; set; } = 1;
+        /// <summary>
+        /// Código CONS-SIGLA-AAAA-NNN del consolidado observado. Los dos correos nombran el pedido
+        /// por su consolidado, no por las planillas que cubre. Null en los anteriores al código.
+        /// </summary>
+        public string? ConsolidadoCodigo { get; set; }
 
         /// <summary>Trabajador(es) dueños de las salidas, separados por coma.</summary>
         public string Trabajador { get; set; } = string.Empty;
@@ -37,16 +37,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// <summary>Correo de quien la pidió. Lo usa el aviso de atención, que va dirigido a él.</summary>
         public string? SolicitadaPorEmail { get; set; }
 
-        /// <summary>Periodo que cubre la planilla ("Agosto 2026", o un rango si cruza meses).</summary>
+        /// <summary>Periodo de las salidas observadas ("Agosto 2026", o un rango si cruza meses).</summary>
         public string? Periodo { get; set; }
-
-        /// <summary>Número impreso en el PDF ("TI: 000123"), o null si la planilla no lo tiene.</summary>
-        public string? NumeroPlanilla { get; set; }
 
         /// <summary>Número de reembolso del Consolidado del S10 observado: con esto el ERP lo ubica.</summary>
         public string? NumeroReembolso { get; set; }
 
-        /// <summary>Monto del consolidado (o de la planilla completa), en soles.</summary>
+        /// <summary>Monto declarado en el S10 para el consolidado, en soles. 0 en los viejos, que no lo tienen.</summary>
         public decimal MontoTotal { get; set; }
 
         /// <summary>El «MOTIVO *» del consolidador: qué le pide al ERP.</summary>
@@ -73,9 +70,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// (<see cref="SalidaEmailLayout"/>) que el resto de los correos de salidas:
     ///
     /// <list type="bullet">
-    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con el número de reembolso, la
-    ///     observación que devolvió el reembolso —de la jefatura o de Tesorería— y el MOTIVO del
-    ///     consolidador (§10.5 / RF-OBS-06).</item>
+    ///   <item>Al Coordinador ERP: hay una corrección del S10 esperándolo, con el código del
+    ///     consolidado, el número de reembolso, la observación que devolvió el reembolso —de la
+    ///     jefatura o de Tesorería— y el MOTIVO del consolidador (§10.5 / RF-OBS-06).</item>
     ///   <item>Al consolidador: el ERP ya atendió — puede recargar el Consolidado (RF-OBS-08).</item>
     /// </list>
     ///
@@ -145,7 +142,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 new AbrilEmailLayout.Cabecera(
                     IconoSolicitada,
                     "Corrección del S10 pendiente",
-                    $"<b>{quien}</b> solicita una corrección en el S10 para {DeLasRendiciones(d)}."),
+                    $"<b>{quien}</b> solicita una corrección en el S10 para {ElConsolidado(d)}."),
                 bloques.ToArray());
         }
 
@@ -179,16 +176,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 new AbrilEmailLayout.Cabecera(
                     IconoAtendida,
                     "Ya puedes recargar el Consolidado del S10",
-                    $"La corrección que pediste para {DeLasRendiciones(d)} fue atendida en el S10."),
+                    $"La corrección que pediste para {ElConsolidado(d)} fue atendida en el S10."),
                 bloques.ToArray());
         }
 
+        /// <summary>
+        /// Cómo se nombra el pedido en el asunto de los dos correos: " - CONS-…", o " - Consolidado
+        /// del S10 N.° …" en los anteriores al código. Lo usan los dos servicios que los envían.
+        /// </summary>
+        public static string NombreEnAsunto(CorreccionS10CorreoDatos d) =>
+            !string.IsNullOrWhiteSpace(d.ConsolidadoCodigo) ? $" - {d.ConsolidadoCodigo}"
+            : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - Consolidado del S10 N.° {d.NumeroReembolso}"
+            : string.Empty;
+
         // ── Bloques compartidos ───────────────────────────────────────────────
 
-        /// <summary>"la rendición <b>REN-…</b>" o "las rendiciones <b>REN-…, REN-…</b>".</summary>
-        private static string DeLasRendiciones(CorreccionS10CorreoDatos d) =>
-            (d.RendicionesCount > 1 ? "las rendiciones" : "la rendición")
-            + $" <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>";
+        /// <summary>
+        /// "el consolidado <b>CONS-…</b> (N.º de reembolso <b>…</b>)": el pedido es sobre el
+        /// consolidado, así que se nombra por su código y por el número con el que lo registró el
+        /// S10, no por las rendiciones que cubre.
+        /// </summary>
+        private static string ElConsolidado(CorreccionS10CorreoDatos d)
+        {
+            var codigo = string.IsNullOrWhiteSpace(d.ConsolidadoCodigo)
+                ? null
+                : $"<b>{AbrilEmailLayout.Esc(d.ConsolidadoCodigo)}</b>";
+            var numero = string.IsNullOrWhiteSpace(d.NumeroReembolso)
+                ? null
+                : $"N.º de reembolso <b>{AbrilEmailLayout.Esc(d.NumeroReembolso)}</b>";
+
+            return (codigo, numero) switch
+            {
+                (not null, not null) => $"el consolidado {codigo} ({numero})",
+                (not null, null)     => $"el consolidado {codigo}",
+                (null, not null)     => $"el consolidado con {numero}",
+                _                    => "el consolidado",
+            };
+        }
 
         /// <summary>
         /// La tarjeta del pedido. Las filas sin dato no se agregan: una tarjeta con "—" repetidos no
@@ -199,9 +223,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         {
             var filas = new List<AbrilEmailLayout.Fila>();
 
-            if (!string.IsNullOrWhiteSpace(d.Codigo))
-                filas.Add(new(FilaCodigo, d.RendicionesCount > 1 ? "Rendiciones" : "Rendición",
-                    AbrilEmailLayout.Esc(d.Codigo)));
+            if (!string.IsNullOrWhiteSpace(d.ConsolidadoCodigo))
+                filas.Add(new(FilaCodigo, "Consolidado", AbrilEmailLayout.Esc(d.ConsolidadoCodigo)));
+
+            // El número de reembolso es EL dato con el que el ERP ubica el registro en el S10: si falta, se dice
+            // en vez de omitir la fila, porque su ausencia es en sí un problema a resolver.
+            filas.Add(new(FilaReembolso, "N.º de reembolso del S10",
+                string.IsNullOrWhiteSpace(d.NumeroReembolso)
+                    ? "sin número de reembolso registrado"
+                    : AbrilEmailLayout.Esc(d.NumeroReembolso)));
 
             if (!string.IsNullOrWhiteSpace(d.Trabajador))
                 filas.Add(new(FilaTrabajador, "Colaborador", AbrilEmailLayout.Esc(d.Trabajador)));
@@ -211,18 +241,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (!string.IsNullOrWhiteSpace(d.Periodo))
                 filas.Add(new(FilaPeriodo, "Periodo", AbrilEmailLayout.Esc(d.Periodo)));
 
-            if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
-                filas.Add(new(FilaCodigo, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
-
-            // El número de reembolso es EL dato con el que el ERP ubica el registro en el S10: si falta, se dice
-            // en vez de omitir la fila, porque su ausencia es en sí un problema a resolver.
-            filas.Add(new(FilaReembolso, "N.º de reembolso del S10",
-                string.IsNullOrWhiteSpace(d.NumeroReembolso)
-                    ? "sin número de reembolso registrado"
-                    : AbrilEmailLayout.Esc(d.NumeroReembolso)));
-
             if (d.MontoTotal > 0m)
-                filas.Add(new(FilaMonto, d.RendicionesCount > 1 ? "Monto de las planillas" : "Monto de la planilla",
+                filas.Add(new(FilaMonto, "Monto del consolidado",
                     $"S/ {d.MontoTotal.ToString("N2", CultureInfo.GetCultureInfo("es-PE"))}"));
 
             if (!string.IsNullOrWhiteSpace(d.AtendidaPor))

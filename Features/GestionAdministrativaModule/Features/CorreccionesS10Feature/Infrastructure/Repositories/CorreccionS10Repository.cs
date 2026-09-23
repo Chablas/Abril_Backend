@@ -126,8 +126,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             if (estadoId.HasValue)
                 query = query.Where(c => c.EstadoId == estadoId.Value);
 
+            // Lo que espera al ERP va arriba y, dentro de cada estado, lo más viejo primero: es una
+            // cola de trabajo. Las ya atendidas quedan debajo, esperando al consolidador.
             var correcciones = await query
-                .OrderBy(c => c.SolicitadaAt)   // lo más viejo primero: es una cola de trabajo
+                .OrderBy(c => c.EstadoId == EstadosSalida.CorreccionS10.Solicitada ? 0 : 1)
+                .ThenBy(c => c.SolicitadaAt)
+                .ThenBy(c => c.Id)
                 .ToListAsync();
 
             if (correcciones.Count == 0) return new();
@@ -357,7 +361,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             };
         }
 
-        public async Task<List<int>> Atender(
+        public async Task<List<GaCorreccionS10>> Atender(
             IEnumerable<int> correccionIds, string? comentario, int erpUserId)
         {
             var ids = correccionIds?.Distinct().ToList() ?? new List<int>();
@@ -387,7 +391,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
             }
 
             await ctx.SaveChangesAsync();
-            return filas.Select(c => c.Id).ToList();
+            return filas;
         }
 
         public async Task<List<CorreccionS10CorreoDatos>> GetCorreoDatosAtendidas(IReadOnlyCollection<int> correccionIds)
@@ -404,10 +408,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
 
             var rendicionIds = correcciones.Select(c => c.RendicionId).Distinct().ToList();
 
-            var planillas = await ctx.GaRendicion
-                .Where(r => rendicionIds.Contains(r.Id))
-                .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla })
-                .ToDictionaryAsync(r => r.Id, r => r);
+            // El consolidado observado de cada pedido: el correo lo nombra por su código y no por
+            // las planillas que cubre, y su monto es el que se declaró en el S10.
+            var consolidadoIds = correcciones
+                .Where(c => c.ConsolidadoS10Id != null)
+                .Select(c => c.ConsolidadoS10Id!.Value)
+                .Distinct()
+                .ToList();
+
+            var consolidados = consolidadoIds.Count == 0
+                ? new Dictionary<int, GaConsolidadoS10>()
+                : await ctx.GaConsolidadoS10
+                    .Where(x => consolidadoIds.Contains(x.Id))
+                    .ToDictionaryAsync(x => x.Id, x => x);
 
             var salidas = await (
                 from s   in ctx.GaSolicitudSalida
@@ -423,7 +436,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                 }
             ).ToListAsync();
 
-            var totales = await TotalPlanillaLoader.LoadAsync(ctx, rendicionIds);
             var nombres = await CorreccionS10Loader.NombresAsync(ctx, correcciones);
 
             // El aviso va a quien PIDIÓ la corrección —el consolidador—, no al dueño de la planilla.
@@ -439,35 +451,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Infrastru
                     var lista   = g.OrderBy(c => c.Id).ToList();
                     var primera = lista[0];
                     var rids    = lista.Select(c => c.RendicionId).Distinct().ToList();
+                    var suyas   = salidas.Where(s => rids.Contains(s.RendicionId)).ToList();
 
-                    var codigos = rids
-                        .Select(id => planillas.TryGetValue(id, out var p)
-                            ? PlanillaRendicionHelper.CodigoRendicion(p.Codigo, p.Id)
-                            : $"#{id}")
-                        .OrderBy(c => c, StringComparer.Ordinal)
-                        .ToList();
-
-                    var suyas = salidas.Where(s => rids.Contains(s.RendicionId)).ToList();
+                    var doc = primera.ConsolidadoS10Id is int consolidadoId
+                        ? consolidados.GetValueOrDefault(consolidadoId)
+                        : null;
 
                     return new CorreccionS10CorreoDatos
                     {
                         CorreccionId       = primera.Id,
                         RendicionId        = primera.RendicionId,
                         ConsolidadoS10Id   = primera.ConsolidadoS10Id,
-                        Codigo             = string.Join(", ", codigos),
-                        RendicionesCount   = codigos.Count,
+                        ConsolidadoCodigo  = doc?.Codigo,
                         Trabajador         = string.Join(", ", suyas.Select(s => s.Trabajador).Distinct().OrderBy(n => n)),
                         SolicitadaPor      = nombres.GetValueOrDefault(primera.SolicitadaPorId),
                         SolicitadaPorEmail = correoDe.GetValueOrDefault(primera.SolicitadaPorId),
-                        NumeroPlanilla     = rids.Count == 1 && planillas.TryGetValue(rids[0], out var una)
-                                                ? PlanillaRendicionHelper.NumeroPlanilla(una.NumeroPlanilla)
-                                                : null,
                         Periodo            = suyas.Count == 0
                                                 ? null
                                                 : PlanillaRendicionHelper.EtiquetaPeriodo(
                                                     suyas.Min(s => s.FechaSalida), suyas.Max(s => s.FechaSalida)),
                         NumeroReembolso    = primera.NumeroReembolso,
-                        MontoTotal         = rids.Sum(id => totales.GetValueOrDefault(id)),
+                        MontoTotal         = doc?.MontoTotal ?? 0m,
                         Motivo             = primera.Motivo,
                         MotivoJefatura     = primera.MotivoJefatura,
                         MotivoOrigen       = EstadosSalida.OrigenObservacionReembolso.Nombre(primera.MotivoOrigenId),

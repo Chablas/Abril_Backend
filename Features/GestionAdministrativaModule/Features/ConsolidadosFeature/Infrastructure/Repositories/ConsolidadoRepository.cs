@@ -617,7 +617,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             if (idsList.Count == 0) return new();
 
             if (string.IsNullOrWhiteSpace(observacion))
-                throw new AbrilException("Para observar un reembolso hay que escribir la observación.", 400);
+                throw new AbrilException("Para observar un consolidado hay que escribir la observación.", 400);
 
             using var ctx = _factory.CreateDbContext();
 
@@ -983,7 +983,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             if (decidibles.Count == 0)
                 throw new AbrilException(
-                    "Solo la jefatura de los trabajadores puede aprobar u observar el reembolso de este consolidado.",
+                    "Solo la jefatura de los trabajadores puede aprobar u observar este consolidado.",
                     403);
 
             return solicitudes.Where(s => decidibles.Contains(s.Id)).ToList();
@@ -1003,7 +1003,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             return observadas > 0
                 ? "Este consolidado está observado: vuelve a la jefatura recién cuando el consolidador "
                   + "adjunte el Consolidado del S10 corregido."
-                : "Ninguna de las salidas del consolidado tiene un reembolso por decidir.";
+                : "Ninguna de las salidas del consolidado está por decidir.";
         }
 
         /// <summary>

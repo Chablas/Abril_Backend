@@ -71,6 +71,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
+    /// Lo que necesita el aviso al trabajador de que su rendición quedó incluida en un Consolidado
+    /// del S10. Va UNO por (planilla, trabajador), igual que el de pago: una planilla puede agrupar
+    /// a varios trabajadores y a cada uno le importa lo suyo.
+    /// </summary>
+    public sealed class RendicionConsolidadaCorreoDatos
+    {
+        public int RendicionId { get; set; }
+        /// <summary>Código REN-AAAA-NNNN de la planilla.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>Correo del trabajador (app_user.email): es el destinatario.</summary>
+        public string? TrabajadorEmail { get; set; }
+        /// <summary>Lo que rindió ESTE trabajador en la planilla, en soles.</summary>
+        public decimal MontoTrabajador { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN. Null solo en consolidados anteriores a la columna.</summary>
+        public string? ConsolidadoCodigo { get; set; }
+        /// <summary>Área del consolidado (la del consolidador). Null si no se pudo resolver.</summary>
+        public string? Area { get; set; }
+        /// <summary>Número de reembolso que devolvió el S10.</summary>
+        public string? NumeroReembolso { get; set; }
+        /// <summary>Nombre de quien adjuntó el consolidado.</summary>
+        public string? Consolidador { get; set; }
+    }
+
+    /// <summary>
     /// Lo que necesitan los correos de una PLANILLA entera y no de un consolidado: el aviso de
     /// pago al trabajador.
     /// </summary>
@@ -102,6 +126,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// (<see cref="SalidaEmailLayout"/>):
     ///
     /// <list type="bullet">
+    ///   <item>Al trabajador: su rendición quedó incluida en el Consolidado del S10 que adjuntó el
+    ///     consolidador.</item>
     ///   <item>A la jefatura: el consolidador adjuntó un Consolidado del S10 y está esperando su
     ///     visto bueno.</item>
     ///   <item>Al consolidador: la jefatura aprobó (y firmó) el consolidado.</item>
@@ -124,6 +150,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         // Abril-Frontend/scripts/generate-email-icons.js). Se reutilizan los que ya existen: no
         // hace falta un juego propio de salidas para tres correos.
         private const string IconoRevisar     = "req-solicitud";
+        private const string IconoIncluida    = "req-formulario";
         private const string IconoAprobado    = "req-aprobada";
         private const string IconoObservado   = "req-decision";
         private const string IconoFranjaOk    = "req-check";
@@ -142,9 +169,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaFirma       = "req-vistobueno";
 
         /// <summary>
-        /// A la jefatura que tiene que firmar AHORA: el reembolso de un Consolidado del S10 está
-        /// esperando su visto bueno. El botón abre ese consolidado en Consolidados, que es donde la
-        /// jefatura lo aprueba (firma) u observa.
+        /// Al trabajador: su rendición quedó incluida en el Consolidado del S10 que acaba de adjuntar
+        /// el consolidador (plantilla 11 del área usuaria). Es informativo —lo que sigue es la firma
+        /// de la jefatura—, así que el botón solo lo lleva a su rendición en Mis Rendiciones.
+        /// </summary>
+        public static string RendicionConsolidada(
+            SalidaEmailLayout l, RendicionConsolidadaCorreoDatos d, string urlVer)
+        {
+            var consolidado = string.IsNullOrWhiteSpace(d.ConsolidadoCodigo)
+                ? string.Empty
+                : $" <b>{AbrilEmailLayout.Esc(d.ConsolidadoCodigo)}</b>";
+            var area = string.IsNullOrWhiteSpace(d.Area)
+                ? string.Empty
+                : $" del área <b>{AbrilEmailLayout.Esc(d.Area)}</b>";
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoIncluida,
+                    "Tu rendición fue incluida en un consolidado",
+                    $"Tu rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b> fue incluida en el Consolidado "
+                    + $"del S10{consolidado}{area}."),
+                l.Tarjeta(FilasRendicionConsolidada(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
+                    "El consolidado está pendiente de la revisión y firma de la jefatura antes de pasar a Tesorería."),
+                l.Boton("Ver mi rendición", urlVer),
+                l.EnlaceDirecto(urlVer));
+        }
+
+        /// <summary>
+        /// A la jefatura que tiene que firmar AHORA: un Consolidado del S10 está esperando su visto
+        /// bueno. El botón abre ese consolidado en Consolidados, que es donde la jefatura lo aprueba
+        /// (firma) u observa.
         ///
         /// Sale por dos caminos y lo dice en la primera línea, porque a quien lo recibe le cambia lo
         /// que tiene delante: el consolidador que acaba de adjuntar el documento, o —en obra— la
@@ -164,26 +219,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoRevisar,
-                    enCadena ? "Falta tu firma" : "Reembolso por revisar",
+                    enCadena ? "Falta tu firma" : "Consolidado por revisar",
                     bajada),
                 l.Tarjeta(FilasConsolidado(d)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
                     enCadena
-                        ? "Con tu firma el reembolso queda aprobado y pasa a Tesorería."
-                        : "Falta tu visto bueno para que el reembolso pase a firma y a Tesorería."),
+                        ? "Con tu firma el consolidado queda aprobado y pasa a Tesorería."
+                        : "Falta tu visto bueno para que el consolidado pase a firma y a Tesorería."),
                 l.Boton("Revisar el consolidado", urlRevisar),
                 l.EnlaceDirecto(urlRevisar));
         }
 
         /// <summary>
-        /// Al consolidador: la jefatura aprobó el reembolso del consolidado —aprobar ES firmar—, así
-        /// que ya pasó a Tesorería. Es informativo: el botón solo abre el consolidado.
+        /// Al consolidador: la jefatura aprobó el consolidado —aprobar ES firmar—, así que ya pasó a
+        /// Tesorería. Es informativo: el botón solo abre el consolidado.
         /// </summary>
         public static string ConsolidadoAprobado(SalidaEmailLayout l, ConsolidadoCorreoDatos d, string urlVer) =>
             l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoAprobado,
-                    "Reembolso aprobado",
+                    "Consolidado aprobado",
                     $"La jefatura aprobó el Consolidado del S10{Numero(d)}."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.DecididoPor)
@@ -194,8 +249,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 l.EnlaceDirecto(urlVer));
 
         /// <summary>
-        /// Al consolidador: la jefatura OBSERVÓ el reembolso del consolidado. La observación va en la
-        /// franja roja porque es lo único que tiene que leer, y la ámbar nombra los DOS caminos que
+        /// Al consolidador: la jefatura OBSERVÓ el consolidado. La observación va en la franja roja
+        /// porque es lo único que tiene que leer, y la ámbar nombra los DOS caminos que
         /// tiene: volver a adjuntar el Consolidado del S10 corregido, o pedirle la corrección al
         /// Coordinador ERP cuando el arreglo tiene que hacerse dentro del S10 (§10.5).
         /// </summary>
@@ -208,7 +263,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoObservado,
-                    "Reembolso observado",
+                    "Consolidado observado",
                     $"La jefatura observó el Consolidado del S10{Numero(d)}."),
                 l.Franja(IconoFranjaNo, AbrilEmailLayout.Tono.Rojo,
                     $"<b>Observación:</b> {observacion}"),
@@ -370,6 +425,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (d.Firmantes.Count > 0)
                 filas.Add(new(FilaFirma, "Firmado por",
                     string.Join("<br />", d.Firmantes.Select(AbrilEmailLayout.Esc))));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Filas del aviso de rendición consolidada, en el orden de la plantilla del área usuaria. Las
+        /// que no tienen dato no se agregan; el monto tampoco cuando es cero (una planilla sin nada
+        /// reembolsable para este trabajador).
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasRendicionConsolidada(RendicionConsolidadaCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>();
+
+            if (!string.IsNullOrWhiteSpace(d.ConsolidadoCodigo))
+                filas.Add(new(FilaPlanilla, "Consolidado", AbrilEmailLayout.Esc(d.ConsolidadoCodigo)));
+
+            filas.Add(new(FilaRendiciones, "Rendición", AbrilEmailLayout.Esc(d.Codigo)));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+
+            if (d.MontoTrabajador > 0m)
+                filas.Add(new(FilaMonto, "Monto de tu rendición",
+                    $"S/ {d.MontoTrabajador.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            if (!string.IsNullOrWhiteSpace(d.Consolidador))
+                filas.Add(new(FilaTrabajador, "Consolidador", AbrilEmailLayout.Esc(d.Consolidador)));
 
             return filas;
         }

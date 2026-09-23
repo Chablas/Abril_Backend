@@ -224,10 +224,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 // revierte porque un correo falle (mismo criterio que la aprobación de la salida).
                 await NotificarDecisionAsync(observadas, aprobado: false);
 
+                // Se cuentan consolidados y no salidas: lo que la jefatura observó es el documento.
                 return new ReembolsoBulkResultDto
                 {
                     Procesadas = observadas.Count,
-                    Message    = $"{observadas.Count} reembolso(s) observado(s).",
+                    Message    = $"{accion.ConsolidadoIds.Distinct().Count()} consolidado(s) observado(s).",
                 };
             }
 
@@ -259,9 +260,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             {
                 Procesadas        = firma.Completadas.Count,
                 PlanillasFirmadas = firma.RendicionesCompletadas.Count,
-                Message = firma.Completadas.Count > 0
-                    ? $"{firma.Completadas.Count} reembolso(s) aprobado(s)."
-                    : "Tu firma quedó estampada. El reembolso pasa a Tesorería cuando firme quien sigue.",
+                Message = firma.ConsolidadosCompletados.Count > 0
+                    ? $"{firma.ConsolidadosCompletados.Count} consolidado(s) aprobado(s)."
+                    : "Tu firma quedó estampada.",
             };
         }
 
@@ -304,7 +305,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             var planillas = await _repo.GetPlanillasParaAprobarReembolso(ids, userId);
             if (planillas.Count == 0)
                 throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas tiene un reembolso por decidir.", 400);
+                    "Ninguno de los consolidados seleccionados está esperando tu aprobación.", 400);
 
             var carpeta = await ResolverCarpetaRendicionesAsync();
 
@@ -573,7 +574,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             if (info.SolicitudIds.Count == 0 || info.Datos == null)
                 throw new AbrilException(
-                    "Este consolidado no tiene reembolsos esperando a la jefatura: no hace falta avisar.", 400);
+                    "Este consolidado no está esperando a la jefatura: no hace falta avisar.", 400);
 
             if (info.JefaturaEmails.Count == 0)
                 throw new AbrilException(
@@ -584,7 +585,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         }
 
         /// <summary>
-        /// Manda el aviso «Reembolso por revisar» a quien tiene que firmar HOY —uno solo, porque las
+        /// Manda el aviso «Consolidado por revisar» a quien tiene que firmar HOY —uno solo, porque las
         /// firmas van en cadena— y deja la marca de avisado en sus salidas. Lo comparten el botón
         /// del consolidador y el aviso automático que dispara la firma anterior, para que el correo
         /// y su marca sean los mismos por las dos vías.
@@ -613,7 +614,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             // El asunto dice de qué se trata antes de abrirlo: al que firma en segundo lugar le
             // llega «Falta tu firma» y no otro «por revisar» igual al que ya vio.
             var asunto = string.IsNullOrWhiteSpace(info.Datos.FirmoAntes)
-                ? $"Reembolso por revisar - Consolidado del S10{numero}"
+                ? $"Consolidado del S10{numero} por revisar"
                 : $"Falta tu firma - Consolidado del S10{numero}";
 
             await _emailService.SendAsync(
@@ -692,7 +693,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             if (plan.RendicionIdsObservadas.Count == 0)
                 throw new AbrilException(
-                    "Solo se puede pedir una corrección al ERP cuando el reembolso del consolidado está observado.", 400);
+                    "Solo se puede pedir una corrección al ERP cuando el consolidado está observado.", 400);
 
             // El correo se resuelve ANTES de escribir: una corrección que el ERP nunca ve deja al
             // consolidador esperando algo que no va a pasar. Es la excepción al best-effort del resto
@@ -775,7 +776,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
             if (plan.RendicionIdsAbiertas.Count == 0)
                 throw new AbrilException(
-                    "El reembolso de este consolidado ya está decidido: el Consolidado del S10 ya no se puede cambiar.", 409);
+                    "Este consolidado ya está decidido: el Consolidado del S10 ya no se puede cambiar.", 409);
 
             // Las reglas del documento (primera revisión aprobada, monto contra las planillas
             // completas, herencia del código, reabrir lo observado y cerrar la corrección con el ERP)
@@ -845,8 +846,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         // ── Correos de la decisión ───────────────────────────────────────────
 
         /// <summary>
-        /// Avisa al consolidador —quien adjuntó el consolidado— que la jefatura aprobó u observó su
-        /// reembolso. Va UN correo por consolidado y no uno por salida: lo que se decidió y lo que hay
+        /// Avisa al consolidador —quien adjuntó el consolidado— que la jefatura lo aprobó u
+        /// observó. Va UN correo por consolidado y no uno por salida: lo que se decidió y lo que hay
         /// que subsanar es el documento. Respeta la configuración de correos (Consolidados →
         /// Configuración → Correos): si está apagado o sin destinatarios, no se envía nada.
         /// </summary>
@@ -890,8 +891,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
                     var numero = string.IsNullOrWhiteSpace(d.NumeroReembolso) ? string.Empty : $" N.° {d.NumeroReembolso}";
                     var subject = aprobado
-                        ? $"Reembolso APROBADO - Consolidado del S10{numero}"
-                        : $"Reembolso OBSERVADO - Consolidado del S10{numero}";
+                        ? $"Consolidado del S10{numero} APROBADO"
+                        : $"Consolidado del S10{numero} OBSERVADO";
 
                     await _emailService.SendAsync(
                         to: envio.Para,
@@ -903,7 +904,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error avisando la decisión del reembolso de las salidas {Ids}",
+                _logger.LogError(ex, "Error avisando la decisión del consolidado de las salidas {Ids}",
                     string.Join(",", solicitudIds));
             }
         }

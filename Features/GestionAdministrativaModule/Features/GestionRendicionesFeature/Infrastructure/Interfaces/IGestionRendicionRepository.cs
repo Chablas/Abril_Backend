@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces
@@ -63,5 +64,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// el usuario no ve.
         /// </summary>
         Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds);
+
+        /// <summary>
+        /// Correos de los trabajadores de las salidas de las planillas indicadas, sin repetir y SIN
+        /// recortar por visibilidad: son los que reciben el aviso de rendición consolidada al
+        /// adjuntar el Consolidado del S10. Lo pide el preview de esa confirmación; sale de la misma
+        /// consulta que el envío (<see cref="GetRendicionConsolidadaCorreoDatos"/>).
+        /// </summary>
+        Task<List<string>> GetCorreosTrabajadoresDePlanillas(IReadOnlyCollection<int> rendicionIds);
+
+        /// <summary>
+        /// Lo que necesita el aviso «Tu rendición fue incluida en un consolidado»: UNA entrada por
+        /// (planilla, trabajador) de las planillas que cubre el consolidado, con lo que rindió ese
+        /// trabajador y los datos del documento. Sin recortar por visibilidad.
+        /// </summary>
+        Task<List<RendicionConsolidadaCorreoDatos>> GetRendicionConsolidadaCorreoDatos(int consolidadoId);
     }
 }

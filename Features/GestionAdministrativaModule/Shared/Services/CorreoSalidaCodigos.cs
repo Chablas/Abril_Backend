@@ -59,18 +59,29 @@
         public const string RendicionPrimeraObservada = "REN_PRIMERA_OBSERVADA";
 
         /// <summary>
-        /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y su
-        /// reembolso está esperando revisión. Lo dispara el consolidador desde Consolidados.
+        /// Al solicitante: su rendición quedó incluida en el Consolidado del S10 que adjuntó el
+        /// consolidador. Informativo, uno por (planilla, trabajador). Sale al adjuntar el PRIMER
+        /// consolidado —reemplazarlo no lo repite: las rendiciones ya estaban consolidadas— y eso
+        /// pasa en Gestión de Rendiciones, así que se administra ahí.
+        /// </summary>
+        public const string RendicionIncluidaConsolidado = "REN_INCLUIDA_CONSOLIDADO";
+
+        /// <summary>
+        /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y está
+        /// esperando revisión. Lo dispara el consolidador desde Consolidados.
         /// El código conserva su nombre de cuando lo disparaba el trabajador: es la clave del
         /// catálogo y la configuración de destinatarios ya está cargada.
         /// </summary>
         public const string S10Revisor = "S10_REVISOR";
 
-        /// <summary>La jefatura aprobó (firmó) el reembolso de un consolidado — se avisa al consolidador.</summary>
+        /// <summary>
+        /// La jefatura aprobó (firmó) un consolidado — se avisa al consolidador. El código conserva
+        /// el nombre de cuando se decía «reembolso»: es la clave del catálogo.
+        /// </summary>
         public const string ReembolsoAprobado = "REEMBOLSO_APROBADO";
 
         /// <summary>
-        /// La jefatura observó el reembolso — se avisa al consolidador con la observación y con
+        /// La jefatura observó el consolidado — se avisa al consolidador con la observación y con
         /// los dos caminos para subsanar (recargar el consolidado o pedírselo al Coordinador ERP).
         ///
         /// El código de la fila NO cambió cuando el estado pasó de llamarse "Rechazado" a

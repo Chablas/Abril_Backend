@@ -258,7 +258,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         : Actual;
 
             var p7 = Paso(ClaveFirma, "Firma de jefatura",
-                "La jefatura aprueba el reembolso firmando el consolidado. En obra firman dos.",
+                "La jefatura aprueba el consolidado firmándolo. En obra firman dos.",
                 estado7, e.FirmadoAt);
 
             // ── 8. Tesorería ────────────────────────────────────────────────
@@ -394,7 +394,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 (ClaveConsolidado, Actual)        => "Esperando el consolidado del S10",
 
                 (ClaveFirma, Actual)              => "Esperando la firma de la jefatura",
-                (ClaveFirma, Observado)           => "Reembolso observado por la jefatura",
+                (ClaveFirma, Observado)           => "Consolidado observado por la jefatura",
 
                 (ClaveTesoreria, Actual)          => "En revisión de Tesorería",
                 (ClaveTesoreria, Observado)       => "Reembolso observado por Tesorería",

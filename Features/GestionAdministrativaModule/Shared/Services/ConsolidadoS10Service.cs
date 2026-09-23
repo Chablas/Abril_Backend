@@ -146,7 +146,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .ToList();
             if (cerradas.Count > 0)
                 throw new AbrilException(
-                    $"{Codigos(cerradas)} ya {(cerradas.Count == 1 ? "tiene" : "tienen")} el reembolso "
+                    $"{Codigos(cerradas)} ya {(cerradas.Count == 1 ? "tiene" : "tienen")} el consolidado "
                     + "decidido: su Consolidado del S10 ya no se puede cambiar.", 409);
 
             // El documento se reemplaza entero: las demás planillas abiertas de un consolidado
@@ -163,7 +163,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (faltantes.Count > 0)
                 throw new AbrilException(
                     $"El Consolidado del S10 actual también cubre {ConsolidadoS10Agrupacion.Enumerar(faltantes)}, "
-                    + "que " + (faltantes.Count == 1 ? "sigue" : "siguen") + " con el reembolso por decidir: "
+                    + "que " + (faltantes.Count == 1 ? "sigue" : "siguen") + " por decidir: "
                     + "el documento se reemplaza para todas sus rendiciones a la vez.", 409);
 
             // El consolidado es UN registro en el S10 y cubre las planillas completas, así que su
@@ -341,7 +341,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     autoRenameOnLock: true);
 
                 if (grupalResult?.WebUrl is null)
-                    throw new AbrilException("No se pudo subir la planilla de reembolso a SharePoint (respuesta vacía).", 502);
+                    throw new AbrilException("No se pudo subir la planilla grupal a SharePoint (respuesta vacía).", 502);
 
                 grupalUrl = grupalResult.WebUrl;
                 grupalItemId = grupalResult.ItemId;
@@ -351,7 +351,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             {
                 _logger.LogError(ex, "Falló la subida de la planilla de reembolso (rendiciones={RendicionIds})",
                     string.Join(",", ids));
-                throw new AbrilException("Error al subir la planilla de reembolso a SharePoint.", 502);
+                throw new AbrilException("Error al subir la planilla grupal a SharePoint.", 502);
             }
 
             // ── Persistir ────────────────────────────────────────────────────

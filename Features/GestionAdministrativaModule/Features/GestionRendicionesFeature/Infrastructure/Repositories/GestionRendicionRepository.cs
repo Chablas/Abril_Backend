@@ -511,6 +511,148 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .ToListAsync();
         }
 
+        // ── Aviso de rendición consolidada ───────────────────────────────────
+
+        public async Task<List<string>> GetCorreosTrabajadoresDePlanillas(IReadOnlyCollection<int> rendicionIds)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+            return (await SalidasDeTrabajadoresAsync(ctx, ids))
+                .Where(s => !string.IsNullOrWhiteSpace(s.Email))
+                .Select(s => s.Email!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public async Task<List<RendicionConsolidadaCorreoDatos>> GetRendicionConsolidadaCorreoDatos(int consolidadoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El documento: su código, el número del S10, el área (la del consolidador, la misma de
+            // la sigla del código) y quién lo adjuntó.
+            var doc = await (
+                from c   in ctx.GaConsolidadoS10.AsNoTracking()
+                join sc  in ctx.AreaScope on c.AreaScopeId equals (int?)sc.AreaScopeId into scGroup
+                from sc  in scGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on sc.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
+                join per in ctx.Person on (int?)c.UploadedById equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where c.Id == consolidadoId && c.State
+                select new
+                {
+                    c.Codigo,
+                    c.NumeroReembolso,
+                    Area         = ai != null ? ai.AreaItemName : null,
+                    Consolidador = per != null ? per.FullName : null,
+                }
+            ).FirstOrDefaultAsync();
+            if (doc == null) return new();
+
+            var rendicionIds = await ctx.GaConsolidadoS10Rendicion.AsNoTracking()
+                .Where(v => v.State && v.ConsolidadoS10Id == consolidadoId)
+                .Select(v => v.RendicionId)
+                .Distinct()
+                .ToListAsync();
+            if (rendicionIds.Count == 0) return new();
+
+            var salidas = await SalidasDeTrabajadoresAsync(ctx, rendicionIds);
+            if (salidas.Count == 0) return new();
+
+            var codigoDe = await ctx.GaRendicion.AsNoTracking()
+                .Where(r => rendicionIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Codigo })
+                .ToDictionaryAsync(r => r.Id, r => PlanillaRendicionHelper.CodigoRendicion(r.Codigo, r.Id));
+
+            var montoPorSalida = await MontoPorSalidaAsync(ctx, salidas);
+
+            return salidas
+                .GroupBy(s => new { s.RendicionId, s.WorkerId })
+                .Select(g => new RendicionConsolidadaCorreoDatos
+                {
+                    RendicionId       = g.Key.RendicionId,
+                    Codigo            = codigoDe.TryGetValue(g.Key.RendicionId, out var codigo)
+                                          ? codigo
+                                          : PlanillaRendicionHelper.CodigoRendicion(null, g.Key.RendicionId),
+                    TrabajadorEmail   = g.Select(s => s.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)),
+                    MontoTrabajador   = g.Sum(s => montoPorSalida.GetValueOrDefault(s.SolicitudId)),
+                    ConsolidadoCodigo = doc.Codigo,
+                    Area              = doc.Area,
+                    NumeroReembolso   = doc.NumeroReembolso,
+                    Consolidador      = doc.Consolidador,
+                })
+                .OrderBy(d => d.Codigo, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>Una salida de una planilla, con su trabajador y el correo del usuario de este.</summary>
+        private sealed record SalidaDeTrabajador(
+            int SolicitudId, int RendicionId, int WorkerId, string? Subarea, string? Email);
+
+        /// <summary>
+        /// Las salidas de esas planillas con su trabajador. Es la ÚNICA fuente de a quién se le avisa
+        /// que su rendición se consolidó: la usan el preview y el envío, así que la confirmación no
+        /// puede prometer direcciones distintas de las que después reciben el correo.
+        /// </summary>
+        private static async Task<List<SalidaDeTrabajador>> SalidasDeTrabajadoresAsync(
+            AppDbContext ctx, List<int> rendicionIds)
+        {
+            var filas = await (
+                from s   in ctx.GaSolicitudSalida.AsNoTracking()
+                join w   in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                join u   in ctx.User on per.UserId equals (int?)u.UserId into uGroup
+                from u   in uGroup.DefaultIfEmpty()
+                where s.RendicionId != null && rendicionIds.Contains(s.RendicionId.Value)
+                select new
+                {
+                    s.Id,
+                    RendicionId = s.RendicionId!.Value,
+                    WorkerId    = w.Id,
+                    w.Subarea,
+                    Email       = u != null ? u.Email : null,
+                }
+            ).ToListAsync();
+
+            return filas
+                .Select(f => new SalidaDeTrabajador(f.Id, f.RendicionId, f.WorkerId, f.Subarea, f.Email))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Cuánto se rindió en cada salida, con la MISMA regla que imprime la planilla
+        /// (<see cref="ImporteRendidoLoader"/>): es el monto que el trabajador ve en su PDF.
+        /// </summary>
+        private static async Task<Dictionary<int, decimal>> MontoPorSalidaAsync(
+            AppDbContext ctx, IReadOnlyCollection<SalidaDeTrabajador> salidas)
+        {
+            var subareaDe = salidas
+                .GroupBy(s => s.SolicitudId)
+                .ToDictionary(g => g.Key, g => g.First().Subarea);
+            var solicitudIds = subareaDe.Keys.ToList();
+
+            var trayectos = await ctx.GaSolicitudTrayecto.AsNoTracking()
+                .Where(t => solicitudIds.Contains(t.SolicitudId))
+                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+                .ToListAsync();
+
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos
+                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                        t.Id, subareaDe.GetValueOrDefault(t.SolicitudId), t.LugarOrigenId, t.LugarDestinoId))
+                    .ToList());
+
+            return trayectos
+                .GroupBy(t => t.SolicitudId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m));
+        }
+
         /// <summary>Lo que la pantalla necesita para ofrecer (o no) el Consolidado del S10 de una fila.</summary>
         private sealed class ConsolidacionFila
         {

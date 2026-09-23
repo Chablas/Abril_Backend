@@ -44,6 +44,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                     EsJefeSsoma = esJefeSsoma,
                     EsCoordinadorSsoma = categoria == CategoriaIds.CoordinadorSsoma,
                     EsPrevencionista = categoria == CategoriaIds.Prevencionista,
+                    // El Jefe SSOMA tiene el mismo acceso a "Staff 360°" que el Residente
+                    // (ver EvEvaluacionStaffRepository.EsResidenteAsync, mismo criterio).
+                    EsResidente = categoria == CategoriaIds.Residente || esJefeSsoma,
                 });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

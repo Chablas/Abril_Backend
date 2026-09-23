@@ -119,6 +119,15 @@
         public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
 
         /// <summary>
+        /// A Tesorería, EN LUGAR de <see cref="TesoreriaReembolso"/>: el consolidado que ella había
+        /// observado (RG-49) vuelve firmado por la jefatura, con la observación subsanada
+        /// (plantilla 20, «La observación fue subsanada y el consolidado volvió a Tesorería»). Sale
+        /// del mismo acto —la firma que completa el documento— y al mismo destinatario principal,
+        /// pero es otro correo, con su propia configuración en Consolidados.
+        /// </summary>
+        public const string TesoreriaSubsanada = "TESORERIA_SUBSANADA";
+
+        /// <summary>
         /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Se origina en
         /// Reembolsos y cierra el ciclo.
         /// </summary>

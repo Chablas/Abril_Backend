@@ -930,6 +930,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 s.FirmadoPorId           = reviewerUserId;
                 s.FirmadoAt              = now;
                 s.UpdatedAt              = now;
+
+                // Si lo que se subsanó era una observación de TESORERÍA, el consolidado vuelve a su
+                // bandeja y el aviso es otro (TESORERIA_SUBSANADA), con lo que ella había observado.
+                // Se toma acá porque justo debajo se limpia.
+                if (s.ObservacionReembolsoOrigenId == EstadosSalida.OrigenObservacionReembolso.Tesoreria
+                    && consolidadoDeSolicitud.TryGetValue(s.Id, out var devuelto)
+                    && string.IsNullOrWhiteSpace(resultado.ObservacionesTesoreria.GetValueOrDefault(devuelto)))
+                    resultado.ObservacionesTesoreria[devuelto] = s.ObservacionReembolso;
+
                 // Al aprobar se limpia la observación y de quién era: ya no hay nada que subsanar,
                 // y dejar el origen puesto haría que Tesorería siguiera viendo como "suya" una
                 // planilla que ya volvió firmada.
@@ -1108,6 +1117,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         {
             using var ctx = _factory.CreateDbContext();
             return await CorreosTesoreriaAsync(ctx);
+        }
+
+        public async Task<HashSet<int>> GetConsolidadosQueVuelvenATesoreria(IEnumerable<int> consolidadoIds)
+        {
+            var ids = consolidadoIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // La misma señal que usa la escritura al aprobar: la observación de Tesorería se conserva
+            // al recargar el consolidado y recién se limpia cuando la firma lo completa.
+            var vuelven = await (
+                from v in ctx.GaConsolidadoS10Rendicion
+                join s in ctx.GaSolicitudSalida on (int?)v.RendicionId equals s.RendicionId
+                where v.State && ids.Contains(v.ConsolidadoS10Id)
+                   && s.EstadoReembolsoId == EstadosSalida.Reembolso.Pendiente
+                   && s.ObservacionReembolsoOrigenId == EstadosSalida.OrigenObservacionReembolso.Tesoreria
+                select v.ConsolidadoS10Id
+            ).Distinct().ToListAsync();
+
+            return vuelven.ToHashSet();
         }
 
         /// <summary>

@@ -616,6 +616,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public List<int> ConsolidadosCompletados { get; set; } = new();
 
         /// <summary>
+        /// De los completados, los que volvían de una observación de TESORERÍA, con lo que ella
+        /// había observado. No entran a su bandeja por primera vez sino que vuelven, y el aviso que
+        /// les toca es otro. Se toma en la escritura porque aprobar limpia la observación.
+        /// </summary>
+        public Dictionary<int, string?> ObservacionesTesoreria { get; set; } = new();
+
+        /// <summary>
         /// Consolidados en los que esta firma es NUEVA. Es lo que dispara el aviso al siguiente
         /// firmante: volver a aprobar algo que uno ya firmó no vuelve a molestarlo.
         /// </summary>

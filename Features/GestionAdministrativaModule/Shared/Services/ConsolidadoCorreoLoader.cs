@@ -107,6 +107,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     return new ConsolidadoCorreoDatos
                     {
                         ConsolidadoId     = g.Key,
+                        Codigo            = dto.Codigo,
                         NumeroReembolso   = dto.NumeroReembolso,
                         MontoTotal        = dto.MontoTotal,
                         Rendiciones       = codigos,

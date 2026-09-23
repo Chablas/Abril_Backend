@@ -94,6 +94,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         Task<List<string>> GetCorreosTesoreria();
 
         /// <summary>
+        /// De esos consolidados, los que vuelven de una observación de Tesorería (sus salidas
+        /// pendientes todavía la llevan): al aprobarlos, el aviso a Tesorería es el de observación
+        /// subsanada. Lo usa el preview; el envío lo decide la propia escritura.
+        /// </summary>
+        Task<HashSet<int>> GetConsolidadosQueVuelvenATesoreria(IEnumerable<int> consolidadoIds);
+
+        /// <summary>
         /// Qué pasaría si el usuario firmara ahora los consolidados de la selección: a quién le
         /// pasaría el turno y si alguno reuniría todas sus firmas. En obra el documento lo firman
         /// dos, así que la primera firma no avisa al consolidador ni a Tesorería —el reembolso sigue

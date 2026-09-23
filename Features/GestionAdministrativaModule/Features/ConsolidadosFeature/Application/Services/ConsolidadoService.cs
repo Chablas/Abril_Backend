@@ -159,11 +159,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
                             // Aprobar el reembolso ES firmar, y la firma completa es lo que mete la
                             // planilla en la bandeja de Tesorería: por eso dispara un segundo correo.
+                            // El consolidado que vuelve de una observación de Tesorería le llega con
+                            // otro (observación subsanada), que tiene su propia configuración.
                             if (request.Aprobar)
-                                await AgregarAvisoAsync(
-                                    avisos, "A Tesorería",
-                                    CorreoEventoCodigos.TesoreriaReembolso,
-                                    await _repo.GetCorreosTesoreria());
+                            {
+                                var tesoreria = await _repo.GetCorreosTesoreria();
+                                var vuelven   = await _repo.GetConsolidadosQueVuelvenATesoreria(request.ConsolidadoIds);
+
+                                if (vuelven.Count < request.ConsolidadoIds.Distinct().Count())
+                                    await AgregarAvisoAsync(
+                                        avisos, "A Tesorería", CorreoEventoCodigos.TesoreriaReembolso, tesoreria);
+
+                                if (vuelven.Count > 0)
+                                    await AgregarAvisoAsync(
+                                        avisos, "A Tesorería", CorreoEventoCodigos.TesoreriaSubsanada, tesoreria);
+                            }
                         }
 
                         if (proxima.Emails.Count > 0)
@@ -240,9 +250,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             await NotificarDecisionAsync(firma.Completadas, aprobado: true);
 
             // El aviso a Tesorería es por CONSOLIDADO: es el documento que revisa y paga. Por planilla
-            // le llegaba el mismo consolidado repetido tantas veces como planillas cubría.
+            // le llegaba el mismo consolidado repetido tantas veces como planillas cubría. El que
+            // vuelve de una observación suya le llega con el aviso de observación subsanada.
             foreach (var consolidadoId in firma.ConsolidadosCompletados)
-                await NotificarTesoreriaAsync(consolidadoId);
+                await NotificarTesoreriaAsync(
+                    consolidadoId,
+                    firma.ObservacionesTesoreria.TryGetValue(consolidadoId, out var observacion),
+                    observacion);
 
             // Las firmas van en cadena: al que sigue se le avisa recién ahora, con la anterior ya
             // puesta. Con el documento completo no queda nadie en turno y no sale ningún correo.
@@ -909,23 +923,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// destinatarios salen del rol TESORERO y no de una lista escrita a mano; los de
         /// <c>Configuración → Correos</c> se suman como copia. Best-effort, igual que el resto: la
         /// firma ya está guardada.
+        ///
+        /// Si el consolidado vuelve de una observación de Tesorería no entra por primera vez: sale
+        /// el aviso de observación subsanada (<see cref="CorreoEventoCodigos.TesoreriaSubsanada"/>)
+        /// en vez del de siempre, con su propia configuración.
         /// </summary>
-        private async Task NotificarTesoreriaAsync(int consolidadoId)
+        /// <param name="subsanada">El consolidado volvía de una observación de Tesorería.</param>
+        /// <param name="observacionTesoreria">Lo que Tesorería había observado, para el aviso de subsanada.</param>
+        private async Task NotificarTesoreriaAsync(int consolidadoId, bool subsanada, string? observacionTesoreria)
         {
+            var evento = subsanada ? CorreoEventoCodigos.TesoreriaSubsanada : CorreoEventoCodigos.TesoreriaReembolso;
+
             try
             {
                 var info = await _repo.GetTesoreriaCorreoInfo(consolidadoId);
                 if (info == null) return;
 
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    CorreoEventoCodigos.TesoreriaReembolso, info.Destinatarios);
+                var envio = await _correoResolver.ResolveEnvioAsync(evento, info.Destinatarios);
 
                 if (!envio.Enviar)
                 {
                     _logger.LogInformation(
                         "Correo {Codigo} no enviado para el consolidado {ConsolidadoId}: está apagado, "
                         + "sin destinatarios configurados o sin nadie con el rol de Tesorería.",
-                        CorreoEventoCodigos.TesoreriaReembolso, consolidadoId);
+                        evento, consolidadoId);
                     return;
                 }
 
@@ -933,16 +954,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 // El botón abre el consolidado en Reembolsos: es la unidad de la bandeja de Tesorería.
                 var url    = SalidaEnlaces.Reembolsos(_configuration, consolidadoId);
 
-                // Los consolidados anteriores al código se nombran por su número de reembolso.
                 var d = info.Datos;
-                var nombre = !string.IsNullOrWhiteSpace(d.Codigo) ? $" - {d.Codigo}"
-                           : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - N.° {d.NumeroReembolso}"
-                           : string.Empty;
+                string asunto, cuerpo;
+                if (subsanada)
+                {
+                    d.ObservacionTesoreria = observacionTesoreria;
+                    asunto = "La observación fue subsanada y el consolidado volvió a Tesorería"
+                             + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso);
+                    cuerpo = ReembolsoEmailTemplates.ConsolidadoSubsanadoParaTesoreria(layout, d, url);
+                }
+                else
+                {
+                    // Los consolidados anteriores al código se nombran por su número de reembolso.
+                    var nombre = !string.IsNullOrWhiteSpace(d.Codigo) ? $" - {d.Codigo}"
+                               : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - N.° {d.NumeroReembolso}"
+                               : string.Empty;
+                    asunto = $"Consolidado pendiente de revisión{nombre}";
+                    cuerpo = ReembolsoEmailTemplates.ConsolidadoParaTesoreria(layout, d, url);
+                }
 
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Consolidado pendiente de revisión{nombre}",
-                    body: ReembolsoEmailTemplates.ConsolidadoParaTesoreria(layout, d, url),
+                    subject: asunto,
+                    body: cuerpo,
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);
             }

@@ -277,12 +277,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                         return;
                     }
 
-                    var numero = string.IsNullOrWhiteSpace(d.NumeroReembolso) ? string.Empty : $" N.° {d.NumeroReembolso}";
-                    var url    = SalidaEnlaces.Consolidados(_configuration, d.ConsolidadoId);
+                    var url = SalidaEnlaces.Consolidados(_configuration, d.ConsolidadoId);
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Reembolso observado por Tesorería - Consolidado del S10{numero}",
+                        subject: $"Reembolso observado por Tesorería{ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso)}",
                         body: ReembolsoEmailTemplates.ConsolidadoObservadoPorTesoreria(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);

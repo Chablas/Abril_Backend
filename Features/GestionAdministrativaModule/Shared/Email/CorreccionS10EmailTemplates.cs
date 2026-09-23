@@ -185,9 +185,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// del S10 N.° …" en los anteriores al código. Lo usan los dos servicios que los envían.
         /// </summary>
         public static string NombreEnAsunto(CorreccionS10CorreoDatos d) =>
-            !string.IsNullOrWhiteSpace(d.ConsolidadoCodigo) ? $" - {d.ConsolidadoCodigo}"
-            : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - Consolidado del S10 N.° {d.NumeroReembolso}"
-            : string.Empty;
+            ReembolsoEmailTemplates.NombreEnAsunto(d.ConsolidadoCodigo, d.NumeroReembolso);
 
         // ── Bloques compartidos ───────────────────────────────────────────────
 

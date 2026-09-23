@@ -58,12 +58,13 @@ namespace Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces
         /// pre-ingreso desde el modal "Programar EMO con clínica".
         ///
         /// La razón social se asigna en un solo punto del proceso —la programación del EMO de
-        /// ingreso—, así que todo requerimiento llega ahí sin ninguna y esa elección es de las dos:
-        /// la ficha (<c>workers.contributor_id</c>, que lo escribe quien llama) y el requerimiento,
-        /// que es de donde la leen la carta oferta y el onboarding.
+        /// ingreso— y esa elección es de las dos: la ficha (<c>workers.contributor_id</c>, que lo
+        /// escribe quien llama) y el requerimiento, que es de donde la leen la carta oferta y el
+        /// onboarding.
         ///
-        /// Solo escribe si el requerimiento no tiene ninguna: reprogramar el EMO no cambia la razón
-        /// social con la que el proceso ya quedó.
+        /// Pisa la que el requerimiento ya tuviera: reprogramar el EMO es también la forma de
+        /// corregirla mientras la persona no firme. Los requerimientos de antes del 2026-09-11
+        /// traen la que se les eligió en Reclutamiento, con un tope que no sabía de reemplazos.
         ///
         /// <b>No guarda</b> ni lanza, por el mismo motivo que
         /// <see cref="AplicarAptitudAsync"/>: los cambios entran en el <c>SaveChanges</c> de quien

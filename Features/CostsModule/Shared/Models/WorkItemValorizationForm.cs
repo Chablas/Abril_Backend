@@ -21,7 +21,12 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models
         public bool   State                      { get; set; }
 
         public DateTimeOffset  CreatedDatetime   { get; set; }
-        public int             CreatedUserId     { get; set; }
+
+        /// <summary>
+        /// Nullable como la columna: las formas cargadas por sql/formas_valorizacion_5_1.sql no
+        /// tienen usuario. Con int, EF revienta al materializarlas y editar la partida da 500.
+        /// </summary>
+        public int?            CreatedUserId     { get; set; }
         public DateTimeOffset? UpdatedDatetime   { get; set; }
         public int?            UpdatedUserId     { get; set; }
 

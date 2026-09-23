@@ -296,19 +296,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.InicializarEntregables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        /// <summary>Puede saltarse el bloqueo de reingreso por documentación pendiente de un
-        /// retiro automático (nunca aplica a sesiones de contratista, que no cargan estos roles
-        /// internos): Administrador (de obra/UDP) o Coordinador SSOMA de Abril.</summary>
-        private static readonly string[] RolesOverrideReingreso = [Roles.AdministradorUdp, Roles.CoordinadorSsoma];
-
         [HttpPatch("{workerId:int}/reingreso")]
         public async Task<IActionResult> Reingreso(int workerId, [FromBody] WorkerReingresoDto dto)
         {
             try
             {
-                var esOverrideAutorizado = User.FindAll(ClaimTypes.Role)
-                    .Any(c => RolesOverrideReingreso.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
-                await _repo.ReingresoAsync(workerId, dto, esOverrideAutorizado);
+                await _repo.ReingresoAsync(workerId, dto);
                 return Ok(new { message = "Trabajador reingresado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -7,6 +7,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
         public int Id { get; set; }
         public string Nombre { get; set; } = null!;
         public string? Descripcion { get; set; }
+        public string? Categoria { get; set; }
         public string RolResponsable { get; set; } = null!;
         public string Frecuencia { get; set; } = null!;
         public int Orden { get; set; }
@@ -17,6 +18,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
     {
         public string Nombre { get; set; } = null!;
         public string? Descripcion { get; set; }
+        public string? Categoria { get; set; }
         public string RolResponsable { get; set; } = "ambos";
         public string Frecuencia { get; set; } = "diaria";
         public int Orden { get; set; } = 0;
@@ -32,6 +34,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
         public int ActividadId { get; set; }
         public string Nombre { get; set; } = null!;
         public string? Descripcion { get; set; }
+        public string? Categoria { get; set; }
         public string RolResponsable { get; set; } = null!;
         public string Frecuencia { get; set; } = null!;
         public DateOnly Periodo { get; set; }

@@ -15,6 +15,11 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
         [Column("descripcion")]
         public string? Descripcion { get; set; }
 
+        // Agrupador visual dentro de una misma frecuencia (ej. "Protecciones colectivas
+        // y encapsulados", "Andamios y accesos"). Null = sin categoría, se muestra suelto.
+        [Column("categoria")]
+        public string? Categoria { get; set; }
+
         // "coordinador_ssoma" | "prevencionista" | "ambos"
         [Column("rol_responsable")]
         public string RolResponsable { get; set; } = "ambos";

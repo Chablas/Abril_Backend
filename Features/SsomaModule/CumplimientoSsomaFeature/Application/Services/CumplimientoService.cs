@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
                 Id = entity.Id,
                 Nombre = entity.Nombre,
                 Descripcion = entity.Descripcion,
+                Categoria = entity.Categoria,
                 RolResponsable = entity.RolResponsable,
                 Frecuencia = entity.Frecuencia,
                 Orden = entity.Orden,
@@ -33,6 +34,9 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Applicatio
 
         public Task UpdateActividadAsync(int actividadId, CumplimientoActividadUpsertDto dto)
             => _repo.UpdateActividadAsync(actividadId, dto);
+
+        public Task DeleteActividadAsync(int actividadId)
+            => _repo.DeleteActividadAsync(actividadId);
 
         public Task<CumplimientoResumenDto> GetResumenProyectoAsync(int proyectoId, string? rol)
             => _repo.GetResumenProyectoAsync(proyectoId, rol);

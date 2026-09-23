@@ -34,6 +34,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Dashboard
         public int EntregablesCasaVencidos { get; set; }
         public int EntregablesCasaFalta { get; set; }
         public int EmosVencidos { get; set; }
+        public int EmosPorVencer14 { get; set; }
+        public int EmosPorVencer5 { get; set; }
         public int InterconsultasPendientes { get; set; }
         public int PersonalCasaTotal { get; set; }
         public int PersonalCasaHabilitado { get; set; }

@@ -17,8 +17,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
     /// un ganador sino la lista completa. Consolidar no es decidir: es hacerle un trámite al
     /// trabajador, así que todos los activos del nodo que resuelve quedan habilitados.
     ///
-    /// Sin nada asignado el área igual resuelve: el algoritmo deduce al Jefe del área (o al Gerente
-    /// de la gerencia, o al residente de la obra si el área filtra por proyecto).
+    /// Sin nada asignado el área igual resuelve: consolida el jefe que fijó Revisores y, si ahí
+    /// tampoco hay nada, el que deduce el algoritmo (el Jefe del área, el Gerente de la gerencia, o
+    /// el residente de la obra si el área filtra por proyecto).
     /// </summary>
     public class AreaConsolidadorRepository : IAreaConsolidadorRepository
     {
@@ -105,8 +106,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infras
         }
 
         /// <summary>
-        /// Todos los vigentes del área/proyecto. El propio trabajador no aparece: acá no hay
-        /// trabajador, la pregunta es por el área (en la planilla sí se le suma siempre).
+        /// Todos los vigentes del área/proyecto: son exactamente los que pueden consolidar las
+        /// rendiciones de esa rama (el propio trabajador ya no consolida lo suyo).
         /// </summary>
         private static List<AreaEfectivoDto> Describir(List<ConsolidadorElegido> elegidos)
             => elegidos

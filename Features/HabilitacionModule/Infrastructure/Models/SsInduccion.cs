@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int? ProgramadoPor { get; set; }
         public bool IngresoConfirmado { get; set; } = false;
         public DateTime? FechaIngreso { get; set; }
+        public int? ConfirmadoPorUserId { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 

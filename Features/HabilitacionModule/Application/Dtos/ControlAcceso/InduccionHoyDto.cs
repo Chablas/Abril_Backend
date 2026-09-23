@@ -13,5 +13,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso
         public string Estado { get; set; } = string.Empty;
         public bool IngresoConfirmado { get; set; }
         public DateTime? FechaIngreso { get; set; }
+        public string? ConfirmadoPorNombre { get; set; }
     }
 }

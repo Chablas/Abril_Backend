@@ -10,9 +10,9 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presentation
 {
     /// <summary>
-    /// "Gestión de Rendiciones": las planillas del alcance del revisor y todo lo que va desde el
-    /// Consolidado del S10 en adelante (adjuntarlo, decidir el reembolso, firmar). El pago es de
-    /// Tesorería y vive en Reembolsos.
+    /// "Gestión de Rendiciones": las planillas del alcance del revisor, su primera revisión y el
+    /// Consolidado del S10 que se les adjunta. Decidir y firmar el reembolso es de Consolidados; el
+    /// pago es de Tesorería y vive en Reembolsos.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/gestion-rendiciones")]
@@ -110,11 +110,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Los correos que saldrían si se toma una de las decisiones de la pantalla sobre la
-        /// selección enviada, con sus destinatarios reales. Lo piden las confirmaciones —tanto las
-        /// de los botones masivos como las del modal de detalle— para nombrar las direcciones en
-        /// vez de prometer un correo genérico. Es POST y no GET porque la selección viaja en el
-        /// cuerpo: puede ser larga y lleva dos listas de ids.
+        /// El detalle de una salida de las planillas del alcance, en consulta: trayectos, capturas
+        /// con sus montos y adjuntos. Lo abre el ojo de la tabla de salidas del detalle.
+        /// </summary>
+        [HttpGet("salidas/{solicitudId:int}/detalle")]
+        public async Task<IActionResult> GetSalidaDetalle(int solicitudId)
+        {
+            try
+            {
+                return Ok(await _service.GetSalidaDetalle(solicitudId, Scope()));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.GetSalidaDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Los correos que saldrían si se decide la primera revisión de la selección enviada, con
+        /// sus destinatarios reales. Lo piden las confirmaciones —tanto las de los botones masivos
+        /// como las del modal de detalle— para nombrar las direcciones en vez de prometer un correo
+        /// genérico. Es POST y no GET porque la selección viaja en el cuerpo: puede ser larga.
         /// </summary>
         [HttpPost("correo-preview")]
         public async Task<IActionResult> GetCorreoPreview([FromBody] CorreoPreviewRequestDto dto)
@@ -135,9 +156,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Adjunta un Consolidado del S10 que cubre las planillas indicadas: una sola (el botón de
-        /// cada fila) o varias a la vez (la selección), incluso de trabajadores distintos, porque un
-        /// registro del S10 puede agrupar varias rendiciones de una misma razón social.
+        /// Adjunta el primer Consolidado del S10 de las planillas indicadas: una sola (el detalle) o
+        /// varias a la vez (la selección), incluso de trabajadores y razones sociales distintos. Solo
+        /// lo puede subir el consolidador de esas planillas. Reemplazarlo es de Consolidados.
         /// </summary>
         [HttpPost("consolidado-s10")]
         [Consumes("multipart/form-data")]
@@ -160,7 +181,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
                                       System.Globalization.CultureInfo.InvariantCulture, out var monto))
                     return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
 
-                return Ok(await _service.UploadConsolidadoS10(rendicionIds, file, monto, numeroReembolso, userId.Value));
+                return Ok(await _service.UploadConsolidadoS10(
+                    rendicionIds, file, monto, numeroReembolso, userId.Value,
+                    User.IsInRole(Roles.UsuarioRecepcion)));
             }
             catch (AbrilException ex)
             {
@@ -174,7 +197,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Aprueba la primera revisión: habilita al trabajador a cargar el Consolidado del S10.
+        /// Aprueba la primera revisión: habilita al consolidador a cargar el Consolidado del S10.
         /// </summary>
         [HttpPatch("primera-revision/aprobar")]
         public Task<IActionResult> AprobarPrimeraRevision([FromBody] PrimeraRevisionAccionDto dto) =>
@@ -208,31 +231,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
             }
         }
 
-        [HttpPatch("reembolso/aprobar")]
-        public Task<IActionResult> AprobarReembolso([FromBody] ReembolsoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso));
-
-        [HttpPatch("reembolso/observar")]
-        public Task<IActionResult> ObservarReembolso([FromBody] ReembolsoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: false, nameof(ObservarReembolso));
-
-        private async Task<IActionResult> DecidirAsync(ReembolsoAccionDto dto, bool aprobar, string accion)
-        {
-            try
-            {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en GestionRendicionController.{Accion}", accion);
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
     }
 }

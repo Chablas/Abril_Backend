@@ -32,7 +32,7 @@ public class PenalidadNotificationService : IPenalidadNotificationService
             var body = $@"
 <h2>Penalidad pendiente de tu aprobación — {p.Codigo}</h2>
 <p>Se registró una posible penalidad a <b>{p.EmpresaNombre ?? "-"}</b> por <b>{p.InfraccionNombre ?? "-"}</b>
-(severidad {p.Severidad}, monto estimado S/ {p.MontoCalculado:N2}). Revisa y aprueba o rechaza en el sistema.</p>";
+(categoría {p.Categoria ?? "-"}, monto estimado S/ {p.MontoCalculado:N2}). Revisa y aprueba o rechaza en el sistema.</p>";
 
             await _email.SendAsync([r.ResidenteEmail], $"[Penalidad] Pendiente de aprobación: {p.Codigo}", body, true);
         });
@@ -54,11 +54,11 @@ public class PenalidadNotificationService : IPenalidadNotificationService
         });
     }
 
-    public async Task NotificarDescargoAlContratistaAsync(PenalidadDetalleDto p, string contratistaEmail)
+    public async Task NotificarDescargoAlContratistaAsync(PenalidadDetalleDto p, List<string> contratistaEmails)
     {
         await EnviarSeguro(p.Codigo, "DescargoAlContratista", async () =>
         {
-            if (string.IsNullOrWhiteSpace(contratistaEmail)) return;
+            if (contratistaEmails.Count == 0) return;
 
             var body = $@"
 <p>En el marco de nuestro compromiso con la seguridad e integridad de los trabajadores y el
@@ -72,22 +72,22 @@ salvo ampliación autorizada) para presentar su descargo y/o sustento documentar
 respuesta en dicho plazo, se dará por aceptada la observación conforme al procedimiento vigente.</p>
 <p>Código de penalidad: <b>{p.Codigo}</b></p>";
 
-            await _email.SendAsync([contratistaEmail], $"[Penalidad] Notificación y derecho a descargo: {p.Codigo}", body, true);
+            await _email.SendAsync(contratistaEmails, $"[Penalidad] Notificación y derecho a descargo: {p.Codigo}", body, true);
         });
     }
 
-    public async Task RecordatorioDescargoAsync(PenalidadDetalleDto p, string contratistaEmail)
+    public async Task RecordatorioDescargoAsync(PenalidadDetalleDto p, List<string> contratistaEmails)
     {
         await EnviarSeguro(p.Codigo, "RecordatorioDescargo", async () =>
         {
-            if (string.IsNullOrWhiteSpace(contratistaEmail)) return;
+            if (contratistaEmails.Count == 0) return;
 
             var body = $@"
 <p>Le recordamos que el plazo para presentar su descargo sobre la penalidad <b>{p.Codigo}</b>
 vence el <b>{p.PlazoDescargoVenceEn:dd/MM/yyyy HH:mm}</b>. De no recibir respuesta, se dará por
 aceptada la observación conforme al procedimiento vigente.</p>";
 
-            await _email.SendAsync([contratistaEmail], $"[Penalidad] Recordatorio de plazo: {p.Codigo}", body, true);
+            await _email.SendAsync(contratistaEmails, $"[Penalidad] Recordatorio de plazo: {p.Codigo}", body, true);
         });
     }
 
@@ -116,14 +116,14 @@ aceptada la observación conforme al procedimiento vigente.</p>";
         });
     }
 
-    public async Task NotificarDecisionFinalAsync(PenalidadDetalleDto p, string? contratistaEmail)
+    public async Task NotificarDecisionFinalAsync(PenalidadDetalleDto p, List<string> contratistaEmails)
     {
         await EnviarSeguro(p.Codigo, "DecisionFinal", async () =>
         {
             var r = await _responsables.ResolverAsync(p.ProyectoId);
 
             var to = new List<string> { SsomaBuzon };
-            if (!string.IsNullOrWhiteSpace(contratistaEmail)) to.Add(contratistaEmail);
+            to.AddRange(contratistaEmails);
 
             var cc = new List<string?> { r.ResidenteEmail, r.CoordSsomaEmail }
                 .Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e!).Distinct().ToList();

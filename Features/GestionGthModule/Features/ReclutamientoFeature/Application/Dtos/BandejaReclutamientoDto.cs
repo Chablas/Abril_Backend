@@ -82,6 +82,25 @@
         /// <summary>Proyecto/obra destino de la vacante.</summary>
         public string? ProyectoObra { get; set; }
 
+        /// <summary>
+        /// Tipo de requerimiento tal como se muestra (Nuevo / Reemplazo): la columna «Tipo». Es el
+        /// nombre del catálogo, que se puede renombrar desde Configuración.
+        /// </summary>
+        public string TipoRequerimiento { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Código estable del tipo (<c>NUEVO</c> / <c>REEMPLAZO</c>): es el que decide cómo se pinta
+        /// el tipo y por el que filtra la bandeja. El nombre de al lado es presentación.
+        /// </summary>
+        public string TipoRequerimientoCodigo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// true = ingreso directo <b>FFT</b>. Va junto al tipo porque es lo otro que cambia el
+        /// camino de la vacante: no la firma nadie y nace en manos de GTH esperando el EMO de
+        /// ingreso, sin publicación, long list ni entrevistas.
+        /// </summary>
+        public bool EsFft { get; set; }
+
         /// <summary>Fecha en que llegó la solicitud (created) en hora Perú (UTC-5). Columna "Fecha llegada".</summary>
         public DateTime FechaLlegada { get; set; }
 

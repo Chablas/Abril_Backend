@@ -228,10 +228,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
 
+            var confirmadoPorIds = inducciones
+                .Where(i => i.ConfirmadoPorUserId.HasValue)
+                .Select(i => i.ConfirmadoPorUserId!.Value)
+                .Distinct()
+                .ToList();
+            var usuarioMap = await ctx.User
+                .Include(u => u.Person)
+                .Where(u => confirmadoPorIds.Contains(u.UserId))
+                .ToDictionaryAsync(u => u.UserId, u => u.Person != null ? u.Person.FullName : u.Email);
+
             return inducciones.Select(i =>
             {
                 workerMap.TryGetValue(i.WorkerId, out var w);
                 empresaMap.TryGetValue(i.EmpresaId, out var empNombre);
+                string? confirmadoPorNombre = null;
+                if (i.ConfirmadoPorUserId.HasValue)
+                    usuarioMap.TryGetValue(i.ConfirmadoPorUserId.Value, out confirmadoPorNombre);
 
                 return new InduccionHoyDto
                 {
@@ -245,12 +258,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EquipoElectrico = i.EquipoElectrico,
                     Estado = i.Estado,
                     IngresoConfirmado = i.IngresoConfirmado,
-                    FechaIngreso = i.FechaIngreso
+                    FechaIngreso = i.FechaIngreso,
+                    ConfirmadoPorNombre = confirmadoPorNombre
                 };
             }).ToList();
         }
 
-        public async Task ConfirmarIngresoAsync(int induccionId)
+        public async Task ConfirmarIngresoAsync(int induccionId, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -268,6 +282,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             induccion.IngresoConfirmado = true;
             induccion.FechaIngreso = DateTime.UtcNow;
+            induccion.ConfirmadoPorUserId = userId;
+            induccion.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task DesconfirmarIngresoAsync(int induccionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var induccion = await ctx.SsInduccion.FirstOrDefaultAsync(i => i.Id == induccionId)
+                ?? throw new AbrilException("Inducción no encontrada.", 404);
+
+            induccion.IngresoConfirmado = false;
+            induccion.FechaIngreso = null;
+            induccion.ConfirmadoPorUserId = null;
             induccion.UpdatedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
         }

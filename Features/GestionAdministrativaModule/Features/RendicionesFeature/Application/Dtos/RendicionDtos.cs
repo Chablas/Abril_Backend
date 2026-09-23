@@ -109,50 +109,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         /// planilla firmada tiene que saber que quien la devolvió fue Tesorería y no su jefe.
         /// </summary>
         public string ObservacionReembolsoOrigen { get; set; } = string.Empty;
-
-        /// <summary>Última vez que se le avisó al revisor por esta planilla. Null si nunca.</summary>
-        public DateTimeOffset? RevisorNotificadoAt { get; set; }
-
-        /// <summary>
-        /// True cuando se puede adjuntar o reemplazar el Consolidado del S10: la primera revisión
-        /// tiene que estar APROBADA (RG-35) y el reembolso seguir abierto (Pendiente u Observado)
-        /// — después de aprobado no tendría a quién avisarle ni qué reabrir.
-        /// </summary>
-        public bool PuedeAdjuntarConsolidado { get; set; }
-
-        /// <summary>
-        /// True cuando el Consolidado del S10 de la planilla es compartido con otras planillas que
-        /// siguen con el reembolso por decidir (lo adjuntó un consolidador para varias a la vez).
-        /// Un documento compartido se reemplaza entero, así que desde esta pantalla —que es de una
-        /// planilla— no se puede: el botón queda apagado y el reemplazo se hace en Gestión de
-        /// Rendiciones.
-        /// </summary>
-        public bool ConsolidadoCompartido { get; set; }
-
-        /// <summary>True cuando ya hay consolidado adjunto y el reembolso sigue abierto.</summary>
-        public bool PuedeNotificarRevisor { get; set; }
-
-        // ── Corrección con el Coordinador ERP ────────────────────────────
-        // El camino alternativo cuando la jefatura observa el reembolso y el arreglo tiene que
-        // hacerse DENTRO del S10, donde el trabajador no tiene permiso (§10.5).
-
-        /// <summary>
-        /// La solicitud de corrección viva de esta planilla. Null en el caso normal: la mayoría de
-        /// las planillas nunca pasa por el ERP. Cuando está, su estado dice de quién es la pelota
-        /// (esperando al ERP, o ya atendida y esperando la recarga del consolidado).
-        /// </summary>
-        public CorreccionS10Dto? CorreccionS10 { get; set; }
-
-        /// <summary>
-        /// True cuando el trabajador puede PEDIRLE la corrección al Coordinador ERP: el reembolso
-        /// tiene que estar observado, con el Consolidado del S10 adjunto (es el documento que hay
-        /// que corregir) y sin otra corrección ya en curso.
-        ///
-        /// Es un camino ALTERNATIVO, no obligatorio: si el trabajador puede arreglar el S10 él
-        /// mismo, vuelve a adjuntar el consolidado y listo. Pedir el paso por el ERP para algo que
-        /// resuelve solo sería fricción.
-        /// </summary>
-        public bool PuedeSolicitarCorreccion { get; set; }
     }
 
     /// <summary>Una salida dentro de la planilla, para el detalle.</summary>
@@ -197,58 +153,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     /// <summary>
     /// Números de las tarjetas del encabezado. Se cuentan sobre el MISMO conjunto que muestra la
     /// tabla (con los filtros ya aplicados), así que acompañan a la búsqueda; por eso viajan en la
-    /// respuesta del listado y no en <c>filter-data</c>. Son las tres cosas que le pueden faltar al
-    /// trabajador, en el orden del flujo.
+    /// respuesta del listado y no en <c>filter-data</c>. Son las dos cosas que le pueden faltar al
+    /// trabajador: después de la primera revisión, todo es del consolidador.
     /// </summary>
     public class ResumenRendicionesDto
     {
         /// <summary>Planillas rendidas que todavía no se enviaron a primera revisión.</summary>
         public int PorEnviar { get; set; }
         /// <summary>
-        /// Aprobadas en primera revisión y sin el Consolidado del S10 adjunto: el paso habilitado.
-        /// Las que no pasaron la primera revisión no cuentan — ahí el S10 ni se puede cargar.
-        /// </summary>
-        public int SinConsolidado { get; set; }
-        /// <summary>Con consolidado y reembolso abierto, pero sin avisarle todavía al revisor.</summary>
-        public int PorAvisar { get; set; }
-        /// <summary>
-        /// Lo que espera al trabajador: la primera revisión observada (rehacer la rendición) o el
-        /// reembolso observado (volver a adjuntar el consolidado). Van juntas porque para él son la
-        /// misma cosa —algo suyo volvió con observaciones— y la fila dice cuál de las dos es.
+        /// Rendiciones observadas en la primera revisión: hay que corregir capturas y montos y
+        /// volver a generarlas. Un reembolso observado no cuenta: lo subsana el consolidador.
         /// </summary>
         public int Observadas { get; set; }
-        /// <summary>
-        /// Con una corrección del S10 en curso: la pelota está en el Coordinador ERP y al
-        /// trabajador no le toca nada hasta que confirme. Va aparte de Observadas justamente por
-        /// eso — verlas juntas haría pensar que hay algo que hacer.
-        /// </summary>
-        public int EnErp { get; set; }
 
-        /// <summary>Cuenta las cuatro bandejas sobre las planillas recibidas (el conjunto ya filtrado).</summary>
+        /// <summary>Cuenta las dos bandejas sobre las planillas recibidas (el conjunto ya filtrado).</summary>
         public static ResumenRendicionesDto De(IEnumerable<RendicionListItemDto> rendiciones)
         {
             var lista = rendiciones as ICollection<RendicionListItemDto> ?? rendiciones.ToList();
             return new ResumenRendicionesDto
             {
-                PorEnviar      = lista.Count(x => x.PuedeEnviarPrimeraRevision),
-                SinConsolidado = lista.Count(x => x.ConsolidadoS10 == null
-                                              && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
-                PorAvisar      = lista.Count(x => x.PuedeNotificarRevisor && x.RevisorNotificadoAt == null),
-                Observadas     = lista.Count(x => x.PuedeSubsanar
-                                              || x.EstadoReembolso == EstadosSalida.Reembolso.NombreObservado),
-                EnErp          = lista.Count(x => x.CorreccionS10?.EsperandoErp == true),
+                PorEnviar  = lista.Count(x => x.PuedeEnviarPrimeraRevision),
+                Observadas = lista.Count(x => x.PuedeSubsanar),
             };
         }
-    }
-
-    /// <summary>
-    /// Cuerpo de "Solicitar corrección al ERP". Un solo campo, que es el «MOTIVO *» del
-    /// requerimiento: viaja en el cuerpo y no en la query porque es texto libre y largo.
-    /// </summary>
-    public class SolicitarCorreccionS10Dto
-    {
-        /// <summary>Qué corrección se necesita en el S10. Obligatorio (RG-21 / CA-17).</summary>
-        public string Motivo { get; set; } = string.Empty;
     }
 
     /// <summary>Respuesta del listado: las planillas y las tarjetas de ese mismo conjunto.</summary>
@@ -269,8 +196,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
 
     /// <summary>
     /// Datos de arranque de "Mis Rendiciones": lo que NO cambia al mover los filtros. Por eso las
-    /// opciones del filtro de periodo viajan junto a los destinatarios de los correos que dispara
-    /// la pantalla, que son los mismos para toda ella (está acotada a un solo trabajador) y no se
+    /// opciones del filtro de periodo viajan junto a los destinatarios de los correos que dispara la
+    /// pantalla, que son los mismos para toda ella (está acotada a un solo trabajador) y no se
     /// vuelven a pedir con cada búsqueda.
     /// </summary>
     public class RendicionFilterDataDto
@@ -278,23 +205,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public List<PeriodoOptionDto> Periodos { get; set; } = new();
 
         /// <summary>
-        /// A quién le llega el aviso de la primera revisión (Configuración → Correos → «1.ª
-        /// revisión al revisor»). Lo dispara "Enviar a revisión".
+        /// A quién le llegan los dos correos de "Enviar a revisión": el aviso a la jefatura y el
+        /// acuse al trabajador (Configuración → Correos). Lista vacía = hoy no sale ninguno.
         /// </summary>
-        public CorreoDestinatariosDto CorreoPrimeraRevision { get; set; } = new();
+        public List<CorreoAvisoPreviewDto> CorreosEnvioRevision { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Resultado de «Rendir» en Solicitud de Salidas: la planilla que se generó y si quedó en
+    /// primera revisión. Rendir y enviar son dos escrituras: si el envío falla después de rendir, la
+    /// rendición queda "Lista para enviar" y <see cref="Message"/> dice por qué.
+    /// </summary>
+    public class RendirYEnviarResultDto
+    {
+        public int RendicionId { get; set; }
+
+        /// <summary>Código REN-AAAA-NNNN de la planilla generada.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        /// <summary>Cuántas salidas se rindieron.</summary>
+        public int Rendidas { get; set; }
 
         /// <summary>
-        /// A quién le llega el aviso de que ya se adjuntó el Consolidado del S10 (Configuración →
-        /// Correos → «S10 al revisor»). Lo dispara "Avisar al revisor".
+        /// true = la planilla quedó en primera revisión (el aviso a la jefatura sale best-effort,
+        /// según Configuración → Correos); false = quedó "Lista para enviar" y se envía desde Mis
+        /// Rendiciones.
         /// </summary>
-        public CorreoDestinatariosDto CorreoS10Revisor { get; set; } = new();
+        public bool EnviadaARevision { get; set; }
 
+        public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Resultado de «Volver a generar» en Mis Rendiciones: cómo salió el reenvío a la primera
+    /// revisión, que va pegado al mismo paso — la planilla se regenera justamente para que el jefe
+    /// la vuelva a mirar, así que generar y avisarle son una sola acción.
+    ///
+    /// El PDF no viaja de vuelta: queda guardado y la planilla ya apunta al nuevo, así que la
+    /// pantalla lo abre con su botón «Planilla» cuando hace falta verlo.
+    ///
+    /// Regenerar y enviar son dos escrituras: si el envío falla, el PDF nuevo igual quedó guardado,
+    /// la planilla queda «Lista para enviar» y <see cref="Message"/> dice por qué.
+    /// </summary>
+    public class RegenerarPlanillaResultDto
+    {
         /// <summary>
-        /// A quién le llega la solicitud de corrección del S10. A diferencia de los otros dos, su
-        /// destinatario principal se resuelve por ROL (COORDINADOR ERP) y no por el organigrama del
-        /// trabajador: el responsable ERP es uno para toda la organización.
+        /// true = quedó en primera revisión y salieron los correos del paso; false = quedó «Lista
+        /// para enviar» y hay que enviarla a mano desde Mis Rendiciones.
         /// </summary>
-        public CorreoDestinatariosDto CorreoCorreccionS10 { get; set; } = new();
+        public bool EnviadaARevision { get; set; }
+
+        public string Message { get; set; } = string.Empty;
     }
 
     /// <summary>

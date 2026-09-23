@@ -39,12 +39,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/solicitud-salidas";
 
         /// <summary>
-        /// Gestión de Rendiciones abierta en esa planilla — es la pantalla donde el revisor mira el
-        /// Consolidado del S10, aprueba o rechaza el reembolso y firma. La unidad es la PLANILLA y
-        /// no la salida: el documento que revisa cubre a todas las salidas que agrupa.
+        /// Gestión de Rendiciones abierta en esa planilla — es la pantalla donde el revisor hace la
+        /// primera revisión y se le adjunta el Consolidado del S10. La unidad es la PLANILLA y no
+        /// la salida: el documento que revisa cubre a todas las salidas que agrupa. Decidir el
+        /// reembolso ya no se hace acá: eso es <see cref="Consolidados"/>.
         /// </summary>
         public static string GestionRendiciones(IConfiguration configuration, int rendicionId) =>
-            $"{Base(configuration)}/gestion-administrativa/gestion-rendiciones?rendicion={rendicionId}";
+            $"{GestionRendiciones(configuration)}?rendicion={rendicionId}";
+
+        /// <summary>
+        /// Gestión de Rendiciones sin abrir ninguna planilla. La usa el aviso a los consolidadores
+        /// cuando habla de varias rendiciones aprobadas a la vez: no hay una sola que abrir.
+        /// </summary>
+        public static string GestionRendiciones(IConfiguration configuration) =>
+            $"{Base(configuration)}/gestion-administrativa/gestion-rendiciones";
 
         /// <summary>
         /// Gestión de Rendiciones abierta en esa planilla y con la acción de la primera revisión ya
@@ -58,9 +66,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{GestionRendiciones(configuration, rendicionId)}&accion={accion}";
 
         /// <summary>
-        /// Mis Rendiciones abierta en esa planilla — es donde el trabajador adjunta (o vuelve a
-        /// adjuntar, para subsanar) el Consolidado del S10 y avisa a su revisor. Todo lo que va
-        /// después de rendir vive ahí, así que es el destino de los correos del reembolso.
+        /// Mis Rendiciones abierta en esa planilla — es donde el trabajador sigue su rendición: la
+        /// envía a primera revisión, la subsana si vuelve observada y ve en qué va su reembolso.
         /// </summary>
         public static string Rendiciones(IConfiguration configuration, int rendicionId) =>
             $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
@@ -74,11 +81,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             $"{Base(configuration)}/gestion-administrativa/correcciones-s10?correccion={correccionId}";
 
         /// <summary>
-        /// Reembolsos abierta en esa planilla — la bandeja de Tesorería, donde se confirma la
-        /// revisión documental y se paga. Es el destino del aviso que le llega a Tesorería cuando
-        /// la jefatura firma.
+        /// Consolidados abierta en ese Consolidado del S10 — la bandeja donde la jefatura decide el
+        /// reembolso y firma, y donde el consolidador sigue lo que adjuntó (avisa a la jefatura y
+        /// pide la corrección al ERP). La unidad es el CONSOLIDADO y no la planilla: un mismo
+        /// registro del S10 puede cubrir varias.
         /// </summary>
-        public static string Reembolsos(IConfiguration configuration, int rendicionId) =>
-            $"{Base(configuration)}/gestion-administrativa/reembolsos?rendicion={rendicionId}";
+        public static string Consolidados(IConfiguration configuration, int consolidadoId) =>
+            $"{Base(configuration)}/gestion-administrativa/consolidados?consolidado={consolidadoId}";
+
+        /// <summary>
+        /// Reembolsos sin abrir nada — la bandeja de Tesorería, donde se confirma la revisión
+        /// documental y se paga.
+        /// </summary>
+        public static string Reembolsos(IConfiguration configuration) =>
+            $"{Base(configuration)}/gestion-administrativa/reembolsos";
+
+        /// <summary>
+        /// Reembolsos abierta en ese Consolidado del S10. La unidad es el CONSOLIDADO y no la
+        /// planilla —igual que en <see cref="Consolidados"/>— porque lo que Tesorería revisa y
+        /// paga es el documento entero. Es el destino del aviso que le llega cuando la jefatura
+        /// firma.
+        ///
+        /// La pantalla también entiende <c>?rendicion=</c> y abre el consolidado que cubre esa
+        /// planilla: los correos que salieron antes de este cambio siguen cayendo donde deben.
+        /// </summary>
+        public static string Reembolsos(IConfiguration configuration, int consolidadoId) =>
+            $"{Base(configuration)}/gestion-administrativa/reembolsos?consolidado={consolidadoId}";
     }
 }

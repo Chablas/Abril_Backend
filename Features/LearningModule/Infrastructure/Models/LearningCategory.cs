@@ -2,7 +2,7 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Models
 {
     /// <summary>
     /// Grupo/área del centro de aprendizaje (p. ej. "Gestión de Salidas", "Lecciones
-    /// Aprendidas", "Contratistas"). Agrupa videos-guía y define dónde (superficie) y a
+    /// Aprendidas", "Contratistas"). Agrupa videos y manuales y define dónde (superficie) y a
     /// quién (roles / público interno) se muestran.
     /// </summary>
     public class LearningCategory
@@ -13,9 +13,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Models
         public int LearningSurfaceId { get; set; }
 
         public string Name { get; set; } = string.Empty;
-
-        /// <summary>Color de acento del panel (hex, ej. "#0F6E56"). Null = teal por defecto.</summary>
-        public string? AccentColor { get; set; }
 
         /// <summary>Orden de aparición del grupo (menor primero).</summary>
         public int DisplayOrder { get; set; }

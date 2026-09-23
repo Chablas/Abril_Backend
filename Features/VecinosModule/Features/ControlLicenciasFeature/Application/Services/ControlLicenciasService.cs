@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Application.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.Shared;
 using Abril_Backend.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Http;
 using System.Text.RegularExpressions;
@@ -13,23 +14,35 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         private const long MaxBytes = 15 * 1024 * 1024;
         private static readonly string[] AllowedExtensions =
             { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp" };
+        private static readonly string[] AllowedLogoExtensions = { ".png", ".jpg", ".jpeg", ".webp" };
+        private const long MaxLogoBytes = 5 * 1024 * 1024; // 5 MB
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+        private const string UrlControlLicencias = "https://intranet.abril.pe/vecinos/control-licencias";
 
         private readonly IControlLicenciasRepository _repository;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IWebHostEnvironment _env;
 
         public ControlLicenciasService(
             IControlLicenciasRepository repository,
             IFileStorageService fileStorageService,
             IStorageContainerResolver containerResolver,
-            IEmailService emailService)
+            IEmailService emailService,
+            IConfiguration configuration,
+            IHttpClientFactory httpClientFactory,
+            IWebHostEnvironment env)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
             _emailService = emailService;
+            _configuration = configuration;
+            _httpClientFactory = httpClientFactory;
+            _env = env;
         }
 
         public Task<List<ProjectOptionDto>> GetProyectos() => _repository.GetProyectos();
@@ -187,6 +200,64 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
 
         public Task<VecinoLicenciaDashboardResponseDto> GetDashboard(List<int>? projectIds) => _repository.GetDashboard(projectIds);
 
+        public async Task<string> UploadLogo(int projectId, IFormFile file, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("No se adjuntó ninguna imagen.", 400);
+            if (file.Length > MaxLogoBytes)
+                throw new AbrilException("El logo supera el tamaño máximo permitido (5 MB).", 400);
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!AllowedLogoExtensions.Contains(extension))
+                throw new AbrilException("Formato no válido. Use PNG, JPG o WEBP.", 400);
+
+            var container = _containerResolver.GetProjectLogoContainerName();
+
+            string logoUrl;
+            using (var stream = file.OpenReadStream())
+            {
+                var uploaded = await _fileStorageService.UploadFilesAsync(
+                    new[] { (stream, $"{Guid.NewGuid()}{extension}") },
+                    container);
+                logoUrl = uploaded.First();
+            }
+
+            await _repository.UpdateLogoUrl(projectId, logoUrl, userId);
+            return logoUrl;
+        }
+
+        public async Task<(byte[] Bytes, string ContentType)?> GetLogoBytes(int projectId)
+        {
+            var url = await _repository.GetLogoUrl(projectId);
+            if (string.IsNullOrEmpty(url)) return null;
+
+            // El storage local guarda ruta relativa (/images/...); Azure Blob guarda URL absoluta.
+            // Server-to-server no tiene restricción CORS, así que esto sirve de proxy para el navegador.
+            if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                var client = _httpClientFactory.CreateClient();
+                var response = await client.GetAsync(url);
+                if (!response.IsSuccessStatusCode) return null;
+
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+                return (bytes, contentType);
+            }
+
+            var physicalPath = Path.Combine(_env.WebRootPath, url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(physicalPath)) return null;
+
+            var localBytes = await File.ReadAllBytesAsync(physicalPath);
+            var localContentType = Path.GetExtension(physicalPath).ToLowerInvariant() switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                _ => "application/octet-stream",
+            };
+            return (localBytes, localContentType);
+        }
+
         public async Task<RecordatoriosResultDto> ProcesarRecordatorios()
         {
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
@@ -195,6 +266,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var result = new RecordatoriosResultDto();
             var emailsPorProyecto = new Dictionary<int, List<string>>();
             List<string>? emailsUdp = null;
+            var layout = ControlLicenciasEmailLayout.Desde(_configuration);
 
             foreach (var recordatorio in pendientes)
             {
@@ -209,7 +281,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         // Unidad de Proyectos (UDP) se avisa de todos los vencimientos, de cualquier obra.
                         var automaticos = await _repository.ResolverDestinatariosAutomaticos(recordatorio.ProjectId);
                         var adicionales = await _repository.GetDestinatariosAdicionales(recordatorio.ProjectId);
-                        emails = automaticos.Concat(adicionales).Concat(emailsUdp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        var todos = automaticos.Concat(adicionales).Concat(emailsUdp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        // Filtro final, sin importar de qué origen vino el correo (automático, a mano
+                        // o UDP): si es de un trabajador ya retirado, no se le envía.
+                        emails = await _repository.FiltrarEmailsRetirados(todos);
                         emailsPorProyecto[recordatorio.ProjectId] = emails;
                     }
 
@@ -225,24 +300,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         : $"Alerta: la licencia \"{recordatorio.TipoDescripcion}\" venció el {recordatorio.FechaVencimiento:dd/MM/yyyy}";
                     var subject = esInterferenciaVias ? $"🔴 URGENTE: {subjectBase}" : subjectBase;
 
-                    var detalleDias = diasRestantes > 1 ? $"Faltan <b>{diasRestantes} días</b> para su vencimiento."
-                        : diasRestantes == 1 ? "Vence <b>mañana</b>."
-                        : diasRestantes == 0 ? "Vence <b>hoy</b>."
-                        : $"Venció hace <b>{-diasRestantes} día(s)</b>.";
+                    var proyecto = new ControlLicenciasEmailTemplates.Proyecto(
+                        recordatorio.ProjectDescription, recordatorio.ProjectCodigo,
+                        recordatorio.ContributorName, recordatorio.ContributorRuc);
 
-                    var avisoUrgente = esInterferenciaVias
-                        ? """<p style="background:#fdecea;color:#b71c1c;border-left:4px solid #b71c1c;padding:8px 12px;"><b>URGENTE — Interferencia de vías.</b> Este trámite requiere gestión inmediata ante la municipalidad.</p>"""
-                        : "";
-
-                    var body = $"""
-                        <p>Estimados,</p>
-                        {avisoUrgente}
-                        <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
-                        <p>La licencia <b>{recordatorio.TipoDescripcion}</b> vence el <b>{recordatorio.FechaVencimiento:dd/MM/yyyy}</b>. {detalleDias}</p>
-                        <p>Puede revisarla en la intranet:
-                        <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
-                        <p>Este es un mensaje automático, por favor no responder.</p>
-                        """;
+                    var body = ControlLicenciasEmailTemplates.Vencimiento(
+                        layout, proyecto, recordatorio.TipoDescripcion, recordatorio.FechaVencimiento,
+                        diasRestantes, esInterferenciaVias, UrlControlLicencias);
 
                     await _emailService.SendAsync(emails, subject, body, isHtml: true);
                     await _repository.MarcarRecordatorioEnviado(recordatorio.VecinoLicenciaControlRecordatorioId);
@@ -270,6 +334,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         {
             var pendientes = await _repository.GetPendientesVisita(hoy);
             var emailsPorProyecto = new Dictionary<int, List<string>>();
+            var layout = ControlLicenciasEmailLayout.Desde(_configuration);
 
             foreach (var visita in pendientes)
             {
@@ -285,14 +350,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                         continue; // Proyecto sin Residente/Administración resueltos: no hay a quién avisar.
 
                     var subject = $"Recordatorio: visita de {visita.TipoDescripcion} el {visita.FechaVisita:dd/MM/yyyy}";
-                    var body = $"""
-                        <p>Estimados,</p>
-                        <p>Este es un recordatorio del <b>Control de Licencias</b> de Administración de Obra.</p>
-                        <p>Hay una visita de <b>{visita.TipoDescripcion}</b> programada para el <b>{visita.FechaVisita:dd/MM/yyyy}</b>.</p>
-                        <p>Puede revisarla en la intranet:
-                        <a href="https://intranet.abril.pe/vecinos/control-licencias">Control de Licencias</a></p>
-                        <p>Este es un mensaje automático, por favor no responder.</p>
-                        """;
+
+                    var proyecto = new ControlLicenciasEmailTemplates.Proyecto(
+                        visita.ProjectDescription, visita.ProjectCodigo,
+                        visita.ContributorName, visita.ContributorRuc);
+
+                    var body = ControlLicenciasEmailTemplates.Visita(
+                        layout, proyecto, visita.TipoDescripcion, visita.FechaVisita, UrlControlLicencias);
 
                     await _emailService.SendAsync(emails, subject, body, isHtml: true);
                     await _repository.MarcarVisitaRecordatorioEnviado(visita.VecinoLicenciaControlVisitaId);

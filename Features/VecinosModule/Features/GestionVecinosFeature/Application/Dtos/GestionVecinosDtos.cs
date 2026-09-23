@@ -320,6 +320,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
     {
         public int VecinoLimpiezaId { get; set; }
         public DateOnly Fecha { get; set; }
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
         public int VecinoLimpiezaTipoId { get; set; }
         public string TipoDescripcion { get; set; } = null!;
         public int? VecinoId { get; set; }
@@ -352,6 +354,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
     public class VecinoLimpiezaCreateDto
     {
         public DateOnly Fecha { get; set; }
+        /// <summary>Horario de la visita (opcional). El front manda `HH:mm`.</summary>
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
         public int VecinoLimpiezaTipoId { get; set; }
         public int? VecinoId { get; set; }
         public string? Descripcion { get; set; }

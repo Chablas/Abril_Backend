@@ -58,7 +58,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
             int? areaScopeId = null, bool soloSinLectura = false, bool soloSinCertificado = false, bool soloSinInterconsulta = false,
-            bool soloSinEmoCompleto = false)
+            bool soloSinEmoCompleto = false, int? emoPorVencerDias = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -292,6 +292,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                        && e.Activo
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                                        && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
+
+            if (emoPorVencerDias.HasValue)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                var limite = hoy.AddDays(emoPorVencerDias.Value);
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= limite));
             }
 
             if (soloSinLectura)
@@ -680,6 +692,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
+            // Un entregable "Enviado" sin archivo es un fantasma que se queda pegado en Bandeja
+            // para siempre (no tiene cómo revisarse, ni el cron de vencimientos lo toca porque
+            // no tiene vigencia). El archivo puede venir en este mismo request (dto.ArchivoUrl)
+            // o ya estar en el registro de un envío anterior.
+            if (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(dto.ArchivoUrl)
+                && string.IsNullOrWhiteSpace(entregable.ArchivoUrl))
+                throw new AbrilException("No se puede enviar este documento sin un archivo adjunto.", 400);
+
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
             if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
@@ -1035,6 +1056,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             //   3) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
             var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioRiesgoAscendente;
 
+            // Se resuelve acá (antes de armar los correos) porque el aviso al médico solo tiene
+            // sentido si hay un EMO gestionado por el módulo clínico (personal Casa). Un
+            // contratista no tiene WorkerEmo activo — su certificado de aptitud es un documento
+            // subido y aprobado/rechazado por SSOMA, sin revisión médica — así que no hay nada
+            // que "convalidar" y el correo al médico solo sería ruido.
+            var ultimoEmo = requiereRevisionAptitud
+                ? await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync()
+                : null;
+
             if (requiereRevisionAptitud)
             {
                 itemsToReset.Add(HabItemIds.CertAptitud);
@@ -1078,11 +1112,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             ? "• Certificado de Aptitud (revisión por cambio de puesto y categoría)"
                             : "• Certificado de Aptitud (revisión por cambio de puesto)";
 
-                pendingEmails.Add((
-                    [EmailMedico],
-                    $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
-                    BuildBodyReingreso(worker, proyectoDestino, motivoAptitud)
-                ));
+                if (ultimoEmo != null)
+                    pendingEmails.Add((
+                        [EmailMedico],
+                        $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
+                        BuildBodyReingreso(worker, proyectoDestino, motivoAptitud)
+                    ));
             }
 
             foreach (var v in activas)
@@ -1106,11 +1141,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // cuando esos lectores pasen a la vinculación, esta línea se va con la columna.
             worker.ContributorId = dto.NuevaEmpresaId ?? currentEmpresaId;
 
+            // El tramo nuevo sigue en el mismo periodo laboral: cambiar de obra, empresa o puesto
+            // no saca al trabajador de Abril. Null si está ACTIVO con el periodo cerrado.
+            var periodoVigente = await WorkersPeriodoLaboralHelper.VigenteAsync(ctx, workerId);
+
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
+                PeriodoLaboral = periodoVigente,
                 EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId,
+                PuestoId = worker.PuestoId,
                 Puesto = nuevoPuesto ?? currentPuesto,
                 ObraOficinaStaffId = nuevoObraOficinaStaffId,
                 // Snapshot de la categoría vigente tras el cambio: la del puesto que queda.
@@ -1253,12 +1294,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (requiereRevisionAptitud)
             {
-                var ultimoEmo = await ctx.WorkerEmo
-                    .Where(e => e.WorkerId == workerId && e.Activo)
-                    .OrderByDescending(e => e.FechaEmo)
-                    .ThenByDescending(e => e.Id)
-                    .FirstOrDefaultAsync();
-
                 _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
 
                 var empresaDestinoResuelta = dto.NuevaEmpresaId ?? currentEmpresaId;
@@ -1380,7 +1415,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await EnviarEmailSilenciosoAsync(to, subject, body);
         }
 
-        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false)
+        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -1396,39 +1431,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma)
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
-            // Si el retiro más reciente fue AUTOMÁTICO (por documentación vencida/rechazada), no se
-            // puede reingresar hasta levantar esa observación: mientras siga habiendo un ítem sin
-            // aprobar, es el mismo incumplimiento por el que se retiró, solo que ahora reingresado.
-            // Bandeja ya deja aprobar el documento de un trabajador retirado (no lo filtra por
-            // estado), así que "subsanar" no requiere estar activo — lo que faltaba era este freno.
-            // Solo bloquea si el ÚLTIMO retiro fue automático: uno manual (renuncia, despido, etc.)
-            // no tiene "observación" que levantar. El override es exclusivo de Administrador/
-            // Coordinador SSOMA de Abril — nunca disponible para una sesión de contratista.
-            if (!esOverrideAutorizado && worker.WorkersEstadoId == WorkersEstadoIds.Retirado)
-            {
-                var ultimoRetiroFueAutomatico = await ctx.SsRetiroAutomaticoLog
-                    .Where(l => l.WorkerId == workerId)
-                    .OrderByDescending(l => l.EjecutadoEn)
-                    .Select(l => l.TipoRetiro)
-                    .FirstOrDefaultAsync() == "AUTOMATICO";
-
-                if (ultimoRetiroFueAutomatico)
-                {
-                    var pendientes = await ctx.SsHabTrabajador
-                        .Where(h => h.WorkerId == workerId && h.ItemId != HabItemIds.LecturaEmo
-                                 && (h.Estado == "Falta" || h.Estado == "Vencido" || h.Estado == "Rechazado"))
-                        .Join(ctx.SsItemTrabajador.Where(i => i.RequiereVigencia && i.Activo),
-                              h => h.ItemId, i => i.Id, (h, i) => i.Nombre)
-                        .ToListAsync();
-
-                    if (pendientes.Count > 0)
-                        throw new AbrilException(
-                            "No se puede reingresar: sigue pendiente de aprobación " +
-                            string.Join(", ", pendientes) +
-                            ". Suba y apruebe la evidencia en Bandeja antes de reingresar, o pida a un " +
-                            "Administrador/Coordinador SSOMA que lo autorice de forma excepcional.", 400);
-                }
-            }
+            // Antes esto bloqueaba el reingreso si el último retiro fue automático (doc vencida/
+            // rechazada) y seguía pendiente de aprobación. Se quitó: el trabajador quedaba
+            // reingresado sin poder subsanar (no podía subir evidencia sin antes reingresar), y el
+            // override manual era el único escape. Ahora se deja reingresar siempre — si no
+            // regulariza la documentación, RetiroAutomaticoService.EjecutarAsync lo vuelve a retirar
+            // en la misma cantidad de días de gracia (ver DiasGraciaOnboarding: solo aplica al
+            // primer ingreso real, no a un reingreso, para no darle otras 3 semanas de ventana).
 
             // VerificarNoActivoEnOtraEmpresaAsync solo mira las vinculaciones de ESTE MISMO
             // workerId — es ciega a que exista otro worker_id distinto para la misma persona
@@ -1472,7 +1481,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // forma de conservarlo era abrir otra ficha en `workers` — que es justamente lo
             // que partía en dos el historial (EMOs, inducciones, amonestaciones) de la misma
             // persona. Ver WorkersPeriodoLaboral.
-            await WorkersPeriodoLaboralHelper.AbrirAsync(ctx, workerId, fechaReingreso, now);
+            var periodoReingreso = await WorkersPeriodoLaboralHelper.AbrirAsync(ctx, workerId, fechaReingreso, now);
 
             var vinculActual = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
@@ -1579,8 +1588,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
+                // Por la navegación y no por el id: el periodo del reingreso se acaba de agregar
+                // y todavía no tiene id.
+                PeriodoLaboral = periodoReingreso,
                 EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
+                PuestoId = worker.PuestoId,
+                ObraOficinaStaffId = worker.ObraOficinaStaffId,
                 // Snapshot de la categoría vigente: la del puesto del trabajador.
                 CategoriaId = worker.PuestoCatalogo?.CategoriaId,
                 FechaInicio = fechaReingreso,
@@ -1818,8 +1832,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ctx.WorkerVinculacion.Add(new WorkerVinculacion
                 {
                     WorkerId    = workerId,
+                    PeriodoLaboral = await WorkersPeriodoLaboralHelper.VigenteAsync(ctx, workerId),
                     EmpresaId   = ultimaCerrada?.EmpresaId,
                     ProyectoId  = ultimaCerrada?.ProyectoId,
+                    PuestoId    = worker.PuestoId,
+                    ObraOficinaStaffId = worker.ObraOficinaStaffId,
                     CategoriaId = ultimaCerrada?.CategoriaId ?? worker.PuestoCatalogo?.CategoriaId,
                     FechaInicio = fechaReingreso,
                     CreatedAt   = DateTimeOffset.UtcNow,
@@ -2207,6 +2224,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     cambioObraOficinaEmail = EmailAsistentaSocial;
                 }
             }
+
+            // Esta edición cambia puesto y clasificación sin pasar por CambiarObraAsync: sin partir
+            // el tramo, el historial seguiría diciendo el puesto anterior.
+            await WorkerVinculacionHelper.RegistrarCambioDeFichaAsync(
+                ctx, w, puestoAnteriorId, obraOficinaAnterior, DateTimeOffset.UtcNow);
 
             await ctx.SaveChangesAsync();
 
@@ -2802,6 +2824,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(w => sinVincActiva.Contains(w.Id))
                 .ToDictionaryAsync(w => w.Id);
 
+            // El periodo abierto de cada uno, también en un solo roundtrip, para colgarle el
+            // tramo reparado. Hay como máximo uno por ficha (ux_workers_periodo_laboral_abierto).
+            var periodosAbiertos = await ctx.WorkersPeriodoLaboral
+                .Where(p => sinVincActiva.Contains(p.WorkerId) && p.State && p.FechaRetiro == null)
+                .ToDictionaryAsync(p => p.WorkerId);
+
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
             var reparados = new List<WorkerReparacionVinculacionDto>();
@@ -2809,11 +2837,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             foreach (var workerId in sinVincActiva)
             {
                 ultimaPorWorker.TryGetValue(workerId, out var ultima);
+                fichas.TryGetValue(workerId, out var fichaReparada);
+                periodosAbiertos.TryGetValue(workerId, out var periodoAbierto);
                 ctx.WorkerVinculacion.Add(new WorkerVinculacion
                 {
                     WorkerId    = workerId,
+                    PeriodoLaboral = periodoAbierto,
                     EmpresaId   = ultima?.EmpresaId,
                     ProyectoId  = ultima?.ProyectoId,
+                    PuestoId    = fichaReparada?.PuestoId,
+                    ObraOficinaStaffId = fichaReparada?.ObraOficinaStaffId,
                     CategoriaId = ultima?.CategoriaId,
                     FechaInicio = hoy,
                     CreatedAt   = now,

@@ -9,8 +9,9 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
 {
     /// <summary>
-    /// "Reembolsos": la bandeja de Tesorería. Basta con el rol TESORERO del token; la categoría
-    /// del puesto ya no se exige para entrar.
+    /// "Reembolsos": la bandeja de Tesorería. Su unidad es el Consolidado del S10 —lo mismo que
+    /// firma la jefatura— y no la planilla. Basta con el rol TESORERO del token; la categoría del
+    /// puesto ya no se exige para entrar.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/reembolsos")]
@@ -72,12 +73,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
             }
         }
 
-        [HttpGet("{id:int}/detalle")]
-        public async Task<IActionResult> GetDetalle(int id)
+        /// <summary>Un consolidado con sus planillas y el desglose de sus salidas.</summary>
+        [HttpGet("{consolidadoId:int}/detalle")]
+        public async Task<IActionResult> GetDetalle(int consolidadoId)
         {
             try
             {
-                return Ok(await _service.GetDetalle(id));
+                return Ok(await _service.GetDetalle(consolidadoId));
             }
             catch (AbrilException ex)
             {
@@ -91,8 +93,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         }
 
         /// <summary>
+        /// El detalle de una salida de la bandeja, en consulta: trayectos, vouchers con sus montos y
+        /// adjuntos. Lo abre el ojo de la tabla de salidas del expediente.
+        /// </summary>
+        [HttpGet("salidas/{solicitudId:int}/detalle")]
+        public async Task<IActionResult> GetSalidaDetalle(int solicitudId)
+        {
+            try
+            {
+                return Ok(await _service.GetSalidaDetalle(solicitudId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.GetSalidaDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Seguimiento de pagos por colaborador. Va aparte del listado porque es la otra vista de
-        /// la pantalla y se arma distinto: agrupa por persona en vez de por planilla.
+        /// la pantalla y se arma distinto: agrupa por persona en vez de por documento.
         /// </summary>
         [HttpGet("seguimiento")]
         public async Task<IActionResult> GetSeguimiento(

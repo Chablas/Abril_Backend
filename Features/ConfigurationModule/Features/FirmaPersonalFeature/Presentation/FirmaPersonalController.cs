@@ -8,11 +8,15 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeature.Presentation
 {
     /// <summary>
-    /// La firma del usuario que está logueado. Es a propósito el mismo endpoint para todos: una
-    /// persona tiene UNA firma (<c>person.signature_*</c>), la registre desde donde la registre
-    /// (Contabilidad → Configuración → Firma, o Gestión Administrativa → Configuración → Tu firma),
-    /// y esa misma firma es la que se estampa en las facturas, en la carta oferta y en la planilla
-    /// de rendición de salidas.
+    /// Las firmas del usuario que está logueado. Es a propósito el mismo endpoint para todos: una
+    /// persona tiene una firma POR TIPO (<c>person_firma</c> → <c>firma_tipo</c>: dibujada con el
+    /// mouse y/o subida como imagen), las registre desde donde las registre (Contabilidad →
+    /// Configuración → Firma, Gestión Administrativa → Configuración → Tu firma, o el modal que
+    /// salta al aprobar un consolidado), y esas mismas firmas son las que se estampan en las
+    /// facturas, en la carta oferta y en la planilla de rendición de salidas.
+    ///
+    /// El GET devuelve también qué tipos están habilitados, porque quien pide la firma necesita
+    /// saber en el mismo viaje si tiene que mostrar el lienzo, el selector de imagen o los dos.
     ///
     /// Sin restricción de rol: cualquier usuario autenticado registra la suya y solo la suya — el
     /// user id sale del token, nunca de la petición.
@@ -34,7 +38,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
             _logger  = logger;
         }
 
-        /// <summary>Firma del usuario actual (null si aún no la configuró).</summary>
+        /// <summary>
+        /// Tipos de firma habilitados y las firmas que el usuario actual ya registró (lista vacía si
+        /// todavía no registró ninguna).
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> Get()
         {
@@ -43,7 +50,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
                 var userId = GetUserId();
                 if (userId == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                return Ok(await _service.Get(userId.Value));
+                return Ok(await _service.GetEstado(userId.Value));
             }
             catch (AbrilException ex)
             {
@@ -56,7 +63,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.FirmaPersonalFeatu
             }
         }
 
-        /// <summary>Guarda/actualiza la firma del usuario actual (PNG dibujado en el canvas).</summary>
+        /// <summary>
+        /// Guarda/actualiza la firma del usuario actual para un tipo (el PNG dibujado en el canvas o
+        /// la imagen que subió) y devuelve el estado completo ya actualizado.
+        /// </summary>
         [HttpPut]
         public async Task<IActionResult> Save([FromBody] FirmaPersonalSaveDto dto)
         {

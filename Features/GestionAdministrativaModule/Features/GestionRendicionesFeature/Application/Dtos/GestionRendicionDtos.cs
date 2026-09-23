@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
@@ -79,24 +80,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public DateTimeOffset? RevisorNotificadoAt { get; set; }
 
         // ── Qué se puede hacer con esta planilla ─────────────────────────
-        /// <summary>Salidas con el reembolso listo para decidir (rendidas, con S10 y sin decidir).</summary>
-        public int PorDecidirCount { get; set; }
         /// <summary>
-        /// True si el usuario puede decidir sobre esta planilla (su primera revisión y el reembolso
-        /// de sus salidas). Es false cuando la planilla incluye salidas SUYAS y él no es su propio
-        /// revisor: nadie decide lo suyo, y la única excepción es tener el <b>jefe personalizado
-        /// apuntándose a sí mismo</b> (Gestión de Ingresos → ficha del trabajador). La pantalla lo
-        /// usa para apagar las acciones antes de que el backend las rechace.
+        /// True si el usuario puede decidir la primera revisión de esta planilla. Es false cuando
+        /// incluye salidas SUYAS y él no es su propio revisor: nadie decide lo suyo, y la única
+        /// excepción es tener el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de
+        /// Ingresos → ficha del trabajador). La pantalla lo usa para apagar las acciones antes de
+        /// que el backend las rechace.
         /// </summary>
         public bool PuedeDecidir { get; set; } = true;
 
         /// <summary>
-        /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla en nombre de
-        /// sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado en Gestión de
-        /// Rendiciones → Configuración → Consolidadores, o el Jefe/Gerente/residente que deduce el
-        /// algoritmo), y hace falta poder por TODOS los trabajadores de
+        /// True si el usuario puede adjuntar el Consolidado del S10 de esta planilla: tiene que ser
+        /// consolidador de sus trabajadores. Lo resuelve <c>IConsolidadorResolver</c> (lo asignado
+        /// en Consolidados → Configuración → Consolidadores o, si no hay, la jefatura del área: la
+        /// de Revisores o el Jefe/Gerente/residente que deduce el algoritmo), y hace falta poder por
+        /// TODOS los trabajadores de
         /// <see cref="ConsolidadoConjunto"/>: el consolidado es uno solo y cubre esos documentos
-        /// enteros, también a los trabajadores que el usuario no ve.
+        /// enteros, también a los trabajadores que el usuario no ve. El propio trabajador no
+        /// consolida lo suyo.
         ///
         /// Ver la planilla no alcanza: alguien con visibilidad amplia la ve pero no necesariamente
         /// puede hacerle el trámite. La pantalla lo usa para apagar el botón antes de que el
@@ -105,10 +106,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool PuedeConsolidar { get; set; }
 
         /// <summary>
-        /// True si a esta planilla se le puede adjuntar (o cambiar) el Consolidado del S10: la
-        /// primera revisión está APROBADA (RG-35) y el reembolso de TODAS sus salidas sigue por
-        /// decidir. Es la misma condición que valida la subida, sin mirar permisos (para eso está
-        /// <see cref="PuedeConsolidar"/>).
+        /// True si a esta planilla se le puede adjuntar su PRIMER Consolidado del S10: la primera
+        /// revisión está APROBADA (RG-35), el reembolso de TODAS sus salidas sigue por decidir y
+        /// todavía no tiene consolidado. Reemplazarlo ya no se hace acá sino en Consolidados, que es
+        /// donde vuelve la observación. Es la misma condición que valida la subida, sin mirar
+        /// permisos (para eso está <see cref="PuedeConsolidar"/>).
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 
@@ -120,14 +122,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// consolidado.
         /// </summary>
         public List<ConsolidadoConjuntoItemDto> ConsolidadoConjunto { get; set; } = new();
-
-        /// <summary>
-        /// Razón social de los trabajadores de <see cref="ConsolidadoConjunto"/> si es una sola y
-        /// está cargada; null si se mezclan o si falta. La pantalla la usa para no ofrecer juntar en
-        /// un mismo consolidado planillas de razones sociales distintas (lo valida el backend).
-        /// </summary>
-        public int? RazonSocialId { get; set; }
-        public string? RazonSocial { get; set; }
     }
 
     /// <summary>Una planilla que cubriría un Consolidado del S10, con su monto completo.</summary>
@@ -140,71 +134,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public decimal MontoTotalPlanilla { get; set; }
     }
 
-    /// <summary>Un PDF de la planilla que hay que firmar al aprobar su reembolso.</summary>
-    public class DocumentoParaFirmarDto
-    {
-        /// <summary>Id de la fila de <c>ga_consolidado_s10</c>. Sin uso en la planilla misma.</summary>
-        public int Id { get; set; }
-
-        /// <summary>
-        /// PDF sobre el que se estampa: el original, o —si el consolidado es compartido y otro jefe
-        /// ya lo firmó al aprobar otra de sus planillas— su copia firmada, para que la firma nueva
-        /// se sume a la anterior en vez de borrarla.
-        /// </summary>
-        public string Url { get; set; } = string.Empty;
-
-        /// <summary>Nombre del ORIGINAL: la copia firmada se nombra a partir de él.</summary>
-        public string Filename { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Lugar de la firma en la hoja: cuántas firmas trae ya el documento (0 = la esquina de
-        /// siempre). Ver <c>SignaturePdfStamper.Stamp</c>.
-        /// </summary>
-        public int Slot { get; set; }
-    }
-
-    /// <summary>
-    /// Una planilla cuyo reembolso se puede aprobar, con TODO lo que hay que firmar: su PDF y el
-    /// Consolidado del S10 que respalda a sus salidas.
-    /// </summary>
-    public class PlanillaParaFirmarDto
-    {
-        public int RendicionId { get; set; }
-        /// <summary>Salidas de la planilla que entran en esta aprobación.</summary>
-        public List<int> SolicitudIds { get; set; } = new();
-        public string PlanillaUrl { get; set; } = string.Empty;
-        public string PlanillaFilename { get; set; } = string.Empty;
-        /// <summary>
-        /// Consolidados vigentes que cubren esas salidas. Normalmente uno —el de la planilla, que
-        /// es como se adjunta hoy—; en registros antiguos puede haber uno por salida suelta, y por
-        /// eso es una lista y no un solo documento.
-        /// </summary>
-        public List<DocumentoParaFirmarDto> Consolidados { get; set; } = new();
-    }
-
-    /// <summary>Dónde quedó en SharePoint la copia firmada de un documento.</summary>
-    public class ArchivoFirmadoDto
-    {
-        public string Url { get; set; } = string.Empty;
-        public string? ItemId { get; set; }
-        public string Filename { get; set; } = string.Empty;
-    }
-
-    /// <summary>Una planilla ya firmada: qué salidas cubre y dónde quedaron sus copias firmadas.</summary>
-    public class PlanillaFirmadaDto
-    {
-        public int RendicionId { get; set; }
-        public List<int> SolicitudIds { get; set; } = new();
-        public ArchivoFirmadoDto Planilla { get; set; } = new();
-        /// <summary>consolidadoId → su copia firmada.</summary>
-        public Dictionary<int, ArchivoFirmadoDto> Consolidados { get; set; } = new();
-    }
-
     /// <summary>
     /// Una salida de la planilla, para que el revisor vea qué agrupa el documento que está
-    /// decidiendo. Es solo lectura: el reembolso se decide por planilla entera, no salida por
-    /// salida — ver <see cref="GestionRendicionListItemDto.PuedeDecidir"/> y
-    /// <see cref="GestionRendicionListItemDto.PorDecidirCount"/>.
+    /// revisando. Es solo lectura: la primera revisión se decide por planilla entera, no salida por
+    /// salida — ver <see cref="GestionRendicionListItemDto.PuedeDecidir"/>.
     /// </summary>
     public class GestionRendicionSalidaDto
     {
@@ -233,23 +166,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         // también evita resolver cinco listas de correos cada vez que se abre el detalle.
     }
 
-    /// <summary>
-    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. El destinatario
-    /// principal se resuelve por ROL (TESORERO), que es la misma condición que abre la bandeja de
-    /// Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él, sin depender
-    /// de un área ni de una lista de nombres.
-    ///
-    /// Los demás —el Coordinador ERP, por ejemplo— NO salen de acá: son destinatarios normales de
-    /// Configuración → Correos (tipo ROL) y los agrega el resolver al enviar. Este DTO solo trae
-    /// el principal.
-    /// </summary>
-    public class TesoreriaCorreoInfoDto
-    {
-        public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
-        /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
-        public List<string> Destinatarios { get; set; } = new();
-    }
-
     public class GestionRendicionFiltersDto
     {
         public int? WorkerId { get; set; }
@@ -276,8 +192,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
     }
 
     /// <summary>
-    /// Números de las tarjetas del encabezado, contados sobre el conjunto ya filtrado. Son las tres
-    /// cosas que esperan al revisor, en el orden del flujo.
+    /// Números de las tarjetas del encabezado, contados sobre el conjunto ya filtrado. Son los dos
+    /// pasos que esta pantalla resuelve; decidir el reembolso es de Consolidados y se cuenta allá.
     /// </summary>
     public class ResumenGestionRendicionesDto
     {
@@ -285,12 +201,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public int PrimeraRevision { get; set; }
         /// <summary>
         /// Aprobadas en primera revisión y sin el Consolidado del S10: la pelota está en el
-        /// trabajador. Las que no pasaron la primera revisión no cuentan acá — esas están en la
-        /// tarjeta anterior y no en una espera del trabajador.
+        /// consolidador. Las que no pasaron la primera revisión no cuentan acá — esas están en la
+        /// tarjeta anterior.
         /// </summary>
         public int SinConsolidado { get; set; }
-        /// <summary>Planillas con reembolso por decidir (con S10 adjunto) — la segunda revisión.</summary>
-        public int PorRevisar { get; set; }
 
         public static ResumenGestionRendicionesDto De(IEnumerable<GestionRendicionListItemDto> planillas)
         {
@@ -300,7 +214,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 PrimeraRevision = lista.Count(x => x.PorPrimeraRevision),
                 SinConsolidado  = lista.Count(x => x.ConsolidadoS10 == null
                                                && x.EstadoPrimeraRevision == EstadosSalida.PrimeraRevision.NombreAprobada),
-                PorRevisar      = lista.Count(x => x.PorDecidirCount > 0),
             };
         }
     }
@@ -317,6 +230,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// <summary>Árbol area_scope (lista plana) para el filtro de área en cascada.</summary>
         public List<AreaNodeDto> AreaTree { get; set; } = new();
         public List<PeriodoRendicionOptionDto> Periodos { get; set; } = new();
+
+        /// <summary>
+        /// Razón social del usuario: es bajo la que queda el Consolidado del S10 que suba (ver
+        /// <c>RazonSocialConsolidador</c>). Null si no tiene ficha o razón social cargada.
+        /// </summary>
+        public string? RazonSocialConsolidador { get; set; }
     }
 
     public class PeriodoRendicionOptionDto
@@ -326,11 +245,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public string Label { get; set; } = string.Empty;
     }
 
-    /// <summary>
-    /// Cuerpo de las acciones en bloque. Se manda una de las dos cosas: las planillas completas
-    /// (lo normal, desde la tabla) o salidas sueltas (desde el detalle, cuando el revisor decide
-    /// una por una). Si vienen las dos, se juntan.
-    /// </summary>
     /// <summary>
     /// Cuerpo de la decisión de la PRIMERA revisión. Va por planilla y no por salida: lo que se
     /// revisa es el documento entero y la decisión es total (RG-19).
@@ -346,11 +260,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public string? Observacion { get; set; }
     }
 
-    public class ReembolsoAccionDto
+    /// <summary>
+    /// De qué personas depende el preview de la decisión de la primera revisión sobre una
+    /// selección, ya recortada como la escritura (visibles y esperando la primera revisión).
+    /// </summary>
+    public class PrimeraRevisionPreviewDatos
     {
-        public List<int> RendicionIds { get; set; } = new();
-        public List<int> SolicitudIds { get; set; } = new();
-        /// <summary>Obligatoria al rechazar: es lo único que el trabajador va a leer.</summary>
-        public string? Observacion { get; set; }
+        /// <summary>Correos de los solicitantes de las salidas visibles de esas planillas.</summary>
+        public List<string> CorreosSolicitantes { get; set; } = new();
+
+        /// <summary>
+        /// Trabajadores de TODAS las salidas de esas planillas, sin recorte de visibilidad: de ellos
+        /// salen los consolidadores a los que se avisa al aprobar, igual que en el envío.
+        /// </summary>
+        public List<int> WorkerIds { get; set; } = new();
     }
 }

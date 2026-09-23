@@ -84,6 +84,33 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         /// </param>
         Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
             IReadOnlyCollection<int> areaScopeIds, int? workerId = null);
+
+        /// <summary>
+        /// El <b>jefe del área</b> de un trabajador: el mismo paso 2 de <see cref="ResolveAsync"/>
+        /// pero <b>ignorando su proyecto</b>, o sea lo que la sección Revisores muestra en la fila
+        /// del área cuando no se filtra por obra — el revisor asignado a nivel de área si lo hay y,
+        /// si no, el Jefe del área (o el Gerente de la gerencia de la que cuelga, subiendo por el
+        /// árbol). Nunca el residente de la obra, que es justamente lo que se quiere saltar.
+        ///
+        /// Lo pide Solicitud de Salidas para el aviso informativo que sale cuando el revisor de la
+        /// solicitud es un <c>CategoriaIds.Residente</c>: la salida la aprueba el residente y el jefe
+        /// del área solo se entera.
+        ///
+        /// No aplica el paso 1 (<c>workers_revisores</c>) ni el fallback de GTH: el jefe
+        /// personalizado es la jefatura de UNA persona y no la del área, y un área que no resuelve
+        /// jefe no tiene a quién informar —mandarlo a GTH convertiría un aviso de jefatura en ruido
+        /// para el buzón de siempre—. Sí aplica "nadie puede ser su propio jefe", igual que el
+        /// paso 2: un trabajador que es el jefe de su área recibe el aviso de su gerencia.
+        /// </summary>
+        Task<JefeRevisorResolution?> ResolveJefeDeAreaAsync(int workerId);
+
+        /// <summary>
+        /// Versión por lotes de <see cref="ResolveJefeDeAreaAsync"/>, con un número FIJO de
+        /// consultas. Los trabajadores cuya área no resuelve ningún jefe no aparecen en el
+        /// diccionario.
+        /// </summary>
+        Task<Dictionary<int, JefeRevisorResolution>> ResolveJefeDeAreaManyAsync(
+            IReadOnlyCollection<int> workerIds);
     }
 
     /// <summary>
@@ -121,9 +148,17 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     /// aplica "nadie puede ser su propio jefe": la misma persona puede tener varias fichas en
     /// <c>workers</c> y comparar solo por ficha dejaría pasar el caso.
     /// </param>
+    /// <param name="CategoriaId">
+    /// Categoría del puesto del revisor (<c>workers.puesto_id → puesto.categoria_id</c>), null en el
+    /// fallback de área y en las fichas sin puesto. Viene resuelta para que quien consume no tenga
+    /// que volver a la base a preguntar QUÉ es el que salió elegido: Solicitud de Salidas la mira
+    /// para avisarle al jefe del área cuando el revisor es <c>CategoriaIds.Residente</c>, y la regla
+    /// es sobre la categoría —no sobre de dónde salió el revisor—, así que también alcanza al
+    /// residente puesto a mano en Revisores o como jefe personalizado.
+    /// </param>
     public record JefeRevisorResolution(
         int? WorkerId, int? AreaScopeId, string Email, string? Nombre = null, int? PersonId = null,
-        RevisorOrigen Origen = RevisorOrigen.Personalizado);
+        RevisorOrigen Origen = RevisorOrigen.Personalizado, int? CategoriaId = null);
 
     /// <summary>
     /// De dónde salió un revisor, <b>visto desde el área por la que se preguntó</b>. Lo pide

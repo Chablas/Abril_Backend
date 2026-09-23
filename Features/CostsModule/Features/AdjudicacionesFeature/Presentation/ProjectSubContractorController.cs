@@ -583,6 +583,34 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
         }
 
+        /// <summary>
+        /// Paso 4 → 5 omitiendo el envío al subcontratista: el contrato completo ya se mandó
+        /// por correo fuera del sistema, así que no se envía nada desde aquí.
+        /// </summary>
+        [Authorize]
+        [HttpPost("{id}/skip-sc-notification")]
+        public async Task<IActionResult> SkipScNotification(int id)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SkipScNotificationAsync(id, userId);
+                return Ok(new { message = "Envío al subcontratista omitido." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [Authorize]
         [HttpPatch("{id}/step6-checks")]
         public async Task<IActionResult> UpdateStep6Checks(int id, [FromBody] UpdateStep6ChecksDTO dto)

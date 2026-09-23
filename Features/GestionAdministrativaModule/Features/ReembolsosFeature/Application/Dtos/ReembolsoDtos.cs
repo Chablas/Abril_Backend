@@ -4,26 +4,63 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructu
 namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dtos
 {
     /// <summary>
-    /// Una planilla en la bandeja de Tesorería: ya firmada por la jefatura y esperando la revisión
-    /// documental, ya confirmada y esperando el pago, o ya pagada. Tesorería ve TODA la
-    /// organización —su recorte es por estado, no por área— así que acá no hay filtro de
-    /// visibilidad como en las otras pantallas de salidas.
+    /// Un Consolidado del S10 en la bandeja de Tesorería: ya firmado por la jefatura y esperando la
+    /// revisión documental, ya confirmado y esperando el pago, o ya pagado. La unidad de esta
+    /// pantalla es el CONSOLIDADO y no la planilla —un mismo registro del S10 puede cubrir varias,
+    /// de uno o de varios trabajadores— porque lo que Tesorería revisa y desembolsa es el
+    /// documento entero: partirlo por planilla dejaba al trabajador con un reembolso a medias y
+    /// hacía que el importe declarado en el S10 no cuadrara nunca con la fila.
+    ///
+    /// Tesorería ve TODA la organización —su recorte es por estado, no por área— así que acá no hay
+    /// filtro de visibilidad como en las otras pantallas de salidas.
     /// </summary>
     public class ReembolsoListItemDto
     {
+        /// <summary>Id de <c>ga_consolidado_s10</c>.</summary>
         public int Id { get; set; }
-        /// <summary>Código REN-AAAA-NNNN — es como el trabajador la nombra en los correos.</summary>
-        public string Codigo { get; set; } = string.Empty;
-        public string? NumeroPlanilla { get; set; }
-        public DateTimeOffset RendidoAt { get; set; }
 
-        public string Periodo { get; set; } = string.Empty;
-        public int PeriodoAnio { get; set; }
-        public int PeriodoMes { get; set; }
+        /// <summary>
+        /// Código de la rendición grupal, <c>CONS-ÁREA-AAAA-NNN</c>: el nombre del conjunto de planillas
+        /// que se consolidaron juntas. Sobrevive al reemplazo del archivo. Null en los consolidados
+        /// anteriores a la columna.
+        /// </summary>
+        public string? Codigo { get; set; }
 
-        public List<string> Trabajadores { get; set; } = new();
-        public int SalidasCount { get; set; }
-        /// <summary>Lo que hay que reembolsar por esta planilla.</summary>
+        /// <summary>Número de reembolso que devolvió el S10: es el nombre que le puso el S10.</summary>
+        public string? NumeroReembolso { get; set; }
+
+        /// <summary>
+        /// La PLANILLA GRUPAL: el PDF que junta en un solo documento las planillas de gasto de todo
+        /// lo que cubre el consolidado. La genera Abril One al adjuntarse el S10, no se sube. Null
+        /// en los consolidados anteriores a la columna.
+        /// </summary>
+        public string? PlanillaGrupalUrl { get; set; }
+        public string? PlanillaGrupalFilename { get; set; }
+        /// <summary>
+        /// Copia de la planilla grupal con la firma de la jefatura. Null mientras no se apruebe, y
+        /// en los consolidados aprobados antes de que la grupal se firmara.
+        /// </summary>
+        public string? PlanillaGrupalFirmadoUrl { get; set; }
+        public string? PlanillaGrupalFirmadoFilename { get; set; }
+
+
+        /// <summary>
+        /// Importe con el que el S10 registró las planillas que cubre — el documento entero. Null en
+        /// los consolidados subidos antes de que se pidiera el monto.
+        /// </summary>
+        public decimal? MontoS10 { get; set; }
+
+        /// <summary>
+        /// Lo que dice Abril One del documento entero: la suma de las planillas COMPLETAS que
+        /// cubre. Es el número contra el que se contrasta <see cref="MontoS10"/>.
+        /// </summary>
+        public decimal MontoPlanillas { get; set; }
+
+        /// <summary>
+        /// Lo que se mueve desde acá: la suma de las salidas del consolidado que llegaron a
+        /// Tesorería. Es igual a <see cref="MontoPlanillas"/> salvo que una parte del documento
+        /// siga esperando la firma de otra jefatura.
+        /// </summary>
         public decimal MontoTotal { get; set; }
 
         // ── Documentos que Tesorería necesita ver antes de pagar ─────────
@@ -33,35 +70,58 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? PdfFirmadoUrl { get; set; }
         public string? PdfFirmadoFilename { get; set; }
         public DateTimeOffset? FirmadoAt { get; set; }
+        public DateTimeOffset UploadedAt { get; set; }
+        /// <summary>Quién lo adjuntó: el consolidador. Null si no se pudo resolver.</summary>
+        public string? SubidoPor { get; set; }
+        /// <summary>Razón social bajo la que quedó el registro del S10: la del consolidador.</summary>
+        public string? RazonSocial { get; set; }
+
+        // ── Qué cubre ────────────────────────────────────────────────────
         /// <summary>
-        /// Nombre del jefe que firmó. Junto con <see cref="FirmadoAt"/> es la "firma electrónica"
-        /// que Tesorería tiene que ver antes de proceder (RG-24 / RF-TES-02).
+        /// Planillas cubiertas, TODAS —también las que todavía no llegaron a Tesorería—, porque el
+        /// documento y su importe son de ese conjunto entero. Ver
+        /// <see cref="ReembolsoPlanillaDto.EnBandeja"/>.
         /// </summary>
-        public string? FirmadoPor { get; set; }
-        public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
+        public List<ReembolsoPlanillaDto> Rendiciones { get; set; } = new();
+
+        /// <summary>Trabajadores de las salidas que llegaron a Tesorería, sin repetir.</summary>
+        public List<string> Trabajadores { get; set; } = new();
+        public int SalidasCount { get; set; }
+
+        /// <summary>"Agosto 2026", o un rango si el consolidado cruza meses.</summary>
+        public string Periodo { get; set; } = string.Empty;
+        public int PeriodoAnio { get; set; }
+        public int PeriodoMes { get; set; }
 
         /// <summary>
-        /// "Firmado", "Proceder con el reembolso", "Pagado" u "Observado" (el más atrasado si la
-        /// planilla trae de varios).
+        /// La firma electrónica que Tesorería tiene que ver antes de proceder (RG-24 / RF-TES-02).
+        /// Es una lista porque un consolidado compartido por planillas de jefes distintos acumula
+        /// las firmas de todos ellos.
+        /// </summary>
+        public List<FirmaJefaturaDto> Firmas { get; set; } = new();
+
+        /// <summary>
+        /// "Firmado", "Proceder con el reembolso", "Pagado" u "Observado" (el más atrasado si el
+        /// consolidado trae salidas de varios).
         /// </summary>
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombreFirmado;
         public bool ReembolsoMixto { get; set; }
 
         /// <summary>
         /// Salidas firmadas y sin confirmar: es lo que se marca al Confirmar revisión. Mientras
-        /// sea &gt; 0 la planilla espera a Tesorería y todavía NO se puede pagar (RG-26).
+        /// sea &gt; 0 el consolidado espera a Tesorería y todavía NO se puede pagar (RG-26).
         /// </summary>
         public int PorConfirmarCount { get; set; }
-        /// <summary>Salidas ya confirmadas y sin pagar: es lo que se paga al marcar la planilla.</summary>
+        /// <summary>Salidas ya confirmadas y sin pagar: es lo que se paga al marcar el consolidado.</summary>
         public int PorPagarCount { get; set; }
         /// <summary>
         /// Salidas que la propia Tesorería devolvió y siguen esperando la subsanación (RG-49).
-        /// Mientras sea &gt; 0 la planilla no se toca desde acá: la pelota la tiene el consolidador.
+        /// Mientras sea &gt; 0 el consolidado no se toca desde acá: la pelota la tiene el consolidador.
         /// </summary>
         public int ObservadasCount { get; set; }
 
         // ── Lo que Tesorería observó ─────────────────────────────────────
-        /// <summary>Motivo con el que se devolvió la planilla. Null si no está observada.</summary>
+        /// <summary>Motivo con el que se devolvió el consolidado. Null si no está observado.</summary>
         public string? ObservacionReembolso { get; set; }
         public DateTimeOffset? ObservadoAt { get; set; }
         public string? ObservadoPor { get; set; }
@@ -73,52 +133,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? PagadoPor { get; set; }
     }
 
-    /// <summary>Una captura de movilidad (el voucher) de un trayecto, para verla antes de pagar.</summary>
-    public class ReembolsoCapturaDto
+    /// <summary>Un jefe que firmó alguna de las planillas del consolidado, con cuándo lo hizo.</summary>
+    public class FirmaJefaturaDto
     {
-        public int Id { get; set; }
-        public string ImageUrl { get; set; } = string.Empty;
-        public string Filename { get; set; } = string.Empty;
-        public decimal Monto { get; set; }
-    }
-
-    /// <summary>Documento adjunto de un trayecto (los motivos que exigen sustento documental).</summary>
-    public class ReembolsoAdjuntoDto
-    {
-        public string Url { get; set; } = string.Empty;
-        public string Filename { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public DateTimeOffset? FirmadoAt { get; set; }
     }
 
     /// <summary>
-    /// Un trayecto de una salida rendida, con lo que el requerimiento le pide mostrar a Tesorería:
-    /// fecha, motivo, origen, destino, horario, monto y los adjuntos asociados (RF-TES-05,
-    /// RG-32). El monto sale de la misma regla que imprime la columna IMPORTE de la planilla.
+    /// Una planilla cubierta por el consolidado, con lo que Tesorería necesita de ella: su PDF
+    /// firmado, quién la firmó y cuánto suma.
     /// </summary>
-    public class ReembolsoTrayectoDto
+    public class ReembolsoPlanillaDto
     {
         public int Id { get; set; }
-        public int Orden { get; set; }
-        /// <summary>Null en los motivos que no piden horario.</summary>
-        public string? HoraSalida { get; set; }
-        public string? HoraRetorno { get; set; }
-        public string Motivo { get; set; } = string.Empty;
-        public string? LugarOrigen { get; set; }
-        public string? LugarDestino { get; set; }
-        public decimal Monto { get; set; }
+        /// <summary>Código REN-AAAA-NNNN.</summary>
+        public string Codigo { get; set; } = string.Empty;
+
         /// <summary>
-        /// true si el monto salió del catálogo <c>ga_trayecto</c> (tarifario de TI) y no de
-        /// capturas: sin ese aviso, un trayecto con importe y sin voucher parece un sustento perdido.
+        /// false = el consolidado la cubre pero ninguna de sus salidas llegó todavía a Tesorería
+        /// (sigue esperando la firma de su jefatura). Se lista igual, con su código y su monto,
+        /// porque el importe declarado en el S10 la incluye y sin ella el total no cuadraría.
         /// </summary>
-        public bool MontoDeCatalogo { get; set; }
-        public List<ReembolsoCapturaDto> Capturas { get; set; } = new();
-        public List<ReembolsoAdjuntoDto> Adjuntos { get; set; } = new();
+        public bool EnBandeja { get; set; }
+
+        /// <summary>Monto de la planilla COMPLETA: es lo que suma contra el importe del S10.</summary>
+        public decimal MontoTotalPlanilla { get; set; }
+
+        // Lo de abajo solo viene en las que ya están en la bandeja.
+        public string? NumeroPlanilla { get; set; }
+        public string? Periodo { get; set; }
+        public List<string> Trabajadores { get; set; } = new();
+        public int SalidasCount { get; set; }
+        /// <summary>Suma de las salidas de esta planilla que llegaron a Tesorería.</summary>
+        public decimal Monto { get; set; }
+        public string? EstadoReembolso { get; set; }
+        public string? PdfUrl { get; set; }
+        public string? PdfFilename { get; set; }
+        public string? PdfFirmadoUrl { get; set; }
+        public string? PdfFirmadoFilename { get; set; }
+        public DateTimeOffset? FirmadoAt { get; set; }
+        /// <summary>Jefe que firmó ESTA planilla (y con ella el consolidado).</summary>
+        public string? FirmadoPor { get; set; }
     }
 
-    /// <summary>Una salida de la planilla, para ver el desglose antes de pagar.</summary>
+    /// <summary>Una salida del consolidado, para ver el desglose antes de pagar.</summary>
     public class ReembolsoSalidaDto
     {
         public int Id { get; set; }
         public string? Codigo { get; set; }
+        /// <summary>Planilla a la que pertenece, para agrupar las salidas en el detalle.</summary>
+        public int RendicionId { get; set; }
         public string Trabajador { get; set; } = string.Empty;
         public string? Area { get; set; }
         public DateOnly FechaSalida { get; set; }
@@ -128,12 +193,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public int TrayectosCount { get; set; }
         public decimal Monto { get; set; }
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombreFirmado;
-        /// <summary>Los trayectos que componen la salida, con sus vouchers.</summary>
-        public List<ReembolsoTrayectoDto> Trayectos { get; set; } = new();
+        // Los trayectos con sus vouchers ya no viajan acá: se ven en el detalle de la salida (el ojo
+        // de la fila), que es el mismo modal de Solicitud de Salidas.
     }
 
     public class ReembolsoDetalleDto : ReembolsoListItemDto
     {
+        /// <summary>Las salidas de todas sus planillas, en orden de planilla y trabajador.</summary>
         public List<ReembolsoSalidaDto> Salidas { get; set; } = new();
     }
 
@@ -141,9 +207,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     {
         public int? WorkerId { get; set; }
         /// <summary>
-        /// Búsqueda libre de la pantalla (planilla, código, trabajador, reembolso o periodo). Se aplica
-        /// acá y no en el frontend para que las tarjetas del encabezado cuenten exactamente lo que
-        /// muestra la tabla: filtrar del lado del cliente las dejaría contando de más.
+        /// Búsqueda libre de la pantalla (número de reembolso, planilla, código, trabajador o
+        /// periodo). Se aplica acá y no en el frontend para que las tarjetas del encabezado cuenten
+        /// exactamente lo que muestra la tabla: filtrar del lado del cliente las dejaría contando de más.
         /// </summary>
         public string? Texto { get; set; }
         /// <summary>
@@ -163,34 +229,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     /// </summary>
     public class ResumenReembolsosDto
     {
-        /// <summary>Planillas firmadas esperando la revisión documental de Tesorería.</summary>
+        /// <summary>Consolidados firmados esperando la revisión documental de Tesorería.</summary>
         public int PorRevisar { get; set; }
-        /// <summary>Planillas ya confirmadas y listas para pagar.</summary>
+        /// <summary>Consolidados ya confirmados y listos para pagar.</summary>
         public int PorPagar { get; set; }
-        /// <summary>Suma a desembolsar de las planillas listas para pagar.</summary>
+        /// <summary>Suma a desembolsar de los consolidados listos para pagar.</summary>
         public decimal MontoPorPagar { get; set; }
-        /// <summary>Planillas que Tesorería devolvió y esperan la subsanación (RG-49).</summary>
+        /// <summary>Consolidados que Tesorería devolvió y esperan la subsanación (RG-49).</summary>
         public int Observadas { get; set; }
-        /// <summary>Planillas ya completamente pagadas.</summary>
+        /// <summary>Consolidados ya completamente pagados.</summary>
         public int Pagadas { get; set; }
 
-        public static ResumenReembolsosDto De(IEnumerable<ReembolsoListItemDto> planillas)
+        public static ResumenReembolsosDto De(IEnumerable<ReembolsoListItemDto> consolidados)
         {
-            var lista = planillas as ICollection<ReembolsoListItemDto> ?? planillas.ToList();
+            var lista = consolidados as ICollection<ReembolsoListItemDto> ?? consolidados.ToList();
 
             // Las cuatro situaciones son excluyentes y se evalúan en el orden del flujo: lo
-            // observado se saca primero porque una planilla devuelta no está "por revisar" ni
-            // "pagada" aunque sus contadores de Tesorería estén en cero.
-            bool Observada(ReembolsoListItemDto x) => x.ObservadasCount > 0;
+            // observado se saca primero porque un consolidado devuelto no está "por revisar" ni
+            // "pagado" aunque sus contadores de Tesorería estén en cero.
+            bool Observado(ReembolsoListItemDto x) => x.ObservadasCount > 0;
 
             return new ResumenReembolsosDto
             {
-                PorRevisar    = lista.Count(x => !Observada(x) && x.PorConfirmarCount > 0),
-                PorPagar      = lista.Count(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0),
-                MontoPorPagar = lista.Where(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0)
+                PorRevisar    = lista.Count(x => !Observado(x) && x.PorConfirmarCount > 0),
+                PorPagar      = lista.Count(x => !Observado(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0),
+                MontoPorPagar = lista.Where(x => !Observado(x) && x.PorConfirmarCount == 0 && x.PorPagarCount > 0)
                                      .Sum(x => x.MontoTotal),
-                Observadas    = lista.Count(Observada),
-                Pagadas       = lista.Count(x => !Observada(x) && x.PorConfirmarCount == 0 && x.PorPagarCount == 0),
+                Observadas    = lista.Count(Observado),
+                Pagadas       = lista.Count(x => !Observado(x) && x.PorConfirmarCount == 0 && x.PorPagarCount == 0),
             };
         }
     }
@@ -216,13 +282,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     }
 
     /// <summary>
-    /// Planillas (o salidas sueltas) sobre las que actúa Tesorería. Lo usan sus tres acciones
-    /// —confirmar la revisión, observar y pagar— porque las tres operan sobre la misma selección.
+    /// Consolidados del S10 sobre los que actúa Tesorería. Lo usan sus tres acciones —confirmar la
+    /// revisión, observar y pagar— porque las tres operan sobre la misma selección, y las tres
+    /// alcanzan al documento entero: el servidor resuelve sus salidas y recorta por estado.
     /// </summary>
     public class ReembolsoSeleccionDto
     {
-        public List<int> RendicionIds { get; set; } = new();
-        public List<int> SolicitudIds { get; set; } = new();
+        public List<int> ConsolidadoIds { get; set; } = new();
     }
 
     /// <summary>
@@ -238,8 +304,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     // ── Seguimiento (11.4 del requerimiento) ─────────────────────────────────
     // La segunda vista de Tesorería: no es una bandeja de trabajo sino la consulta de lo ya
     // abonado, con filtro por colaborador. Por eso solo mira lo Pagado y se agrupa por persona
-    // y no por planilla: una planilla puede cubrir a varios y a Tesorería le interesa a quién
-    // le pagó cuánto.
+    // y no por documento: a Tesorería le interesa a quién le pagó cuánto.
 
     /// <summary>Una rendición pagada dentro del seguimiento de un colaborador.</summary>
     public class SeguimientoRendicionDto

@@ -65,6 +65,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   GuaranteeFundDays         { get; set; }
         public int?   GuaranteeValidityDays     { get; set; }
         public int    PaymentDays               { get; set; }
+        // Por enviar al SC (paso 4) — true si el envío del contrato completo se omitió
+        // (el correo al subcontratista salió fuera del sistema).
+        public bool   ScNotificationSkipped     { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public string? ArrivalObservation       { get; set; }
         // Procesos de firma (paso 6)

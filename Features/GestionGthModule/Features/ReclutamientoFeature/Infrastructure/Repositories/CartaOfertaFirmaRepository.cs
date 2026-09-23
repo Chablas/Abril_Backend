@@ -3,6 +3,8 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
@@ -11,10 +13,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class CartaOfertaFirmaRepository : ICartaOfertaFirmaRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IFirmaPersonalRepository _firmaRepository;
 
-        public CartaOfertaFirmaRepository(IDbContextFactory<AppDbContext> factory)
+        public CartaOfertaFirmaRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IFirmaPersonalRepository firmaRepository)
         {
-            _factory = factory;
+            _factory         = factory;
+            _firmaRepository = firmaRepository;
         }
 
         /// <summary>Los timestamps se guardan en UTC y se sirven al frontend en hora de Perú.</summary>
@@ -60,11 +66,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ca.PrimeraAperturaDateTime,
                     CandidatoNombre = c.Nombre,
                     PersonNombre    = pe == null ? null : pe.FullName,
-                    // La firma vive en la ficha de la base maestra: son las mismas columnas que usa la
-                    // firma del Gerente General en Contabilidad.
-                    FirmaBytes      = pe == null ? null : pe.SignatureImageBytes,
-                    FirmaMime       = pe == null ? null : pe.SignatureMime,
-                    FirmaFecha      = pe == null ? null : pe.SignatureUpdatedDateTime,
+                    // La firma vive en la ficha de la base maestra: es la misma tabla que usa la
+                    // firma del Gerente General en Contabilidad. Va como subconsulta y no como una
+                    // segunda llamada para que la página pública siga cargando en un solo viaje.
+                    // Una ficha puede tener firma dibujada Y subida (si además es trabajador con
+                    // acceso a la intranet); manda la imagen, igual que al estampar.
+                    Firma = pe == null ? null : ctx.PersonFirma
+                        .Where(f => f.State && f.PersonId == pe.PersonId && f.FirmaTipo!.State)
+                        .OrderBy(f => f.FirmaTipo!.Codigo == FirmaTipo.CodigoImagen ? 0 : 1)
+                        .Select(f => new
+                        {
+                            f.ImageBytes,
+                            f.Mime,
+                            Fecha = f.UpdatedDateTime ?? f.CreatedDateTime,
+                        })
+                        .FirstOrDefault(),
                     Puesto          = p.Nombre,
                     Area            = s.AreaNombre,
                     Empresa         = co == null ? null : co.ContributorName,
@@ -90,10 +106,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 FechaIngreso = fila.FechaIngreso,
                 CartaNombre  = fila.CartaNombre,
 
-                FirmaDataUrl = fila.FirmaBytes == null
+                FirmaDataUrl = fila.Firma == null
                     ? null
-                    : $"data:{fila.FirmaMime ?? "image/png"};base64,{Convert.ToBase64String(fila.FirmaBytes)}",
-                FirmaActualizadaEn = fila.FirmaFecha?.ToOffset(PeruOffset).DateTime,
+                    : $"data:{fila.Firma.Mime};base64,{Convert.ToBase64String(fila.Firma.ImageBytes)}",
+                FirmaActualizadaEn = fila.Firma?.Fecha.ToOffset(PeruOffset).DateTime,
 
                 YaFirmada = !string.IsNullOrWhiteSpace(fila.FirmadaUrl),
                 // La fecha de firma del postulante manda; si la carta la subió GTH a mano, se muestra
@@ -307,20 +323,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        /// <summary>
+        /// La firma del postulante se guarda como DIBUJO porque el enlace público solo ofrece el
+        /// lienzo: los tipos que se configuran en Consolidados rigen ahí y no acá, donde firma un
+        /// candidato externo su propia carta y no un jefe un documento de la empresa.
+        /// </summary>
         public async Task<CartaOfertaFirmaGuardarResultDto> GuardarFirma(int personId, byte[] imageBytes, string mime)
         {
-            using var ctx = _factory.CreateDbContext();
-
-            var person = await ctx.Person.FirstOrDefaultAsync(x => x.PersonId == personId)
-                ?? throw new AbrilException(
-                    "No encontramos tu ficha en nuestros registros. Escríbele a Gestión de Talento Humano.", 404);
-
             var now = DateTimeOffset.UtcNow;
-            person.SignatureImageBytes      = imageBytes;
-            person.SignatureMime            = mime;
-            person.SignatureUpdatedDateTime = now;
 
-            await ctx.SaveChangesAsync();
+            await _firmaRepository.UpsertByPersonId(personId, FirmaTipo.CodigoDibujo, imageBytes, mime);
 
             return new CartaOfertaFirmaGuardarResultDto
             {
@@ -332,14 +344,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public async Task<(byte[] Bytes, string Mime)?> GetFirmaBytes(int personId)
         {
-            using var ctx = _factory.CreateDbContext();
-
-            var p = await ctx.Person
-                .Where(x => x.PersonId == personId && x.SignatureImageBytes != null)
-                .Select(x => new { x.SignatureImageBytes, x.SignatureMime })
-                .FirstOrDefaultAsync();
-
-            return p == null ? null : (p.SignatureImageBytes!, p.SignatureMime ?? "image/png");
+            var firma = await _firmaRepository.GetActiveBytesByPersonId(personId);
+            return firma == null ? null : (firma.Value.Bytes, firma.Value.Mime);
         }
 
         public async Task<DateTime> GuardarFirmadaPorPostulante(

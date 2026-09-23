@@ -462,6 +462,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
+        public async Task<DescansoResolucionNotifDatosDto> GetDatosNotificacionResolucionAsync(int workerId, int? registradoPorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker
+                .Where(w => w.Id == workerId)
+                .Select(w => new
+                {
+                    Nombre = w.Person != null ? w.Person.FullName : null,
+                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                })
+                .FirstOrDefaultAsync();
+
+            string? registradorEmail = null;
+            if (registradoPorId.HasValue)
+            {
+                registradorEmail = await ctx.User
+                    .Where(u => u.UserId == registradoPorId.Value)
+                    .Select(u => u.Email)
+                    .FirstOrDefaultAsync();
+            }
+
+            // Mismo criterio que MiSaludRepository.GetDatosNotificacionDescansoAsync: correo del
+            // área GTH configurable en area_scope.email, no hardcodeado.
+            var gthEmail = await (
+                from s in ctx.AreaScope
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                where s.State && ai.State
+                      && ai.AreaItemName == "Gestión del Talento Humano"
+                      && s.Email != null && s.Email != ""
+                orderby s.AreaScopeId
+                select s.Email
+            ).FirstOrDefaultAsync();
+
+            return new DescansoResolucionNotifDatosDto
+            {
+                WorkerNombre = worker?.Nombre,
+                WorkerDni = worker?.Dni,
+                RegistradorEmail = registradorEmail?.Trim(),
+                GthEmail = gthEmail?.Trim(),
+            };
+        }
+
         public async Task Rechazar(int id, DescansoRechazarDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();

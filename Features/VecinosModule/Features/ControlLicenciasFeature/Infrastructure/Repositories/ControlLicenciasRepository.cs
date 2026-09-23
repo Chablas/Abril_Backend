@@ -26,9 +26,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId
                         && f.FuncionalidadId == ProyectoFiltroFuncionalidades.ControlLicencias && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
-                .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription })
+                .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription, LogoUrl = p.LogoUrl })
                 .ToListAsync();
         }
+
+        public async Task<string?> GetLogoUrl(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project.Where(p => p.ProjectId == projectId).Select(p => p.LogoUrl).FirstOrDefaultAsync();
+        }
+
+        public async Task UpdateLogoUrl(int projectId, string logoUrl, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId);
+            if (project is null)
+                throw new InvalidOperationException("El proyecto no existe.");
+
+            project.LogoUrl = logoUrl;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            project.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
 
         public async Task<VecinoLicenciaPlantillaResponseDto> GetPlantilla(int projectId)
         {
@@ -591,6 +611,11 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         /// </summary>
         private async Task<List<VecinoLicenciaDestinatarioAutomaticoDto>> ResolverAutomaticos(AppDbContext ctx, int projectId)
         {
+            // "Retirado" es workers_estado_id (WorkersEstadoIds), NO workers.state: state es el
+            // soft-delete de la ficha (se usa para fusionar duplicados), no el estado laboral. Un
+            // trabajador retirado sigue con state = true, así que filtrar por state no lo saca de
+            // ningún envío — este fue el motivo real por el que Control de Licencias le seguía
+            // escribiendo a alguien que ya no trabaja en la empresa.
             var proyecto = await (
                 from p in ctx.Project.AsNoTracking()
                 where p.ProjectId == projectId
@@ -598,16 +623,32 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 from residente in rwj.DefaultIfEmpty()
                 select new
                 {
-                    EmailResidente = residente != null ? residente.EmailCorporativo : null,
+                    EmailResidente = residente != null && WorkersEstadoIds.NoRetirados.Contains(residente.WorkersEstadoId)
+                        ? residente.EmailCorporativo : null,
                     p.EmailCoordSsoma,
-                    EmailCoordAdmin = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
+                    EmailCoordAdmin = p.CoordAdmin != null && WorkersEstadoIds.NoRetirados.Contains(p.CoordAdmin.WorkersEstadoId)
+                        ? p.CoordAdmin.EmailCorporativo : null,
                 })
                 .FirstOrDefaultAsync();
+
+            // Coordinador SSOMA es un correo suelto (columna de texto, no FK a workers como Residente
+            // y Administración — ver la nota en Project.cs), así que no sigue automáticamente el
+            // retiro de la persona. Si ese texto coincide con el correo corporativo de un trabajador
+            // ya retirado, se descarta acá para no seguir avisando a alguien que ya no está en la
+            // empresa.
+            var emailCoordSsoma = proyecto?.EmailCoordSsoma;
+            if (!string.IsNullOrWhiteSpace(emailCoordSsoma))
+            {
+                var coordRetirado = await ctx.Worker.AsNoTracking()
+                    .AnyAsync(w => !WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
+                        && w.EmailCorporativo != null && w.EmailCorporativo.ToLower() == emailCoordSsoma.ToLower());
+                if (coordRetirado) emailCoordSsoma = null;
+            }
 
             return new List<VecinoLicenciaDestinatarioAutomaticoDto>
             {
                 new() { Rol = "Residente", Email = proyecto?.EmailResidente },
-                new() { Rol = "Coordinador SSOMA", Email = proyecto?.EmailCoordSsoma },
+                new() { Rol = "Coordinador SSOMA", Email = emailCoordSsoma },
                 new() { Rol = "Administración", Email = proyecto?.EmailCoordAdmin },
             };
         }
@@ -648,6 +689,22 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     Email = d.Email,
                 })
                 .ToListAsync();
+
+            // Se marca (no se oculta) el que coincide con un trabajador ya retirado: el admin lo ve
+            // y decide si lo borra, en vez de que desaparezca en silencio del envío real sin que la
+            // pantalla lo explique.
+            if (adicionales.Count > 0)
+            {
+                var emails = adicionales.Select(a => a.Email.Trim().ToLower()).Distinct().ToList();
+                var retirados = await ctx.Worker.AsNoTracking()
+                    .Where(w => w.EmailCorporativo != null && emails.Contains(w.EmailCorporativo.ToLower())
+                        && !WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId))
+                    .Select(w => w.EmailCorporativo!.ToLower())
+                    .ToListAsync();
+                var retiradosSet = new HashSet<string>(retirados, StringComparer.OrdinalIgnoreCase);
+                foreach (var a in adicionales)
+                    a.Retirado = retiradosSet.Contains(a.Email.Trim());
+            }
 
             return new VecinoLicenciaDestinatariosResponseDto { Automaticos = automaticos, Adicionales = adicionales };
         }
@@ -723,12 +780,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 join lic in ctx.VecinoLicenciaControl on rec.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
                 where lic.State && lic.Active && lic.ArchivoUrl != null && lic.VecinoLicenciaControlEstadoId != noAplicaId
                 join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
+                join p in ctx.Project.AsNoTracking() on lic.ProjectId equals p.ProjectId
+                join c in ctx.Contributor.AsNoTracking() on p.ContributorId equals c.ContributorId into cj
+                from contributor in cj.DefaultIfEmpty()
                 select new
                 {
                     rec.VecinoLicenciaControlRecordatorioId,
                     rec.DiasAntes,
                     rec.FechaRecordatorio,
                     lic.ProjectId,
+                    p.ProjectDescription,
+                    p.Codigo,
+                    ContributorName = contributor != null ? contributor.ContributorName : null,
+                    ContributorRuc = contributor != null ? contributor.ContributorRuc : null,
                     t.Descripcion,
                     FechaVencimiento = lic.FechaVencimiento!.Value,
                 })
@@ -740,6 +804,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 {
                     VecinoLicenciaControlRecordatorioId = p.VecinoLicenciaControlRecordatorioId,
                     ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    ProjectCodigo = p.Codigo,
+                    ContributorName = p.ContributorName,
+                    ContributorRuc = p.ContributorRuc,
                     TipoDescripcion = p.Descripcion,
                     FechaVencimiento = p.FechaVencimiento,
                     DiasAntes = p.DiasAntes,
@@ -823,12 +891,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 join lic in ctx.VecinoLicenciaControl on vis.VecinoLicenciaControlId equals lic.VecinoLicenciaControlId
                 where lic.State && lic.Active && lic.VecinoLicenciaControlEstadoId != noAplicaId
                 join t in ctx.VecinoLicenciaControlTipo on lic.VecinoLicenciaControlTipoId equals t.VecinoLicenciaControlTipoId
+                join p in ctx.Project.AsNoTracking() on lic.ProjectId equals p.ProjectId
+                join c in ctx.Contributor.AsNoTracking() on p.ContributorId equals c.ContributorId into cj
+                from contributor in cj.DefaultIfEmpty()
                 select new
                 {
                     vis.VecinoLicenciaControlVisitaId,
                     vis.FechaRecordatorio,
                     vis.FechaVisita,
                     lic.ProjectId,
+                    p.ProjectDescription,
+                    p.Codigo,
+                    ContributorName = contributor != null ? contributor.ContributorName : null,
+                    ContributorRuc = contributor != null ? contributor.ContributorRuc : null,
                     t.Descripcion,
                 })
                 .ToListAsync();
@@ -839,6 +914,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                 {
                     VecinoLicenciaControlVisitaId = p.VecinoLicenciaControlVisitaId,
                     ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    ProjectCodigo = p.Codigo,
+                    ContributorName = p.ContributorName,
+                    ContributorRuc = p.ContributorRuc,
                     TipoDescripcion = p.Descripcion,
                     FechaVisita = p.FechaVisita,
                 })
@@ -875,11 +954,40 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
         public async Task<List<string>> ResolverDestinatariosUdp()
         {
             using var ctx = _factory.CreateDbContext();
+            // w.State es el soft-delete de la ficha, no el estado laboral: un trabajador retirado
+            // sigue con state = true. El filtro real de "sigue en la empresa" es workers_estado_id
+            // (WorkersEstadoIds.NoRetirados) — sin él, alguien retirado de Unidad de Proyectos seguía
+            // recibiendo el aviso de vencimiento de TODAS las obras indefinidamente.
             return await ctx.Worker.AsNoTracking()
-                .Where(w => w.State && w.Subarea == "Unidad de Proyectos" && !string.IsNullOrEmpty(w.EmailCorporativo))
+                .Where(w => w.State && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
+                    && w.Subarea == "Unidad de Proyectos" && !string.IsNullOrEmpty(w.EmailCorporativo))
                 .Select(w => w.EmailCorporativo!.Trim())
                 .Distinct()
                 .ToListAsync();
+        }
+
+        public async Task<List<string>> FiltrarEmailsRetirados(IEnumerable<string> emails)
+        {
+            var lista = emails.Where(e => !string.IsNullOrWhiteSpace(e)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (lista.Count == 0) return lista;
+
+            using var ctx = _factory.CreateDbContext();
+            var lower = lista.Select(e => e.Trim().ToLower()).ToList();
+
+            // Solo los que SÍ están retirados: se excluyen de la lista de envío. Un correo que no
+            // pertenece a ningún trabajador (contacto externo, municipalidad) no aparece acá y se
+            // deja pasar sin tocar.
+            var retirados = await ctx.Worker.AsNoTracking()
+                .Where(w => w.EmailCorporativo != null
+                    && lower.Contains(w.EmailCorporativo.ToLower())
+                    && !WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId))
+                .Select(w => w.EmailCorporativo!.ToLower())
+                .ToListAsync();
+
+            if (retirados.Count == 0) return lista;
+
+            var retiradosSet = new HashSet<string>(retirados, StringComparer.OrdinalIgnoreCase);
+            return lista.Where(e => !retiradosSet.Contains(e.Trim())).ToList();
         }
 
         public async Task UpdateFechas(int projectId, int tipoId, VecinoLicenciaFechasUpdateDto dto, int userId)
@@ -923,7 +1031,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             var plantilla = await GetPlantillaTodos(projectIds);
 
             var proyectosEnResultado = plantilla.Items.Select(i => i.ProjectId!.Value).Distinct().ToList();
-            Dictionary<int, (string? RazonSocial, string? Ruc)> contributorPorProyecto;
+            Dictionary<int, (string? RazonSocial, string? Ruc, string? LogoUrl)> contributorPorProyecto;
             using (var ctx = _factory.CreateDbContext())
             {
                 contributorPorProyecto = await (
@@ -931,8 +1039,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     where proyectosEnResultado.Contains(p.ProjectId)
                     join c in ctx.Contributor.AsNoTracking() on p.ContributorId equals c.ContributorId into cj
                     from c in cj.DefaultIfEmpty()
-                    select new { p.ProjectId, RazonSocial = c != null ? c.ContributorName : null, Ruc = c != null ? c.ContributorRuc : null }
-                ).ToDictionaryAsync(x => x.ProjectId, x => (x.RazonSocial, x.Ruc));
+                    select new { p.ProjectId, RazonSocial = c != null ? c.ContributorName : null, Ruc = c != null ? c.ContributorRuc : null, p.LogoUrl }
+                ).ToDictionaryAsync(x => x.ProjectId, x => (x.RazonSocial, x.Ruc, x.LogoUrl));
             }
 
             var items = new List<VecinoLicenciaDashboardItemDto>();
@@ -941,7 +1049,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
             foreach (var item in plantilla.Items)
             {
                 var (dias, semaforo) = CalcularSemaforo(item.EstadoDescripcion, item.FechaVencimiento, hoy);
-                var contributor = contributorPorProyecto.TryGetValue(item.ProjectId!.Value, out var c2) ? c2 : (null, null);
+                var contributor = contributorPorProyecto.TryGetValue(item.ProjectId!.Value, out var c2) ? c2 : (null, null, null);
 
                 items.Add(new VecinoLicenciaDashboardItemDto
                 {
@@ -949,6 +1057,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlLicenciasFeature.
                     ProjectDescription = item.ProjectDescription!,
                     RazonSocial = contributor.Item1,
                     Ruc = contributor.Item2,
+                    LogoUrl = contributor.Item3,
                     TipoDescripcion = item.TipoDescripcion,
                     EstadoDescripcion = item.EstadoDescripcion,
                     FechaInscripcion = item.FechaInscripcion,

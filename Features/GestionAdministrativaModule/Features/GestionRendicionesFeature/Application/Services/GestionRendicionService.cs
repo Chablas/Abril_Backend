@@ -1,4 +1,6 @@
 ﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces;
@@ -8,10 +10,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
-using Abril_Backend.Shared.Services.Firma.Interfaces;
-using Abril_Backend.Shared.Services.Pdf;
-using Abril_Backend.Shared.Services.SharePoint.Dtos;
-using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Services
 {
@@ -20,9 +19,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         private readonly IGestionRendicionRepository    _repo;
         private readonly ISalidaVisibilityResolver      _visibilityResolver;
         private readonly IConsolidadorResolver          _consolidadorResolver;
+        /// <summary>Jefe/revisor de cada trabajador: a ellos va el aviso de consolidar.</summary>
+        private readonly IJefeRevisorResolver            _jefeResolver;
         private readonly IConsolidadoS10Service         _consolidadoService;
-        private readonly IFirmaPersonalRepository       _firmaRepository;
-        private readonly IGraphSharePointService        _sharePointService;
+        /// <summary>Consolidados: de ahí sale el aviso a la jefatura, que va pegado a adjuntar.</summary>
+        private readonly IConsolidadoService             _consolidadoFeature;
         private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly IEmailService                  _emailService;
         private readonly IConfiguration                 _configuration;
@@ -32,9 +33,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             IGestionRendicionRepository repo,
             ISalidaVisibilityResolver visibilityResolver,
             IConsolidadorResolver consolidadorResolver,
+            IJefeRevisorResolver jefeResolver,
             IConsolidadoS10Service consolidadoService,
-            IFirmaPersonalRepository firmaRepository,
-            IGraphSharePointService sharePointService,
+            IConsolidadoService consolidadoFeature,
             ICorreoSalidaRecipientResolver correoResolver,
             IEmailService emailService,
             IConfiguration configuration,
@@ -43,9 +44,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             _repo               = repo;
             _visibilityResolver = visibilityResolver;
             _consolidadorResolver = consolidadorResolver;
+            _jefeResolver       = jefeResolver;
             _consolidadoService = consolidadoService;
-            _firmaRepository    = firmaRepository;
-            _sharePointService  = sharePointService;
+            _consolidadoFeature = consolidadoFeature;
             _correoResolver     = correoResolver;
             _emailService       = emailService;
             _configuration      = configuration;
@@ -76,13 +77,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                 ?? throw new AbrilException("La planilla de rendición no existe o no está en tu alcance.", 404);
         }
 
+        public async Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope)
+        {
+            await ApplyVisibilityAsync(scope);
+            return await _repo.GetSalidaDetalle(solicitudId, scope)
+                ?? throw new AbrilException("La salida no existe o no está en tu alcance.", 404);
+        }
+
         /// <summary>
-        /// Qué correos dispararía una de las cuatro decisiones de la pantalla sobre la selección
-        /// indicada, y a quién le llegarían. Se resuelve con las MISMAS llamadas que hacen los
-        /// envíos (<see cref="NotificarPrimeraRevisionAsync"/>,
-        /// <see cref="NotificarDecisionReembolsoAsync"/> y <see cref="NotificarTesoreriaAsync"/>),
-        /// así que la confirmación no puede prometer un correo que la configuración dejó fuera ni
-        /// decir que no le llega a nadie cuando sí está activo.
+        /// Qué correos dispararía la decisión de la primera revisión sobre la selección indicada, y
+        /// a quién le llegarían. Se resuelve con las MISMAS llamadas que hace el envío
+        /// (<see cref="NotificarPrimeraRevisionAsync"/>), así que la confirmación no puede prometer
+        /// un correo que la configuración dejó fuera ni decir que no le llega a nadie cuando sí
+        /// está activo.
         ///
         /// Lo consumen tanto los botones masivos de la tabla como los del modal de detalle: en los
         /// dos casos el conjunto lo resuelve el servidor con el recorte de visibilidad y la
@@ -99,41 +106,68 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             {
                 await ApplyVisibilityAsync(scope);
 
-                var esPrimeraRevision = string.Equals(
-                    request.Accion, CorreoPreviewAcciones.PrimeraRevision, StringComparison.OrdinalIgnoreCase);
+                // Adjuntar el consolidado no es una decisión de la primera revisión: su correo va a
+                // la JEFATURA de los trabajadores que cubre, no al solicitante.
+                if (request.Accion == CorreoPreviewAcciones.ConsolidadoS10)
+                    return await PreviewAvisoJefaturaAsync(request.RendicionIds);
 
-                var solicitantes = esPrimeraRevision
-                    ? await _repo.GetCorreosSolicitantesPrimeraRevision(request.RendicionIds, scope)
-                    : await _repo.GetCorreosSolicitantesPorDecidir(
-                        request.RendicionIds, request.SolicitudIds, scope);
+                var preview = await _repo.GetPreviewPrimeraRevision(
+                    request.RendicionIds, scope, conTrabajadores: request.Aprobar);
 
-                var codigo = esPrimeraRevision
-                    ? (request.Aprobar
-                        ? CorreoEventoCodigos.RendicionPrimeraAprobada
-                        : CorreoEventoCodigos.RendicionPrimeraObservada)
-                    : (request.Aprobar
-                        ? CorreoEventoCodigos.ReembolsoAprobado
-                        : CorreoEventoCodigos.ReembolsoObservado);
+                var codigo = request.Aprobar
+                    ? CorreoEventoCodigos.RendicionPrimeraAprobada
+                    : CorreoEventoCodigos.RendicionPrimeraObservada;
 
                 var avisos = new List<CorreoAvisoPreviewDto>();
-                await AgregarAvisoAsync(avisos, "Al solicitante", codigo, solicitantes);
+                await AgregarAvisoAsync(avisos, "Al solicitante", codigo, preview.CorreosSolicitantes);
 
-                // Aprobar el reembolso ES firmar, y la firma es lo que mete la planilla en la
-                // bandeja de Tesorería: por eso esa acción dispara un segundo correo.
-                if (!esPrimeraRevision && request.Aprobar)
+                // Aprobar además les avisa a los consolidadores del área (NotificarConsolidadoresAsync).
+                // Sin planillas elegibles no sale ese correo, así que tampoco se anuncia.
+                if (request.Aprobar && preview.WorkerIds.Count > 0)
                     await AgregarAvisoAsync(
-                        avisos, "A Tesorería",
-                        CorreoEventoCodigos.TesoreriaReembolso,
-                        await _repo.GetCorreosTesoreria());
+                        avisos, "Al consolidador", CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador,
+                        CorreosDeConsolidadores(
+                            preview.WorkerIds,
+                            await _consolidadorResolver.ResolveManyAsync(preview.WorkerIds)));
 
                 return avisos;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "Error resolviendo el preview de correos de la acción {Accion}", request.Accion);
+                    "Error resolviendo el preview de correos de la primera revisión");
                 return new List<CorreoAvisoPreviewDto>();
             }
+        }
+
+        /// <summary>
+        /// A quién le va a llegar el aviso que dispara adjuntar el Consolidado del S10: la jefatura
+        /// de los trabajadores de esas planillas.
+        ///
+        /// Se resuelve desde las PLANILLAS y no desde el consolidado —que todavía no existe cuando
+        /// se pregunta— pero con el mismo resolver de jefe/revisor que usa el envío, así que la
+        /// confirmación no puede prometer direcciones distintas de las que después reciben el correo.
+        /// </summary>
+        private async Task<List<CorreoAvisoPreviewDto>> PreviewAvisoJefaturaAsync(
+            IReadOnlyCollection<int> rendicionIds)
+        {
+            var avisos = new List<CorreoAvisoPreviewDto>();
+
+            var ids = rendicionIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return avisos;
+
+            var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
+            if (workerIds.Count == 0) return avisos;
+
+            var jefaturas = (await _jefeResolver.ResolveManyAsync(workerIds))
+                .Values
+                .Select(r => r.Email?.Trim() ?? string.Empty)
+                .Where(email => email.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            await AgregarAvisoAsync(avisos, "A la jefatura", CorreoEventoCodigos.S10Revisor, jefaturas);
+            return avisos;
         }
 
         /// <summary>
@@ -165,10 +199,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var decididas = await _repo.DecidirPrimeraRevision(
                 accion.RendicionIds, aprobar, accion.Observacion, scope, reviewerUserId);
 
-            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
-            // porque un correo falle (mismo criterio que la decisión del reembolso).
+            // Los avisos son best-effort: la decisión ya está guardada y no se revierte porque un
+            // correo falle (mismo criterio que la decisión del reembolso). Los datos de cada planilla
+            // se cargan una vez y sirven para sus solicitantes y, al aprobar, para sus consolidadores.
+            var planillas = new List<List<PrimeraRevisionCorreoInfoDto>>(decididas.Count);
             foreach (var rendicionId in decididas)
-                await NotificarPrimeraRevisionAsync(rendicionId, aprobar);
+            {
+                var porTrabajador = await CargarCorreoInfoAsync(rendicionId);
+                planillas.Add(porTrabajador);
+                await NotificarPrimeraRevisionAsync(rendicionId, porTrabajador, aprobar);
+            }
+
+            if (aprobar)
+                await NotificarConsolidadoresAsync(planillas);
 
             return new ReembolsoBulkResultDto
             {
@@ -179,16 +222,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             };
         }
 
-        public async Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId)
+        public async Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
+            int userId, bool seesAllOverride)
         {
             var ids = rendicionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
             if (ids.Count == 0)
                 throw new AbrilException("Selecciona al menos una rendición.", 400);
 
-            // Ver las planillas no alcanza para consolidarlas: hay que estar habilitado por TODOS
-            // sus trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
+            // Ver las planillas no alcanza para consolidarlas: hay que ser consolidador de TODOS sus
+            // trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
             // que apaga el botón en la pantalla, así que acá no puede pasar nada que la UI no muestre.
+            // El propio trabajador no consolida lo suyo: después de la primera revisión, el trámite
+            // del S10 es del consolidador de su área.
             var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
             if (workerIds.Count == 0)
                 throw new AbrilException(
@@ -202,189 +248,81 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     (ids.Count == 1
                         ? "No estás habilitado para adjuntar el Consolidado del S10 de esta planilla. "
                         : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
-                    + "Pueden hacerlo el propio trabajador y los consolidadores de su área.", 403);
+                    + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
 
-            return await _consolidadoService.UploadParaRendiciones(
-                ids, file, montoTotal, numeroReembolso, userId);
-        }
-
-        public async Task<ReembolsoBulkResultDto> DecidirReembolso(
-            ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId)
-        {
-            await ApplyVisibilityAsync(scope);
-
-            var ids = await _repo.ResolverSolicitudIds(accion.RendicionIds, accion.SolicitudIds, scope);
-            if (ids.Count == 0)
-                throw new AbrilException("No hay salidas en la selección dentro de tu alcance.", 400);
-
-            var rendicionesFirmadas = new List<int>();
-            var decididas = aprobar
-                ? await AprobarFirmandoAsync(ids, reviewerUserId, rendicionesFirmadas)
-                : await _repo.ObservarReembolso(ids, accion.Observacion ?? string.Empty, reviewerUserId);
-
-            // El aviso al solicitante es best-effort: la decisión ya está guardada y no se revierte
-            // porque un correo falle (mismo criterio que la aprobación de la salida).
-            foreach (var id in decididas)
-                await NotificarDecisionReembolsoAsync(id, aprobar);
-
-            // Y el aviso a Tesorería, que es por PLANILLA: lo que se paga es el documento entero.
-            if (decididas.Count > 0)
-                foreach (var rendicionId in rendicionesFirmadas.Distinct())
-                    await NotificarTesoreriaAsync(rendicionId);
-
-            return new ReembolsoBulkResultDto
+            // Acá solo se adjunta el PRIMERO. Corregirlo —casi siempre por una observación— es de
+            // Consolidados, que es donde vuelve la observación y donde se ve el documento entero.
+            var yaConsolidadas = await _consolidadoService.GetForRendiciones(ids);
+            if (yaConsolidadas.Count > 0)
             {
-                Procesadas = decididas.Count,
-                Message = aprobar
-                    ? $"{decididas.Count} reembolso(s) aprobado(s)."
-                    : $"{decididas.Count} reembolso(s) observado(s).",
+                var codigos = yaConsolidadas.Values
+                    .SelectMany(c => c.Rendiciones)
+                    .Where(r => yaConsolidadas.ContainsKey(r.Id))
+                    .Select(r => r.Codigo)
+                    .ToList();
+                var cuantas = yaConsolidadas.Count;
+                throw new AbrilException(
+                    (codigos.Count > 0
+                        ? $"{ConsolidadoS10Agrupacion.Enumerar(codigos)} ya "
+                        : (ids.Count == 1 ? "Esta rendición ya " : "Alguna de las rendiciones ya "))
+                    + (cuantas == 1 ? "tiene" : "tienen")
+                    + " su Consolidado del S10: para reemplazarlo, hazlo desde Consolidados.", 409);
+            }
+
+            var consolidado = await _consolidadoService.UploadParaRendiciones(
+                ids, file, montoTotal, numeroReembolso, userId);
+
+            var (avisada, aviso) = await AvisarJefaturaAsync(consolidado.Id, userId, seesAllOverride);
+
+            return new ConsolidadoS10UploadResultDto
+            {
+                Consolidado     = consolidado,
+                JefaturaAvisada = avisada,
+                AvisoJefatura   = aviso,
             };
         }
 
         /// <summary>
-        /// Aprueba el reembolso FIRMANDO: estampa la firma del revisor en todas las hojas de los
-        /// documentos de cada planilla —su PDF y el Consolidado del S10— y deja las salidas en
-        /// "Firmado", que es lo que Tesorería ve como pagable. Aprobar y firmar son el mismo acto:
-        /// lo que el jefe respalda con su firma es justamente lo que está aprobando.
+        /// Le avisa a la jefatura que el consolidado recién adjunto tiene reembolsos esperando su
+        /// firma. Es el MISMO camino que el botón «Avisar a la jefatura» de Consolidados —mismo
+        /// correo, mismos destinatarios, misma configuración y misma marca de avisado— para que las
+        /// dos formas de avisar no puedan comportarse distinto.
         ///
-        /// Los PDF se suben ANTES de escribir el estado: si algo falla en SharePoint no queda una
-        /// salida aprobada sin su respaldo firmado (al revés solo deja archivos huérfanos, que no
-        /// rompen nada).
+        /// Nunca tumba la subida: el consolidado ya quedó adjunto y el PDF en SharePoint, así que un
+        /// correo que no sale no puede deshacer eso. Lo que devuelve es lo que se le va a decir al
+        /// consolidador, que desde Consolidados puede repetir el aviso a mano.
         /// </summary>
-        /// <param name="rendicionesFirmadas">
-        /// Se llena con las planillas que se firmaron. Sale por acá y no en el retorno porque el
-        /// aviso a Tesorería es por planilla mientras que la decisión (y su correo al solicitante)
-        /// es por salida: sin esta lista habría que volver a la base a agrupar lo mismo.
-        /// </param>
-        private async Task<List<int>> AprobarFirmandoAsync(
-            List<int> ids, int userId, List<int> rendicionesFirmadas)
+        private async Task<(bool Avisada, string Mensaje)> AvisarJefaturaAsync(
+            int consolidadoId, int userId, bool seesAllOverride)
         {
-            var firma = await _firmaRepository.GetActiveBytesByUserId(userId)
-                // 409 y no 400: la pantalla lo distingue para abrir el modal donde el usuario dibuja
-                // su firma en el momento en vez de mandarlo a Configuración.
-                ?? throw new AbrilException(
-                    "Todavía no registraste tu firma. Dibújala una vez y vuelve a aprobar.", 409);
-
-            // Aplica los mismos guards que la escritura (elegibilidad y "nadie decide lo suyo").
-            var planillas = await _repo.GetPlanillasParaAprobarReembolso(ids, userId);
-            if (planillas.Count == 0)
-                throw new AbrilException(
-                    "Ninguna de las salidas seleccionadas tiene un reembolso por decidir.", 400);
-
-            var carpeta = await ResolverCarpetaRendicionesAsync();
-
-            var firmadas = new List<PlanillaFirmadaDto>(planillas.Count);
-            // Un consolidado compartido por varias planillas de la selección se firma una sola vez.
-            var consolidadosFirmados = new Dictionary<int, ArchivoFirmadoDto>();
-            foreach (var p in planillas)
+            var scope = new ConsolidadoFiltersDto
             {
-                var firmada = new PlanillaFirmadaDto
-                {
-                    RendicionId  = p.RendicionId,
-                    SolicitudIds = p.SolicitudIds,
-                    Planilla     = await FirmarYSubirAsync(carpeta, p.PlanillaUrl, p.PlanillaFilename, firma.Bytes),
-                };
+                CurrentUserId   = userId,
+                SeesAllOverride = seesAllOverride,
+            };
 
-                foreach (var doc in p.Consolidados)
-                {
-                    if (!consolidadosFirmados.TryGetValue(doc.Id, out var archivo))
-                    {
-                        archivo = await FirmarYSubirAsync(carpeta, doc.Url, doc.Filename, firma.Bytes, doc.Slot);
-                        consolidadosFirmados[doc.Id] = archivo;
-                    }
-                    firmada.Consolidados[doc.Id] = archivo;
-                }
-
-                firmadas.Add(firmada);
-            }
-
-            var decididas = await _repo.AprobarReembolsoFirmado(firmadas, userId);
-            if (decididas.Count > 0)
-                rendicionesFirmadas.AddRange(firmadas.Select(f => f.RendicionId));
-
-            return decididas;
-        }
-
-        /// <summary>
-        /// Descarga un PDF de SharePoint, le estampa la firma en TODAS sus hojas y sube la copia
-        /// firmada al lado del original. El original nunca se pisa: la copia lleva el sufijo
-        /// -FIRMADO y es la que queda referenciada como respaldo.
-        /// </summary>
-        /// <param name="pdfUrl">
-        /// PDF sobre el que se estampa. Para un consolidado compartido que otro jefe ya firmó es su
-        /// copia firmada: la firma nueva se suma (en <paramref name="slot"/>) y la copia se reemplaza.
-        /// </param>
-        /// <param name="pdfFilename">Nombre del ORIGINAL: la copia se llama igual, con -FIRMADO.</param>
-        /// <param name="slot">Lugar de la firma en la hoja (0 = la esquina de siempre).</param>
-        private async Task<ArchivoFirmadoDto> FirmarYSubirAsync(
-            ShareLinkResolveDto carpeta, string pdfUrl, string pdfFilename, byte[] firmaPng, int slot = 0)
-        {
-            byte[] original;
             try
             {
-                original = await _sharePointService.DownloadOneDriveFileByWebUrlAsync(pdfUrl);
+                return (true, await _consolidadoFeature.NotificarJefatura(consolidadoId, scope, userId));
+            }
+            catch (AbrilException ex)
+            {
+                // Los casos previstos (el aviso está apagado, no se le pudo resolver el correo a la
+                // jefatura, no hay nada esperando): el mensaje ya explica cuál es y se imprime tal
+                // cual, sin convertirlo en un error de la subida.
+                _logger.LogInformation(
+                    "Consolidado {ConsolidadoId} adjunto, pero sin aviso a la jefatura: {Motivo}",
+                    consolidadoId, ex.Message);
+                return (false, ex.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "No se pudo descargar {Archivo} para firmarlo.", pdfFilename);
-                throw new AbrilException(
-                    $"No se pudo descargar {pdfFilename} desde SharePoint para firmarlo.", 502);
+                _logger.LogError(ex,
+                    "Error avisando a la jefatura del consolidado {ConsolidadoId} recién adjunto", consolidadoId);
+                return (false,
+                    "El consolidado quedó adjunto, pero no se pudo avisar a la jefatura. "
+                    + "Puedes volver a intentarlo desde Consolidados.");
             }
-
-            byte[] firmado;
-            try
-            {
-                // Una planilla agrupa a varios trabajadores y cada grupo termina con su propia
-                // línea de firma, así que la firma va en TODAS las hojas: solo al pie de la última
-                // dejaría sin firma a todos los grupos menos el último.
-                firmado = SignaturePdfStamper.Stamp(original, firmaPng, slot);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "No se pudo estampar la firma en {Archivo}.", pdfFilename);
-                throw new AbrilException($"No se pudo generar la versión firmada de {pdfFilename}.", 500);
-            }
-
-            var filename = Path.GetFileNameWithoutExtension(pdfFilename) + "-FIRMADO.pdf";
-            try
-            {
-                using var stream = new MemoryStream(firmado);
-                var subido = await _sharePointService.UploadToOneDriveFolderAsync(
-                    carpeta.DriveId, carpeta.ItemId, filename, stream,
-                    "application/pdf", autoRenameOnLock: true);
-
-                if (subido?.WebUrl is null)
-                    throw new AbrilException($"No se pudo subir {filename} a SharePoint (respuesta vacía).", 502);
-
-                return new ArchivoFirmadoDto
-                {
-                    Url      = subido.WebUrl,
-                    ItemId   = subido.ItemId,
-                    Filename = filename,
-                };
-            }
-            catch (AbrilException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falló la subida de {Archivo}.", filename);
-                throw new AbrilException($"No se pudo guardar {filename} en SharePoint.", 502);
-            }
-        }
-
-        /// <summary>Carpeta de SharePoint donde viven las planillas y sus copias firmadas.</summary>
-        private async Task<ShareLinkResolveDto> ResolverCarpetaRendicionesAsync()
-        {
-            var folderUrl = await _repo.GetRendicionFolderUrl();
-            if (string.IsNullOrWhiteSpace(folderUrl))
-                throw new AbrilException(
-                    "No se ha configurado la carpeta de SharePoint donde guardar las planillas de rendición. " +
-                    "Pide al administrador registrarla en la tabla ga_rendicion_folder.", 409);
-
-            var carpeta = await _sharePointService.ResolveSharePointFolderUrlAsync(folderUrl);
-            if (carpeta == null || !carpeta.IsFolder)
-                throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
-
-            return carpeta;
         }
 
         // ── Visibilidad ──────────────────────────────────────────────────────
@@ -413,19 +351,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         // ── Correos de la primera revisión ───────────────────────────────────
 
         /// <summary>
+        /// Lo que necesitan los correos de la decisión sobre una planilla, una entrada por
+        /// trabajador. Best-effort como los envíos: si no se puede cargar, esa planilla se queda sin
+        /// avisos en vez de tumbar una decisión que ya está guardada.
+        /// </summary>
+        private async Task<List<PrimeraRevisionCorreoInfoDto>> CargarCorreoInfoAsync(int rendicionId)
+        {
+            try
+            {
+                return await _repo.GetPrimeraRevisionCorreoInfo(rendicionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error cargando los datos de los correos de la primera revisión de la rendición {RendicionId}",
+                    rendicionId);
+                return new List<PrimeraRevisionCorreoInfoDto>();
+            }
+        }
+
+        /// <summary>
         /// Le avisa a cada dueño de las salidas de la planilla cómo quedó su primera revisión: si
-        /// se aprobó, que ya puede cargar el Consolidado del S10; si se observó, con qué
-        /// comentario. Respeta la configuración de correos (Gestión Administrativa →
+        /// se aprobó, que su rendición sigue con el consolidador de su área; si se observó, con qué
+        /// comentario. Respeta la configuración de correos (Gestión de Rendiciones →
         /// Configuración → Correos): si está apagado o sin destinatarios, no se envía nada.
         ///
         /// Sale un correo POR TRABAJADOR y no uno por planilla: el documento puede agrupar a varias
         /// personas y cada una tiene que ver sus propios números para poder contrastarlos.
         /// </summary>
-        private async Task NotificarPrimeraRevisionAsync(int rendicionId, bool aprobada)
+        private async Task NotificarPrimeraRevisionAsync(
+            int rendicionId, List<PrimeraRevisionCorreoInfoDto> destinatarios, bool aprobada)
         {
             try
             {
-                var destinatarios = await _repo.GetPrimeraRevisionCorreoInfo(rendicionId);
                 if (destinatarios.Count == 0) return;
 
                 var codigo = aprobada
@@ -433,8 +391,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     : CorreoEventoCodigos.RendicionPrimeraObservada;
 
                 var layout = SalidaEmailLayout.Desde(_configuration);
-                // El botón lleva a Mis Rendiciones: lo que el trabajador tiene que hacer después de
-                // la decisión —cargar el Consolidado del S10, o corregir y volver a generar— vive ahí.
+                // El botón lleva a Mis Rendiciones: es donde el trabajador sigue su planilla y, si se
+                // observó, corrige y la vuelve a generar.
                 var url = SalidaEnlaces.Rendiciones(_configuration, rendicionId);
 
                 foreach (var info in destinatarios)
@@ -496,129 +454,125 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             }
         }
 
-        // ── Correos de la decisión ───────────────────────────────────────────
-
         /// <summary>
-        /// Avisa al solicitante que su reembolso quedó aprobado u observado. Respeta la
-        /// configuración de correos (Gestión Administrativa → Configuración → Correos): si el
-        /// correo está apagado o no queda ningún destinatario, no se envía nada.
+        /// Les avisa a los consolidadores del área que las planillas aprobadas se suman a las
+        /// disponibles para el Consolidado del S10. Es informativo: el consolidador junta varias
+        /// rendiciones y las consolida cuando le toca, así que el correo no le pide nada.
+        ///
+        /// Los consolidadores salen de <see cref="IConsolidadorResolver"/> —el mismo que después lo
+        /// habilita a adjuntar el consolidado— por TODOS los trabajadores de cada planilla. Sale UN
+        /// correo por grupo de destinatarios y no uno por planilla: aprobar en bloque varias planillas
+        /// de la misma área le llegaría repetido al mismo consolidador.
         /// </summary>
-        private async Task NotificarDecisionReembolsoAsync(int solicitudId, bool aprobado)
+        private async Task NotificarConsolidadoresAsync(List<List<PrimeraRevisionCorreoInfoDto>> planillas)
         {
+            var conDatos = planillas.Where(p => p.Count > 0).ToList();
+            if (conDatos.Count == 0) return;
+
             try
             {
-                var info = await _repo.GetReembolsoCorreoInfo(solicitudId);
-                if (info == null) return;
+                var consolidadores = await _consolidadorResolver.ResolveManyAsync(
+                    conDatos.SelectMany(p => p.Select(i => i.WorkerId)).Distinct().ToList());
 
-                if (string.IsNullOrWhiteSpace(info.SolicitanteEmail))
-                {
-                    _logger.LogWarning(
-                        "Reembolso {SolicitudId}: el solicitante no tiene correo registrado, no se avisó la decisión.",
-                        solicitudId);
-                    return;
-                }
-
-                var codigo = aprobado
-                    ? CorreoEventoCodigos.ReembolsoAprobado
-                    : CorreoEventoCodigos.ReembolsoObservado;
-
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    codigo, new List<string> { info.SolicitanteEmail });
-
-                if (!envio.Enviar)
-                {
-                    _logger.LogInformation(
-                        "Correo {Codigo} no enviado para la salida {SolicitudId}: está apagado o sin destinatarios.",
-                        codigo, solicitudId);
-                    return;
-                }
+                var grupos = conDatos
+                    .Select(p => new
+                    {
+                        Datos   = DatosDePlanilla(p),
+                        Correos = CorreosDeConsolidadores(p.Select(i => i.WorkerId), consolidadores),
+                    })
+                    .GroupBy(x => string.Join(";", x.Correos.Select(c => c.ToLowerInvariant())))
+                    .ToList();
 
                 var layout = SalidaEmailLayout.Desde(_configuration);
-                var datos  = ToCorreoDatos(info);
-                // El botón lleva a Mis Rendiciones: subsanar es volver a adjuntar el Consolidado
-                // del S10, que es de la planilla. Solo cae a la salida si (por datos viejos) la
-                // salida no tiene planilla, para no dejar el correo sin destino.
-                var url    = info.RendicionId.HasValue
-                    ? SalidaEnlaces.Rendiciones(_configuration, info.RendicionId.Value)
-                    : SalidaEnlaces.Autoservicio(_configuration, solicitudId);
 
-                var body = aprobado
-                    ? ReembolsoEmailTemplates.Aprobado(layout, datos, url)
-                    : ReembolsoEmailTemplates.Observado(layout, datos, url);
+                foreach (var grupo in grupos)
+                {
+                    var rendiciones = grupo.Select(x => x.Datos).OrderBy(d => d.Codigo, StringComparer.Ordinal).ToList();
 
-                var subject = aprobado
-                    ? $"Reembolso APROBADO - salida del {info.FechaSalida:dd/MM/yyyy}"
-                    : $"Reembolso RECHAZADO - salida del {info.FechaSalida:dd/MM/yyyy}";
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador, grupo.First().Correos);
 
-                await _emailService.SendAsync(
-                    to: envio.Para,
-                    subject: subject,
-                    body: body,
-                    isHtml: true,
-                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para las rendiciones {Codigos}: está apagado o sin destinatarios "
+                            + "(sin consolidador resuelto ni destinatarios configurados).",
+                            CorreoEventoCodigos.RendicionPrimeraAprobadaConsolidador,
+                            string.Join(", ", rendiciones.Select(r => r.Codigo)));
+                        continue;
+                    }
+
+                    var una = rendiciones.Count == 1;
+                    var url = una
+                        ? SalidaEnlaces.GestionRendiciones(_configuration, rendiciones[0].RendicionId)
+                        : SalidaEnlaces.GestionRendiciones(_configuration);
+
+                    var subject = una
+                        ? $"Rendición disponible para consolidar - {rendiciones[0].Codigo} - {rendiciones[0].Trabajador}"
+                        : $"{rendiciones.Count} rendiciones disponibles para consolidar";
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: subject,
+                        body: RendicionRevisionEmailTemplates.DisponiblesParaConsolidar(layout, rendiciones, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error avisando la decisión del reembolso de la salida {SolicitudId}", solicitudId);
+                _logger.LogError(ex,
+                    "Error avisando a los consolidadores la aprobación de las rendiciones {Ids}",
+                    string.Join(",", conDatos.Select(p => p[0].RendicionId)));
             }
         }
 
         /// <summary>
-        /// Avisa a Tesorería que una planilla quedó firmada y su reembolso ya está en su bandeja
-        /// (RF-TES-01). Los destinatarios salen del puesto (categoría Tesorero) y no de una lista
-        /// escrita a mano; los de <c>Configuración → Correos</c> se suman como copia. Best-effort,
-        /// igual que el resto: la firma ya está guardada.
+        /// Una planilla entera para el correo del consolidador: a él le importa el documento que va
+        /// a consolidar, no el desglose por trabajador que recibe cada solicitante.
         /// </summary>
-        private async Task NotificarTesoreriaAsync(int rendicionId)
+        private static RendicionRevisionCorreoDatos DatosDePlanilla(List<PrimeraRevisionCorreoInfoDto> porTrabajador)
         {
-            try
+            var primera = porTrabajador[0];
+
+            static string? Unir(IEnumerable<string?> valores)
             {
-                var info = await _repo.GetTesoreriaCorreoInfo(rendicionId);
-                if (info == null) return;
-
-                var envio = await _correoResolver.ResolveEnvioAsync(
-                    CorreoEventoCodigos.TesoreriaReembolso, info.Destinatarios);
-
-                if (!envio.Enviar)
-                {
-                    _logger.LogInformation(
-                        "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado, "
-                        + "sin destinatarios configurados o sin nadie con puesto de Tesorería.",
-                        CorreoEventoCodigos.TesoreriaReembolso, rendicionId);
-                    return;
-                }
-
-                var layout = SalidaEmailLayout.Desde(_configuration);
-                var url    = SalidaEnlaces.Reembolsos(_configuration, rendicionId);
-
-                await _emailService.SendAsync(
-                    to: envio.Para,
-                    subject: $"Reembolso por pagar - rendición {info.Datos.Codigo}",
-                    body: ReembolsoEmailTemplates.PorPagarTesoreria(layout, info.Datos, url),
-                    isHtml: true,
-                    cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                var distintos = valores
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .Select(v => v!.Trim())
+                    .Distinct()
+                    .ToList();
+                return distintos.Count == 0 ? null : string.Join(", ", distintos);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error avisando a Tesorería de la rendición firmada {RendicionId}", rendicionId);
-            }
-        }
 
-        /// <summary>Pasa los datos del repositorio al shape que consumen las plantillas.</summary>
-        private static ReembolsoCorreoDatos ToCorreoDatos(ReembolsoCorreoInfoDto info) =>
-            new()
+            return new RendicionRevisionCorreoDatos
             {
-                SolicitudId     = info.SolicitudId,
-                Codigo          = info.Codigo,
-                Trabajador      = info.Trabajador,
-                TrabajadorEmail = info.SolicitanteEmail,
-                Area            = info.Area,
-                FechaSalida     = info.FechaSalida,
-                NumeroPlanilla  = info.NumeroPlanilla,
-                TrayectosCount  = info.TrayectosCount,
-                MontoTotal      = info.MontoTotal,
-                DecididoPor     = info.DecididoPor,
-                Observacion     = info.ObservacionReembolso,
+                RendicionId    = primera.RendicionId,
+                Codigo         = primera.Codigo,
+                NumeroPlanilla = primera.NumeroPlanilla,
+                Trabajador     = Unir(porTrabajador.Select(i => i.Trabajador)) ?? "Trabajador",
+                Area           = Unir(porTrabajador.Select(i => i.Area)),
+                Periodo        = Unir(porTrabajador.Select(i => i.Periodo)),
+                SalidasCount   = porTrabajador.Sum(i => i.SalidasCount),
+                TrayectosCount = porTrabajador.Sum(i => i.TrayectosCount),
+                MontoTotal     = porTrabajador.Sum(i => i.MontoTotal),
+                DecididoPor    = primera.DecididoPor,
             };
+        }
+
+        /// <summary>
+        /// Correos de los consolidadores de esos trabajadores, sin repetir y en orden estable: el
+        /// orden importa porque agrupa los envíos, y lo usa también el preview para anunciarlos.
+        /// </summary>
+        private static List<string> CorreosDeConsolidadores(
+            IEnumerable<int> workerIds, IReadOnlyDictionary<int, List<ConsolidadorElegido>> consolidadores) =>
+            workerIds
+                .Distinct()
+                .SelectMany(id => consolidadores.TryGetValue(id, out var lista) ? lista : new List<ConsolidadorElegido>())
+                .Select(c => (c.Email ?? string.Empty).Trim())
+                .Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(e => e, StringComparer.OrdinalIgnoreCase)
+                .ToList();
     }
 }

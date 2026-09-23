@@ -316,7 +316,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                 if (dto?.Ids == null || dto.Ids.Count == 0)
                     return BadRequest(new { message = "Debes seleccionar al menos una solicitud." });
 
-                var (pdfBytes, count) = await _service.RendirYGenerarPlanilla(dto.Ids, userId.Value);
+                var (pdfBytes, count, _, _) = await _service.RendirYGenerarPlanilla(dto.Ids, userId.Value);
 
                 // Header custom para que el frontend pueda mostrar el contador en el toast.
                 Response.Headers.Append("X-Rendidas-Count", count.ToString());
@@ -366,7 +366,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     CurrentUserId      = userId.Value,
                     SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };
-                var (pdfBytes, count) = await _service.RendirMes(filters, anio, mes, userId.Value);
+                var (pdfBytes, count, _, _) = await _service.RendirMes(filters, anio, mes, userId.Value);
 
                 Response.Headers.Append("X-Rendidas-Count", count.ToString());
                 Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");

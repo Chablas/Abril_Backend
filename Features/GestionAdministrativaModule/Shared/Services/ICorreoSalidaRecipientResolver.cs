@@ -27,9 +27,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// Es best-effort: ante cualquier error devuelve el principal y las copias base tal cual
         /// (el correo debe enviarse igual).
         /// </summary>
+        /// <param name="jefeArea">
+        /// Correo(s) del jefe del área del solicitante, para las reglas de tipo
+        /// <see cref="CorreoTipoCodigos.JefeArea"/>. Ese destinatario no se puede resolver acá
+        /// —depende de quién registró la solicitud— así que lo aporta quien envía el correo; sin
+        /// él, una regla de ese tipo simplemente no suma a nadie. Solo lo pasan los correos de
+        /// <see cref="CorreoTipoCodigos.CorreosConJefeArea"/>, y solo tiene valor cuando el revisor
+        /// del solicitante es un residente.
+        /// </param>
         Task<CorreoSalidaEnvioDto> ResolveEnvioAsync(
             string eventoCodigo,
             IEnumerable<string>? destinatarioPrincipal = null,
-            IEnumerable<string>? baseCc = null);
+            IEnumerable<string>? baseCc = null,
+            IEnumerable<string>? jefeArea = null);
     }
 }

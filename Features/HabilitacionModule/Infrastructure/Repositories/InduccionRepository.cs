@@ -146,11 +146,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(c => new { c.ContributorId, c.ContributorName })
                 .ToDictionaryAsync(c => c.ContributorId);
 
+            var confirmadoPorIds = rows
+                .Where(r => r.ConfirmadoPorUserId.HasValue)
+                .Select(r => r.ConfirmadoPorUserId!.Value)
+                .Distinct()
+                .ToList();
+            var usuarioMap = await ctx.User
+                .Include(u => u.Person)
+                .Where(u => confirmadoPorIds.Contains(u.UserId))
+                .ToDictionaryAsync(u => u.UserId, u => u.Person != null ? u.Person.FullName : u.Email);
+
             return rows.Select(r =>
             {
                 workers.TryGetValue(r.WorkerId, out var w);
                 proyectos.TryGetValue(r.ProyectoId, out var p);
                 empresas.TryGetValue(r.EmpresaId, out var e);
+                string? confirmadoPorNombre = null;
+                if (r.ConfirmadoPorUserId.HasValue)
+                    usuarioMap.TryGetValue(r.ConfirmadoPorUserId.Value, out confirmadoPorNombre);
 
                 return new InduccionListDto
                 {
@@ -167,7 +180,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EquipoElectrico = r.EquipoElectrico,
                     Estado = r.Estado,
                     IngresoConfirmado = r.IngresoConfirmado,
-                    FechaIngreso = r.FechaIngreso
+                    FechaIngreso = r.FechaIngreso,
+                    ConfirmadoPorNombre = confirmadoPorNombre
                 };
             }).ToList();
         }

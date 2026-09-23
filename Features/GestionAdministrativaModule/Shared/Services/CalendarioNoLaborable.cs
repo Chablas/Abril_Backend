@@ -1,5 +1,6 @@
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
@@ -25,6 +26,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// </summary>
         public const int DiasHabilesDePlazoPorDefecto = 7;
 
+        /// <summary>
+        /// Alcance de la ventana con el que se responde si no hay fila: solo el mes anterior, que
+        /// es como funcionó siempre.
+        /// </summary>
+        private const int AlcancePlazoPorDefecto = 1;
+        private const string AlcancePlazoNombrePorDefecto = "Hasta el mes anterior";
+
         /// <summary>Fechas concretas (no recurrentes), tal cual están registradas.</summary>
         private readonly HashSet<DateOnly> _fijos;
 
@@ -33,26 +41,74 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
         private CalendarioNoLaborable(
             HashSet<DateOnly> fijos, HashSet<(int, int)> recurrentes,
-            int diasDePlazo, decimal limiteMovilidad)
+            int diasDePlazo, decimal limiteMovilidad,
+            int alcancePlazoId, int alcancePlazoMeses, string alcancePlazoNombre,
+            int? alcancePermanenteId, int? alcancePermanenteMeses, string? alcancePermanenteNombre)
         {
-            _fijos              = fijos;
-            _recurrentes        = recurrentes;
-            DiasHabilesDePlazo  = diasDePlazo;
-            LimiteMovilidad     = limiteMovilidad;
+            _fijos                  = fijos;
+            _recurrentes            = recurrentes;
+            DiasHabilesDePlazo      = diasDePlazo;
+            LimiteMovilidad         = limiteMovilidad;
+            AlcancePlazoId          = alcancePlazoId;
+            AlcancePlazoMeses       = alcancePlazoMeses;
+            AlcancePlazoNombre      = alcancePlazoNombre;
+            AlcancePermanenteId     = alcancePermanenteId;
+            AlcancePermanenteMeses  = alcancePermanenteMeses;
+            AlcancePermanenteNombre = alcancePermanenteNombre;
         }
 
         /// <summary>
-        /// Días hábiles que dura el plazo para rendir un mes, contados sobre el mes siguiente. Sale
-        /// de <c>ga_rendicion_config</c> (Solicitud de Salidas → Configuración → Días reembolsables), así
-        /// que es un dato del calendario cargado y no una constante.
+        /// Días hábiles que dura la ventana para rendir un mes, contados sobre el mes siguiente.
+        /// Sale de <c>ga_rendicion_config</c> (Solicitud de Salidas → Configuración → Días
+        /// reembolsables), así que es un dato del calendario cargado y no una constante.
         /// </summary>
         public int DiasHabilesDePlazo { get; }
 
         /// <summary>
-        /// El plazo escrito como lo dicen los mensajes y los tooltips: "5.º día hábil del mes
+        /// La ventana escrita como lo dicen los mensajes y los tooltips: "5.º día hábil del mes
         /// siguiente". Está acá para que el número no se vuelva a escribir a mano en cada texto.
         /// </summary>
         public string DiasHabilesDePlazoTexto => $"{DiasHabilesDePlazo}.º día hábil del mes siguiente";
+
+        /// <summary>
+        /// Cuántos meses hacia atrás abre la ventana de los días hábiles
+        /// (<c>ga_rendicion_config.alcance_plazo_id</c> → <c>ga_rendicion_alcance</c>). 1 = solo el
+        /// mes anterior, que es lo de siempre. Vale únicamente DENTRO de la ventana: cerrada, no
+        /// alcanza ningún mes pasado por esta vía.
+        /// </summary>
+        public int AlcancePlazoMeses { get; }
+
+        /// <summary>Cómo se llama ese alcance en el catálogo ("Hasta 6 meses atrás").</summary>
+        public string AlcancePlazoNombre { get; }
+
+        /// <summary>Fila del catálogo elegida, para que la pantalla de configuración la marque.</summary>
+        public int AlcancePlazoId { get; }
+
+        /// <summary>
+        /// Cuántos meses hacia atrás se puede rendir en cualquier momento del mes, con la ventana
+        /// abierta o cerrada (<c>ga_rendicion_config.alcance_permanente_id</c>). null = no aplica.
+        ///
+        /// Cuando tiene valor MANDA sobre <see cref="AlcancePlazoMeses"/>: es el interruptor para
+        /// dejar rendir lo atrasado mientras se capacita a los trabajadores, y se apaga volviéndolo
+        /// a dejar vacío.
+        /// </summary>
+        public int? AlcancePermanenteMeses { get; }
+
+        /// <summary>Cómo se llama ese alcance en el catálogo; null si no hay alcance permanente.</summary>
+        public string? AlcancePermanenteNombre { get; }
+
+        /// <summary>Fila del catálogo elegida, o null si no hay alcance permanente.</summary>
+        public int? AlcancePermanenteId { get; }
+
+        /// <summary>
+        /// Cómo se explica en un mensaje el límite que devolvió <see cref="LimiteDeRendicion"/>.
+        /// No siempre lo pone la ventana: con alcance permanente el plazo de días hábiles no
+        /// interviene, y repetir ahí "N.º día hábil del mes siguiente" sería mentir.
+        /// </summary>
+        public string TextoDelLimite =>
+            AlcancePermanenteNombre is { Length: > 0 } permanente ? Minuscula(permanente)
+            : AlcancePlazoMeses <= 1                              ? DiasHabilesDePlazoTexto
+            : $"{DiasHabilesDePlazoTexto}, {Minuscula(AlcancePlazoNombre)}";
 
         /// <summary>
         /// Tope de movilidad en soles (<c>ga_rendicion_config.limite_diario_movilidad</c>). Viaja
@@ -69,12 +125,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .Select(h => new { h.HolidayDate, h.RecurringYearly })
                 .ToListAsync();
 
-            // Plazo y tope salen de la misma fila y en el mismo viaje: son dos columnas de
-            // ga_rendicion_config y pedirlas por separado serían dos consultas por lo mismo.
+            // Plazo, alcances y tope salen de la misma fila y en el mismo viaje: son columnas de
+            // ga_rendicion_config y pedirlas por separado serían varias consultas por lo mismo. Los
+            // meses de cada alcance se traen con dos subconsultas al catálogo, para que agregar una
+            // opción nueva sea agregar una fila y no tocar código.
             var config = await ctx.GaRendicionConfig
                 .Where(c => c.State)
                 .OrderBy(c => c.Id)
-                .Select(c => new { c.DiasHabilesPlazo, c.LimiteDiarioMovilidad })
+                .Select(c => new
+                {
+                    c.DiasHabilesPlazo,
+                    c.LimiteDiarioMovilidad,
+                    c.AlcancePlazoId,
+                    c.AlcancePermanenteId,
+                    Plazo = ctx.GaRendicionAlcance
+                        .Where(a => a.GaRendicionAlcanceId == c.AlcancePlazoId && a.State)
+                        .Select(a => new { a.MesesAtras, a.Nombre })
+                        .FirstOrDefault(),
+                    Permanente = ctx.GaRendicionAlcance
+                        .Where(a => a.GaRendicionAlcanceId == c.AlcancePermanenteId && a.State)
+                        .Select(a => new { a.MesesAtras, a.Nombre })
+                        .FirstOrDefault(),
+                })
                 .FirstOrDefaultAsync();
 
             var fijos       = new HashSet<DateOnly>();
@@ -85,10 +157,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 else                   fijos.Add(d.HolidayDate);
             }
 
+            var permanente = config?.Permanente;
+
             return new CalendarioNoLaborable(
                 fijos, recurrentes,
                 Acotar(config?.DiasHabilesPlazo ?? DiasHabilesDePlazoPorDefecto),
-                TopeMovilidad.Acotar(config?.LimiteDiarioMovilidad));
+                TopeMovilidad.Acotar(config?.LimiteDiarioMovilidad),
+                config?.AlcancePlazoId ?? RendicionAlcanceIds.MesAnterior,
+                // El catálogo arranca en 1 (CHECK), pero una fila torcida a mano no puede dejar el
+                // alcance en 0: eso cerraría hasta el mes anterior sin que nadie lo haya pedido.
+                Math.Max(1, config?.Plazo?.MesesAtras ?? AlcancePlazoPorDefecto),
+                config?.Plazo?.Nombre ?? AlcancePlazoNombrePorDefecto,
+                // El id solo cuenta si el catálogo lo resolvió: una fila apuntando a una opción
+                // dada de baja no puede dejar el alcance permanente prendido a medias.
+                permanente == null ? null : config?.AlcancePermanenteId,
+                permanente == null ? null : Math.Max(1, permanente.MesesAtras),
+                permanente?.Nombre);
         }
 
         /// <summary>
@@ -154,34 +238,107 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         }
 
         /// <summary>
-        /// Último día para rendir las salidas de <paramref name="anio"/>/<paramref name="mes"/>: el
-        /// <see cref="DiasHabilesDePlazo"/>.º día hábil del mes SIGUIENTE. Con 5, las salidas de
-        /// agosto se rinden hasta el 5.º día hábil de setiembre; pasado ese día el periodo queda
-        /// cerrado.
+        /// Cierre de la ventana de rendición de <paramref name="anio"/>/<paramref name="mes"/>: el
+        /// <see cref="DiasHabilesDePlazo"/>.º día hábil del mes SIGUIENTE. Es la ventana a secas,
+        /// sin mirar el alcance, y por eso la usan los recordatorios: son avisos mensuales de que
+        /// la ventana se abre y se cierra, y tienen que caer todos los meses aunque el alcance
+        /// configurado deje rendir meses más viejos.
         ///
-        /// Si el mes siguiente no llegara a tener tantos días hábiles (caso teórico), el plazo es su
-        /// último día: nunca se devuelve una fecha de otro mes.
+        /// Para saber hasta cuándo se puede rendir un mes de verdad, ver
+        /// <see cref="LimiteDeRendicion"/>.
+        /// </summary>
+        public DateOnly FinDeVentana(int anio, int mes) =>
+            NEsimoDiaHabil(new DateOnly(anio, mes, 1).AddMonths(1));
+
+        /// <summary>
+        /// Último día en que se pueden rendir las salidas de <paramref name="anio"/>/<paramref name="mes"/>
+        /// con la configuración de hoy: hasta esa fecha se rinde y pasada queda cerrado
+        /// (<see cref="PlazoVencido"/>).
+        ///
+        /// Dos reglas, y la primera gana:
+        ///  • Con alcance permanente de N meses, el mes se rinde CUALQUIER día hasta que termine el
+        ///    mes N.º posterior — la ventana de días hábiles no pinta nada.
+        ///  • Sin alcance permanente solo se rinde dentro de la ventana, y la ventana llega
+        ///    <see cref="AlcancePlazoMeses"/> meses hacia atrás. Se devuelve el cierre de la
+        ///    ventana que todavía tiene ese mes a tiro —la de este mes si entra, la última que lo
+        ///    tuvo si ya no— para que "hoy &gt; límite" siga contestando bien.
+        ///
+        /// Con el alcance por defecto —1 mes— esto da exactamente lo de siempre: el
+        /// <see cref="DiasHabilesDePlazo"/>.º día hábil del mes siguiente.
         /// </summary>
         public DateOnly LimiteDeRendicion(int anio, int mes)
         {
-            var primeroSiguiente = new DateOnly(anio, mes, 1).AddMonths(1);
-            var ultimoSiguiente  = primeroSiguiente.AddMonths(1).AddDays(-1);
+            var primero = new DateOnly(anio, mes, 1);
+
+            if (AlcancePermanenteMeses is int permanente)
+                return primero.AddMonths(permanente + 1).AddDays(-1);
+
+            // El mes en curso (y cualquiera futuro) no lleva meses de atraso: su límite es el
+            // cierre de su propia ventana, como siempre.
+            var offset = Math.Clamp(MesesAtras(anio, mes), 1, AlcancePlazoMeses);
+            return NEsimoDiaHabil(primero.AddMonths(offset));
+        }
+
+        /// <summary>
+        /// El mes más viejo que HOY se puede rendir, con la configuración de hoy. Es el otro lado de
+        /// <see cref="LimiteDeRendicion"/> —ese contesta "hasta cuándo" para un mes dado, este
+        /// contesta "desde qué mes" para el día de hoy— y es lo que muestra la pantalla de
+        /// configuración: el efecto de lo configurado se ve mirando hacia atrás, no hacia adelante.
+        ///
+        /// Sin alcance permanente y con la ventana ya cerrada no alcanza ningún mes pasado, así que
+        /// devuelve el mes en curso.
+        /// </summary>
+        public (int Anio, int Mes) MesMasAntiguoRendible()
+        {
+            var hoy      = MesAnteriorPeru.HoyPeru();
+            var enCurso  = new DateOnly(hoy.Year, hoy.Month, 1);
+            var anterior = enCurso.AddMonths(-1);
+
+            var meses = AlcancePermanenteMeses
+                ?? (hoy <= FinDeVentana(anterior.Year, anterior.Month) ? AlcancePlazoMeses : 0);
+
+            var desde = enCurso.AddMonths(-meses);
+            return (desde.Year, desde.Month);
+        }
+
+        /// <summary>
+        /// true si las salidas de ese mes ya no se pueden rendir hoy. "Hoy" se toma en hora de Perú
+        /// y no la del servidor, que corre en UTC: el día del vencimiento, pasadas las 19:00 de
+        /// Lima el UTC ya está en el día siguiente y el plazo se cerraría antes de tiempo.
+        /// </summary>
+        public bool PlazoVencido(int anio, int mes)
+            => MesAnteriorPeru.HoyPeru() > LimiteDeRendicion(anio, mes);
+
+        /// <summary>
+        /// El <see cref="DiasHabilesDePlazo"/>.º día hábil del mes que empieza en
+        /// <paramref name="primeroDelMes"/>. Si ese mes no llegara a tener tantos días hábiles
+        /// (caso teórico), devuelve su último día: nunca una fecha de otro mes.
+        /// </summary>
+        private DateOnly NEsimoDiaHabil(DateOnly primeroDelMes)
+        {
+            var ultimo = primeroDelMes.AddMonths(1).AddDays(-1);
 
             var habiles = 0;
-            for (var d = primeroSiguiente; d <= ultimoSiguiente; d = d.AddDays(1))
+            for (var d = primeroDelMes; d <= ultimo; d = d.AddDays(1))
             {
                 if (EsNoLaborable(d)) continue;
                 if (++habiles == DiasHabilesDePlazo) return d;
             }
-            return ultimoSiguiente;
+            return ultimo;
         }
 
         /// <summary>
-        /// true si el plazo para rendir las salidas de ese mes ya pasó. "Hoy" se toma en hora de
-        /// Perú y no la del servidor, que corre en UTC: el día del vencimiento, pasadas las 19:00
-        /// de Lima el UTC ya está en el día siguiente y el plazo se cerraría antes de tiempo.
+        /// Cuántos meses de atraso lleva ese mes respecto del mes en curso (en hora de Perú):
+        /// 0 = el mes en curso, 1 = el mes anterior. Negativo para meses futuros.
         /// </summary>
-        public bool PlazoVencido(int anio, int mes)
-            => MesAnteriorPeru.HoyPeru() > LimiteDeRendicion(anio, mes);
+        private static int MesesAtras(int anio, int mes)
+        {
+            var hoy = MesAnteriorPeru.HoyPeru();
+            return (hoy.Year * 12 + hoy.Month) - (anio * 12 + mes);
+        }
+
+        /// <summary>El nombre del catálogo metido en medio de una frase: "Hasta 6…" → "hasta 6…".</summary>
+        private static string Minuscula(string texto) =>
+            texto.Length == 0 ? texto : char.ToLowerInvariant(texto[0]) + texto[1..];
     }
 }

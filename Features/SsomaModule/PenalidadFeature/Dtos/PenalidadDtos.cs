@@ -39,7 +39,8 @@ public class PenalidadListItemDto
     public string? ProyectoNombre { get; set; }
     public string? EmpresaNombre { get; set; }
     public string? InfraccionNombre { get; set; }
-    public string Severidad { get; set; } = "";
+    /// <summary>Falta | Menor | Moderada | Grave | MuyGrave — la trae la infracción del catálogo.</summary>
+    public string? Categoria { get; set; }
     public decimal MontoCalculado { get; set; }
     public decimal? MontoFinal { get; set; }
     public string Estado { get; set; } = "";
@@ -49,11 +50,23 @@ public class PenalidadListItemDto
     public string? ResolucionTipo { get; set; }
 }
 
+/// <summary>Vista previa de a quién le llegará el próximo correo automático de esta
+/// penalidad, para que quien va a aprobar/decidir pueda verificar los destinatarios antes de
+/// confirmar la acción -- no se resuelve para estados que no disparan ningún envío.</summary>
+public class DestinatariosNotificacionDto
+{
+    public List<string> Para { get; set; } = new();
+    public List<string> Cc { get; set; } = new();
+    public string Motivo { get; set; } = "";
+}
+
 public class PenalidadDetalleDto : PenalidadListItemDto
 {
+    public DestinatariosNotificacionDto? ProximaNotificacion { get; set; }
     public int EmpresaId { get; set; }
     public int ProyectoId { get; set; }
     public int InfraccionId { get; set; }
+    public string? Motivo { get; set; }
     public string? DescripcionOcurrido { get; set; }
     public decimal UitReferencia { get; set; }
     public string? MotivoAjusteMonto { get; set; }
@@ -108,6 +121,19 @@ public class OrigenCandidatoDto
     public DateTime Fecha { get; set; }
 }
 
+/// <summary>Empresa contratista con presencia activa en un proyecto (ss_empresa_proyecto) —
+/// para el selector "Empresa contratista" de Nueva Penalidad, filtrado por el proyecto elegido
+/// (y siempre excluyendo a Abril Ingeniería, que no puede ser objeto de penalidad).</summary>
+public class EmpresaProyectoDto
+{
+    public int Id { get; set; }
+    public string Nombre { get; set; } = "";
+    /// <summary>Correo al que le llegaría la notificación de descargo si Gerencia Inmobiliaria
+    /// aprueba una penalidad contra esta empresa -- se muestra en el alta para verificarlo
+    /// antes de registrar, no solo cuando ya se va a aprobar.</summary>
+    public string? EmailAdministrador { get; set; }
+}
+
 public class PenalidadRegistrarRequest
 {
     /// <summary>RAC | AMONESTACION | DIRECTO</summary>
@@ -117,7 +143,10 @@ public class PenalidadRegistrarRequest
     public int EmpresaId { get; set; }
     public int ProyectoId { get; set; }
     public int InfraccionId { get; set; }
-    public string Severidad { get; set; } = "";
+    /// <summary>Viñeta literal del Anexo 4 elegida dentro de la categoría de la infracción
+    /// (ej. "Robo o intento de robo" dentro de "Grave"). Opcional -- no todas las categorías
+    /// tienen un listado cerrado de motivos.</summary>
+    public string? Motivo { get; set; }
     public string? DescripcionOcurrido { get; set; }
 }
 
@@ -208,6 +237,8 @@ public class InfraccionAdminDto
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
+    /// <summary>Falta | Menor | Moderada | Grave | MuyGrave</summary>
+    public string? Categoria { get; set; }
     public decimal? FactorUit { get; set; }
     public decimal? MontoFijo { get; set; }
     public string? Descripcion { get; set; }
@@ -217,6 +248,8 @@ public class InfraccionAdminDto
 public class InfraccionUpsertRequest
 {
     public string Nombre { get; set; } = "";
+    /// <summary>Falta | Menor | Moderada | Grave | MuyGrave</summary>
+    public string? Categoria { get; set; }
     public decimal? FactorUit { get; set; }
     public decimal? MontoFijo { get; set; }
     public string? Descripcion { get; set; }

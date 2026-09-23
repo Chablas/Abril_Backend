@@ -15,6 +15,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     ///   trabajador es de TI: es la única subárea que rinde contra tarifario en vez de capturas.</item>
     ///   <item>0 si no aplica ninguna de las dos.</item>
     /// </list>
+    ///
+    /// Un trayecto que resuelve a <b>0</b> no entra en la rendición: se devuelve con
+    /// <c>EsReembolsable = false</c>. Pedir el reembolso de S/ 0.00 no tiene sentido, así que no se
+    /// imprime en la planilla ni suma al total. Pasa sobre todo con el tarifario de TI: un par
+    /// (origen, destino) cargado en S/ 0.00 —el recorrido que no cuesta movilidad— cubre al
+    /// trayecto (no se le pide captura) pero no genera gasto que rendir.
     /// </summary>
     public static class ImporteRendidoLoader
     {
@@ -32,10 +38,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             int? LugarOrigenId,
             int? LugarDestinoId);
 
-        /// <summary>Importe resuelto de un trayecto y de dónde salió.</summary>
-        public readonly record struct ImporteResuelto(decimal Importe, bool EsCatalogo);
+        /// <summary>
+        /// Importe resuelto de un trayecto y de dónde salió. <paramref name="EsReembolsable"/> en
+        /// false = el trayecto no entra en la rendición, así que su importe es 0 aunque tenga
+        /// capturas cargadas o match en el tarifario: quien imprima la planilla debe omitir la fila.
+        /// </summary>
+        public readonly record struct ImporteResuelto(decimal Importe, bool EsCatalogo, bool EsReembolsable);
 
-        /// <summary>trayectoId → (importe, esCatalogo). Trae todos los trayectos pedidos.</summary>
+        /// <summary>trayectoId → (importe, esCatalogo, esReembolsable). Trae todos los trayectos pedidos.</summary>
         public static async Task<Dictionary<int, ImporteResuelto>> LoadAsync(
             AppDbContext ctx,
             IReadOnlyCollection<TrayectoParaImporte> trayectos)
@@ -44,6 +54,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             if (trayectos.Count == 0) return result;
 
             var trayectoIds = trayectos.Select(t => t.TrayectoId).Distinct().ToList();
+
+            // Lo que no genera reembolso no rinde nada. Va acá y no en cada pantalla porque este
+            // loader es el que promete que la planilla y las pantallas muestren el mismo gasto: si
+            // el PDF omite la fila y el total la sumara, el monto que se contrasta contra el
+            // Consolidado del S10 dejaría de cuadrar. Ver ReembolsoTrayectoRule.
+            var rendibles = await ReembolsoTrayectoRule.CargarRendiblesAsync(ctx, trayectoIds);
+
             var importesCapturas = await ctx.GaSolicitudCaptura
                 .Where(c => trayectoIds.Contains(c.TrayectoId))
                 .GroupBy(c => c.TrayectoId)
@@ -52,24 +69,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             // El catálogo solo se carga si hay algún trayecto de TI sin capturas que lo necesite.
             var necesitaCatalogo = trayectos.Any(t =>
-                EsTi(t.Subarea) && !importesCapturas.ContainsKey(t.TrayectoId));
+                EsTi(t.Subarea) && rendibles.Contains(t.TrayectoId) && !importesCapturas.ContainsKey(t.TrayectoId));
             var catalogoMap = necesitaCatalogo ? await CargarCatalogoAsync(ctx) : new();
 
             foreach (var t in trayectos)
             {
-                if (importesCapturas.TryGetValue(t.TrayectoId, out var sumCap) && sumCap > 0m)
+                if (!rendibles.Contains(t.TrayectoId))
                 {
-                    result[t.TrayectoId] = new ImporteResuelto(sumCap, false);
+                    result[t.TrayectoId] = new ImporteResuelto(0m, false, false);
+                }
+                else if (importesCapturas.TryGetValue(t.TrayectoId, out var sumCap) && sumCap > 0m)
+                {
+                    result[t.TrayectoId] = new ImporteResuelto(sumCap, false, true);
                 }
                 else if (EsTi(t.Subarea)
                       && t.LugarOrigenId.HasValue && t.LugarDestinoId.HasValue
-                      && catalogoMap.TryGetValue((t.LugarOrigenId.Value, t.LugarDestinoId.Value), out var montoCat))
+                      && catalogoMap.TryGetValue((t.LugarOrigenId.Value, t.LugarDestinoId.Value), out var montoCat)
+                      && montoCat > 0m)
                 {
-                    result[t.TrayectoId] = new ImporteResuelto(montoCat, true);
+                    result[t.TrayectoId] = new ImporteResuelto(montoCat, true, true);
                 }
                 else
                 {
-                    result[t.TrayectoId] = new ImporteResuelto(0m, false);
+                    // Sin capturas y sin tarifario con monto no hay gasto: el trayecto queda fuera
+                    // de la rendición en vez de imprimirse en S/ 0.00.
+                    result[t.TrayectoId] = new ImporteResuelto(0m, false, false);
                 }
             }
 

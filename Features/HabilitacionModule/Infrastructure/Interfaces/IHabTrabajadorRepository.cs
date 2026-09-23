@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
             string? estadoHabilitacion, string? contratistaCasa,
             int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
             int? areaScopeId = null, bool soloSinLectura = false, bool soloSinCertificado = false, bool soloSinInterconsulta = false,
-            bool soloSinEmoCompleto = false);
+            bool soloSinEmoCompleto = false, int? emoPorVencerDias = null);
 
         Task<List<WorkerEntregableDto>> GetEntregablesWorkerAsync(int workerId);
 
@@ -22,11 +22,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 
         Task CambiarObraAsync(int workerId, WorkerCambiarObraDto dto);
 
-        /// <summary>Reingresa a un trabajador retirado. Si el retiro más reciente fue automático
-        /// (por documentación) y todavía hay ítems con requiere_vigencia sin Aprobar, bloquea con
-        /// 400 salvo que <paramref name="esOverrideAutorizado"/> sea true (Administrador/Coordinador
-        /// SSOMA de Abril — nunca una sesión de contratista).</summary>
-        Task ReingresoAsync(int workerId, WorkerReingresoDto dto, bool esOverrideAutorizado = false);
+        /// <summary>Reingresa a un trabajador retirado, incluso con documentación (SCTR/Vida Ley,
+        /// EMO, etc.) todavía pendiente o vencida — eso ya no bloquea el reingreso. Si no se
+        /// regulariza, RetiroAutomaticoService.EjecutarAsync lo vuelve a retirar.</summary>
+        Task ReingresoAsync(int workerId, WorkerReingresoDto dto);
 
         Task<int?> GetEmpresaActivaWorkerAsync(int workerId);
 

@@ -72,6 +72,16 @@ using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Application.Se
 using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
+using Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.EppFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.HojaRutaContratistaFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.HojaRutaContratistaFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ResiduosFeature.Infrastructure.Repositories;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Features.Ssoma.Penalidad.Services;
@@ -313,6 +323,39 @@ namespace Abril_Backend.Features.Ssoma
             // del Coordinador SSOMA y el Prevencionista, por proyecto.
             services.AddScoped<ICumplimientoRepository, CumplimientoRepository>();
             services.AddScoped<ICumplimientoService, CumplimientoService>();
+
+            // EPP — Catálogo Autorizado (SSOMA + Logística)
+            services.AddScoped<IEppRepository, EppRepository>();
+            services.AddScoped<IEppService, EppService>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Interfaces.IEppPedidoRepository,
+                Abril_Backend.Features.SsomaModule.EppFeature.Infrastructure.Repositories.EppPedidoRepository>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.EppFeature.Application.Interfaces.IEppPedidoService,
+                Abril_Backend.Features.SsomaModule.EppFeature.Application.Services.EppPedidoService>();
+
+            // Hoja de Ruta de Contratista — resumen semanal de cumplimiento para valorización,
+            // agregador de solo lectura sobre Habilitación (trabajador/empresa/equipo), Dossier,
+            // Charlas, RAC y Entregables de accidente. No escribe nada nuevo.
+            services.AddScoped<IHojaRutaService, HojaRutaService>();
+
+            // Gestión de Residuos de Obra — viajes/retiros, catálogos de tipo de residuo y EO-RS,
+            // autorizaciones DME, declaración anual SIGERSOL/DAMRS, constancias mensuales/finales y
+            // documentos de referencia.
+            services.AddScoped<IResiduoTipoRepository, ResiduoTipoRepository>();
+            services.AddScoped<IResiduoTipoService, ResiduoTipoService>();
+            services.AddScoped<IResiduoEoRsRepository, ResiduoEoRsRepository>();
+            services.AddScoped<IResiduoEoRsService, ResiduoEoRsService>();
+            services.AddScoped<IResiduoAutorizacionDmeRepository, ResiduoAutorizacionDmeRepository>();
+            services.AddScoped<IResiduoAutorizacionDmeService, ResiduoAutorizacionDmeService>();
+            services.AddScoped<IResiduoViajeRepository, ResiduoViajeRepository>();
+            services.AddScoped<IResiduoViajeService, ResiduoViajeService>();
+            services.AddScoped<IResiduoDeclaracionRepository, ResiduoDeclaracionRepository>();
+            services.AddScoped<IResiduoDeclaracionService, ResiduoDeclaracionService>();
+            services.AddScoped<IResiduoConstanciaRepository, ResiduoConstanciaRepository>();
+            services.AddScoped<IResiduoConstanciaService, ResiduoConstanciaService>();
+            services.AddScoped<IResiduoConstanciaFinalRepository, ResiduoConstanciaFinalRepository>();
+            services.AddScoped<IResiduoConstanciaFinalService, ResiduoConstanciaFinalService>();
+            services.AddScoped<IResiduoDocumentoReferenciaRepository, ResiduoDocumentoReferenciaRepository>();
+            services.AddScoped<IResiduoDocumentoReferenciaService, ResiduoDocumentoReferenciaService>();
 
             return services;
         }

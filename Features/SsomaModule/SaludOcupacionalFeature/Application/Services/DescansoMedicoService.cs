@@ -7,23 +7,37 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.Shared;
 using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     public class DescansoMedicoService : IDescansoMedicoService
     {
+        // Igual que MiSaludService.EmailAsistentaSocial — correo fijo, no viene de un catálogo.
+        private const string EmailAsistentaSocial = "pquispe@abril.pe";
+        // Fiorella Mendoza Cruz, Coordinadora Administrativa de Obra — no existe un área
+        // "Administración" en area_scope (a diferencia de GTH) para resolverlo por puesto/área,
+        // así que queda fijo aquí hasta que se dé de alta ese catálogo.
+        private const string EmailCoordinadoraAdministracion = "fmendoza@abril.pe";
+
         private readonly IDescansoMedicoRepository _repo;
         private readonly ITrabajadorRestringidoService _restringido;
         private readonly IDescansoCertificadoStorage _certificados;
+        private readonly IEmailService _emailService;
+        private readonly ILogger<DescansoMedicoService> _logger;
 
         public DescansoMedicoService(
             IDescansoMedicoRepository repo,
             ITrabajadorRestringidoService restringido,
-            IDescansoCertificadoStorage certificados)
+            IDescansoCertificadoStorage certificados,
+            IEmailService emailService,
+            ILogger<DescansoMedicoService> logger)
         {
             _repo = repo;
             _restringido = restringido;
             _certificados = certificados;
+            _emailService = emailService;
+            _logger = logger;
         }
 
         public Task<List<DescansoTipoDto>> GetTipos() => _repo.GetTipos();
@@ -96,13 +110,100 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Tipo           = "DESCANSO_MEDICO",
                 }, userId);
             }
+
+            if (descanso != null)
+            {
+                try
+                {
+                    await SendNotificacionResolucionAsync(descanso, "Aprobado", null);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error enviando notificación de aprobación del descanso médico {DescansoId}", id);
+                }
+            }
         }
 
-        public Task Rechazar(int id, DescansoRechazarDto dto, int? userId)
+        public async Task Rechazar(int id, DescansoRechazarDto dto, int? userId)
         {
             if (string.IsNullOrWhiteSpace(dto.MotivoRechazo))
                 throw new AbrilException("El motivo de rechazo es obligatorio.", 400);
-            return _repo.Rechazar(id, dto, userId);
+
+            var descanso = await _repo.GetById(id);
+            await _repo.Rechazar(id, dto, userId);
+
+            if (descanso != null)
+            {
+                try
+                {
+                    await SendNotificacionResolucionAsync(descanso, "Rechazado", dto.MotivoRechazo);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error enviando notificación de rechazo del descanso médico {DescansoId}", id);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Correo al aprobar/rechazar un descanso médico. Destinatarios: quien lo registró
+        /// (app_user.email), la coordinadora de Administración, el área GTH (area_scope.email) y
+        /// la asistenta social. Envío best-effort: si falla, el estado del descanso ya quedó
+        /// guardado, solo se registra el error en el log.
+        /// </summary>
+        private async Task SendNotificacionResolucionAsync(DescansoMedicoDetalleDto descanso, string estado, string? motivoRechazo)
+        {
+            var datos = await _repo.GetDatosNotificacionResolucionAsync(descanso.WorkerId, descanso.RegistradoPorId);
+
+            var destinatarios = new List<string>();
+            void Add(string? email)
+            {
+                if (string.IsNullOrWhiteSpace(email)) return;
+                var e = email.Trim();
+                if (!destinatarios.Any(x => x.Equals(e, StringComparison.OrdinalIgnoreCase)))
+                    destinatarios.Add(e);
+            }
+            Add(datos.RegistradorEmail);
+            Add(EmailCoordinadoraAdministracion);
+            Add(datos.GthEmail);
+            Add(EmailAsistentaSocial);
+
+            if (destinatarios.Count == 0)
+            {
+                _logger.LogWarning(
+                    "No se envió notificación de resolución del descanso médico {DescansoId}: no hay destinatarios con correo.",
+                    descanso.Id);
+                return;
+            }
+
+            var to = new List<string> { destinatarios[0] };
+            var cc = destinatarios.Skip(1).ToList();
+
+            var nombre = datos.WorkerNombre ?? descanso.WorkerNombre ?? "Trabajador";
+            var estadoTexto = estado.ToLowerInvariant();
+
+            var subject = $"Descanso médico {estadoTexto} - {nombre} - {descanso.FechaInicio:dd/MM/yyyy}";
+            var body = $"""
+                <p>El descanso médico de <strong>{nombre}</strong> fue <strong>{estadoTexto}</strong>.</p>
+                <table style="border-collapse:collapse;font-family:Arial;font-size:13px;">
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Trabajador</td><td>{nombre}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">DNI</td><td>{datos.WorkerDni ?? descanso.WorkerDni ?? "—"}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de inicio</td><td>{descanso.FechaInicio:dd/MM/yyyy}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de fin</td><td>{descanso.FechaFin:dd/MM/yyyy}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Días</td><td>{descanso.Dias}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Tipo</td><td>{descanso.Tipo}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Estado</td><td>{estado}</td></tr>
+                  {(string.IsNullOrWhiteSpace(motivoRechazo) ? "" : $"<tr><td style='padding:4px 12px;font-weight:bold;'>Motivo de rechazo</td><td>{motivoRechazo}</td></tr>")}
+                </table>
+                <p style="color:#666;font-size:11px;margin-top:16px;">Sistema SSOMA - Abril</p>
+                """;
+
+            await _emailService.SendAsync(
+                to: to,
+                subject: subject,
+                body: body,
+                isHtml: true,
+                cc: cc.Count > 0 ? cc : null);
         }
 
         public Task AsignarDiagnosticoCie10(int id, string? codigo) => _repo.AsignarDiagnosticoCie10(id, codigo);

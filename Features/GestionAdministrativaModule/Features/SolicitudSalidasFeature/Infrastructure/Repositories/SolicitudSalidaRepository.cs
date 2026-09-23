@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
@@ -43,6 +44,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     RequiereMotivoAdicional = m.RequiereMotivoAdicional,
                     PideHorasLugares        = m.PideHorasLugares,
                     EsReembolsable          = m.EsReembolsable,
+                    EsMotivoLibre           = m.EsMotivoLibre,
                 })
                 .ToListAsync();
 
@@ -174,9 +176,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 {
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
-                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    // Reembolsable lo concede el motivo del catálogo (Configuración → Motivos). El
-                    // motivo libre no tiene el flag y por eso no concede nada.
+                    // "Otro motivo" se muestra con lo que escribió el trabajador, no con la
+                    // descripción de la fila que lo configura.
+                    Motivo       = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
+                    // Reembolsable lo concede el motivo (Configuración → Motivos), incluido
+                    // "Otro motivo": su fila también lleva el flag.
+                    EsMotivoDeCatalogo = m != null,
                     EsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -190,20 +195,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var trayectosBySolicitud = trayectos.GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
 
-            // Trayectos con al menos 1 captura — misma regla de cobertura que Gestión de Salidas.
+            // Lo cargado por trayecto: su existencia decide la COBERTURA (misma regla que Gestión
+            // de Salidas) y su suma, el IMPORTE. Vienen del mismo viaje porque las dos preguntas
+            // se responden abajo, en la misma pasada.
             var trayectoIds = trayectos.Select(t => t.Id).ToList();
-            var trayectosConCapturas = trayectoIds.Count == 0
-                ? new HashSet<int>()
-                : (await ctx.GaSolicitudCaptura
+            var sumaCapturas = trayectoIds.Count == 0
+                ? new Dictionary<int, decimal>()
+                : await ctx.GaSolicitudCaptura
                     .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .Select(c => c.TrayectoId)
-                    .Distinct()
-                    .ToListAsync()).ToHashSet();
+                    .GroupBy(c => c.TrayectoId)
+                    .Select(g => new { TrayectoId = g.Key, Total = g.Sum(x => x.Monto) })
+                    .ToDictionaryAsync(x => x.TrayectoId, x => x.Total);
+            var trayectosConCapturas = sumaCapturas.Keys.ToHashSet();
 
             // Regla relajada para TI: un trayecto también se considera cubierto si su
             // (origen, destino) está en el catálogo ga_trayecto.
             var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
             var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            // Qué trayectos generan reembolso (motivo + par origen-destino excluido). Son los únicos
+            // que se rinden: solo a ellos se les exige captura y solo ellos hacen que la salida
+            // tenga algo que rendir.
+            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
+            var trayectosRendibles = trayectos
+                .Where(t => ReembolsoTrayectoRule.Resolver(
+                    t.EsMotivoDeCatalogo, t.EsReembolsable,
+                    t.LugarOrigenId, t.LugarDestinoId, excluidosReembolso) == true)
+                .Select(t => t.Id)
+                .ToHashSet();
 
             // Capturas opcionales por área (Configuración → Capturas): si el área del trabajador
             // está marcada como opcional, sus salidas se pueden rendir sin subir ninguna captura.
@@ -244,12 +263,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     if (!origenId.HasValue || !destinoId.HasValue) return false;
                     return catalogoMap.ContainsKey((origenId.Value, destinoId.Value));
                 }
+                // Solo se exige sustento de lo que se va a rendir: al trayecto sin reembolso no se
+                // le pide captura porque no entra en la planilla.
                 var puedeRendir = trList.Count > 0
-                    && trList.All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
+                    && trList.Where(t => trayectosRendibles.Contains(t.Id))
+                             .All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
 
-                // Basta un trayecto con motivo reembolsable: una salida mixta sigue generando
-                // gasto de movilidad y tiene algo que rendir.
-                var esReembolsable = trList.Any(t => t.EsReembolsable);
+                // Cuánto rinde un trayecto, con la misma precedencia que la planilla
+                // (ImporteRendidoLoader): mandan las capturas y el tarifario de TI cuenta solo si
+                // el trayecto queda en cero. Se resuelve acá, con lo ya cargado, para no repetir
+                // el viaje que ese loader haría por su cuenta.
+                decimal importeDe(int trayectoId, int? origenId, int? destinoId)
+                {
+                    if (sumaCapturas.TryGetValue(trayectoId, out var suma) && suma > 0m) return suma;
+                    if (esTI && origenId.HasValue && destinoId.HasValue
+                        && catalogoMap.TryGetValue((origenId.Value, destinoId.Value), out var monto))
+                        return monto;
+                    return 0m;
+                }
+
+                // Basta un trayecto que deje gasto: una salida mixta sigue generando movilidad y
+                // tiene algo que rendir (solo ese trayecto). El que resuelve a S/ 0.00 —el
+                // tarifario de TI en cero— no cuenta: no se imprime y no hay qué reembolsar.
+                var esReembolsable = trList.Any(t => trayectosRendibles.Contains(t.Id)
+                                                  && importeDe(t.Id, t.LugarOrigenId, t.LugarDestinoId) > 0m);
 
                 // El plazo se cuenta sobre el mes de la fecha de salida: vencido, la salida ya no
                 // se rinde (pero se sigue viendo, por eso solo apaga la aptitud).
@@ -481,227 +518,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Carga worker + subarea para regla TI ("Tecnología de la Información"). El área sale
-            // del puesto (workers ya no la guarda) y decide si las capturas le son obligatorias.
-            var workerInfo = await ctx.Worker
+            // La ficha del usuario, con el mismo criterio que el listado: el detalle solo existe para
+            // el dueño de la salida. El armado es el compartido del módulo (SalidaDetalleLoader), el
+            // mismo que muestran en consulta las pantallas que revisan la salida.
+            var workerId = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => new
-                {
-                    w.Id,
-                    w.Subarea,
-                    AreaScopeId = w.PuestoCatalogo != null ? w.PuestoCatalogo.AreaDestinoScopeId : null
-                })
+                .Select(w => (int?)w.Id)
                 .FirstOrDefaultAsync();
-            if (workerInfo == null) return null;
+            if (workerId == null) return null;
 
-            var solicitud = await (
-                from s in ctx.GaSolicitudSalida
-                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
-                from r in rGroup.DefaultIfEmpty()
-                where s.Id == solicitudId && s.WorkerId == workerInfo.Id
-                select new
-                {
-                    s.Id, s.Codigo, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
-                    s.CreatedAt, s.MotivoRechazo, s.RendicionId,
-                    Rendicion = r == null ? null : new SolicitudSalidaRendicionDto
-                    {
-                        Id          = r.Id,
-                        PdfUrl      = r.PdfUrl,
-                        PdfFilename = r.PdfFilename,
-                        RendidoAt   = r.RendidoAt,
-                    },
-                    // Tope de movilidad por trayecto. Viaja en esta misma consulta —es un escalar
-                    // de la fila única de config— para no gastar un viaje aparte por un número.
-                    LimiteMovilidad = ctx.GaRendicionConfig
-                        .Where(c => c.State)
-                        .OrderBy(c => c.Id)
-                        .Select(c => (decimal?)c.LimiteDiarioMovilidad)
-                        .FirstOrDefault(),
-                })
-                .FirstOrDefaultAsync();
-            if (solicitud == null) return null;
+            var esSuya = await ctx.GaSolicitudSalida
+                .AnyAsync(s => s.Id == solicitudId && s.WorkerId == workerId.Value);
+            if (!esSuya) return null;
 
-            // Trayectos con su info resuelta. Cargamos LugarOrigenId/LugarDestinoId crudos
-            // para poder hacer el match contra ga_trayecto después.
-            var trayectosRaw = await (
-                from t  in ctx.GaSolicitudTrayecto
-                join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
-                from m  in mGroup.DefaultIfEmpty()
-                join lo in ctx.GaLugar on t.LugarOrigenId equals lo.Id into loGroup
-                from lo in loGroup.DefaultIfEmpty()
-                join po in ctx.Project on lo.ProjectId equals (int?)po.ProjectId into poGroup
-                from po in poGroup.DefaultIfEmpty()
-                join ld in ctx.GaLugar on t.LugarDestinoId equals ld.Id into ldGroup
-                from ld in ldGroup.DefaultIfEmpty()
-                join pd in ctx.Project on ld.ProjectId equals (int?)pd.ProjectId into pdGroup
-                from pd in pdGroup.DefaultIfEmpty()
-                where t.SolicitudId == solicitudId
-                orderby t.Orden
-                select new
-                {
-                    Dto = new TrayectoDetalleDto
-                    {
-                        Id          = t.Id,
-                        Orden       = t.Orden,
-                        HoraSalida  = t.HoraSalida,
-                        HoraRetorno = t.HoraRetorno,
-                        Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                        MotivoAdicional = t.MotivoAdicional,
-                        LugarOrigen = lo == null ? t.LugarOrigenLibre
-                                    : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
-                                    : lo.Nombre,
-                        LugarDestino = ld == null ? t.LugarDestinoLibre
-                                    : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
-                                    : ld.Nombre,
-                    },
-                    t.LugarOrigenId,
-                    t.LugarDestinoId,
-                    // Las dos mitades de la regla de reembolso: el motivo libre (sin fila en el
-                    // catálogo) no tiene el flag, y por eso se distingue del que lo tiene en false.
-                    EsMotivoDeCatalogo   = m != null,
-                    MotivoEsReembolsable = m != null && m.EsReembolsable,
-                    // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
-                    t.AdjuntoUrl,
-                    t.AdjuntoFilename,
-                }
-            ).ToListAsync();
-
-            var trayectosListado = trayectosRaw.Select(x => x.Dto).ToList();
-
-            // Capturas
-            var trayectoIds = trayectosListado.Select(t => t.Id).ToList();
-
-            // Adjuntos (tabla nueva ga_solicitud_trayecto_adjunto, N por trayecto).
-            var adjuntosByTrayecto = new Dictionary<int, List<TrayectoAdjuntoDto>>();
-            if (trayectoIds.Count > 0)
-            {
-                var adjRaw = await ctx.GaSolicitudTrayectoAdjunto
-                    .Where(a => trayectoIds.Contains(a.TrayectoId))
-                    .OrderBy(a => a.UploadedAt).ThenBy(a => a.Id)
-                    .Select(a => new { a.TrayectoId, a.AdjuntoUrl, a.AdjuntoFilename })
-                    .ToListAsync();
-
-                adjuntosByTrayecto = adjRaw.GroupBy(a => a.TrayectoId)
-                    .ToDictionary(
-                        g => g.Key,
-                        g => g.Select(a => new TrayectoAdjuntoDto { Url = a.AdjuntoUrl, Filename = a.AdjuntoFilename }).ToList());
-            }
-
-            // Combinar: adjunto legacy embebido (si existe) + adjuntos de la tabla nueva.
-            foreach (var raw in trayectosRaw)
-            {
-                var lista = new List<TrayectoAdjuntoDto>();
-                if (!string.IsNullOrWhiteSpace(raw.AdjuntoUrl))
-                    lista.Add(new TrayectoAdjuntoDto { Url = raw.AdjuntoUrl, Filename = raw.AdjuntoFilename ?? "Ver documento" });
-                if (adjuntosByTrayecto.TryGetValue(raw.Dto.Id, out var nuevos))
-                    lista.AddRange(nuevos);
-                raw.Dto.Adjuntos = lista;
-            }
-            var capsByTrayecto = new Dictionary<int, List<SolicitudSalidaCapturaDto>>();
-            if (trayectoIds.Count > 0)
-            {
-                var capsRaw = await ctx.GaSolicitudCaptura
-                    .Where(c => trayectoIds.Contains(c.TrayectoId))
-                    .OrderBy(c => c.UploadedAt)
-                    .Select(c => new
-                    {
-                        c.TrayectoId,
-                        Dto = new SolicitudSalidaCapturaDto
-                        {
-                            Id         = c.Id,
-                            ImageUrl   = c.ImageUrl,
-                            Filename   = c.Filename,
-                            Monto      = c.Monto,
-                            UploadedAt = c.UploadedAt,
-                        }
-                    })
-                    .ToListAsync();
-
-                capsByTrayecto = capsRaw.GroupBy(x => x.TrayectoId)
-                    .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
-            }
-
-            // Catálogo de trayectos (solo si TI). Cargamos todo el catálogo activo y mapeamos por (origen, destino).
-            var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
-            var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
-
-            // Excepciones que anulan el reembolso del motivo. Van aparte del catálogo de montos:
-            // ese solo aplica a TI y esta regla es para todos.
-            var excluidosReembolso = await ReembolsoTrayectoRule.CargarExcluidosAsync(ctx);
-
-            foreach (var raw in trayectosRaw)
-            {
-                if (capsByTrayecto.TryGetValue(raw.Dto.Id, out var list))
-                    raw.Dto.Capturas = list;
-
-                raw.Dto.EsReembolsable = ReembolsoTrayectoRule.Resolver(
-                    raw.EsMotivoDeCatalogo, raw.MotivoEsReembolsable,
-                    raw.LugarOrigenId, raw.LugarDestinoId, excluidosReembolso);
-
-                var sumCapturas = raw.Dto.Capturas.Sum(c => c.Monto);
-
-                if (esTI && raw.LugarOrigenId.HasValue && raw.LugarDestinoId.HasValue &&
-                    catalogoMap.TryGetValue((raw.LugarOrigenId.Value, raw.LugarDestinoId.Value), out var montoCat))
-                {
-                    raw.Dto.MontoCatalogo = montoCat;
-                }
-
-                raw.Dto.MontoTotal = sumCapturas > 0
-                    ? sumCapturas
-                    : (raw.Dto.MontoCatalogo ?? 0m);
-            }
-
-            // ── ¿Se puede rendir desde el detalle? ──────────────────────────────────────────
-            // La MISMA definición que la columna de acciones del listado (GetByUserId →
-            // AptaParaRendir): aprobada, no rendida, con todos sus trayectos cubiertos, con motivo
-            // reembolsable y dentro del plazo. Se resuelve acá para que el botón del modal no pueda
-            // discrepar de la fila que lo abrió ni ofrecer algo que RendirYGenerarPlanilla rechace.
-            //
-            // Va en cascada y de lo barato a lo caro: los dos primeros cortes salen de lo que ya
-            // está cargado, así que el detalle de una salida pendiente, rendida o sin motivo
-            // reembolsable —el caso normal— no gasta ni un viaje extra a la base.
-            var aptaParaRendir = false;
-            if (trayectosRaw.Count > 0
-                && solicitud.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
-                && solicitud.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
-                // Basta un trayecto con motivo del catálogo marcado como reembolsable: es la misma
-                // regla que aplica GetIdsNoReembolsables al rendir. El par (origen, destino)
-                // excluido apaga el pill del trayecto, pero no la aptitud de la salida.
-                && trayectosRaw.Any(t => t.MotivoEsReembolsable))
-            {
-                var calendario   = await CalendarioNoLaborable.CargarAsync(ctx);
-                var plazoVencido = MesAnteriorPeru.HoyPeru()
-                                 > calendario.LimiteDeRendicion(solicitud.FechaSalida.Year, solicitud.FechaSalida.Month);
-
-                // Cobertura de los trayectos: captura propia o, para TI, match contra el catálogo
-                // (que es justo lo que dejó puesto MontoCatalogo unas líneas más arriba). El área
-                // con las capturas en OPCIONAL solo se consulta si quedó alguno sin cubrir.
-                var todosCubiertos = trayectosRaw.All(t => t.Dto.Capturas.Count > 0 || t.Dto.MontoCatalogo != null);
-
-                aptaParaRendir = !plazoVencido
-                    && (todosCubiertos
-                        || await CapturasObligatoriasLoader.SonOpcionalesAsync(ctx, workerInfo.AreaScopeId));
-            }
-
-            return new SolicitudSalidaDetalleDto
-            {
-                Id               = solicitud.Id,
-                Codigo           = solicitud.Codigo,
-                FechaSalida      = solicitud.FechaSalida,
-                EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(solicitud.EstadoAprobacionId),
-                EstadoRendicion  = EstadosSalida.Rendicion.Nombre(solicitud.EstadoRendicionId),
-                CreatedAt        = solicitud.CreatedAt,
-                MotivoRechazo    = solicitud.MotivoRechazo,
-                Rendicion        = solicitud.Rendicion,
-                // Tope de CADA trayecto. Ya no hace falta mirar las otras salidas del día: lo que
-                // un día no aguanta se reparte al imprimir la planilla, no se corta acá.
-                LimiteMovilidadTrayecto = TopeMovilidad.Acotar(solicitud.LimiteMovilidad),
-                AptaParaRendir   = aptaParaRendir,
-                ConsolidadoS10   = (await ConsolidadoS10Loader.LoadAsync(
-                                        ctx, new Dictionary<int, int?> { [solicitud.Id] = solicitud.RendicionId }))
-                                    .GetValueOrDefault(solicitud.Id),
-                Trayectos        = trayectosListado,
-            };
+            return await SalidaDetalleLoader.LoadAsync(ctx, solicitudId, conAptitudParaRendir: true);
         }
 
         public async Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId)

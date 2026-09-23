@@ -8,9 +8,11 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
 {
     /// <summary>
-    /// "Mis Rendiciones": las planillas propias y todo lo que va después de rendir (Consolidado del
-    /// S10, aviso al revisor, seguimiento del reembolso). Todos los endpoints están acotados al
-    /// trabajador del usuario autenticado — no hay forma de pedir la planilla de otro.
+    /// "Mis Rendiciones": las planillas propias, su primera revisión y el seguimiento de su
+    /// reembolso. El trabajador solo envía la planilla a revisión y la subsana si vuelve observada:
+    /// el Consolidado del S10, el aviso a la jefatura y la corrección con el ERP son del
+    /// consolidador. Todos los endpoints están acotados al trabajador del usuario autenticado — no
+    /// hay forma de pedir la planilla de otro.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/rendiciones")]
@@ -129,9 +131,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
         }
 
         /// <summary>
-        /// Vuelve a generar el PDF de una planilla observada en primera revisión y lo descarga. La
-        /// rendición conserva su código REN-AAAA-NNNN y su número de planilla, y queda lista para
-        /// reenviar a revisión.
+        /// Vuelve a generar el PDF de una planilla observada en primera revisión y la reenvía en el
+        /// acto a la primera revisión (con los dos correos del paso). La rendición conserva su
+        /// código REN-AAAA-NNNN y su número de planilla.
+        ///
+        /// No devuelve el archivo: el PDF nuevo queda guardado y la planilla ya apunta a él, así
+        /// que la pantalla lo abre con su botón «Planilla». Solo responde cómo salió el reenvío.
         /// </summary>
         [HttpPatch("{id:int}/regenerar-planilla")]
         public async Task<IActionResult> RegenerarPlanilla(int id)
@@ -141,10 +146,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
 
-                var pdf = await _service.RegenerarPlanilla(id, userId.Value);
-
-                Response.Headers.Append("Access-Control-Expose-Headers", "Content-Disposition");
-                return File(pdf, "application/pdf", $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf");
+                var resultado = await _service.RegenerarPlanilla(id, userId.Value);
+                return Ok(new { resultado.Message, resultado.EnviadaARevision });
             }
             catch (AbrilException ex)
             {
@@ -153,90 +156,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en RendicionController.RegenerarPlanilla");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Adjunta (o reemplaza) el PDF Consolidado del S10 de una planilla propia. El archivo
-        /// cubre la planilla entera: el consolidado ya no se asocia a una salida suelta.
-        /// </summary>
-        [HttpPost("{id:int}/consolidado-s10")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(25 * 1024 * 1024)]
-        public async Task<IActionResult> UploadConsolidadoS10(
-            int id,
-            [FromForm] IFormFile file,
-            // El monto viaja como texto y se parsea acá con InvariantCulture, igual que los montos
-            // de las capturas: el binder de formularios usa la cultura del servidor y un "50.00"
-            // se leería distinto según dónde corra.
-            [FromForm] string montoTotal,
-            [FromForm] string numeroReembolso)
-        {
-            try
-            {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-
-                if (!decimal.TryParse(montoTotal, System.Globalization.NumberStyles.Number,
-                                      System.Globalization.CultureInfo.InvariantCulture, out var monto))
-                    return BadRequest(new { message = $"Monto total inválido: '{montoTotal}'." });
-
-                return Ok(await _service.UploadConsolidadoS10(id, file, monto, numeroReembolso, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en RendicionController.UploadConsolidadoS10");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /// <summary>
-        /// Le pide al Coordinador ERP que corrija el Consolidado del S10 (§10.5 / RG-21). Es el
-        /// camino alternativo a recargar el consolidado cuando el arreglo tiene que hacerse dentro
-        /// del S10. El motivo es obligatorio (CA-17) y viaja en el cuerpo.
-        /// </summary>
-        [HttpPost("{id:int}/correccion-s10")]
-        public async Task<IActionResult> SolicitarCorreccionS10(
-            int id, [FromBody] SolicitarCorreccionS10Dto dto)
-        {
-            try
-            {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.SolicitarCorreccionS10(id, dto?.Motivo ?? string.Empty, userId.Value));
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en RendicionController.SolicitarCorreccionS10");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [HttpPatch("{id:int}/notificar-revisor")]
-        public async Task<IActionResult> NotificarRevisor(int id)
-        {
-            try
-            {
-                var userId = CurrentUserId;
-                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(new { message = await _service.NotificarRevisor(id, userId.Value) });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en RendicionController.NotificarRevisor");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

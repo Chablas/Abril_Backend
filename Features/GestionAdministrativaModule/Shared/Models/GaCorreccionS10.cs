@@ -89,13 +89,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string? ComentarioAtencion { get; set; }
 
         /// <summary>
-        /// True cuando el ERP anuló el registro del S10 en vez de corregirlo: el trabajador tiene
-        /// que generar un número de reembolso NUEVO y el anterior queda inservible (HU-ERP-03 / CA-19). Con esto
-        /// en true, volver a adjuntar el consolidado con el mismo número de reembolso se rechaza.
-        /// </summary>
-        public bool NumeroReembolsoAnulado { get; set; }
-
-        /// <summary>
         /// Soft delete. Pasa a false cuando el trabajador recarga el Consolidado del S10: la
         /// gestión terminó y la planilla queda libre para pedir otra corrección si la jefatura
         /// vuelve a observar. La fila se conserva para la auditoría del ciclo (RF-TRZ-08/09).

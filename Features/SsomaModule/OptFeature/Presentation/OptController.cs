@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Shared.Filters;
@@ -14,11 +15,13 @@ namespace Abril_Backend.Features.SsomaModule.OptFeature.Presentation;
 public class OptController : ControllerBase
 {
     private readonly IOptService _service;
+    private readonly IWorkerSearchService _workerSearchService;
     private readonly ILogger<OptController> _logger;
 
-    public OptController(IOptService service, ILogger<OptController> logger)
+    public OptController(IOptService service, IWorkerSearchService workerSearchService, ILogger<OptController> logger)
     {
         _service = service;
+        _workerSearchService = workerSearchService;
         _logger  = logger;
     }
 
@@ -99,8 +102,19 @@ public class OptController : ControllerBase
         {
             var detalle = await _service.GetDetalleAsync(id);
             var empresaId = GetEmpresaIdContratista();
-            if (empresaId.HasValue && !detalle.Trabajadores.Any(t => t.EmpresaId == empresaId.Value))
-                return Forbid();
+            if (empresaId.HasValue)
+            {
+                // Contratista: puede ver la OPT si observó a algún trabajador de su propia
+                // empresa, o si él mismo es el observador (dueño del borrador). Este segundo
+                // caso es necesario porque "Continuar llenando" un borrador propio entra acá
+                // antes de que exista ningún trabajador registrado (paso 4 recién se llena al
+                // final) — sin él, un contratista quedaba bloqueado para retomar su propia OPT
+                // en cuanto todavía no había agregado trabajadores.
+                var esPropioObservador = detalle.ObservadorId.HasValue
+                    && (await _workerSearchService.GetByUserId(GetUserId(), esContratista: true))?.Id == detalle.ObservadorId.Value;
+                if (!esPropioObservador && !detalle.Trabajadores.Any(t => t.EmpresaId == empresaId.Value))
+                    return Forbid();
+            }
             return Ok(detalle);
         }
         catch (KeyNotFoundException)

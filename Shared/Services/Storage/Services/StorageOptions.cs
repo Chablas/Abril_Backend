@@ -17,12 +17,16 @@ namespace Abril_Backend.Infrastructure.Services
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
         public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string ProjectLogoContainer { get; set; } = "project-logos";
         public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
         public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
         public string TareosContainer { get; set; } = "tareos";
+        public string EppImagenesContainer { get; set; } = "epp-imagenes";
+        public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
+        public string ResiduosContainer { get; set; } = "residuos";
     }
 
     public class LocalStorageOptions
@@ -34,11 +38,15 @@ namespace Abril_Backend.Infrastructure.Services
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
         public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string ProjectLogoContainer { get; set; } = "project-logos";
         public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
         public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
         public string InvoicesContainer { get; set; } = "facturas";
         public string ActasReunionContainer { get; set; } = "actas-reunion";
         public string TareosContainer { get; set; } = "tareos";
+        public string EppImagenesContainer { get; set; } = "epp-imagenes";
+        public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
+        public string ResiduosContainer { get; set; } = "residuos";
     }
 }

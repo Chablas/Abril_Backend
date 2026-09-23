@@ -13,7 +13,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
     /// <summary>
     /// La bandeja de Tesorería. A diferencia de las otras pantallas de salidas no hay recorte por
     /// área: Tesorería paga a toda la organización, y su recorte es por ESTADO — lo que la
-    /// jefatura ya firmó, lo que ella misma confirmó y lo que ya pagó.
+    /// jefatura ya firmó, lo que ella misma confirmó, lo que ya pagó y lo que ella misma devolvió.
+    ///
+    /// La fila NO se arma desde la planilla sino desde la SALIDA: el consolidado de cada una se
+    /// resuelve con la precedencia de <see cref="ConsolidadoS10Loader"/> (el propio de la salida si
+    /// lo tiene —solo en registros antiguos—, y si no el de su planilla) y después se agrupan las
+    /// salidas por documento. Es el mismo armado de la pantalla Consolidados, que es donde la
+    /// jefatura decide sobre ese mismo documento: lo que se firma y lo que se paga tienen que ser
+    /// la misma unidad o el importe del S10 no cuadra nunca con la fila.
     /// </summary>
     public class ReembolsoRepository : IReembolsoRepository
     {
@@ -25,84 +32,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         {
             using var ctx = _factory.CreateDbContext();
 
-            var planillas = await PlanillaRendicionLoader.LoadAsync(ctx, SalidasDeTesoreria(ctx, filters));
-            if (planillas.Count == 0) return new();
-
-            // Los nombres de todos los usuarios que firmaron, confirmaron o pagaron, de una vez:
-            // resolverlos planilla por planilla sería un N+1 sobre la tabla más chica del flujo.
-            var nombres = await NombresDeUsuariosAsync(ctx, planillas);
-            var items = planillas.Select(p => Armar(p, nombres)).ToList();
-
-            if (filters.PeriodoAnio.HasValue && filters.PeriodoMes.HasValue)
-                items = items
-                    .Where(x => x.PeriodoAnio == filters.PeriodoAnio.Value
-                             && x.PeriodoMes  == filters.PeriodoMes.Value)
-                    .ToList();
-
-            // El texto se filtra acá, sobre las filas ya armadas, porque busca contra cosas que no
-            // son columnas: el número de planilla formateado, los nombres agrupados y el número de reembolso del
-            // consolidado. Va antes de que el servicio cuente las tarjetas, así la tabla y los
-            // números del encabezado siempre hablan del mismo conjunto.
-            var texto = filters.Texto?.Trim();
-            if (!string.IsNullOrEmpty(texto))
-                items = items.Where(x => Coincide(x, texto)).ToList();
-
-            return items;
+            var armado = await ArmarAsync(ctx, SalidasDeTesoreria(ctx, filters));
+            return Filtrar(armado.Items, filters);
         }
 
-        /// <summary>Busca el texto en lo que la fila muestra: planilla, código, gente, reembolso y periodo.</summary>
-        private static bool Coincide(ReembolsoListItemDto x, string texto)
-        {
-            bool Tiene(string? valor) =>
-                !string.IsNullOrEmpty(valor)
-                && valor.Contains(texto, StringComparison.OrdinalIgnoreCase);
-
-            return Tiene(x.NumeroPlanilla)
-                || Tiene(x.Codigo)
-                || Tiene(x.Periodo)
-                || Tiene(x.ConsolidadoS10?.NumeroReembolso)
-                || x.Trabajadores.Any(Tiene);
-        }
-
-        public async Task<ReembolsoDetalleDto?> GetDetalle(int rendicionId)
+        public async Task<ReembolsoDetalleDto?> GetDetalle(int consolidadoId)
         {
             using var ctx = _factory.CreateDbContext();
 
+            var rendicionIds = await RendicionesCubiertasAsync(ctx, consolidadoId);
+            if (rendicionIds.Count == 0) return null;
+
             var query = SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
-                .Where(s => s.RendicionId == rendicionId);
+                .Where(s => s.RendicionId != null && rendicionIds.Contains(s.RendicionId!.Value));
 
-            var planillas = await PlanillaRendicionLoader.LoadAsync(ctx, query, conDetalle: true);
-            if (planillas.Count == 0) return null;
+            var armado = await ArmarAsync(ctx, query, conDetalle: true);
 
-            var planilla = planillas[0];
-            var nombres  = await NombresDeUsuariosAsync(ctx, planillas);
-            var cabecera = Armar(planilla, nombres);
-            var detalle  = new ReembolsoDetalleDto();
+            var cabecera = armado.Items.FirstOrDefault(x => x.Id == consolidadoId);
+            if (cabecera == null) return null;
+
+            var detalle = new ReembolsoDetalleDto();
             CopiarCabecera(cabecera, detalle);
-
-            // Los trayectos con sus vouchers: es lo que Tesorería revisa antes de confirmar (RF-TES-05).
-            var trayectosPorSalida = await CargarTrayectosAsync(
-                ctx, planilla.Salidas.Select(s => s.Id).ToList());
-
-            detalle.Salidas = planilla.Salidas
-                .Select(s => new ReembolsoSalidaDto
-                {
-                    Id              = s.Id,
-                    Codigo          = s.Codigo,
-                    Trabajador      = s.Trabajador,
-                    Area            = s.Area,
-                    FechaSalida     = s.FechaSalida,
-                    Motivo          = s.Motivo,
-                    LugarOrigen     = s.LugarOrigen,
-                    LugarDestino    = s.LugarDestino,
-                    TrayectosCount  = s.TrayectosCount,
-                    Monto           = s.Monto,
-                    EstadoReembolso = s.EstadoReembolso,
-                    Trayectos       = trayectosPorSalida.TryGetValue(s.Id, out var t) ? t : new(),
-                })
-                .ToList();
-
+            detalle.Salidas = armado.Salidas.TryGetValue(consolidadoId, out var salidas)
+                ? salidas
+                : new List<ReembolsoSalidaDto>();
             return detalle;
+        }
+
+        public async Task<SolicitudSalidaDetalleDto?> GetSalidaDetalle(int solicitudId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Solo una salida de la bandeja: mandar un id cualquiera no abre una salida que todavía no
+            // llegó a Tesorería.
+            var enBandeja = await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
+                .AnyAsync(s => s.Id == solicitudId);
+            if (!enBandeja) return null;
+
+            return await SalidaDetalleLoader.LoadAsync(ctx, solicitudId, conAptitudParaRendir: false);
+        }
+
+        public async Task<List<ConsolidadoCorreoDatos>> GetConsolidadoCorreoDatos(IReadOnlyCollection<int> solicitudIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ConsolidadoCorreoLoader.LoadAsync(ctx, solicitudIds);
         }
 
         public async Task<ReembolsoFilterDataDto> GetFilterData()
@@ -147,12 +120,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 }
             ).ToListAsync();
 
-            var fechas = await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
-                .Select(s => new { RendicionId = s.RendicionId!.Value, s.FechaSalida })
+            // El periodo de un consolidado es el mes de su salida más antigua — el mismo criterio
+            // que la tabla, si no el filtro dejaría fuera consolidados que sí muestra. Se agrupa
+            // por documento (y no por planilla) porque uno puede cubrir varias.
+            var salidas = await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
+                .Select(s => new { s.Id, s.RendicionId, s.FechaSalida })
                 .ToListAsync();
 
-            var periodos = fechas
-                .GroupBy(x => x.RendicionId)
+            var consolidados = await ConsolidadoS10Loader.LoadAsync(
+                ctx, salidas.ToDictionary(x => x.Id, x => x.RendicionId));
+
+            var periodos = salidas
+                .Where(x => consolidados.ContainsKey(x.Id))
+                .GroupBy(x => consolidados[x.Id].Id)
                 .Select(g => g.Min(x => x.FechaSalida))
                 .Select(f => (f.Year, f.Month))
                 .Distinct()
@@ -173,24 +153,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             };
         }
 
-        public Task<List<int>> ResolverSolicitudIds(
-            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int estadoId) =>
-            ResolverSolicitudIds(rendicionIds, solicitudIds, new[] { estadoId });
+        public Task<List<int>> ResolverSolicitudIds(IEnumerable<int> consolidadoIds, int estadoId) =>
+            ResolverSolicitudIds(consolidadoIds, new[] { estadoId });
 
-        public async Task<List<int>> ResolverSolicitudIds(
-            IEnumerable<int> rendicionIds, IEnumerable<int> solicitudIds, int[] estadoIds)
+        public async Task<List<int>> ResolverSolicitudIds(IEnumerable<int> consolidadoIds, int[] estadoIds)
         {
-            var rIds = rendicionIds?.Distinct().ToList() ?? new List<int>();
-            var sIds = solicitudIds?.Distinct().ToList() ?? new List<int>();
-            if (rIds.Count == 0 && sIds.Count == 0) return new();
+            var ids = consolidadoIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return new();
 
             using var ctx = _factory.CreateDbContext();
 
-            return await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
-                .Where(s => estadoIds.Contains(s.EstadoReembolsoId))
-                .Where(s => rIds.Contains(s.RendicionId!.Value) || sIds.Contains(s.Id))
-                .Select(s => s.Id)
+            // Las planillas que cubren esos consolidados y, de ellas, solo las salidas que están en
+            // la bandeja y en el estado que la acción admite: la selección viene de una pantalla
+            // que pudo quedar desactualizada.
+            var rendicionIds = await ctx.GaConsolidadoS10Rendicion
+                .Where(v => v.State && ids.Contains(v.ConsolidadoS10Id))
+                .Select(v => v.RendicionId)
+                .Distinct()
                 .ToListAsync();
+
+            var candidatas = await SalidasDeTesoreria(ctx, new ReembolsoFiltersDto())
+                .Where(s => estadoIds.Contains(s.EstadoReembolsoId))
+                .Where(s => s.RendicionId != null
+                         && (rendicionIds.Contains(s.RendicionId!.Value)
+                          || ctx.GaConsolidadoS10.Any(
+                                 c => c.State && c.SolicitudId == s.Id && ids.Contains(c.Id))))
+                .Select(s => new { s.Id, s.RendicionId })
+                .ToListAsync();
+
+            if (candidatas.Count == 0) return new();
+
+            // Y se descartan las salidas de esas planillas cuyo consolidado vigente es OTRO (pasa
+            // solo con los registros antiguos): el documento sobre el que se actúa es el elegido.
+            var consolidados = await ConsolidadoS10Loader.LoadAsync(
+                ctx, candidatas.ToDictionary(x => x.Id, x => x.RendicionId));
+
+            return candidatas
+                .Where(x => consolidados.TryGetValue(x.Id, out var c) && ids.Contains(c.Id))
+                .Select(x => x.Id)
+                .ToList();
         }
 
         public async Task<List<int>> ConfirmarRevision(IEnumerable<int> ids, int tesoreroUserId) =>
@@ -219,8 +220,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         /// tocarse. Lo único que distingue las dos es el ORIGEN.
         ///
         /// La confirmación de la revisión se borra: lo que Tesorería revisó dejó de ser válido, y
-        /// cuando la planilla vuelva firmada de nuevo tiene que volver a confirmarse. El rastro del
-        /// pago no se toca porque una salida pagada nunca llega acá.
+        /// cuando el consolidado vuelva firmado de nuevo tiene que volver a confirmarse. El rastro
+        /// del pago no se toca porque una salida pagada nunca llega acá.
         /// </summary>
         public async Task<List<int>> Observar(IEnumerable<int> ids, string observacion, int tesoreroUserId)
         {
@@ -329,7 +330,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                         Periodo         = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                         SalidasCount    = g.Count(),
                         MontoTotal      = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
-                        NumeroReembolso      = consolidado?.NumeroReembolso,
+                        NumeroReembolso = consolidado?.NumeroReembolso,
                         PagadoPor       = pagadoPorId.HasValue && nombresUsuario.TryGetValue(pagadoPorId.Value, out var n)
                                             ? n : null,
                     };
@@ -341,16 +342,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         {
             using var ctx = _factory.CreateDbContext();
 
-            // El seguimiento es de PAGOS: el estado no se toma del filtro de la bandeja.
-            var soloPagadas = new ReembolsoFiltersDto
+            // El seguimiento es de PAGOS: el estado no sale del filtro de la bandeja sino que se
+            // fija acá. Va explícito porque SalidasDeTesoreria ya no recorta por estado —la
+            // bandeja lo hace sobre la fila armada— y sin esto el histórico traería todo.
+            var alcance = new ReembolsoFiltersDto
             {
                 WorkerId           = filters.WorkerId,
                 FilterAreaScopeIds = filters.FilterAreaScopeIds,
-                EstadoReembolso    = EstadosSalida.Reembolso.NombrePagado,
             };
 
             var filas = await (
-                from s   in SalidasDeTesoreria(ctx, soloPagadas)
+                from s   in SalidasDeTesoreria(ctx, alcance)
+                             .Where(x => x.EstadoReembolsoId == EstadosSalida.Reembolso.Pagado)
                 join w   in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
                 from per in perGroup.DefaultIfEmpty()
@@ -405,7 +408,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                                 Periodo           = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                                 PeriodoAnio       = desde.Year,
                                 PeriodoMes        = desde.Month,
-                                NumeroReembolso        = consolidado?.NumeroReembolso,
+                                NumeroReembolso   = consolidado?.NumeroReembolso,
                                 SalidasCount      = g.Count(),
                                 MontoAbonado      = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
                                 ActualizadoAt     = g.Max(x => x.PagadoAt),
@@ -476,22 +479,332 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             };
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
+        // ── Armado de las filas ──────────────────────────────────────────────
 
         /// <summary>
-        /// El universo de Tesorería: salidas rendidas cuyo reembolso ya está Firmado, confirmado
-        /// para pago o Pagado. El filtro de estado del desplegable solo puede recortar ESE
-        /// conjunto, nunca ampliarlo.
+        /// Lo que devuelve <see cref="ArmarAsync"/>: las filas y, si se pidió con detalle, las
+        /// salidas de cada consolidado. Van juntas porque ya se recorrieron para armar la cabecera:
+        /// devolverlas aparte obligaría a volver a la base por lo mismo.
         /// </summary>
+        private sealed record Armado(
+            List<ReembolsoListItemDto> Items,
+            Dictionary<int, List<ReembolsoSalidaDto>> Salidas);
+
+        private static async Task<Armado> ArmarAsync(
+            AppDbContext ctx,
+            IQueryable<GaSolicitudSalida> salidasDeTesoreria,
+            bool conDetalle = false)
+        {
+            var vacio = new Armado(new(), new());
+
+            var planillas = await PlanillaRendicionLoader.LoadAsync(ctx, salidasDeTesoreria, conDetalle);
+            if (planillas.Count == 0) return vacio;
+
+            // Consolidado de cada salida, con la precedencia del módulo. Una salida sin consolidado
+            // no puede estar acá —firmar el reembolso ES firmar su consolidado—, pero si alguna
+            // quedara suelta se ignora en vez de inventarle una fila sin documento que revisar.
+            var rendicionPorSolicitud = planillas
+                .SelectMany(p => p.Salidas.Select(s => (SolicitudId: s.Id, RendicionId: (int?)p.Id)))
+                .ToDictionary(x => x.SolicitudId, x => x.RendicionId);
+
+            var consolidadoPorSolicitud = await ConsolidadoS10Loader.LoadAsync(ctx, rendicionPorSolicitud);
+            if (consolidadoPorSolicitud.Count == 0) return vacio;
+
+            // Un grupo por documento: sus planillas en la bandeja y, dentro de cada una, las salidas
+            // que ese documento cubre (en los consolidados por salida es solo una de ellas).
+            var grupos = new Dictionary<int, List<(PlanillaRendicionLoader.PlanillaFila Planilla,
+                                                  List<PlanillaRendicionLoader.SalidaFila> Salidas)>>();
+            var dtoPorConsolidado = new Dictionary<int, ConsolidadoS10Dto>();
+
+            foreach (var planilla in planillas)
+            {
+                foreach (var grupo in planilla.Salidas
+                             .Where(s => consolidadoPorSolicitud.ContainsKey(s.Id))
+                             .GroupBy(s => consolidadoPorSolicitud[s.Id].Id))
+                {
+                    dtoPorConsolidado[grupo.Key] = consolidadoPorSolicitud[grupo.First().Id];
+
+                    if (!grupos.TryGetValue(grupo.Key, out var lista))
+                        grupos[grupo.Key] = lista = new();
+
+                    lista.Add((planilla, grupo.ToList()));
+                }
+            }
+
+            if (grupos.Count == 0) return vacio;
+
+            // Lo que hay que resolver mirando el documento entero y no solo lo que llegó a la
+            // bandeja: las planillas que cubre y todavía esperan a su jefatura, con su monto
+            // completo, para que el importe declarado en el S10 se pueda contrastar.
+            var cubiertas = dtoPorConsolidado.Values
+                .SelectMany(c => c.Rendiciones.Select(r => r.Id))
+                .Concat(grupos.SelectMany(g => g.Value.Select(x => x.Planilla.Id)))
+                .Distinct()
+                .ToList();
+
+            var enBandeja     = planillas.ToDictionary(p => p.Id);
+            var totalesFuera  = await TotalPlanillaLoader.LoadAsync(
+                ctx, cubiertas.Where(id => !enBandeja.ContainsKey(id)).ToList());
+
+            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador, no la de
+            // los trabajadores, que pueden ser de varias.
+            var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
+            var razones   = await RazonSocialConsolidador.LoadPorUsuarioAsync(
+                ctx, subidoPor.Values.Select(x => x.UserId).Distinct().ToList());
+
+            // Los nombres de todos los usuarios que firmaron, observaron, confirmaron o pagaron, de
+            // una vez: resolverlos fila por fila sería un N+1 sobre la tabla más chica del flujo.
+            var nombres = await NombresDeUsuariosAsync(ctx, planillas);
+
+            decimal MontoCompletoDe(int rendicionId) => enBandeja.TryGetValue(rendicionId, out var fila)
+                ? fila.MontoTotalPlanilla
+                : totalesFuera.GetValueOrDefault(rendicionId);
+
+            string? NombreDe(int? userId) =>
+                userId.HasValue && nombres.TryGetValue(userId.Value, out var n) ? n : null;
+
+            var salidasDelDetalle = new Dictionary<int, List<ReembolsoSalidaDto>>();
+            var items = new List<ReembolsoListItemDto>(grupos.Count);
+
+            foreach (var (consolidadoId, lista) in grupos)
+            {
+                var dto     = dtoPorConsolidado[consolidadoId];
+                var salidas = lista.SelectMany(x => x.Salidas).ToList();
+
+                // Los códigos del documento salen de sus vínculos vigentes; un consolidado por
+                // salida no tiene ninguno, así que su única planilla es la de esa salida.
+                var codigoCubierta = dto.Rendiciones.ToDictionary(r => r.Id, r => r.Codigo);
+                foreach (var (planilla, _) in lista) codigoCubierta.TryAdd(planilla.Id, planilla.Codigo);
+
+                var rendiciones = codigoCubierta
+                    .Select(kv =>
+                    {
+                        var deLaBandeja = lista.FirstOrDefault(x => x.Planilla.Id == kv.Key);
+                        if (deLaBandeja.Planilla == null)
+                        {
+                            return new ReembolsoPlanillaDto
+                            {
+                                Id                 = kv.Key,
+                                Codigo             = kv.Value,
+                                EnBandeja          = false,
+                                MontoTotalPlanilla = MontoCompletoDe(kv.Key),
+                            };
+                        }
+
+                        var p     = deLaBandeja.Planilla;
+                        var suyas = deLaBandeja.Salidas;
+                        return new ReembolsoPlanillaDto
+                        {
+                            Id                 = p.Id,
+                            Codigo             = p.Codigo,
+                            EnBandeja          = true,
+                            MontoTotalPlanilla = p.MontoTotalPlanilla,
+                            NumeroPlanilla     = p.NumeroPlanilla,
+                            Periodo            = PlanillaRendicionHelper.EtiquetaPeriodo(
+                                                     suyas.Min(s => s.FechaSalida),
+                                                     suyas.Max(s => s.FechaSalida)),
+                            Trabajadores       = suyas.Select(s => s.Trabajador).Distinct().ToList(),
+                            SalidasCount       = suyas.Count,
+                            Monto              = suyas.Sum(s => s.Monto),
+                            EstadoReembolso    = PlanillaRendicionHelper.ResumirEstadoReembolso(
+                                                     suyas.Select(s => s.EstadoReembolsoId)),
+                            PdfUrl             = p.PdfUrl,
+                            PdfFilename        = p.PdfFilename,
+                            PdfFirmadoUrl      = p.PdfFirmadoUrl,
+                            PdfFirmadoFilename = p.PdfFirmadoFilename,
+                            FirmadoAt          = p.FirmadoAt,
+                            FirmadoPor         = NombreDe(p.FirmadoPorId),
+                        };
+                    })
+                    .OrderBy(r => r.Codigo, StringComparer.Ordinal)
+                    .ToList();
+
+                var desde = salidas.Min(s => s.FechaSalida);
+                var hasta = salidas.Max(s => s.FechaSalida);
+
+                // La observación vigente y quién la escribió salen de la MISMA salida: un
+                // consolidado devuelto no puede mostrar el motivo de una y la fecha de otra.
+                var observada = salidas
+                    .Where(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                             && !string.IsNullOrWhiteSpace(s.ObservacionReembolso))
+                    .OrderByDescending(s => s.ReembolsoDecididoAt)
+                    .FirstOrDefault();
+
+                // El rastro de Tesorería es por salida, pero la fila es por documento: se toma el
+                // más reciente, que es el que responde "¿cuándo se movió esto por última vez?".
+                var revisionAt  = salidas.Max(s => s.RevisionTesoreriaAt);
+                var pagadoAt    = salidas.Max(s => s.PagadoAt);
+                var revisionPor = salidas.OrderByDescending(s => s.RevisionTesoreriaAt)
+                                         .Select(s => s.RevisionTesoreriaPorId).FirstOrDefault(x => x.HasValue);
+                var pagadoPor   = salidas.OrderByDescending(s => s.PagadoAt)
+                                         .Select(s => s.PagadoPorId).FirstOrDefault(x => x.HasValue);
+
+                subidoPor.TryGetValue(dto.Id, out var quienSubio);
+                var razon = quienSubio.UserId > 0 ? razones.GetValueOrDefault(quienSubio.UserId) : null;
+
+                items.Add(new ReembolsoListItemDto
+                {
+                    Id              = dto.Id,
+                    Codigo          = dto.Codigo,
+                    NumeroReembolso = dto.NumeroReembolso,
+                    PlanillaGrupalUrl      = dto.PlanillaGrupalUrl,
+                    PlanillaGrupalFilename = dto.PlanillaGrupalFilename,
+                    PlanillaGrupalFirmadoUrl      = dto.PlanillaGrupalFirmadoUrl,
+                    PlanillaGrupalFirmadoFilename = dto.PlanillaGrupalFirmadoFilename,
+                    MontoS10        = dto.MontoTotal,
+                    MontoPlanillas  = rendiciones.Sum(r => r.MontoTotalPlanilla),
+                    MontoTotal      = salidas.Sum(s => s.Monto),
+
+                    PdfUrl             = dto.PdfUrl,
+                    PdfFilename        = dto.PdfFilename,
+                    PdfFirmadoUrl      = dto.PdfFirmadoUrl,
+                    PdfFirmadoFilename = dto.PdfFirmadoFilename,
+                    FirmadoAt          = dto.FirmadoAt,
+                    UploadedAt         = dto.UploadedAt,
+                    SubidoPor          = quienSubio.Nombre,
+                    RazonSocial        = razon?.Nombre,
+
+                    Rendiciones  = rendiciones,
+                    Trabajadores = salidas.Select(s => s.Trabajador).Distinct().ToList(),
+                    SalidasCount = salidas.Count,
+
+                    Periodo     = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
+                    PeriodoAnio = desde.Year,
+                    PeriodoMes  = desde.Month,
+
+                    // Un consolidado compartido lo firman los jefes de cada planilla: la evidencia
+                    // que Tesorería revisa son todas esas firmas, no una sola.
+                    // Se agrupa por firmante y no se exige el nombre: si no se pudo resolver, la
+                    // firma igual existe y esconderla dejaría a Tesorería sin la evidencia que
+                    // tiene que mirar (la pantalla la rotula "Jefatura").
+                    Firmas = rendiciones
+                        .Where(r => r.FirmadoAt != null)
+                        .GroupBy(r => r.FirmadoPor ?? string.Empty)
+                        .Select(g => new FirmaJefaturaDto
+                        {
+                            Nombre    = g.Key,
+                            FirmadoAt = g.Max(r => r.FirmadoAt),
+                        })
+                        .OrderBy(f => f.FirmadoAt)
+                        .ToList(),
+
+                    EstadoReembolso = PlanillaRendicionHelper.ResumirEstadoReembolso(
+                                          salidas.Select(s => s.EstadoReembolsoId)),
+                    ReembolsoMixto  = salidas.Select(s => s.EstadoReembolsoId).Distinct().Count() > 1,
+
+                    PorConfirmarCount = salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Firmado),
+                    PorPagarCount     = salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.PorPagar),
+                    // Solo las que devolvió TESORERÍA: es lo único que la consulta trae observado,
+                    // pero se repite acá porque este conteo decide si la fila se puede seleccionar.
+                    ObservadasCount   = salidas.Count(
+                        s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
+                          && s.ObservacionReembolsoOrigenId == EstadosSalida.OrigenObservacionReembolso.Tesoreria),
+
+                    ObservacionReembolso = observada?.ObservacionReembolso,
+                    ObservadoAt          = observada?.ReembolsoDecididoAt,
+                    ObservadoPor         = NombreDe(observada?.ReembolsoDecididoPorId),
+
+                    RevisionTesoreriaAt  = revisionAt,
+                    RevisionTesoreriaPor = NombreDe(revisionPor),
+                    PagadoAt             = pagadoAt,
+                    PagadoPor            = NombreDe(pagadoPor),
+                });
+
+                if (conDetalle)
+                {
+                    salidasDelDetalle[dto.Id] = lista
+                        .SelectMany(x => x.Salidas.Select(s => new ReembolsoSalidaDto
+                        {
+                            Id              = s.Id,
+                            Codigo          = s.Codigo,
+                            RendicionId     = x.Planilla.Id,
+                            Trabajador      = s.Trabajador,
+                            Area            = s.Area,
+                            FechaSalida     = s.FechaSalida,
+                            Motivo          = s.Motivo,
+                            LugarOrigen     = s.LugarOrigen,
+                            LugarDestino    = s.LugarDestino,
+                            TrayectosCount  = s.TrayectosCount,
+                            Monto           = s.Monto,
+                            EstadoReembolso = s.EstadoReembolso,
+                        }))
+                        .ToList();
+                }
+            }
+
+            // Lo último adjuntado primero: es lo que está esperando a Tesorería.
+            return new Armado(
+                items.OrderByDescending(x => x.UploadedAt).ThenByDescending(x => x.Id).ToList(),
+                salidasDelDetalle);
+        }
+
+        /// <summary>
+        /// Quién subió cada consolidado —el consolidador—: su usuario (para resolver la razón
+        /// social bajo la que quedó el registro del S10) y su nombre.
+        /// </summary>
+        private static async Task<Dictionary<int, (int UserId, string? Nombre)>> SubidoPorAsync(
+            AppDbContext ctx, List<int> consolidadoIds)
+        {
+            if (consolidadoIds.Count == 0) return new();
+
+            var filas = await (
+                from c   in ctx.GaConsolidadoS10
+                join per in ctx.Person on c.UploadedById equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where consolidadoIds.Contains(c.Id)
+                select new { c.Id, c.UploadedById, Nombre = per != null ? per.FullName : null }
+            ).ToListAsync();
+
+            return filas
+                .GroupBy(x => x.Id)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (g.First().UploadedById, g.Select(x => x.Nombre).FirstOrDefault(n => n != null)));
+        }
+
+        /// <summary>
+        /// Planillas que cubre un consolidado: sus vínculos vigentes y, en los registros antiguos
+        /// atados a una sola salida, la planilla de esa salida.
+        /// </summary>
+        private static async Task<List<int>> RendicionesCubiertasAsync(AppDbContext ctx, int consolidadoId)
+        {
+            var ids = await ctx.GaConsolidadoS10Rendicion
+                .Where(v => v.State && v.ConsolidadoS10Id == consolidadoId)
+                .Select(v => v.RendicionId)
+                .ToListAsync();
+
+            var solicitudId = await ctx.GaConsolidadoS10
+                .Where(c => c.Id == consolidadoId && c.State)
+                .Select(c => c.SolicitudId)
+                .FirstOrDefaultAsync();
+
+            if (solicitudId != null)
+            {
+                var deLaSalida = await ctx.GaSolicitudSalida
+                    .Where(s => s.Id == solicitudId.Value)
+                    .Select(s => s.RendicionId)
+                    .FirstOrDefaultAsync();
+                if (deLaSalida != null) ids.Add(deLaSalida.Value);
+            }
+
+            return ids.Distinct().ToList();
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
         /// <summary>
         /// El universo de Tesorería: lo que la jefatura ya firmó, lo que ella misma confirmó, lo
         /// que ya pagó y —desde RG-49— lo que ella misma devolvió con una observación.
         ///
-        /// Lo observado entra por el PAR (estado + origen) y no por el estado solo: una planilla
-        /// que devolvió la jefatura en la segunda revisión también está Observada, pero nunca
+        /// Lo observado entra por el PAR (estado + origen) y no por el estado solo: un consolidado
+        /// que devolvió la jefatura en la segunda revisión también está Observado, pero nunca
         /// llegó a Tesorería y no tiene por qué aparecer en su bandeja. Y lo que Tesorería devolvió
         /// sí tiene que seguir viéndose, o observar haría desaparecer la fila y nadie podría
         /// seguirle el rastro.
+        ///
+        /// El estado del desplegable NO se filtra acá sino sobre la fila ya armada
+        /// (<see cref="Filtrar"/>): el estado que la pantalla muestra es el resumen del documento,
+        /// y recortar las salidas antes de agruparlas dejaría filas con montos y conteos a medias.
         /// </summary>
         private static IQueryable<GaSolicitudSalida> SalidasDeTesoreria(
             AppDbContext ctx, ReembolsoFiltersDto filters)
@@ -506,13 +819,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                           || (s.EstadoReembolsoId == observado
                            && s.ObservacionReembolsoOrigenId == porTesoreria)));
 
-            var estadoId = EstadosSalida.Reembolso.IdFromNombre(filters.EstadoReembolso);
-            if (estadoId == observado)
-                query = query.Where(s => s.EstadoReembolsoId == observado
-                                      && s.ObservacionReembolsoOrigenId == porTesoreria);
-            else if (estadoId.HasValue && visibles.Contains(estadoId.Value))
-                query = query.Where(s => s.EstadoReembolsoId == estadoId.Value);
-
             if (filters.WorkerId.HasValue)
                 query = query.Where(s => s.WorkerId == filters.WorkerId.Value);
 
@@ -526,6 +832,48 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             }
 
             return query;
+        }
+
+        /// <summary>
+        /// Filtros que se resuelven sobre la fila ya armada: el estado y el periodo de un
+        /// consolidado salen de sus salidas, y el texto busca contra cosas que no son columnas —el
+        /// número de reembolso, los códigos de sus planillas y los nombres agrupados—. Va antes de
+        /// que el servicio cuente las tarjetas, así la tabla y los números del encabezado siempre
+        /// hablan del mismo conjunto.
+        /// </summary>
+        private static List<ReembolsoListItemDto> Filtrar(
+            List<ReembolsoListItemDto> items, ReembolsoFiltersDto filters)
+        {
+            IEnumerable<ReembolsoListItemDto> q = items;
+
+            var estado = filters.EstadoReembolso?.Trim();
+            if (!string.IsNullOrEmpty(estado))
+                q = q.Where(x => x.EstadoReembolso == estado);
+
+            if (filters.PeriodoAnio.HasValue && filters.PeriodoMes.HasValue)
+                q = q.Where(x => x.PeriodoAnio == filters.PeriodoAnio.Value
+                              && x.PeriodoMes  == filters.PeriodoMes.Value);
+
+            var texto = filters.Texto?.Trim();
+            if (!string.IsNullOrEmpty(texto))
+                q = q.Where(x => Coincide(x, texto));
+
+            return q.ToList();
+        }
+
+        /// <summary>Busca el texto en lo que la fila muestra: reembolso, planillas, gente y periodo.</summary>
+        private static bool Coincide(ReembolsoListItemDto x, string texto)
+        {
+            bool Tiene(string? valor) =>
+                !string.IsNullOrEmpty(valor)
+                && valor.Contains(texto, StringComparison.OrdinalIgnoreCase);
+
+            return Tiene(x.Codigo)
+                || Tiene(x.NumeroReembolso)
+                || Tiene(x.Periodo)
+                || Tiene(x.RazonSocial)
+                || x.Trabajadores.Any(Tiene)
+                || x.Rendiciones.Any(r => Tiene(r.Codigo) || Tiene(r.NumeroPlanilla));
         }
 
         /// <summary>
@@ -569,147 +917,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return solicitudes.Select(s => s.Id).ToList();
         }
 
-        /// <summary>
-        /// Los trayectos de cada salida con su importe y sus sustentos. Es el mismo criterio de
-        /// importe que imprime la planilla (<see cref="ImporteRendidoLoader"/>) para que Tesorería
-        /// no vea un número distinto del que está firmado en el papel.
-        /// </summary>
-        private static async Task<Dictionary<int, List<ReembolsoTrayectoDto>>> CargarTrayectosAsync(
-            AppDbContext ctx, List<int> solicitudIds)
-        {
-            var result = new Dictionary<int, List<ReembolsoTrayectoDto>>();
-            if (solicitudIds.Count == 0) return result;
-
-            var trayectos = await (
-                from t  in ctx.GaSolicitudTrayecto
-                join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
-                from m  in mGroup.DefaultIfEmpty()
-                join lo in ctx.GaLugar on t.LugarOrigenId equals lo.Id into loGroup
-                from lo in loGroup.DefaultIfEmpty()
-                join po in ctx.Project on lo.ProjectId equals (int?)po.ProjectId into poGroup
-                from po in poGroup.DefaultIfEmpty()
-                join ld in ctx.GaLugar on t.LugarDestinoId equals ld.Id into ldGroup
-                from ld in ldGroup.DefaultIfEmpty()
-                join pd in ctx.Project on ld.ProjectId equals (int?)pd.ProjectId into pdGroup
-                from pd in pdGroup.DefaultIfEmpty()
-                where solicitudIds.Contains(t.SolicitudId)
-                orderby t.SolicitudId, t.Orden
-                select new
-                {
-                    t.Id,
-                    t.SolicitudId,
-                    t.Orden,
-                    t.HoraSalida,
-                    t.HoraRetorno,
-                    t.LugarOrigenId,
-                    t.LugarDestinoId,
-                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    LugarOrigen  = lo == null ? t.LugarOrigenLibre
-                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
-                                 : lo.Nombre,
-                    LugarDestino = ld == null ? t.LugarDestinoLibre
-                                 : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
-                                 : ld.Nombre,
-                    t.AdjuntoUrl,
-                    t.AdjuntoFilename,
-                }
-            ).ToListAsync();
-
-            if (trayectos.Count == 0) return result;
-
-            var trayectoIds = trayectos.Select(t => t.Id).ToList();
-
-            var capturas = await ctx.GaSolicitudCaptura
-                .Where(c => trayectoIds.Contains(c.TrayectoId))
-                .OrderBy(c => c.UploadedAt).ThenBy(c => c.Id)
-                .Select(c => new
-                {
-                    c.TrayectoId,
-                    Dto = new ReembolsoCapturaDto
-                    {
-                        Id       = c.Id,
-                        ImageUrl = c.ImageUrl,
-                        Filename = c.Filename,
-                        Monto    = c.Monto,
-                    },
-                })
-                .ToListAsync();
-
-            var capturasPorTrayecto = capturas
-                .GroupBy(x => x.TrayectoId)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
-
-            var adjuntos = await ctx.GaSolicitudTrayectoAdjunto
-                .Where(a => trayectoIds.Contains(a.TrayectoId))
-                .OrderBy(a => a.UploadedAt).ThenBy(a => a.Id)
-                .Select(a => new { a.TrayectoId, a.AdjuntoUrl, a.AdjuntoFilename })
-                .ToListAsync();
-
-            var adjuntosPorTrayecto = adjuntos
-                .GroupBy(a => a.TrayectoId)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.Select(a => new ReembolsoAdjuntoDto
-                    {
-                        Url = a.AdjuntoUrl,
-                        Filename = a.AdjuntoFilename,
-                    }).ToList());
-
-            // La subárea decide si el importe puede salir del tarifario (solo TI).
-            var subareaPorSolicitud = await ctx.GaSolicitudSalida
-                .Where(s => solicitudIds.Contains(s.Id))
-                .Join(ctx.Worker, s => s.WorkerId, w => w.Id, (s, w) => new { s.Id, w.Subarea })
-                .ToDictionaryAsync(x => x.Id, x => x.Subarea);
-
-            var importes = await ImporteRendidoLoader.LoadAsync(
-                ctx,
-                trayectos
-                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
-                        t.Id,
-                        subareaPorSolicitud.TryGetValue(t.SolicitudId, out var sub) ? sub : null,
-                        t.LugarOrigenId,
-                        t.LugarDestinoId))
-                    .ToList());
-
-            foreach (var grupo in trayectos.GroupBy(t => t.SolicitudId))
-            {
-                result[grupo.Key] = grupo
-                    .OrderBy(t => t.Orden)
-                    .Select(t =>
-                    {
-                        var lista = new List<ReembolsoAdjuntoDto>();
-                        // Adjunto legacy embebido (modelo 1:1 anterior) + los de la tabla nueva.
-                        if (!string.IsNullOrWhiteSpace(t.AdjuntoUrl))
-                            lista.Add(new ReembolsoAdjuntoDto
-                            {
-                                Url      = t.AdjuntoUrl,
-                                Filename = t.AdjuntoFilename ?? "Ver documento",
-                            });
-                        if (adjuntosPorTrayecto.TryGetValue(t.Id, out var nuevos)) lista.AddRange(nuevos);
-
-                        importes.TryGetValue(t.Id, out var importe);
-
-                        return new ReembolsoTrayectoDto
-                        {
-                            Id              = t.Id,
-                            Orden           = t.Orden,
-                            HoraSalida      = t.HoraSalida?.ToString("HH:mm"),
-                            HoraRetorno     = t.HoraRetorno?.ToString("HH:mm"),
-                            Motivo          = t.Motivo,
-                            LugarOrigen     = t.LugarOrigen,
-                            LugarDestino    = t.LugarDestino,
-                            Monto           = importe.Importe,
-                            MontoDeCatalogo = importe.EsCatalogo,
-                            Capturas        = capturasPorTrayecto.TryGetValue(t.Id, out var caps) ? caps : new(),
-                            Adjuntos        = lista,
-                        };
-                    })
-                    .ToList();
-            }
-
-            return result;
-        }
-
         /// <summary>Importe rendido por salida, con la misma regla que imprime la planilla.</summary>
         private static async Task<Dictionary<int, decimal>> MontoPorSolicitudAsync(
             AppDbContext ctx, Dictionary<int, string?> subareaPorSolicitud)
@@ -739,7 +946,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     g => g.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m));
         }
 
-        /// <summary>app_user.user_id → nombre completo, para los tres rastros que muestra la bandeja.</summary>
+        /// <summary>app_user.user_id → nombre completo, para los rastros que muestra la bandeja.</summary>
         private static async Task<Dictionary<int, string>> NombrePorUserIdAsync(
             AppDbContext ctx, IEnumerable<int> userIds)
         {
@@ -756,17 +963,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 .ToDictionary(g => g.Key, g => g.First().FullName!);
         }
 
-        /// <summary>Nombres de quienes firmaron, confirmaron o pagaron las planillas del listado.</summary>
+        /// <summary>Nombres de quienes firmaron, observaron, confirmaron o pagaron lo del listado.</summary>
         private static Task<Dictionary<int, string>> NombresDeUsuariosAsync(
             AppDbContext ctx, List<PlanillaRendicionLoader.PlanillaFila> planillas)
         {
             var ids = new List<int>();
             foreach (var p in planillas)
             {
-                if (p.FirmadoPorId.HasValue)           ids.Add(p.FirmadoPorId.Value);
-                if (p.ReembolsoDecididoPorId.HasValue) ids.Add(p.ReembolsoDecididoPorId.Value);
+                if (p.FirmadoPorId.HasValue) ids.Add(p.FirmadoPorId.Value);
                 foreach (var s in p.Salidas)
                 {
+                    if (s.ReembolsoDecididoPorId.HasValue) ids.Add(s.ReembolsoDecididoPorId.Value);
                     if (s.RevisionTesoreriaPorId.HasValue) ids.Add(s.RevisionTesoreriaPorId.Value);
                     if (s.PagadoPorId.HasValue)            ids.Add(s.PagadoPorId.Value);
                 }
@@ -774,69 +981,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return NombrePorUserIdAsync(ctx, ids);
         }
 
-        private static ReembolsoListItemDto Armar(
-            PlanillaRendicionLoader.PlanillaFila p, Dictionary<int, string> nombres)
-        {
-            // El rastro de Tesorería es por salida, pero la pantalla es por planilla: se toma el
-            // más reciente, que es el que responde "¿cuándo se movió esto por última vez?".
-            var revisionAt   = p.Salidas.Max(s => s.RevisionTesoreriaAt);
-            var pagadoAt     = p.Salidas.Max(s => s.PagadoAt);
-            var revisionPor  = p.Salidas.OrderByDescending(s => s.RevisionTesoreriaAt)
-                                        .Select(s => s.RevisionTesoreriaPorId).FirstOrDefault(x => x.HasValue);
-            var pagadoPor    = p.Salidas.OrderByDescending(s => s.PagadoAt)
-                                        .Select(s => s.PagadoPorId).FirstOrDefault(x => x.HasValue);
-
-            return new ReembolsoListItemDto
-            {
-                Id                 = p.Id,
-                Codigo             = p.Codigo,
-                NumeroPlanilla     = p.NumeroPlanilla,
-                RendidoAt          = p.RendidoAt,
-                Periodo            = p.Periodo,
-                PeriodoAnio        = p.PeriodoAnio,
-                PeriodoMes         = p.PeriodoMes,
-                Trabajadores       = p.Trabajadores,
-                SalidasCount       = p.SalidasCount,
-                MontoTotal         = p.MontoTotal,
-                PdfUrl             = p.PdfUrl,
-                PdfFilename        = p.PdfFilename,
-                PdfFirmadoUrl      = p.PdfFirmadoUrl,
-                PdfFirmadoFilename = p.PdfFirmadoFilename,
-                FirmadoAt          = p.FirmadoAt,
-                FirmadoPor         = p.FirmadoPorId.HasValue && nombres.TryGetValue(p.FirmadoPorId.Value, out var f)
-                                        ? f : null,
-                ConsolidadoS10     = p.ConsolidadoS10,
-                EstadoReembolso    = p.EstadoReembolso,
-                ReembolsoMixto     = p.ReembolsoMixto,
-                PorConfirmarCount  = p.Salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Firmado),
-                PorPagarCount      = p.Salidas.Count(s => s.EstadoReembolsoId == EstadosSalida.Reembolso.PorPagar),
-                // Solo las que devolvió TESORERÍA: es lo único que la consulta trae observado, pero
-                // se repite acá porque este conteo decide si la fila se puede seleccionar.
-                ObservadasCount    = p.Salidas.Count(
-                    s => s.EstadoReembolsoId == EstadosSalida.Reembolso.Observado
-                      && s.ObservacionReembolsoOrigenId == EstadosSalida.OrigenObservacionReembolso.Tesoreria),
-                ObservacionReembolso = p.ObservacionReembolso,
-                ObservadoAt          = p.ReembolsoDecididoAt,
-                ObservadoPor         = p.ReembolsoDecididoPorId.HasValue
-                                    && nombres.TryGetValue(p.ReembolsoDecididoPorId.Value, out var obs)
-                                        ? obs : null,
-                RevisionTesoreriaAt  = revisionAt,
-                RevisionTesoreriaPor = revisionPor.HasValue && nombres.TryGetValue(revisionPor.Value, out var r)
-                                        ? r : null,
-                PagadoAt             = pagadoAt,
-                PagadoPor            = pagadoPor.HasValue && nombres.TryGetValue(pagadoPor.Value, out var pg)
-                                        ? pg : null,
-            };
-        }
-
         private static void CopiarCabecera(ReembolsoListItemDto o, ReembolsoDetalleDto d)
         {
-            d.Id = o.Id; d.Codigo = o.Codigo; d.NumeroPlanilla = o.NumeroPlanilla; d.RendidoAt = o.RendidoAt;
-            d.Periodo = o.Periodo; d.PeriodoAnio = o.PeriodoAnio; d.PeriodoMes = o.PeriodoMes;
-            d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount; d.MontoTotal = o.MontoTotal;
+            d.Id = o.Id; d.Codigo = o.Codigo; d.NumeroReembolso = o.NumeroReembolso;
+            d.MontoS10 = o.MontoS10; d.MontoPlanillas = o.MontoPlanillas; d.MontoTotal = o.MontoTotal;
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
+            d.PlanillaGrupalUrl = o.PlanillaGrupalUrl; d.PlanillaGrupalFilename = o.PlanillaGrupalFilename;
+            d.PlanillaGrupalFirmadoUrl = o.PlanillaGrupalFirmadoUrl;
+            d.PlanillaGrupalFirmadoFilename = o.PlanillaGrupalFirmadoFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
-            d.FirmadoAt = o.FirmadoAt; d.FirmadoPor = o.FirmadoPor; d.ConsolidadoS10 = o.ConsolidadoS10;
+            d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
+            d.RazonSocial = o.RazonSocial;
+            d.Rendiciones = o.Rendiciones; d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount;
+            d.Periodo = o.Periodo; d.PeriodoAnio = o.PeriodoAnio; d.PeriodoMes = o.PeriodoMes;
+            d.Firmas = o.Firmas;
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
             d.PorConfirmarCount = o.PorConfirmarCount; d.PorPagarCount = o.PorPagarCount;
             d.ObservadasCount = o.ObservadasCount; d.ObservacionReembolso = o.ObservacionReembolso;

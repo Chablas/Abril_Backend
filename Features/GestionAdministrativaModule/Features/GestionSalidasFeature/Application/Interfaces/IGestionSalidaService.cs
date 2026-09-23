@@ -50,13 +50,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task Cancelar(int id, int userId);
         /// <summary>
         /// Marca solicitudes elegibles como Rendidas y genera la planilla de gasto por movilidad (PDF).
-        /// Devuelve los bytes del PDF + cuántas se procesaron.
+        /// Devuelve los bytes del PDF, cuántas se procesaron y la planilla creada (id y código
+        /// REN-AAAA-NNNN). La planilla nace "Lista para enviar": enviarla a primera revisión es de
+        /// quien llama (Solicitud de Salidas lo hace en el acto, ver
+        /// <c>IRendicionService.RendirYEnviarAPrimeraRevision</c>).
         /// </summary>
         /// <param name="ownerUserId">
         /// Si se indica, actúa como guard: todas las solicitudes deben pertenecer al trabajador de ese
         /// usuario (rendición desde el autoservicio del trabajador). Null = sin restricción (Gestión de Salidas).
         /// </param>
-        Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId, int? ownerUserId = null);
+        Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirYGenerarPlanilla(
+            IEnumerable<int> ids, int userId, int? ownerUserId = null);
 
         /// <summary>
         /// Rinde de una sola vez todas las salidas del MES ANTERIOR al actual (por fecha de salida,
@@ -69,7 +73,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// acción rinde lo que el usuario está viendo. El estado, el rango de fechas y el filtro
         /// "Hoy" los fija el propio método.
         /// </param>
-        Task<(byte[] Pdf, int Count)> RendirMes(GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
+        Task<(byte[] Pdf, int Count, int RendicionId, string Codigo)> RendirMes(
+            GestionSalidaFiltersDto filters, int? anio, int? mes, int userId);
 
         /// <summary>
         /// Vuelve a generar el PDF de una planilla que YA existe, con los montos y las capturas
@@ -83,9 +88,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         ///
         /// No valida el estado ni la propiedad: eso lo hace quien la llama (ver
         /// <c>IRendicionService.RegenerarPlanilla</c>). Deja la planilla lista para reenviar.
+        ///
+        /// No devuelve el archivo: el PDF nuevo queda guardado y la planilla ya apunta a él.
         /// </summary>
-        /// <returns>Los bytes del PDF nuevo, para que la pantalla lo pueda descargar.</returns>
-        Task<byte[]> RegenerarPlanilla(int rendicionId, int userId);
+        Task RegenerarPlanilla(int rendicionId, int userId);
+
+        /// <summary>
+        /// Arma la PLANILLA GRUPAL, que en el papel se titula "PLANILLA DE REEMBOLSO": los trayectos
+        /// de TODAS las planillas que recibe en una sola tabla, con la columna RENDICIÓN diciendo de
+        /// qué planilla sale cada fila, y la cabecera del consolidador. Es el tercer papel del
+        /// ciclo —planilla individual, Consolidado del S10 y esta— y lo genera la subida del
+        /// consolidado, que es cuando queda definido qué planillas van juntas.
+        ///
+        /// Vive acá porque el armado del PDF de gasto es de esta feature: comparte con la planilla
+        /// individual el logo, la línea de firma y la imputación de fechas.
+        ///
+        /// La imputación del tope diario (RG-42) se resuelve sobre el conjunto COMPLETO: si un
+        /// trabajador tiene salidas en dos de las planillas del consolidado, el tope del día las
+        /// alcanza a las dos, que es justo lo que se pierde al mirarlas por separado.
+        ///
+        /// Solo arma los bytes: no los sube ni los guarda. Eso es de quien consolida.
+        /// </summary>
+        /// <param name="rendicionIds">Planillas que cubre el consolidado.</param>
+        /// <param name="cabecera">El código y los datos del consolidador que van impresos.</param>
+        Task<byte[]> GenerarPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, PlanillaReembolsoCabeceraDto cabecera);
 
         /// <summary>
         /// Detalle de una solicitud para el modal — devuelve null si no existe.

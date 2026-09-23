@@ -4,10 +4,10 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Interfaces
 {
     /// <summary>
-    /// "Gestión de Rendiciones": el revisor sobre las planillas de su alcance. Acá vive todo lo que
-    /// va DESDE el Consolidado del S10 en adelante —adjuntarlo, decidir el reembolso y firmar la
-    /// planilla—; Gestión de Salidas llega hasta rendir. El pago es de Tesorería y vive en
-    /// Reembolsos.
+    /// "Gestión de Rendiciones": el revisor sobre las planillas de su alcance. Acá vive la PRIMERA
+    /// revisión de la planilla y el Consolidado del S10 que la respalda —adjuntarlo o
+    /// reemplazarlo—; Gestión de Salidas llega hasta rendir. Decidir y firmar el reembolso es de
+    /// Consolidados, y el pago de Tesorería (Reembolsos).
     ///
     /// La visibilidad es exactamente la de Gestión de Salidas: mismas salidas, agrupadas por
     /// planilla.
@@ -17,6 +17,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         Task<GestionRendicionListResultDto> GetAll(GestionRendicionFiltersDto filters);
         Task<GestionRendicionFilterDataDto> GetFilterData(GestionRendicionFiltersDto scope);
         Task<GestionRendicionDetalleDto> GetDetalle(int rendicionId, GestionRendicionFiltersDto scope);
+
+        /// <summary>
+        /// El detalle de UNA salida de las planillas del alcance (el ojo de la tabla de salidas del
+        /// detalle), para que la jefatura o el consolidador vean sus capturas y montos. Es solo
+        /// consulta: 404 si la salida no está rendida o no está en su alcance.
+        /// </summary>
+        Task<SolicitudSalidaDetalleDto> GetSalidaDetalle(int solicitudId, GestionRendicionFiltersDto scope);
 
         /// <summary>
         /// Qué correos saldrían si se toma una de las decisiones de la pantalla sobre la selección
@@ -29,44 +36,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
         /// <summary>
         /// Aprueba u observa la PRIMERA revisión de las planillas seleccionadas (RG-30). Aprobar
-        /// habilita al trabajador a cargar el Consolidado del S10; observar le pide corregir las
-        /// capturas y los montos y volver a generar la rendición con el mismo código.
+        /// habilita al consolidador del área a cargar el Consolidado del S10; observar le pide al
+        /// trabajador corregir las capturas y los montos y volver a generar la rendición con el
+        /// mismo código.
         ///
         /// La decisión es por planilla y total (RG-19): no se aprueban trayectos por separado.
-        /// Avisa a los solicitantes por correo (best-effort).
+        /// Avisa a los solicitantes por correo y, al aprobar, también a los consolidadores del área
+        /// de que la rendición se suma a las disponibles para consolidar (best-effort).
         /// </summary>
         Task<ReembolsoBulkResultDto> DecidirPrimeraRevision(
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
-        /// Adjunta (o reemplaza) UN Consolidado del S10 para las planillas indicadas: una o varias,
-        /// de uno o de varios trabajadores de una misma razón social. El consolidador lo sube en
-        /// nombre de los trabajadores y tiene que estar habilitado por TODOS los de esas planillas.
+        /// Adjunta el PRIMER Consolidado del S10 de las planillas indicadas: una o varias, de uno o
+        /// de varios trabajadores, de las razones sociales que sean. Solo lo sube el consolidador,
+        /// que tiene que estar habilitado por TODOS los trabajadores de esas planillas
+        /// (Consolidados → Configuración → Consolidadores).
         ///
-        /// Las reglas de qué puede ir junto (primera revisión APROBADA, reembolso por decidir, una
-        /// sola razón social, el documento compartido se reemplaza entero) las valida el servicio
-        /// compartido.
+        /// Ninguna puede tener ya un consolidado (409): reemplazarlo es de Consolidados
+        /// (<c>IConsolidadoService.ReemplazarConsolidado</c>). El resto de las reglas (primera
+        /// revisión APROBADA, reembolso por decidir) las valida el servicio compartido.
+        ///
+        /// Adjuntar TAMBIÉN le avisa a la jefatura, en el mismo paso: consolidar es exactamente lo
+        /// que deja el reembolso esperando su firma, así que el aviso no es un trámite aparte del
+        /// que haya que acordarse. Va best-effort — el resultado dice cómo salió y desde
+        /// Consolidados se puede repetir a mano.
         /// </summary>
         /// <param name="montoTotal">
         /// Importe total del consolidado. Tiene que coincidir con la suma de las planillas completas
         /// o se rechaza con 400.
         /// </param>
         /// <param name="numeroReembolso">Número del reembolso del S10 (texto, obligatorio).</param>
-        Task<ConsolidadoS10Dto> UploadConsolidadoS10(
-            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso, int userId);
-
-        /// <summary>
-        /// Aprueba o rechaza el reembolso de lo seleccionado. La selección puede venir por planilla
-        /// (lo normal) o por salidas sueltas (desde el detalle); en los dos casos se recorta a lo
-        /// que el usuario puede ver. Avisa al solicitante por correo (best-effort).
-        /// </summary>
-        /// <remarks>
-        /// Aprobar ES firmar: estampa la firma del revisor en todas las hojas de los documentos de
-        /// la planilla (su PDF y el Consolidado del S10) y deja las salidas en "Firmado", que es lo
-        /// que Tesorería ve como pagable. Lanza 409 si el revisor todavía no registró su firma: la
-        /// pantalla usa ese código para abrir el modal donde la dibuja y reintentar.
-        /// </remarks>
-        Task<ReembolsoBulkResultDto> DecidirReembolso(
-            ReembolsoAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
+        /// <param name="seesAllOverride">Rol que ve toda la organización, para el alcance del aviso.</param>
+        Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
+            IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
+            int userId, bool seesAllOverride);
     }
 }

@@ -35,7 +35,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
             var hoy = MesAnteriorPeru.HoyPeru();
             var (desde, hasta) = MesAnteriorPeru.Rango();
 
-            var limite      = calendario.LimiteDeRendicion(desde.Year, desde.Month);
+            // La VENTANA, no el límite real de ese mes: los dos recordatorios avisan que se abre y
+            // que se cierra el plazo de días hábiles, y ese aviso es mensual. Con un alcance
+            // permanente configurado el mes anterior se puede rendir meses después, y tomar ese
+            // límite haría que el recordatorio de cierre se saltara meses enteros.
+            var limite      = calendario.FinDeVentana(desde.Year, desde.Month);
             var primerHabil = PrimerDiaHabil(hoy, calendario);
 
             // El cierre se evalúa PRIMERO: con el plazo en 1 día hábil los dos recordatorios caen
@@ -149,8 +153,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
                     t.Orden,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
-                    Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    // Motivo libre = fuera del catálogo: no tiene el flag y por eso no concede nada.
+                    // "Otro motivo" se muestra con lo que escribió el trabajador, no con la
+                    // descripción de la fila que lo configura.
+                    Motivo = m == null || m.EsMotivoLibre ? (t.MotivoLibre ?? string.Empty) : m.Descripcion,
                     EsMotivoDeCatalogo   = m != null,
                     MotivoEsReembolsable = m != null && m.EsReembolsable,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre

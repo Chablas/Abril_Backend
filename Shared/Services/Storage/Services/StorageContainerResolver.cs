@@ -81,6 +81,16 @@ namespace Abril_Backend.Infrastructure.Services
             };
         }
 
+        public string GetProjectLogoContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.ProjectLogoContainer,
+                "local" => _options.LocalStorage.ProjectLogoContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
         public string GetVecinoRequisitosContainerName()
         {
             return _options.StorageProvider.ToLower() switch
@@ -137,6 +147,36 @@ namespace Abril_Backend.Infrastructure.Services
             {
                 "azure" => _options.AzureStorage.TareosContainer,
                 "local" => _options.LocalStorage.TareosContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
+        public string GetEppImagenesContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.EppImagenesContainer,
+                "local" => _options.LocalStorage.EppImagenesContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
+        public string GetEppFichasTecnicasContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.EppFichasTecnicasContainer,
+                "local" => _options.LocalStorage.EppFichasTecnicasContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
+        public string GetResiduosContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.ResiduosContainer,
+                "local" => _options.LocalStorage.ResiduosContainer,
                 _ => throw new InvalidOperationException("Proveedor de storage no válido")
             };
         }

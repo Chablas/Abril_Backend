@@ -31,12 +31,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
-    /// Los cuatro correos del ciclo de la solicitud de salida, con el mismo chrome de la intranet
+    /// Los correos del ciclo de la solicitud de salida, con el mismo chrome de la intranet
     /// (<see cref="SalidaEmailLayout"/>) que ya usan los tres correos del reembolso y los de
     /// Gestión GTH:
     ///
     /// <list type="bullet">
     ///   <item>Al revisor: hay una solicitud esperando su decisión.</item>
+    ///   <item>Al jefe del área: la va a aprobar el residente de la obra (informativo).</item>
     ///   <item>Al solicitante: se recibió su solicitud y está en revisión.</item>
     ///   <item>Al solicitante: su solicitud quedó aprobada.</item>
     ///   <item>Al solicitante: su solicitud quedó rechazada, con el motivo.</item>
@@ -44,8 +45,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///
     /// El del revisor es el único con DOS botones que ejecutan la acción desde el propio correo
     /// (llevan un token firmado y aprueban o rechazan sin pasar por la intranet); su enlace
-    /// directo apunta igual a Gestión de Salidas para quien prefiera entrar. Los otros tres
-    /// llevan un botón que abre la pantalla exacta en la intranet.
+    /// directo apunta igual a Gestión de Salidas para quien prefiera entrar. Los tres del
+    /// solicitante llevan un botón que abre la pantalla exacta en la intranet. El del jefe del área
+    /// es el único SIN enlace: no decide nada y tampoco tiene garantizada la solicitud a la vista en
+    /// Gestión de Salidas, así que el correo se basta a sí mismo.
     ///
     /// Criterio editorial heredado de <see cref="AbrilEmailLayout"/>: el correo lleva datos y un
     /// acceso, no explicaciones. La bajada es UNA línea y los avisos son de estado.
@@ -94,6 +97,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 Recordatorio(l, d),
                 l.BotonesRespuesta("Aprobar", urlAprobar, "Rechazar", urlRechazar),
                 l.EnlaceDirecto(urlGestion));
+
+        /// <summary>
+        /// Al jefe del área: una salida de su gente la va a aprobar el residente de la obra. Es el
+        /// mismo detalle que ve el revisor pero SIN los dos botones —decidir es del residente— y sin
+        /// los adjuntos, que son solo para quien decide.
+        ///
+        /// Tampoco lleva botón de "ver": el jefe del área no necesariamente tiene la solicitud a la
+        /// vista en Gestión de Salidas —esa visibilidad sale de estar asignado en Revisores, y este
+        /// jefe puede haber salido del algoritmo (categoría Jefe del nodo)—, así que un botón lo
+        /// mandaría a una pantalla donde no la encuentra. Por eso el correo trae el detalle COMPLETO:
+        /// es todo lo que va a ver de esta salida.
+        /// </summary>
+        /// <param name="revisor">
+        /// Nombre del residente que la tiene que decidir, para que el aviso diga de quién depende y
+        /// no se lea como algo que el jefe tiene pendiente. Vacío si no se pudo resolver el nombre.
+        /// </param>
+        public static string InformativaJefeArea(
+            SalidaEmailLayout l, SalidaCorreoDatos d, string? revisor) =>
+            l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoPorAprobar,
+                    "Salida registrada en tu área",
+                    $"<b>{AbrilEmailLayout.Esc(d.Solicitante)}</b> registró la solicitud "
+                    + $"<b>{AbrilEmailLayout.Esc(d.Codigo)}</b> del <b>{d.FechaSalida:dd/MM/yyyy}</b>."),
+                // No se dice "residente de la obra": el revisor puede ser un residente puesto como
+                // jefe personalizado del trabajador, que no tiene por qué ser el de su obra.
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
+                    string.IsNullOrWhiteSpace(revisor)
+                        ? "La decide el residente a cargo. Este correo es solo informativo."
+                        : $"La decide <b>{AbrilEmailLayout.Esc(revisor)}</b>. "
+                          + "Este correo es solo informativo."),
+                Detalle(l, d, conSolicitante: true),
+                Recordatorio(l, d));
 
         /// <summary>
         /// Al solicitante: su solicitud quedó registrada y está en revisión.

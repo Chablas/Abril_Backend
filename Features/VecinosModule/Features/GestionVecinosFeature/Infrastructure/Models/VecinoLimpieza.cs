@@ -26,6 +26,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         public Vecino? Vecino { get; set; }
 
         public DateOnly Fecha { get; set; }
+        /// <summary>
+        /// Horario de la visita, en hora local (opcional: las limpiezas antiguas no lo tienen).
+        /// Sin inicio no hay fin, y el fin va después del inicio (CHECK ck_vecino_limpieza_horario).
+        /// </summary>
+        public TimeOnly? HoraInicio { get; set; }
+        public TimeOnly? HoraFin { get; set; }
         public string? Descripcion { get; set; }
 
         // ── Atención de limpieza (evidencia de ejecución) ──────────────────────

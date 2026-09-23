@@ -80,11 +80,26 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                await _repo.ConfirmarIngresoAsync(induccionId);
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                int? userId = int.TryParse(userIdClaim, out var uid) ? uid : null;
+
+                await _repo.ConfirmarIngresoAsync(induccionId, userId);
                 return NoContent();
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ControlAccesoController.ConfirmarIngreso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("inducciones/{induccionId:int}/desconfirmar-ingreso")]
+        public async Task<IActionResult> DesconfirmarIngreso(int induccionId)
+        {
+            try
+            {
+                await _repo.DesconfirmarIngresoAsync(induccionId);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ControlAccesoController.DesconfirmarIngreso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("tareo/partidas")]

@@ -14,8 +14,12 @@ namespace Abril_Backend.Features.LearningModule.Application.Interfaces
         Task<bool> ToggleCategory(int id);
         Task DeleteCategory(int id);
 
-        Task<int> CreateVideo(LearningVideoCreateDto dto);
-        Task EditVideo(int id, LearningVideoEditDto dto);
+        /// <summary><paramref name="archivo"/> solo se usa si <c>dto.EsArchivo</c>.</summary>
+        Task<int> CreateVideo(LearningVideoCreateDto dto, IFormFile? archivo);
+        /// <summary>
+        /// Con <c>dto.EsArchivo</c> y sin <paramref name="archivo"/> se conserva el archivo actual.
+        /// </summary>
+        Task EditVideo(int id, LearningVideoEditDto dto, IFormFile? archivo);
         Task<bool> ToggleVideo(int id);
         Task DeleteVideo(int id);
     }

@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.LearningModule.Application.Dtos;
 using Abril_Backend.Features.LearningModule.Application.Interfaces;
+using Abril_Backend.Features.LearningModule.Application.Services;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Abril_Backend.Features.LearningModule.Presentation
 {
     /// <summary>
-    /// Administración del centro de aprendizaje (grupos y videos). Restringido por el
+    /// Administración del centro de aprendizaje (grupos, videos y manuales). Restringido por el
     /// featureKey <c>configuracion.aprendizaje</c> (solo ADMINISTRADOR DEL SISTEMA lo tiene
     /// asignado en role_feature).
     /// </summary>
@@ -102,15 +104,25 @@ namespace Abril_Backend.Features.LearningModule.Presentation
             }
         }
 
-        // ─────────────────────────────── Videos ───────────────────────────────
+        // ───────────────────────────── Videos y manuales ─────────────────────────────
 
+        /// <summary>
+        /// Alta de un video o manual. Multipart: <c>data</c> = JSON de <see cref="LearningVideoCreateDto"/>;
+        /// <c>archivo</c> = el archivo, si <c>esArchivo</c> (se sube a la carpeta de learning_video_folder).
+        /// </summary>
         [HttpPost("video")]
-        public async Task<IActionResult> CreateVideo([FromBody] LearningVideoCreateDto dto)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(LearningVideoStorage.MaxRequestBytes)]
+        public async Task<IActionResult> CreateVideo([FromForm] string data, [FromForm] IFormFile? archivo)
         {
             try
             {
-                var id = await _service.CreateVideo(dto);
-                return Ok(new { id, message = "Video creado correctamente." });
+                var dto = LeerData<LearningVideoCreateDto>(data);
+                if (dto == null)
+                    return BadRequest(new { message = "Datos del video o manual no recibidos." });
+
+                var id = await _service.CreateVideo(dto, archivo);
+                return Ok(new { id, message = "Video o manual creado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
@@ -120,13 +132,23 @@ namespace Abril_Backend.Features.LearningModule.Presentation
             }
         }
 
+        /// <summary>
+        /// Edición de un video o manual. Multipart: <c>data</c> = JSON de <see cref="LearningVideoEditDto"/>;
+        /// <c>archivo</c> = archivo nuevo (opcional: con <c>esArchivo</c> y sin archivo se conserva el actual).
+        /// </summary>
         [HttpPut("video/{id:int}")]
-        public async Task<IActionResult> EditVideo(int id, [FromBody] LearningVideoEditDto dto)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(LearningVideoStorage.MaxRequestBytes)]
+        public async Task<IActionResult> EditVideo(int id, [FromForm] string data, [FromForm] IFormFile? archivo)
         {
             try
             {
-                await _service.EditVideo(id, dto);
-                return Ok(new { message = "Video actualizado correctamente." });
+                var dto = LeerData<LearningVideoEditDto>(data);
+                if (dto == null)
+                    return BadRequest(new { message = "Datos del video o manual no recibidos." });
+
+                await _service.EditVideo(id, dto, archivo);
+                return Ok(new { message = "Video o manual actualizado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
@@ -154,7 +176,7 @@ namespace Abril_Backend.Features.LearningModule.Presentation
             try
             {
                 await _service.DeleteVideo(id);
-                return Ok(new { message = "Video eliminado correctamente." });
+                return Ok(new { message = "Video o manual eliminado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
@@ -162,6 +184,15 @@ namespace Abril_Backend.Features.LearningModule.Presentation
                 _logger.LogError(ex, "Error en LearningAdminController.DeleteVideo");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
+        }
+
+        private static readonly JsonSerializerOptions JsonWeb = new(JsonSerializerDefaults.Web);
+
+        /// <summary>Lee el JSON del campo <c>data</c> del multipart. Null si no es válido.</summary>
+        private static T? LeerData<T>(string data) where T : class
+        {
+            try { return JsonSerializer.Deserialize<T>(data, JsonWeb); }
+            catch (JsonException) { return null; }
         }
     }
 }

@@ -371,6 +371,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         {
             if (dto.VecinoLimpiezaTipoId <= 0)
                 throw new AbrilException("Debe seleccionar el tipo de limpieza.", 400);
+            if (dto.HoraFin.HasValue && !dto.HoraInicio.HasValue)
+                throw new AbrilException("Indica la hora de inicio de la limpieza.", 400);
+            if (dto.HoraInicio.HasValue && dto.HoraFin.HasValue && dto.HoraFin.Value <= dto.HoraInicio.Value)
+                throw new AbrilException("La hora de fin debe ser posterior a la hora de inicio.", 422);
             return _repository.CreateLimpieza(projectId, dto, userId);
         }
 

@@ -6341,3 +6341,24 @@ Pedido de SSOMA: resumen semanal de cumplimiento por contratista para decidir si
 ### Pendiente
 - Extender el mismo patrón de auto-retiro/desactivación (`RetiroAutomaticoService`, ya en producción desde el 2026-09-22) a equipos y empresa — hoy solo cubre trabajadores.
 - Automatizar certificados de disposición de residuos sólidos (hoy es ítem manual, fuera del cálculo).
+
+## Sesión 2026-09-23 — Reingreso de trabajador con documentación pendiente
+
+### Contexto
+El modal "Reingresar" bloqueaba con 400 al intentar reingresar a un trabajador Retirado si su último retiro fue automático (por SCTR/Vida Ley/EMO vencido) y seguía pendiente de aprobación. El contratista no tenía forma de subsanar sin reingresar primero, y el override era exclusivo de Administrador/Coordinador SSOMA.
+
+### Cambios
+- `HabTrabajadorRepository.ReingresoAsync`: se quitó el bloqueo completo — ahora se permite reingresar siempre, tenga o no documentación pendiente/vencida. Se quitó el parámetro `esOverrideAutorizado` (ya no hace falta) de `IHabTrabajadorRepository` y `HabTrabajadorController.Reingreso`.
+- `RetiroAutomaticoService.EjecutarAsync`: se corrigió la gracia de 21 días de onboarding (`DiasGraciaOnboarding`) para que solo aplique cuando es el PRIMER período laboral de la ficha (`periodos.Count <= 1`). Antes se calculaba sobre el período laboral vigente sin distinguir — un reingreso abre un período nuevo con `fecha_ingreso` de hoy, así que sin este fix el trabajador reingresado hubiera heredado otras 3 semanas de gracia en vez de la gracia corta normal (2 días contratista, 7 Casa), reintroduciendo el mismo hueco que el bloqueo original intentaba cerrar.
+
+### Archivos clave
+- `Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs`
+- `Features/HabilitacionModule/Infrastructure/Interfaces/IHabTrabajadorRepository.cs`
+- `Features/HabilitacionModule/Presentation/HabTrabajadorController.cs`
+- `Features/HabilitacionModule/Application/Services/RetiroAutomaticoService.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores. No se probó en vivo (el usuario verifica él mismo).
+
+### Pendiente
+- Ninguno identificado; el flujo de subida de evidencia para un trabajador Retirado ya funcionaba sin cambios (panel de entregables de `trabajadores.html` no filtra por estado).

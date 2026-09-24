@@ -6582,3 +6582,37 @@ Hasta ahora la única forma de modificar el cronograma de hitos de un proyecto e
 
 ### Pendiente
 - Ninguno identificado en el backend. Falta el consumo desde el frontend (selector de "hitos faltantes" + botón "agregar hito" en el Gantt).
+
+## Sesión 2026-09-23 (cont.) — Diagnóstico "proyectos activos no aparecen en Cronograma" + flag TieneUnidadDeProyectos expuesto
+
+### Contexto
+El usuario reportó que ciertos proyectos que el negocio considera "activos" no aparecen en `GET /api/v1/cronograma-actividades/proyectos` (pantalla Cronograma de Actividades). Se armó un diagnóstico completo antes de tocar nada.
+
+### Diagnóstico
+- `CronogramaActividadesRepository.GetProyectosAsync()` filtra por `p.State && p.Active && p.TieneUnidadDeProyectos && NOT EXISTS(ProyectoFiltro con funcionalidad_id=6/UdpCronograma y active=false)`. Sin paginación.
+- `Project` tiene **varios campos de "estado" que se prestan a confusión**: `State`/`Active` (bools de auditoría/soft-delete), `Activo` (string, ciclo de vida real: `Finalizado | Activo | Inactivo` — es el que el negocio entiende como "proyecto activo"), `Estado` (string, otro campo, no usado acá), `Operativo` (bool, no usado acá). La query de Cronograma **no usa `Project.Activo` en absoluto** — por eso un proyecto con `Activo = 'Activo'` puede seguir sin aparecer si `State`/`Active` (bools) o `TieneUnidadDeProyectos` están en `false`, o si hay una fila en `ProyectoFiltro` (funcionalidad 6) con `active=false`.
+- Se armó un SELECT de solo lectura para pgAdmin cruzando `project` + `proyecto_filtro` (funcionalidad_id=6) filtrando por `activo='Activo'`, para ver de un vistazo cuál de las 4 condiciones excluye a cada proyecto. El usuario lo corrió y encontró 7 proyectos (9 Nogales, Bosque Real, Bugambilias, Cedro 33, Cápac Yupanqui, Kaurí, Máximo Abril) que SÍ cumplen las 4 condiciones — o sea, la causa real de que no aparezcan (si no aparecen) no está en el `WHERE` de este método sino en otra capa (frontend, o un `HasQueryFilter` global de EF no visible en el repo). No se llegó a identificar la causa puntual en esta sesión — quedó cerrado el diagnóstico del lado del `WHERE`, pendiente de investigar frontend/query filters si el síntoma persiste.
+- Ya existía un endpoint `GET /api/v1/cronograma-actividades/debug-proyectos` de una sesión anterior, marcado "TEMPORAL, quitar tras diagnóstico" — quedó sin borrar. Se eliminó al cierre de esta sesión (ver abajo).
+
+### Cambios: TieneUnidadDeProyectos expuesto en Configuración → Proyectos
+Pedido separado del usuario: exponer `Project.TieneUnidadDeProyectos` en la UI de Configuración → Proyectos (incluye la pestaña interna "Proyectos Activos" de Configuración de Hitos, que reusa el mismo `ProyectoService`/`ProjectDto` del frontend — confirmado leyendo `Abril-Frontend/.../configuration/pages/milestones/milestones.ts` y su `CONTEXT.md`).
+- `ProjectDto.cs`: agregado `TieneUnidadDeProyectos` (bool) en Flags.
+- `ProjectRepository.GetPaged()`: proyección incluye el campo nuevo.
+- Nuevo `UpdateTieneUnidadDeProyectosDto` (`{ Value: bool }`) y endpoint `PATCH api/v1/project/{id}/tiene-unidad-de-proyectos` (`ProjectController.UpdateTieneUnidadDeProyectos`, mismo patrón que `ToggleArquitecturaComercial` pero con valor explícito en vez de toggle) — evita el riesgo de sobreescritura que tiene el patrón existente en frontend (`toggleProyectoActive()` arma un `ProjectEditDto` completo por spread y hace `PUT` entero solo para cambiar `active`).
+- Gateado con `[RequireFeature("projects.config.milestones")]` — mismo feature key que ya restringe el acceso a la ruta `configuration/milestones` completa en el frontend (`configuracion-routing-module.ts`), confirmado antes de aplicarlo en vez de inventar uno nuevo.
+- `IProjectRepository`/`IProjectService`: agregado `SetTieneUnidadDeProyectos(int projectId, bool value)`.
+
+### Cambios: eliminación de endpoint temporal
+Quitado `GET /api/v1/cronograma-actividades/debug-proyectos` completo (controller, `ICronogramaActividadesService`/`CronogramaActividadesService`, `ICronogramaActividadesRepository`/`CronogramaActividadesRepository`, `DebugProyectoDto`) — ya cumplió su propósito de diagnóstico.
+
+### Archivos clave
+- `Features/ConfigurationModule/Features/ProjectFeature/Application/Dtos/{ProjectDto,UpdateTieneUnidadDeProyectosDto}.cs`
+- `Features/ConfigurationModule/Features/ProjectFeature/{Application/Services/ProjectService,Application/Interfaces/IProjectService,Infrastructure/Repositories/ProjectRepository,Infrastructure/Interfaces/IProjectRepository,Presentation/ProjectController}.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/{Presentation/CronogramaActividadesController,Application/Services/CronogramaActividadesService,Application/Interfaces/ICronogramaActividadesService,Infrastructure/Repositories/CronogramaActividadesRepository,Infrastructure/Interfaces/ICronogramaActividadesRepository,Application/Dtos/CronogramaActividadesDtos}.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores en ambos cambios (297 warnings preexistentes, sin nuevos). Se probó en vivo: se reinició el proceso local (`dotnet run`, puerto 5236) tras el primer cambio y se confirmó `PATCH /api/v1/project/42/tiene-unidad-de-proyectos` respondiendo `401` (antes `404`) sin token — ruta reconocida correctamente.
+
+### Pendiente
+- No se identificó la causa puntual de por qué los 7 proyectos (si es que no aparecen) faltan en el listado de Cronograma — el `WHERE` del repo quedó descartado como causa con el SELECT del usuario; falta revisar frontend y/o `HasQueryFilter` global de EF sobre `Project`/`ProjectActivity` en `AppDbContext`.
+- Falta el consumo desde el frontend del nuevo PATCH (`tieneUnidadDeProyectos` en el DTO + switch en la pestaña "Proyectos Activos", análogo a `toggleProyectoActive()` pero llamando al PATCH chico en vez del PUT completo).

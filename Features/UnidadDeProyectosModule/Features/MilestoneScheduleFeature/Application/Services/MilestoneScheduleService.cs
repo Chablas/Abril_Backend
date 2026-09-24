@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Repositories;
@@ -118,7 +119,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// DeleteAsync en MilestoneScheduleHistoryService) — el [Authorize(Roles=...)] en el
         /// controller ya filtra el acceso, no hace falta el chequeo por proyecto de
         /// ValidarResidenteDelProyectoAsync porque un RESIDENTE normal nunca llega hasta acá.</summary>
-        public Task EditAsync(int milestoneScheduleId, MilestoneScheduleCreateDTO dto, int userId)
+        public Task EditAsync(int milestoneScheduleId, MilestoneScheduleEditDTO dto, int userId)
             => _repository.EditAsync(milestoneScheduleId, dto, userId);
+
+        /// <summary>Agregar un hito nuevo a una history ya existente es exclusivo de ADMINISTRADOR
+        /// DE RESIDENTES, mismo alcance que EditAsync.</summary>
+        public Task<MilestoneScheduleDTO> AddHitoAsync(int milestoneScheduleHistoryId, MilestoneScheduleAddDTO dto, int userId)
+            => _repository.AddHitoAsync(milestoneScheduleHistoryId, dto, userId);
+
+        public Task<List<MilestoneSimpleDTO>> GetFaltantesAsync(int projectId)
+            => _repository.GetFaltantesAsync(projectId);
     }
 }

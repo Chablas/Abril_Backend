@@ -113,7 +113,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         [Authorize(Roles = Roles.AdministradorResidentes)]
         [HttpPut("{milestoneScheduleId:int}")]
         [RequireFeature("mejora-continua.milestone-schedule.editar")]
-        public async Task<IActionResult> Editar(int milestoneScheduleId, [FromBody] MilestoneScheduleCreateDTO dto)
+        public async Task<IActionResult> Editar(int milestoneScheduleId, [FromBody] MilestoneScheduleEditDTO dto)
         {
             try
             {
@@ -124,6 +124,47 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Agrega un único hito nuevo (de catálogo o personalizado) a una versión de
+        /// cronograma ya existente, sin tener que subir una versión completa nueva — solo
+        /// ADMINISTRADOR DE RESIDENTES, mismo alcance que Editar.</summary>
+        [Authorize(Roles = Roles.AdministradorResidentes)]
+        [HttpPost("{milestoneScheduleHistoryId:int}/hito")]
+        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        public async Task<IActionResult> AgregarHito(int milestoneScheduleHistoryId, [FromBody] MilestoneScheduleAddDTO dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _service.AddHitoAsync(milestoneScheduleHistoryId, dto, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Hitos del catálogo que todavía no están en el cronograma vigente del proyecto —
+        /// para que el frontend arme el selector de "hitos faltantes" antes de llamar a AgregarHito.</summary>
+        [Authorize]
+        [HttpGet("faltantes")]
+        public async Task<IActionResult> Faltantes([FromQuery] int projectId)
+        {
+            try
+            {
+                var result = await _service.GetFaltantesAsync(projectId);
+                return Ok(result);
             }
             catch (Exception)
             {

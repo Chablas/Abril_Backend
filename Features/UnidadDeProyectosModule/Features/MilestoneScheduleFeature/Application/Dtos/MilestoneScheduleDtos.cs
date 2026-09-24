@@ -22,6 +22,34 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public bool EsHitoCritico { get; set; }
     }
 
+    /// <summary>Exclusivo del PUT de editar un hito ya guardado (MilestoneScheduleRepository.EditAsync).
+    /// A diferencia de MilestoneScheduleCreateDTO (que también usa el POST de crear una versión
+    /// completa), acá PlannedStartDate SÍ admite null — para permitir mover la fecha de un hito
+    /// de "inicio" a "fin" sin recrear la versión entera. La garantía de que "Inicio de obra"
+    /// siempre tenga fecha ya no la da el tipo del DTO, así que EditAsync la valida a mano.</summary>
+    public class MilestoneScheduleEditDTO
+    {
+        public int? MilestoneId { get; set; }
+        public string? CustomDescription { get; set; }
+        public int Order { get; set; }
+        public DateOnly? PlannedStartDate { get; set; }
+        public DateOnly? PlannedEndDate { get; set; }
+        public bool EsHitoCritico { get; set; }
+    }
+
+    /// <summary>Agregar un único hito nuevo a una MilestoneScheduleHistory ya existente, sin subir
+    /// una versión completa nueva (MilestoneScheduleRepository.AddHitoAsync). El Order se calcula
+    /// server-side (siguiente disponible), no lo manda el cliente.</summary>
+    public class MilestoneScheduleAddDTO
+    {
+        /// <summary>Del catálogo. Null si es un hito personalizado (ver CustomDescription).</summary>
+        public int? MilestoneId { get; set; }
+        public string? CustomDescription { get; set; }
+        public DateOnly? PlannedStartDate { get; set; }
+        public DateOnly? PlannedEndDate { get; set; }
+        public bool EsHitoCritico { get; set; }
+    }
+
     public class MilestoneScheduleDTO
     {
         public int MilestoneScheduleId { get; set; }

@@ -13,5 +13,14 @@ namespace Abril_Backend.Features.CursoModule.Application.Interfaces
         Task<List<CursoSlide>> GetSlidesOrdenadasAsync(int cursoId);
 
         Task<CursoSlide?> GetSlideByIdAsync(int slideId);
+
+        Task<List<Curso>> GetTodosAsync();
+        Task<Curso> CreateCursoAsync(Curso curso);
+        Task UpdateCursoAsync(int id, Curso datos);
+
+        Task<CursoSlide> CreateSlideAsync(CursoSlide slide);
+        Task UpdateSlideAsync(int slideId, CursoSlide datos);
+        Task<CursoSlide> DuplicarSlideAsync(int slideId, int? cursoDestinoId);
+        Task DeleteSlideAsync(int slideId);
     }
 }

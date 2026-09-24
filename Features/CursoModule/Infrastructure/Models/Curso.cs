@@ -15,6 +15,10 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Models
 
         public decimal NotaMinimaAprobacion { get; set; }
         public bool Activo { get; set; } = true;
+
+        /// <summary>Color de acento del tema del curso (hex, ej. "#c9a53b"). Todas sus slides lo heredan
+        /// por defecto vía SlideEstilo en el frontend; una slide puntual puede sobreescribirlo.</summary>
+        public string? ColorTema { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
     }

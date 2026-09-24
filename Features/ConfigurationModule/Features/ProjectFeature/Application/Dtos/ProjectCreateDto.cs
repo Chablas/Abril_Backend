@@ -23,6 +23,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public int? ResponsableArqComId { get; set; }
         public string? ResponsableUdp { get; set; }
         public int? ResponsableUdpId { get; set; }
+        public string? ResponsablePlaneamientoBim { get; set; }
+        public int? ResponsablePlaneamientoBimId { get; set; }
 
         /// <summary>
         /// Trabajador que es coordinador administrativo del proyecto (FK a workers). Su

@@ -32,6 +32,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public int? ResponsableArqComId { get; set; }
         public string? ResponsableUdp { get; set; }
         public int? ResponsableUdpId { get; set; }
+        public string? ResponsablePlaneamientoBim { get; set; }
+        public int? ResponsablePlaneamientoBimId { get; set; }
 
         // Coordinador administrativo (FK a workers; el correo se resuelve en vivo)
         public int? WorkersCoordAdminId { get; set; }
@@ -56,6 +58,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
 
         // Flags
         public bool? TieneArquitecturaComercial { get; set; }
+        public bool TieneUnidadDeProyectos { get; set; }
 
         // Geolocalización (geofencing de Tareo — Arquitectura Comercial)
         public decimal? Lat { get; set; }

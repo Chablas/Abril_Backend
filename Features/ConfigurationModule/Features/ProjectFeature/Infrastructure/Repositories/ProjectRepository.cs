@@ -81,10 +81,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ProjectDepartment = p.ProjectDepartment,
                     ProjectLocation   = p.ProjectLocation,
 
-                    ResponsableArqCom   = p.ResponsableArqCom,
-                    ResponsableArqComId = p.ResponsableArqComId,
-                    ResponsableUdp      = p.ResponsableUdp,
-                    ResponsableUdpId    = p.ResponsableUdpId,
+                    ResponsableArqCom             = p.ResponsableArqCom,
+                    ResponsableArqComId           = p.ResponsableArqComId,
+                    ResponsableUdp                = p.ResponsableUdp,
+                    ResponsableUdpId              = p.ResponsableUdpId,
+                    ResponsablePlaneamientoBim    = p.ResponsablePlaneamientoBim,
+                    ResponsablePlaneamientoBimId  = p.ResponsablePlaneamientoBimId,
 
                     WorkersCoordAdminId = p.WorkersCoordAdminId,
                     CoordAdminNombre    = p.CoordAdmin != null && p.CoordAdmin.Person != null
@@ -106,6 +108,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     CantTrabajadoresCasa = p.CantTrabajadoresCasa,
 
                     TieneArquitecturaComercial = p.TieneArquitecturaComercial,
+                    TieneUnidadDeProyectos     = p.TieneUnidadDeProyectos,
 
                     Lat = p.Lat,
                     Lng = p.Lng,
@@ -326,8 +329,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         /// </summary>
         public async Task<ProjectLookupsDto> GetLookups()
         {
-            const string SubareaArqCom = "Arquitectura Comercial";
-            const string SubareaUdp    = "Unidad de Proyectos";
+            const string SubareaArqCom          = "Arquitectura Comercial";
+            const string SubareaUdp             = "Unidad de Proyectos";
+            const string SubareaPlaneamientoUdp = "Planeamiento BIM";
 
             // Un solo roundtrip: se filtra por la unión de los tres criterios y se reparte
             // en memoria. El coordinador administrativo usa el mismo criterio que Gestión de
@@ -339,7 +343,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             var filas = await _context.Worker
                 .Where(w =>
                     (w.WorkersEstadoId == WorkersEstadoIds.Activo &&
-                        (w.Subarea == SubareaArqCom || w.Subarea == SubareaUdp)) ||
+                        (w.Subarea == SubareaArqCom || w.Subarea == SubareaUdp || w.Subarea == SubareaPlaneamientoUdp)) ||
                     (w.ContrataCasa == "Casa" &&
                      WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId) &&
                      w.EmailCorporativo != null && w.EmailCorporativo != ""))
@@ -377,6 +381,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaArqCom)),
                 Udp = Armar(candidatos
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaUdp)),
+                PlaneamientoUdp = Armar(candidatos
+                    .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaPlaneamientoUdp)),
                 CoordAdmins = Armar(candidatos
                     .Where(w => w.ContrataCasa == "Casa"
                              && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
@@ -419,6 +425,21 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 .ToListAsync();
         }
 
+        /// <summary>Mismo cruce User→Person.UserId→Worker.PersonId que <see cref="GetMyProjectIds"/>.
+        /// Null si el usuario no tiene ficha de Worker vinculada (personal externo, cuentas
+        /// administrativas sin Worker propio, etc.).</summary>
+        public async Task<MyWorkerDto?> GetMyWorker(int userId)
+        {
+            return await _context.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => new MyWorkerDto
+                {
+                    WorkerId = w.Id,
+                    ApellidoNombre = w.Person!.FullName ?? string.Empty,
+                })
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)
         {
             var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
@@ -429,6 +450,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await _context.SaveChangesAsync();
 
             return project.TieneArquitecturaComercial;
+        }
+
+        public async Task<bool?> SetTieneUnidadDeProyectos(int projectId, bool value)
+        {
+            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
+            if (project == null) return null;
+
+            project.TieneUnidadDeProyectos = value;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return project.TieneUnidadDeProyectos;
         }
 
         public async Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department)
@@ -476,11 +509,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
             project.ProjectLocation    = dto.ProjectLocation?.Trim();
 
-            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
-            project.ResponsableArqComId  = dto.ResponsableArqComId;
-            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
-            project.ResponsableUdpId     = dto.ResponsableUdpId;
-            project.WorkersCoordAdminId  = dto.WorkersCoordAdminId;
+            project.ResponsableArqCom             = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId           = dto.ResponsableArqComId;
+            project.ResponsableUdp                = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId              = dto.ResponsableUdpId;
+            project.ResponsablePlaneamientoBim    = dto.ResponsablePlaneamientoBim?.Trim();
+            project.ResponsablePlaneamientoBimId  = dto.ResponsablePlaneamientoBimId;
+            project.WorkersCoordAdminId           = dto.WorkersCoordAdminId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;
@@ -519,11 +554,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
             project.ProjectLocation    = dto.ProjectLocation?.Trim();
 
-            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
-            project.ResponsableArqComId  = dto.ResponsableArqComId;
-            project.ResponsableUdp       = dto.ResponsableUdp?.Trim();
-            project.ResponsableUdpId     = dto.ResponsableUdpId;
-            project.WorkersCoordAdminId  = dto.WorkersCoordAdminId;
+            project.ResponsableArqCom             = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId           = dto.ResponsableArqComId;
+            project.ResponsableUdp                = dto.ResponsableUdp?.Trim();
+            project.ResponsableUdpId              = dto.ResponsableUdpId;
+            project.ResponsablePlaneamientoBim    = dto.ResponsablePlaneamientoBim?.Trim();
+            project.ResponsablePlaneamientoBimId  = dto.ResponsablePlaneamientoBimId;
+            project.WorkersCoordAdminId           = dto.WorkersCoordAdminId;
 
             project.FechaInicio = dto.FechaInicio;
             project.FechaFin    = dto.FechaFin;

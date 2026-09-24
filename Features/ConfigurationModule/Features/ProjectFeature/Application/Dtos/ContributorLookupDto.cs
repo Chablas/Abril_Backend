@@ -34,10 +34,20 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public List<ResponsableLookupDto> ArqCom { get; set; } = new();
         /// <summary>Trabajadores activos de la subárea Unidad de Proyectos.</summary>
         public List<ResponsableLookupDto> Udp { get; set; } = new();
+        /// <summary>Trabajadores activos de la subárea Planeamiento BIM.</summary>
+        public List<ResponsableLookupDto> PlaneamientoUdp { get; set; } = new();
         /// <summary>
         /// Elegibles como coordinador administrativo: personal Casa no retirado con correo
         /// corporativo — mismo criterio que Gestión de Responsables.
         /// </summary>
         public List<ResponsableLookupDto> CoordAdmins { get; set; } = new();
+    }
+
+    /// <summary>Worker del usuario logueado, resuelto vía User→Person.UserId→Worker.PersonId
+    /// (mismo cruce que ProjectRepository.GetMyProjectIds). Null si no tiene ficha vinculada.</summary>
+    public class MyWorkerDto
+    {
+        public int WorkerId { get; set; }
+        public string ApellidoNombre { get; set; } = string.Empty;
     }
 }

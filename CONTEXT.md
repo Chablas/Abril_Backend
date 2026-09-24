@@ -6560,3 +6560,25 @@ El modal "Reingresar" bloqueaba con 400 al intentar reingresar a un trabajador R
 
 ### Pendiente
 - Ninguno identificado; el flujo de subida de evidencia para un trabajador Retirado ya funcionaba sin cambios (panel de entregables de `trabajadores.html` no filtra por estado).
+
+## Sesión 2026-09-23 — Agregar hito individual al cronograma de hitos (MilestoneSchedule)
+
+### Contexto
+Hasta ahora la única forma de modificar el cronograma de hitos de un proyecto era subir una versión completa nueva (`POST` de crear en `MilestoneScheduleHistoryFeature`) o editar un hito ya existente (`PUT /{milestoneScheduleId}`). Faltaba una forma de agregar un solo hito nuevo a una versión vigente sin recrearla entera.
+
+### Cambios
+- `MilestoneScheduleCreateDTO` se separó en dos DTOs nuevos y más chicos: `MilestoneScheduleEditDTO` (para el `PUT` existente — `PlannedStartDate` ahora nullable, para poder mover la fecha de un hito de "inicio" a "fin" sin recrear la versión) y `MilestoneScheduleAddDTO` (para el `POST` nuevo, sin `Order` — se calcula server-side).
+- Nuevo endpoint `POST api/v1/milestoneSchedule/{milestoneScheduleHistoryId}/hito` (`AddHitoAsync`): inserta un hito (de catálogo o `CustomDescription` personalizado) en una `MilestoneScheduleHistory` activa, calculando `Order` como `maxOrder + 1`, validando la regla de "Inicio de obra" (única fecha va en `PlannedStartDate`) y de hitos obligatorios (`PlannedEndDate` requerido salvo "Inicio de obra"). Devuelve el `MilestoneScheduleDTO` completo (incluye `order`, `plannedStartDate`, `plannedEndDate`) para que el frontend actualice el Gantt en memoria sin un segundo `GET`.
+- Nuevo endpoint `GET api/v1/milestoneSchedule/faltantes?projectId=` (`GetFaltantesAsync`): lista los hitos del catálogo (activos) que todavía no están en la history vigente del proyecto, para armar el selector de "hitos faltantes" antes de llamar al `POST` de arriba. Si el proyecto no tiene ninguna history activa, devuelve el catálogo completo.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Dtos/MilestoneScheduleDtos.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/{Interfaces,Services}/*MilestoneScheduleService.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/{Interfaces,Repositories}/*MilestoneScheduleRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Presentation/MilestoneScheduleController.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi). No se probó en vivo (el usuario verifica él mismo).
+
+### Pendiente
+- Ninguno identificado en el backend. Falta el consumo desde el frontend (selector de "hitos faltantes" + botón "agregar hito" en el Gantt).

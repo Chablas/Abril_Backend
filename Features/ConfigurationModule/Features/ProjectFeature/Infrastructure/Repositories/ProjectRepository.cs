@@ -108,6 +108,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     CantTrabajadoresCasa = p.CantTrabajadoresCasa,
 
                     TieneArquitecturaComercial = p.TieneArquitecturaComercial,
+                    TieneUnidadDeProyectos     = p.TieneUnidadDeProyectos,
 
                     Lat = p.Lat,
                     Lng = p.Lng,
@@ -449,6 +450,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await _context.SaveChangesAsync();
 
             return project.TieneArquitecturaComercial;
+        }
+
+        public async Task<bool?> SetTieneUnidadDeProyectos(int projectId, bool value)
+        {
+            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
+            if (project == null) return null;
+
+            project.TieneUnidadDeProyectos = value;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return project.TieneUnidadDeProyectos;
         }
 
         public async Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department)

@@ -120,6 +120,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             return await _repository.ToggleArquitecturaComercial(projectId);
         }
 
+        public async Task<bool?> SetTieneUnidadDeProyectos(int projectId, bool value)
+        {
+            return await _repository.SetTieneUnidadDeProyectos(projectId, value);
+        }
+
         public async Task<ProjectLookupsDto> GetLookups()
         {
             return await _repository.GetLookups();

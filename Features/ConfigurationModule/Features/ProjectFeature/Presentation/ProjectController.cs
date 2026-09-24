@@ -282,5 +282,30 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>
+        /// Activa/desactiva si el proyecto pertenece al módulo Unidad de Proyectos
+        /// (Cronograma de Actividades, Actas de Reunión, Dashboard UDP, etc.) sin pasar
+        /// por el PUT completo de edición — evita el riesgo de sobreescribir campos no
+        /// enviados que tiene reconstruir un ProjectEditDto completo solo para este flag.
+        /// </summary>
+        [Authorize]
+        [RequireFeature("projects.config.milestones")]
+        [HttpPatch("{id}/tiene-unidad-de-proyectos")]
+        public async Task<IActionResult> UpdateTieneUnidadDeProyectos(int id, [FromBody] UpdateTieneUnidadDeProyectosDto dto)
+        {
+            try
+            {
+                var nuevoValor = await _service.SetTieneUnidadDeProyectos(id, dto.Value);
+                if (nuevoValor == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(new { tieneUnidadDeProyectos = nuevoValor.Value });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

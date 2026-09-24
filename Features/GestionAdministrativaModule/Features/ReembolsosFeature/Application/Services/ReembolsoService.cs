@@ -91,7 +91,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         }
 
         /// <summary>
-        /// Tesorería devuelve el consolidado con un motivo obligatorio (RG-49). No hay un "flujo de
+        /// Tesorería devuelve el consolidado con un motivo obligatorio (RG-49), y solo mientras no
+        /// haya confirmado la revisión: lo confirmado sigue al pago
+        /// (<see cref="EstadosSalida.Reembolso.ObservablesPorTesoreria"/>). No hay un "flujo de
         /// subsanación de Tesorería" aparte: la planilla vuelve al MISMO camino que ya existe para
         /// la observación de la jefatura (§10.4-10.6) —queda Observada y el consolidador elige
         /// entre recargar el Consolidado del S10 o pedirle la corrección al Coordinador ERP—, con
@@ -112,7 +114,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             if (ids.Count == 0)
                 throw new AbrilException(
                     "No hay reembolsos que observar en la selección: solo se devuelve lo que está "
-                    + "firmado o listo para pagar. Lo ya pagado no vuelve.", 400);
+                    + "firmado y todavía sin la revisión confirmada. Lo confirmado o pagado no vuelve.", 400);
 
             var observadas = await _repo.Observar(ids, dto.Observacion!, tesoreroUserId);
 

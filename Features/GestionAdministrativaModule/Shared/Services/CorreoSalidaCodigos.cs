@@ -67,6 +67,15 @@
         public const string RendicionIncluidaConsolidado = "REN_INCLUIDA_CONSOLIDADO";
 
         /// <summary>
+        /// Al solicitante: su rendición quedó incluida en la planilla grupal que acaba de preparar el
+        /// consolidador —el paso anterior al Consolidado del S10, que se sube sobre esa planilla—.
+        /// Mismo molde que <see cref="RendicionIncluidaConsolidado"/>: informativo, uno por
+        /// (planilla, trabajador). La planilla grupal se prepara una sola vez, así que no se repite.
+        /// Se origina en Gestión de Rendiciones.
+        /// </summary>
+        public const string RendicionIncluidaPlanillaGrupal = "REN_INCLUIDA_PLANILLA_GRUPAL";
+
+        /// <summary>
         /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y está
         /// esperando revisión. Lo dispara el consolidador desde Consolidados.
         /// El código conserva su nombre de cuando lo disparaba el trabajador: es la clave del

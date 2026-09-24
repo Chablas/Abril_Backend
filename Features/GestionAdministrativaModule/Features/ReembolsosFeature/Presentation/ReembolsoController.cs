@@ -164,8 +164,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         }
 
         /// <summary>
-        /// El camino de vuelta (RG-49): devolver el consolidado con un motivo obligatorio, desde
-        /// cualquiera de los dos pasos anteriores al pago.
+        /// El camino de vuelta (RG-49): devolver el consolidado con un motivo obligatorio, mientras
+        /// la revisión de Tesorería no esté confirmada.
         /// </summary>
         [HttpPatch("observar")]
         public async Task<IActionResult> Observar([FromBody] ReembolsoObservacionDto dto)

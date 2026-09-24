@@ -88,9 +88,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         /// columna RENDICIÓN diciendo de qué planilla sale cada fila, la cabecera del consolidador
         /// y el código <see cref="Codigo"/> impreso.
         ///
-        /// La genera Abril One —no se sube— en el mismo acto en que el consolidador adjunta el
-        /// Consolidado del S10, que es cuando queda definido qué planillas van juntas. Si el
-        /// consolidado se reemplaza, se rehace: los montos pueden haber cambiado en la subsanación.
+        /// Desde el 2026-09-24 la prepara el consolidador ANTES de subir el S10
+        /// (<see cref="GaPlanillaGrupal"/>, ver <see cref="PlanillaGrupalId"/>) y estas columnas son
+        /// la copia de ese archivo que se toma al subirlo: acá la siguen leyendo Consolidados,
+        /// Correcciones S10 y Reembolsos, y al lado queda su copia firmada. Reemplazar el
+        /// consolidado se queda con la misma planilla —las rendiciones y sus montos no cambian—:
+        /// la planilla grupal solo se arma al prepararla, y una vez preparada no se rehace.
         ///
         /// Null en los consolidados anteriores a esta columna, que nunca la tuvieron.
         /// </summary>
@@ -98,6 +101,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         public string? PlanillaGrupalItemId { get; set; }
         public string? PlanillaGrupalDriveId { get; set; }
         public string? PlanillaGrupalFilename { get; set; }
+
+        /// <summary>
+        /// FK a <c>ga_planilla_grupal.id</c>: la planilla que preparó el consolidador y sobre la que
+        /// se subió este consolidado (el archivo está copiado arriba). Al reemplazarlo se hereda.
+        /// Null en los consolidados anteriores al 2026-09-24 (y en sus reemplazos).
+        /// </summary>
+        public int? PlanillaGrupalId { get; set; }
 
         /// <summary>
         /// Copia de la planilla grupal con la firma de la jefatura, que se estampa en el mismo acto

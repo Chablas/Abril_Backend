@@ -304,9 +304,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         /// corrección al Coordinador ERP— y así todo lo que ya existe aguas abajo funciona sin
         /// tocarse. Lo único que distingue las dos es el ORIGEN.
         ///
-        /// La confirmación de la revisión se borra: lo que Tesorería revisó dejó de ser válido, y
-        /// cuando el consolidado vuelva firmado de nuevo tiene que volver a confirmarse. El rastro
-        /// del pago no se toca porque una salida pagada nunca llega acá.
+        /// Solo se observa lo que Tesorería todavía no confirmó
+        /// (<see cref="EstadosSalida.Reembolso.ObservablesPorTesoreria"/>): con la revisión
+        /// confirmada el consolidado sigue al pago. Así que no hay una revisión que deshacer; sus
+        /// columnas se limpian igual, para que una salida observada nunca arrastre un visto bueno.
+        /// El rastro del pago no se toca porque una salida pagada nunca llega acá.
         /// </summary>
         public async Task<List<int>> Observar(IEnumerable<int> ids, string observacion, int tesoreroUserId)
         {
@@ -326,7 +328,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             if (solicitudes.Count == 0)
                 throw new AbrilException(
                     "Ninguna de las salidas seleccionadas se puede observar: solo se devuelve lo que "
-                    + "está firmado o listo para pagar. Lo ya pagado no vuelve.", 400);
+                    + "está firmado y todavía sin la revisión confirmada. Lo confirmado o pagado no vuelve.", 400);
 
             var now = DateTimeOffset.UtcNow;
             var obs = observacion.Trim();
@@ -386,6 +388,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
             var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, rendicionIds);
 
+            // El consolidador de cada planilla es quien subió su consolidado: el aviso de pago lo
+            // nombra debajo del trabajador.
+            var subidoPor = await SubidoPorAsync(
+                ctx, consolidados.Values.Select(c => c.Id).Distinct().ToList());
+
             var montoPorSolicitud = await MontoPorSolicitudAsync(
                 ctx, filas.ToDictionary(f => f.Id, f => f.Subarea));
 
@@ -404,12 +411,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
                     var pagadoPorId = g.Select(x => x.PagadoPorId).FirstOrDefault(x => x.HasValue);
 
+                    var consolidador = consolidado != null && subidoPor.TryGetValue(consolidado.Id, out var quien)
+                        ? quien.Nombre
+                        : null;
+
                     return new ReembolsoPlanillaCorreoDatos
                     {
                         RendicionId     = g.Key.RendicionId,
                         Codigo          = PlanillaRendicionHelper.CodigoRendicion(planilla?.Codigo, g.Key.RendicionId),
                         Trabajador      = primera.Trabajador,
                         TrabajadorEmail = primera.Email,
+                        Consolidador    = consolidador,
                         Area            = primera.Area,
                         NumeroPlanilla  = PlanillaRendicionHelper.NumeroPlanilla(planilla?.NumeroPlanilla),
                         Periodo         = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
@@ -631,8 +643,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             var totalesFuera  = await TotalPlanillaLoader.LoadAsync(
                 ctx, cubiertas.Where(id => !enBandeja.ContainsKey(id)).ToList());
 
-            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador, no la de
-            // los trabajadores, que pueden ser de varias.
+            // Quién adjuntó cada consolidado, con qué área quedó y bajo qué razón social: las del
+            // consolidador, no las de los trabajadores, que pueden ser de varias.
             var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
             var razones   = await RazonSocialConsolidador.LoadPorUsuarioAsync(
                 ctx, subidoPor.Values.Select(x => x.UserId).Distinct().ToList());
@@ -748,6 +760,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     UploadedAt         = dto.UploadedAt,
                     SubidoPor          = quienSubio.Nombre,
                     RazonSocial        = razon?.Nombre,
+                    Area               = quienSubio.Area,
 
                     Rendiciones  = rendiciones,
                     Trabajadores = salidas.Select(s => s.Trabajador).Distinct().ToList(),
@@ -825,9 +838,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
         /// <summary>
         /// Quién subió cada consolidado —el consolidador—: su usuario (para resolver la razón
-        /// social bajo la que quedó el registro del S10) y su nombre.
+        /// social bajo la que quedó el registro del S10), su nombre y el área con la que quedó el
+        /// consolidado, que es la suya (la de la sigla del código y la de la planilla grupal).
         /// </summary>
-        private static async Task<Dictionary<int, (int UserId, string? Nombre)>> SubidoPorAsync(
+        private static async Task<Dictionary<int, (int UserId, string? Nombre, string? Area)>> SubidoPorAsync(
             AppDbContext ctx, List<int> consolidadoIds)
         {
             if (consolidadoIds.Count == 0) return new();
@@ -836,15 +850,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 from c   in ctx.GaConsolidadoS10
                 join per in ctx.Person on c.UploadedById equals per.UserId into perGroup
                 from per in perGroup.DefaultIfEmpty()
+                join s   in ctx.AreaScope on c.AreaScopeId equals (int?)s.AreaScopeId into sGroup
+                from s   in sGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
                 where consolidadoIds.Contains(c.Id)
-                select new { c.Id, c.UploadedById, Nombre = per != null ? per.FullName : null }
+                select new
+                {
+                    c.Id,
+                    c.UploadedById,
+                    Nombre = per != null ? per.FullName : null,
+                    Area   = ai != null ? ai.AreaItemName : null,
+                }
             ).ToListAsync();
 
             return filas
                 .GroupBy(x => x.Id)
                 .ToDictionary(
                     g => g.Key,
-                    g => (g.First().UploadedById, g.Select(x => x.Nombre).FirstOrDefault(n => n != null)));
+                    g => (g.First().UploadedById,
+                          g.Select(x => x.Nombre).FirstOrDefault(n => n != null),
+                          g.First().Area));
         }
 
         /// <summary>
@@ -946,7 +972,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return q.ToList();
         }
 
-        /// <summary>Busca el texto en lo que la fila muestra: reembolso, planillas, gente y periodo.</summary>
+        /// <summary>
+        /// Busca el texto en lo que la fila muestra —reembolso, área, gente y periodo— y en los
+        /// códigos de las planillas que cubre, que ya no son columna pero son como las nombran los
+        /// correos.
+        /// </summary>
         private static bool Coincide(ReembolsoListItemDto x, string texto)
         {
             bool Tiene(string? valor) =>
@@ -957,6 +987,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 || Tiene(x.NumeroReembolso)
                 || Tiene(x.Periodo)
                 || Tiene(x.RazonSocial)
+                || Tiene(x.Area)
                 || x.Trabajadores.Any(Tiene)
                 || x.Rendiciones.Any(r => Tiene(r.Codigo) || Tiene(r.NumeroPlanilla));
         }
@@ -1076,7 +1107,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             d.PlanillaGrupalFirmadoFilename = o.PlanillaGrupalFirmadoFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
-            d.RazonSocial = o.RazonSocial;
+            d.RazonSocial = o.RazonSocial; d.Area = o.Area;
             d.Rendiciones = o.Rendiciones; d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount;
             d.Periodo = o.Periodo; d.PeriodoAnio = o.PeriodoAnio; d.PeriodoMes = o.PeriodoMes;
             d.Firmas = o.Firmas;

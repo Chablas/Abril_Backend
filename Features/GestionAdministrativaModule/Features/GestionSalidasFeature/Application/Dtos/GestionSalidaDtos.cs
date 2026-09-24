@@ -449,11 +449,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? RazonSocial { get; set; }
         /// <summary>RUC de esa razón social.</summary>
         public string? Ruc { get; set; }
-        /// <summary>Nombre del consolidador que sube el consolidado.</summary>
+        /// <summary>Nombre del consolidador que prepara la planilla.</summary>
         public string? Consolidador { get; set; }
         /// <summary>Área del consolidado.</summary>
         public string? Area { get; set; }
-        /// <summary>Número de reembolso que devolvió el S10.</summary>
+        /// <summary>
+        /// Número de reembolso que devolvió el S10. Null al preparar la planilla grupal —todavía no
+        /// existe: el S10 lo devuelve cuando se registra esta misma planilla— y la línea sale en
+        /// blanco.
+        /// </summary>
         public string? NumeroReembolso { get; set; }
     }
 

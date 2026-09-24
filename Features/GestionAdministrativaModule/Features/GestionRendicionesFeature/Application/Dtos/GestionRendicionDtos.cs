@@ -43,6 +43,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public DateTimeOffset? FirmadoAt { get; set; }
         public ConsolidadoS10Dto? ConsolidadoS10 { get; set; }
 
+        /// <summary>
+        /// La planilla grupal que preparó el consolidador y que todavía espera su Consolidado del
+        /// S10. Null si no se preparó y también cuando ya tiene consolidado: desde ahí la planilla
+        /// grupal viaja dentro de <see cref="ConsolidadoS10"/>, junto con su copia firmada.
+        /// </summary>
+        public PlanillaGrupalDto? PlanillaGrupal { get; set; }
+
         // ── Primera revisión ─────────────────────────────────────────────
         // El paso que va ANTES del Consolidado del S10: el revisor mira trayectos, montos y capturas
         // y decide. Es de la PLANILLA, así que no se resume de las salidas como el reembolso.
@@ -107,20 +114,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         public bool PuedeConsolidar { get; set; }
 
         /// <summary>
+        /// True si a esta planilla se le puede preparar la planilla grupal: la primera revisión está
+        /// APROBADA (RG-35), el reembolso de TODAS sus salidas sigue por decidir y todavía no tiene
+        /// planilla grupal ni Consolidado del S10. Una planilla grupal ya preparada no se rehace ni
+        /// se reemplaza: es lo que el consolidador registró en el S10. No mira permisos (para eso
+        /// está <see cref="PuedeConsolidar"/>).
+        /// </summary>
+        public bool PuedePrepararPlanilla { get; set; }
+
+        /// <summary>
         /// True si a esta planilla se le puede adjuntar su PRIMER Consolidado del S10: la primera
-        /// revisión está APROBADA (RG-35), el reembolso de TODAS sus salidas sigue por decidir y
-        /// todavía no tiene consolidado. Reemplazarlo ya no se hace acá sino en Consolidados, que es
-        /// donde vuelve la observación. Es la misma condición que valida la subida, sin mirar
-        /// permisos (para eso está <see cref="PuedeConsolidar"/>).
+        /// revisión aprobada, el reembolso por decidir, sin consolidado y con la planilla grupal ya
+        /// preparada —el S10 se sube sobre ella—. Reemplazarlo ya no se hace acá sino en
+        /// Consolidados, que es donde vuelve la observación. Es la misma condición que valida la
+        /// subida, sin mirar permisos (para eso está <see cref="PuedeConsolidar"/>).
         /// </summary>
         public bool PuedeAdjuntarConsolidado { get; set; }
 
         /// <summary>
         /// Las planillas que cubriría el consolidado adjuntado desde esta fila: ella misma primero
-        /// y, si ya tiene uno compartido, las demás planillas de ese consolidado que siguen con el
-        /// reembolso por decidir —el documento se reemplaza entero—, aunque la tabla no las
-        /// muestre. Cada una con su monto completo, que es contra el que se contrasta el del
-        /// consolidado.
+        /// y, si ya tiene planilla grupal, las demás de esa planilla —el S10 se sube para toda la
+        /// planilla grupal a la vez—, aunque la tabla no las muestre. Cada una con su monto
+        /// completo, que es contra el que se contrasta el del consolidado.
         /// </summary>
         public List<ConsolidadoConjuntoItemDto> ConsolidadoConjunto { get; set; } = new();
     }
@@ -268,6 +283,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// saber qué corregir antes de volver a generar la rendición.
         /// </summary>
         public string? Observacion { get; set; }
+    }
+
+    /// <summary>
+    /// Las planillas para las que se prepara UNA planilla grupal: la selección de la tabla o la
+    /// planilla del detalle.
+    /// </summary>
+    public class PrepararPlanillaGrupalDto
+    {
+        public List<int> RendicionIds { get; set; } = new();
     }
 
     /// <summary>

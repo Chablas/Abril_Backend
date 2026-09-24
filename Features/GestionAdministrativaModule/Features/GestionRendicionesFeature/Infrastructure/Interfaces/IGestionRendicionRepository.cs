@@ -67,9 +67,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
         /// <summary>
         /// Correos de los trabajadores de las salidas de las planillas indicadas, sin repetir y SIN
-        /// recortar por visibilidad: son los que reciben el aviso de rendición consolidada al
-        /// adjuntar el Consolidado del S10. Lo pide el preview de esa confirmación; sale de la misma
-        /// consulta que el envío (<see cref="GetRendicionConsolidadaCorreoDatos"/>).
+        /// recortar por visibilidad: son los que reciben el aviso de rendición incluida al preparar la
+        /// planilla grupal y al adjuntar el Consolidado del S10. Lo piden los previews de esas dos
+        /// confirmaciones; sale de la misma consulta que los envíos
+        /// (<see cref="GetRendicionEnPlanillaGrupalCorreoDatos"/>, <see cref="GetRendicionConsolidadaCorreoDatos"/>).
         /// </summary>
         Task<List<string>> GetCorreosTrabajadoresDePlanillas(IReadOnlyCollection<int> rendicionIds);
 
@@ -79,5 +80,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// trabajador y los datos del documento. Sin recortar por visibilidad.
         /// </summary>
         Task<List<RendicionConsolidadaCorreoDatos>> GetRendicionConsolidadaCorreoDatos(int consolidadoId);
+
+        /// <summary>
+        /// Lo que necesita el aviso «Rendición incluida en una planilla grupal»: UNA entrada por
+        /// (planilla, trabajador) de las planillas que cubre la planilla grupal, con lo que rindió ese
+        /// trabajador y los datos de la planilla grupal. Sin recortar por visibilidad. Sale de las
+        /// mismas consultas que el aviso de rendición consolidada, así que el preview
+        /// (<see cref="GetCorreosTrabajadoresDePlanillas"/>) nombra a las mismas personas.
+        /// </summary>
+        Task<List<RendicionEnPlanillaGrupalCorreoDatos>> GetRendicionEnPlanillaGrupalCorreoDatos(int planillaGrupalId);
     }
 }

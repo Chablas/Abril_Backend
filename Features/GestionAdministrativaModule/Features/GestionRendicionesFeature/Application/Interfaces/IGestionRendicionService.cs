@@ -5,9 +5,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 {
     /// <summary>
     /// "Gestión de Rendiciones": el revisor sobre las planillas de su alcance. Acá vive la PRIMERA
-    /// revisión de la planilla y el Consolidado del S10 que la respalda —adjuntarlo o
-    /// reemplazarlo—; Gestión de Salidas llega hasta rendir. Decidir y firmar el reembolso es de
-    /// Consolidados, y el pago de Tesorería (Reembolsos).
+    /// revisión de la planilla, la planilla grupal que prepara el consolidador y el primer
+    /// Consolidado del S10, que se sube sobre ella; Gestión de Salidas llega hasta rendir. Decidir y
+    /// firmar el reembolso —y reemplazar el consolidado— es de Consolidados, y el pago de Tesorería
+    /// (Reembolsos).
     ///
     /// La visibilidad es exactamente la de Gestión de Salidas: mismas salidas, agrupadas por
     /// planilla.
@@ -48,6 +49,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             PrimeraRevisionAccionDto accion, bool aprobar, GestionRendicionFiltersDto scope, int reviewerUserId);
 
         /// <summary>
+        /// Prepara la PLANILLA GRUPAL de las planillas indicadas: el papel con el que el consolidador
+        /// las registra en el S10, sin firmar. Es el paso anterior a adjuntar el Consolidado del
+        /// S10, que después se sube sobre ella. Solo la prepara el consolidador habilitado por TODOS
+        /// los trabajadores de esas planillas, igual que el consolidado.
+        ///
+        /// Las reglas del documento (primera revisión aprobada, sin planilla grupal ni S10, misma
+        /// regla de agrupación que el consolidado) las valida el servicio compartido: una planilla
+        /// grupal ya preparada no se rehace.
+        ///
+        /// Le avisa a cada trabajador que su rendición quedó incluida en la planilla grupal
+        /// (best-effort, igual que el aviso de rendición consolidada).
+        /// </summary>
+        Task<PlanillaGrupalDto> PrepararPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, int userId);
+
+        /// <summary>
         /// Adjunta el PRIMER Consolidado del S10 de las planillas indicadas: una o varias, de uno o
         /// de varios trabajadores, de las razones sociales que sean. Solo lo sube el consolidador,
         /// que tiene que estar habilitado por TODOS los trabajadores de esas planillas
@@ -55,7 +71,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         ///
         /// Ninguna puede tener ya un consolidado (409): reemplazarlo es de Consolidados
         /// (<c>IConsolidadoService.ReemplazarConsolidado</c>). El resto de las reglas (primera
-        /// revisión APROBADA, reembolso por decidir) las valida el servicio compartido.
+        /// revisión APROBADA, reembolso por decidir, que sean exactamente las de una planilla grupal
+        /// ya preparada) las valida el servicio compartido.
         ///
         /// Adjuntar TAMBIÉN le avisa a la jefatura, en el mismo paso: consolidar es exactamente lo
         /// que deja el reembolso esperando su firma, así que el aviso no es un trámite aparte del

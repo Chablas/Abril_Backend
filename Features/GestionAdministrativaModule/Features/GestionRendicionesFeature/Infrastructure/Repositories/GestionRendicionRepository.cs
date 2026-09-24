@@ -587,6 +587,65 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .ToList();
         }
 
+        public async Task<List<RendicionEnPlanillaGrupalCorreoDatos>> GetRendicionEnPlanillaGrupalCorreoDatos(
+            int planillaGrupalId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // La planilla grupal: su código, el área (la de la sigla del código) y quién la preparó.
+            var doc = await (
+                from g   in ctx.GaPlanillaGrupal.AsNoTracking()
+                join sc  in ctx.AreaScope on g.AreaScopeId equals (int?)sc.AreaScopeId into scGroup
+                from sc  in scGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on sc.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
+                join per in ctx.Person on (int?)g.PreparadaPorId equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where g.Id == planillaGrupalId && g.State
+                select new
+                {
+                    g.Codigo,
+                    Area         = ai != null ? ai.AreaItemName : null,
+                    Consolidador = per != null ? per.FullName : null,
+                }
+            ).FirstOrDefaultAsync();
+            if (doc == null) return new();
+
+            var rendicionIds = await ctx.GaPlanillaGrupalRendicion.AsNoTracking()
+                .Where(v => v.State && v.PlanillaGrupalId == planillaGrupalId)
+                .Select(v => v.RendicionId)
+                .Distinct()
+                .ToListAsync();
+            if (rendicionIds.Count == 0) return new();
+
+            var salidas = await SalidasDeTrabajadoresAsync(ctx, rendicionIds);
+            if (salidas.Count == 0) return new();
+
+            var codigoDe = await ctx.GaRendicion.AsNoTracking()
+                .Where(r => rendicionIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Codigo })
+                .ToDictionaryAsync(r => r.Id, r => PlanillaRendicionHelper.CodigoRendicion(r.Codigo, r.Id));
+
+            var montoPorSalida = await MontoPorSalidaAsync(ctx, salidas);
+
+            return salidas
+                .GroupBy(s => new { s.RendicionId, s.WorkerId })
+                .Select(g => new RendicionEnPlanillaGrupalCorreoDatos
+                {
+                    RendicionId          = g.Key.RendicionId,
+                    Codigo               = codigoDe.TryGetValue(g.Key.RendicionId, out var codigo)
+                                             ? codigo
+                                             : PlanillaRendicionHelper.CodigoRendicion(null, g.Key.RendicionId),
+                    TrabajadorEmail      = g.Select(s => s.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)),
+                    MontoTrabajador      = g.Sum(s => montoPorSalida.GetValueOrDefault(s.SolicitudId)),
+                    PlanillaGrupalCodigo = doc.Codigo,
+                    Area                 = doc.Area,
+                    Consolidador         = doc.Consolidador,
+                })
+                .OrderBy(d => d.Codigo, StringComparer.Ordinal)
+                .ToList();
+        }
+
         /// <summary>Una salida de una planilla, con su trabajador y el correo del usuario de este.</summary>
         private sealed record SalidaDeTrabajador(
             int SolicitudId, int RendicionId, int WorkerId, string? Subarea, string? Email);
@@ -653,40 +712,54 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                     g => g.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m));
         }
 
-        /// <summary>Lo que la pantalla necesita para ofrecer (o no) el Consolidado del S10 de una fila.</summary>
+        /// <summary>
+        /// Lo que la pantalla necesita para ofrecer (o no) la planilla grupal y el Consolidado del S10
+        /// de una fila.
+        /// </summary>
         private sealed class ConsolidacionFila
         {
+            public bool PuedePreparar { get; init; }
+            public PlanillaGrupalDto? PlanillaGrupal { get; init; }
             public bool PuedeAdjuntar { get; init; }
             public List<ConsolidadoConjuntoItemDto> Conjunto { get; init; } = new();
             public bool PuedeConsolidar { get; init; }
         }
 
         /// <summary>
-        /// Para cada planilla de la tabla: si admite el Consolidado del S10, qué planillas cubriría
-        /// el que se adjunte desde ella (su conjunto, ver <see cref="ConsolidadoS10Agrupacion"/>) y
-        /// si el usuario puede consolidar por TODOS los trabajadores de ese conjunto. Son las mismas
-        /// reglas que valida la subida, así que la pantalla no ofrece nada que el servidor vaya a
+        /// Para cada planilla de la tabla: si admite la planilla grupal y el Consolidado del S10, qué
+        /// planillas cubriría el que se adjunte desde ella (su planilla grupal entera, o las de su
+        /// consolidado actual, ver <see cref="ConsolidadoS10Agrupacion"/>) y si el usuario puede
+        /// consolidar por TODOS los trabajadores de ese conjunto. Son las mismas reglas que validan
+        /// la preparación y la subida, así que la pantalla no ofrece nada que el servidor vaya a
         /// rechazar. El permiso sale de <c>IConsolidadorResolver</c>, el mismo que alimenta la
         /// pantalla de Consolidadores: ver una planilla no habilita a hacerle el trámite, y el
         /// propio trabajador ya no consolida lo suyo.
         ///
         /// Un número fijo de consultas para toda la tabla —incluidas las planillas de fuera de la
-        /// tabla que cuelgan de un consolidado compartido— y una sola llamada al resolver.
+        /// tabla que comparten planilla grupal o consolidado con alguna fila— y una sola llamada al
+        /// resolver.
         /// </summary>
         private async Task<Dictionary<int, ConsolidacionFila>> ConsolidacionPorPlanillaAsync(
             AppDbContext ctx, int? userId, List<PlanillaRendicionLoader.PlanillaFila> planillas)
         {
             if (planillas.Count == 0) return new();
 
-            // Las planillas de la tabla y las demás de sus consolidados actuales: un consolidado
-            // compartido se reemplaza entero, así que el conjunto de una fila puede traer planillas
-            // que la tabla no muestra (otro filtro, otra área).
+            // La planilla grupal que espera su S10: solo la de las filas sin consolidado. Con el S10
+            // subido la planilla grupal viaja dentro del consolidado, con su copia firmada.
+            var preparadas = await PlanillaGrupalLoader.LoadPorRendicionAsync(
+                ctx, planillas.Where(p => p.ConsolidadoS10 == null).Select(p => p.Id).ToList());
+
+            // Las planillas de la tabla y las que comparten documento con ellas: el S10 se sube para
+            // la planilla grupal entera, y un consolidado compartido se reemplaza entero, así que el
+            // conjunto de una fila puede traer planillas que la tabla no muestra (otro filtro, otra
+            // área).
             var enTabla = planillas.ToDictionary(p => p.Id);
             var involucradas = planillas.Select(p => p.Id)
                 .Concat(planillas
                     .Where(p => p.ConsolidadoS10 != null)
                     .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
                     .Select(r => r.Id))
+                .Concat(preparadas.Values.SelectMany(g => g.Rendiciones).Select(r => r.Id))
                 .Distinct()
                 .ToList();
 
@@ -699,12 +772,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var codigoDe = planillas
                 .Where(p => p.ConsolidadoS10 != null)
                 .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
+                .Concat(preparadas.Values.SelectMany(g => g.Rendiciones))
                 .GroupBy(r => r.Id)
                 .ToDictionary(g => g.Key, g => g.First().Codigo);
             foreach (var planilla in planillas) codigoDe[planilla.Id] = planilla.Codigo;
 
+            // Sin consolidado, el primero se sube sobre la planilla grupal entera (ella primero); con
+            // consolidado, lo que se reemplazaría junto con el actual.
             var conjuntos = planillas.ToDictionary(
-                p => p.Id, p => ConsolidadoS10Agrupacion.Conjunto(p.Id, p.ConsolidadoS10, agrupables));
+                p => p.Id,
+                p => p.ConsolidadoS10 == null && preparadas.TryGetValue(p.Id, out var grupal)
+                    ? grupal.Rendiciones.Select(r => r.Id).OrderBy(id => id == p.Id ? 0 : 1).ToList()
+                    : ConsolidadoS10Agrupacion.Conjunto(p.Id, p.ConsolidadoS10, agrupables));
 
             List<int> TrabajadoresDe(IEnumerable<int> rendicionIds) => rendicionIds
                 .SelectMany(id => agrupables.TryGetValue(id, out var a) ? a.WorkerIds : new List<int>())
@@ -722,12 +801,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 var conjunto     = conjuntos[p.Id];
                 var trabajadores = TrabajadoresDe(conjunto);
 
+                // Aprobada, con el reembolso abierto y sin S10: lo que admite la planilla grupal y
+                // el primer consolidado. Con un consolidado ya adjunto no: reemplazarlo es de
+                // Consolidados.
+                var abierta = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
+                           && p.ConsolidadoS10 == null
+                           && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto;
+                preparadas.TryGetValue(p.Id, out var planillaGrupal);
+
                 return new ConsolidacionFila
                 {
-                    // Solo el primero: con un consolidado ya adjunto, reemplazarlo es de Consolidados.
-                    PuedeAdjuntar = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
-                                 && p.ConsolidadoS10 == null
-                                 && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto,
+                    // Una sola vez: la planilla grupal ya preparada no se rehace ni se reemplaza.
+                    PuedePreparar  = abierta && planillaGrupal == null,
+                    PlanillaGrupal = planillaGrupal,
+                    // Solo el primero, y sobre la planilla grupal ya preparada.
+                    PuedeAdjuntar  = abierta && planillaGrupal != null,
                     Conjunto = conjunto.Select(id => new ConsolidadoConjuntoItemDto
                     {
                         Id                 = id,
@@ -846,9 +934,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             // La primera revisión es del documento completo y la decide su firmante: no se
             // aprueba "a medias" ni la aprueba cualquiera que la vea.
             PuedeDecidir       = planillasQueFirmo.Contains(p.Id),
-            // Lo que resolvió ConsolidacionPorPlanillaAsync: qué cubriría el consolidado de esta
-            // fila, si se le puede adjuntar y si el usuario puede consolidar por TODOS sus trabajadores.
+            // Lo que resolvió ConsolidacionPorPlanillaAsync: su planilla grupal, qué cubriría el
+            // consolidado de esta fila, si se le puede preparar la planilla o adjuntar el S10 y si el
+            // usuario puede consolidar por TODOS sus trabajadores.
+            PlanillaGrupal           = consolidacion[p.Id].PlanillaGrupal,
             PuedeConsolidar          = consolidacion[p.Id].PuedeConsolidar,
+            PuedePrepararPlanilla    = consolidacion[p.Id].PuedePreparar,
             PuedeAdjuntarConsolidado = consolidacion[p.Id].PuedeAdjuntar,
             ConsolidadoConjunto      = consolidacion[p.Id].Conjunto,
         };
@@ -862,6 +953,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.ConsolidadoS10 = o.ConsolidadoS10;
+            d.PlanillaGrupal = o.PlanillaGrupal;
             d.EstadoPrimeraRevision = o.EstadoPrimeraRevision; d.EnviadaRevisionAt = o.EnviadaRevisionAt;
             d.PrimeraRevisionAt = o.PrimeraRevisionAt;
             d.PrimeraRevisionObservacion = o.PrimeraRevisionObservacion;
@@ -871,6 +963,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.ObservacionReembolsoOrigen = o.ObservacionReembolsoOrigen;
             d.RevisorNotificadoAt = o.RevisorNotificadoAt;
             d.PuedeDecidir = o.PuedeDecidir; d.PuedeConsolidar = o.PuedeConsolidar;
+            d.PuedePrepararPlanilla = o.PuedePrepararPlanilla;
             d.PuedeAdjuntarConsolidado = o.PuedeAdjuntarConsolidado;
             d.ConsolidadoConjunto = o.ConsolidadoConjunto;
         }

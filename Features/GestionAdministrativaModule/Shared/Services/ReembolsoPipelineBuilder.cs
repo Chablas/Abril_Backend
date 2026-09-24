@@ -237,7 +237,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                         : Actual;
 
             var p6 = Paso(ClaveConsolidado, "Consolidado S10",
-                "El consolidador registra las planillas en el S10 y adjunta el consolidado.",
+                "El consolidador prepara la planilla grupal, la registra en el S10 y sube el consolidado.",
                 estado6, e.ConsolidadoAt);
 
             // ── 7. Firma de la jefatura ─────────────────────────────────────

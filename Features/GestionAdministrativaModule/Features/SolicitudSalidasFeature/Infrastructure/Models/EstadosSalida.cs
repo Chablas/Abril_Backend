@@ -130,11 +130,12 @@
             public static readonly int[] VisiblesParaTesoreria = { Firmado, PorPagar, Pagado };
 
             /// <summary>
-            /// Los dos estados desde los que Tesorería puede observar: lo que tiene por revisar y
-            /// lo que ya revisó pero todavía no pagó (RG-49 — "antes de autorizar el pago"). Lo
-            /// pagado es terminal y no se devuelve.
+            /// Desde dónde puede observar Tesorería (RG-49): solo lo que todavía tiene por revisar.
+            /// Confirmar la revisión es su visto bueno y desde ahí el consolidado sigue al pago —si
+            /// después aparece un error, ya no se devuelve (pedido del área usuaria, 2026-09-24)—.
+            /// Lo pagado tampoco vuelve: es terminal.
             /// </summary>
-            public static readonly int[] ObservablesPorTesoreria = { Firmado, PorPagar };
+            public static readonly int[] ObservablesPorTesoreria = { Firmado };
 
             /// <summary>
             /// Los dos estados en los que el reembolso sigue ABIERTO: se puede adjuntar o

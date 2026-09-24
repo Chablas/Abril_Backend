@@ -592,27 +592,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             var ids = rendicionIds.Distinct().ToList();
             if (ids.Count == 0)
-                throw new AbrilException("No hay planillas con las que armar la planilla de reembolso.", 400);
+                throw new AbrilException("No hay planillas con las que armar la planilla grupal.", 400);
 
             // Cada salida con el código de su planilla: es la columna RENDICIÓN.
             var rendicionPorSolicitud = await _repo.GetCodigoRendicionPorSolicitud(ids);
             if (rendicionPorSolicitud.Count == 0)
                 throw new AbrilException(
-                    "Las planillas del consolidado no tienen salidas: no hay planilla de reembolso que armar.", 409);
+                    "Las rendiciones seleccionadas no tienen salidas: no hay planilla grupal que armar.", 409);
 
             var datos = await _repo.GetRendicionData(rendicionPorSolicitud.Keys.ToList());
 
             // Mismo corte que al rendir y al regenerar: GetRendicionData solo devuelve trayectos
             // reembolsables. Sin ninguno no hay papel que armar, y decirlo es mejor que subir un
-            // documento en blanco al lado del Consolidado del S10.
+            // documento en blanco para registrarlo en el S10.
             if (datos.Count == 0)
                 throw new AbrilException(
-                    "Las planillas del consolidado ya no tienen trayectos reembolsables: no se puede "
-                    + "armar la planilla de reembolso.", 409);
+                    "Las rendiciones seleccionadas ya no tienen trayectos reembolsables: no se puede "
+                    + "armar la planilla grupal.", 409);
 
             var calendario = await _repo.GetCalendarioNoLaborable();
 
-            // Se excluyen TODAS las planillas del consolidado: sus salidas son las que se están
+            // Se excluyen TODAS las planillas del grupo: sus salidas son las que se están
             // imputando, no un periodo ajeno ya rendido.
             var fechas = await ImputarFechasPlanillaAsync(datos, calendario, ids);
 

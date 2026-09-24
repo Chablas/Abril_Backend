@@ -277,6 +277,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaConsolidadoS10Rendicion> GaConsolidadoS10Rendicion { get; set; }
 
         /// <summary>
+        /// La planilla grupal que prepara el consolidador ANTES de subir el Consolidado del S10, y
+        /// qué planillas de rendición cubre. El consolidado hereda de acá su código.
+        /// </summary>
+        public DbSet<GaPlanillaGrupal> GaPlanillaGrupal { get; set; }
+        public DbSet<GaPlanillaGrupalRendicion> GaPlanillaGrupalRendicion { get; set; }
+
+        /// <summary>
         /// Las firmas estampadas sobre un consolidado. Son filas y no una columna porque en obra
         /// firman dos personas sobre las mismas planillas (administrador de obra y residente).
         /// </summary>
@@ -1151,6 +1158,10 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<GaConsolidadoS10Rendicion>().ToTable("ga_consolidado_s10_rendicion");
             modelBuilder.Entity<GaConsolidadoS10Rendicion>()
                 .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
+            // La planilla grupal preparada y su puente: sin dígitos en el nombre, la convención
+            // alcanza, pero se fijan igual que las del consolidado para que se lean juntas.
+            modelBuilder.Entity<GaPlanillaGrupal>().ToTable("ga_planilla_grupal");
+            modelBuilder.Entity<GaPlanillaGrupalRendicion>().ToTable("ga_planilla_grupal_rendicion");
             // Mismo caso que el consolidado: se fija a mano para no depender de cómo la
             // convención snake_case parte el "S10".
             modelBuilder.Entity<GaCorreccionS10>().ToTable("ga_correccion_s10");

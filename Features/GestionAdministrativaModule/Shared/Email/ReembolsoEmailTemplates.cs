@@ -126,6 +126,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
+    /// Lo que necesita el aviso al trabajador de que su rendición quedó incluida en una planilla
+    /// grupal: el paso anterior al Consolidado del S10. Va UNO por (planilla, trabajador), igual que
+    /// el de rendición consolidada.
+    /// </summary>
+    public sealed class RendicionEnPlanillaGrupalCorreoDatos
+    {
+        public int RendicionId { get; set; }
+        /// <summary>Código REN-AAAA-NNNN de la planilla.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>Correo del trabajador (app_user.email): es el destinatario.</summary>
+        public string? TrabajadorEmail { get; set; }
+        /// <summary>Lo que rindió ESTE trabajador en la planilla, en soles.</summary>
+        public decimal MontoTrabajador { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN de la planilla grupal (el que después hereda el consolidado).</summary>
+        public string PlanillaGrupalCodigo { get; set; } = string.Empty;
+        /// <summary>Área de la planilla grupal (la del consolidador). Null si no se pudo resolver.</summary>
+        public string? Area { get; set; }
+        /// <summary>Nombre de quien preparó la planilla grupal: el consolidador.</summary>
+        public string? Consolidador { get; set; }
+    }
+
+    /// <summary>
     /// Lo que necesitan los correos de una PLANILLA entera y no de un consolidado: el aviso de
     /// pago al trabajador.
     /// </summary>
@@ -137,6 +159,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public string Trabajador { get; set; } = string.Empty;
         /// <summary>Correo del trabajador. Lo usa el aviso de pago, que va dirigido a él.</summary>
         public string? TrabajadorEmail { get; set; }
+        /// <summary>
+        /// Nombre de quien adjuntó el Consolidado del S10 que cubre la planilla: el consolidador.
+        /// Null si la planilla no tiene consolidado o no se pudo resolver.
+        /// </summary>
+        public string? Consolidador { get; set; }
         public string? Area { get; set; }
         /// <summary>Número de la planilla ("TI: 000123"), o null si la planilla no lo tiene.</summary>
         public string? NumeroPlanilla { get; set; }
@@ -157,6 +184,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     /// (<see cref="SalidaEmailLayout"/>):
     ///
     /// <list type="bullet">
+    ///   <item>Al trabajador: su rendición quedó incluida en la planilla grupal que preparó el
+    ///     consolidador.</item>
     ///   <item>Al trabajador: su rendición quedó incluida en el Consolidado del S10 que adjuntó el
     ///     consolidador.</item>
     ///   <item>A la jefatura: el consolidador adjuntó un Consolidado del S10 y está esperando su
@@ -206,6 +235,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaFirma       = "req-vistobueno";
         private const string FilaObservacion = "req-comentario";
         private const string FilaEstado      = "req-estado";
+
+        /// <summary>
+        /// Al trabajador: su rendición quedó incluida en la planilla grupal que acaba de preparar el
+        /// consolidador —el papel con el que la registra en el S10—. Es el paso anterior al de
+        /// <see cref="RendicionConsolidada"/> y tiene su mismo molde: informativo, con el botón a su
+        /// rendición en Mis Rendiciones. La cabecera es «Rendición incluida en una planilla grupal»:
+        /// la frase en segunda persona no entra en una línea.
+        /// </summary>
+        public static string RendicionEnPlanillaGrupal(
+            SalidaEmailLayout l, RendicionEnPlanillaGrupalCorreoDatos d, string urlVer)
+        {
+            var area = string.IsNullOrWhiteSpace(d.Area)
+                ? string.Empty
+                : $" del área <b>{AbrilEmailLayout.Esc(d.Area)}</b>";
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoIncluida,
+                    "Rendición incluida en una planilla grupal",
+                    $"Tu rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b> fue incluida en la planilla "
+                    + $"grupal <b>{AbrilEmailLayout.Esc(d.PlanillaGrupalCodigo)}</b>{area}."),
+                l.Tarjeta(FilasRendicionEnPlanillaGrupal(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
+                    "La planilla grupal está pendiente de su registro en el S10 y de la firma de la jefatura."),
+                l.Boton("Ver mi rendición", urlVer),
+                l.EnlaceDirecto(urlVer));
+        }
 
         /// <summary>
         /// Al trabajador: su rendición quedó incluida en el Consolidado del S10 que acaba de adjuntar
@@ -633,6 +689,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             return filas;
         }
 
+        /// <summary>
+        /// Filas del aviso de rendición incluida en una planilla grupal: las mismas del de rendición
+        /// consolidada, con la planilla grupal en lugar del consolidado y sin el número de reembolso,
+        /// que todavía no existe.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasRendicionEnPlanillaGrupal(RendicionEnPlanillaGrupalCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>
+            {
+                new(FilaPlanilla, "Planilla grupal", AbrilEmailLayout.Esc(d.PlanillaGrupalCodigo)),
+                new(FilaRendiciones, "Rendición", AbrilEmailLayout.Esc(d.Codigo)),
+            };
+
+            if (d.MontoTrabajador > 0m)
+                filas.Add(new(FilaMonto, "Monto de tu rendición",
+                    $"S/ {d.MontoTrabajador.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            if (!string.IsNullOrWhiteSpace(d.Consolidador))
+                filas.Add(new(FilaTrabajador, "Consolidador", AbrilEmailLayout.Esc(d.Consolidador)));
+
+            return filas;
+        }
+
         /// <summary>"Ana, Luis y Rosa" o "Ana, Luis, Rosa +4": un consolidado puede cubrir a muchos.</summary>
         private static string ResumirNombres(List<string> nombres)
         {
@@ -651,6 +730,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             {
                 new(FilaTrabajador, "Trabajador", AbrilEmailLayout.Esc(d.Trabajador)),
             };
+
+            // Mismo ícono que en el aviso de rendición consolidada: es una persona, como el trabajador.
+            if (!string.IsNullOrWhiteSpace(d.Consolidador))
+                filas.Add(new(FilaTrabajador, "Consolidador", AbrilEmailLayout.Esc(d.Consolidador)));
 
             if (!string.IsNullOrWhiteSpace(d.Area))
                 filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));

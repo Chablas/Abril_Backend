@@ -43,5 +43,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         /// los trabajadores, que su rendición quedó incluida.
         /// </summary>
         public const string ConsolidadoS10 = "CONSOLIDADO_S10";
+
+        /// <summary>
+        /// Preparar la planilla grupal, que les avisa a los trabajadores que su rendición quedó
+        /// incluida en ella.
+        /// </summary>
+        public const string PlanillaGrupal = "PLANILLA_GRUPAL";
     }
 }

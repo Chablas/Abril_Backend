@@ -76,6 +76,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? SubidoPor { get; set; }
         /// <summary>Razón social bajo la que quedó el registro del S10: la del consolidador.</summary>
         public string? RazonSocial { get; set; }
+        /// <summary>
+        /// Área del consolidado (<c>ga_consolidado_s10.area_scope_id</c>): la de su consolidador, la
+        /// misma que da la sigla del <see cref="Codigo"/> y la que imprime la planilla grupal. Null si
+        /// no se pudo resolver.
+        /// </summary>
+        public string? Area { get; set; }
 
         // ── Qué cubre ────────────────────────────────────────────────────
         /// <summary>

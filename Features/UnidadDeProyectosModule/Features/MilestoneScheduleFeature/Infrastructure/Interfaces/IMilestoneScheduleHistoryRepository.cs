@@ -7,5 +7,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         Task<List<MilestoneScheduleHistoryDTO>> GetAllByProjectIdFactory(int projectId);
         Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId);
         Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth();
+        Task DeleteAsync(int milestoneScheduleHistoryId, int userId);
     }
 }

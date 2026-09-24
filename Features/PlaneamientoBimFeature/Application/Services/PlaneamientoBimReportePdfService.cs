@@ -17,10 +17,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
 
         public byte[] GenerarPdf(string proyectoNombre, string faseActual, CargaDiariaDto carga, PpcHistoricoDto ppc)
         {
-            var nivelNombrePorId = carga.Zonas.SelectMany(z => z.Niveles).ToDictionary(n => n.Id, n => n.Nombre);
-            var sectorNombrePorId = carga.Zonas.SelectMany(z => z.Niveles).SelectMany(n => n.Sectores)
-                .GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.First().Nombre);
-            var zonaNombrePorId = carga.Zonas.ToDictionary(z => z.Id, z => z.Nombre);
+            var nivelNombrePorId = carga.Torres.SelectMany(t => t.Niveles).ToDictionary(n => n.Id, n => n.Nombre);
+            var zonaNombrePorId = carga.Torres.ToDictionary(t => t.Id, t => t.Nombre);
             var actividadNombrePorId = carga.Actividades.ToDictionary(a => a.Id, a => a.Nombre);
 
             var ppcDia = ppc.Dias.FirstOrDefault();
@@ -102,7 +100,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
                                     .Text(nivelNombrePorId.GetValueOrDefault(celda.NivelId, "-")).FontSize(8);
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
-                                    .Text(sectorNombrePorId.GetValueOrDefault(celda.SectorId, "-")).FontSize(8);
+                                    .Text(celda.SectorId.ToString()).FontSize(8);
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)
                                     .Text(actividadNombrePorId.GetValueOrDefault(celda.ActividadId, "-")).FontSize(8);
                                 table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3)

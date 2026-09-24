@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     public interface IMilestoneScheduleHistoryService
     {
         Task<List<MilestoneScheduleHistoryDTO>> GetAllByProjectId(int projectId);
-        Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId);
+        Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId, bool esAdminResidentes);
+        Task DeleteAsync(int milestoneScheduleHistoryId, int userId);
     }
 }

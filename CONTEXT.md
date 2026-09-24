@@ -5970,6 +5970,91 @@ Al guardar Configuración con un sector nuevo asignado a un nivel específico, e
 - Deploy a `master` sigue pendiente — falta confirmación de que el frontend terminó su parte, ya que esto rompe contrato JSON (`CargaDiariaDto.BloqueosActivos`→`RestriccionesActivas`, `ZonaDto.Sectores` cambió de forma a `NivelDto.Sectores`).
 - Confirmar con el usuario si retoma la investigación del bug de clasificación de sectores (con logging de payload) antes o después del deploy a `master`.
 
+## Sesión 2026-08-29 — Rediseño de Torres/Niveles/Sectores y Alineación de Restricciones & Carga Diaria en Planeamiento BIM
+
+Rediseño completo de la arquitectura del módulo de Planeamiento BIM para alinearse al nuevo modelo de datos de Torres/Niveles y sectores derivados 1..N, eliminando definitivamente la dependencia con la tabla huérfana `bim_zona_sector`.
+
+### 1. Modelo de Datos y Entidades
+- **Torres & Niveles**: Reemplazo de `BimProyectoZona` y `BimZonaNivel` por `BimProyectoTorre` (`bim_proyecto_torre`) y `BimTorreNivel` (`bim_torre_nivel`).
+- **Sectores Derivados**: `bim_zona_sector` pasa a ser tabla huérfana no navegable. El sector es un entero derivado 1..N calculado según `TipoEstructura` ("SUBESTRUCTURA" → `CantidadSectoresSubestructura`, "SUPERESTRUCTURA" → `CantidadSectoresSuperestructura`).
+- **Restricciones (`bim_bloqueo`)**:
+  - Removida la FK `fk_bim_bloqueo_zona_sector`.
+  - Mapeadas columnas reales: `torre_id` (FK a `bim_proyecto_torre`), `nivel_id` (FK a `bim_torre_nivel`), `sector` (`int?` nullable derivado).
+  - Propiedades legadas `ZonaId`, `Zona`, `ZonaNivelId`, `ZonaNivel`, `ZonaSectorId` marcadas con `[NotMapped]` y Fluent API `e.ToTable("bim_bloqueo")` con `.HasColumnName(...)` explícito.
+- **Carga Diaria (`bim_registro_diario`)**:
+  - Columna `zona_id` renombrada a `torre_id` (FK `fk_bim_registro_diario_torre` a `bim_proyecto_torre.id`).
+  - Columna `nivel_id` mantenida con FK `fk_bim_registro_diario_nivel` a `bim_torre_nivel.id`.
+  - Columna `sector_id` mantenida como entero plano 1..N (sin FK).
+  - `BimRegistroDiario.cs`: Mapeadas únicamente `TorreId`, `NivelId`, `SectorId`. Propiedades legadas `ZonaId` y `Zona` marcadas con `[NotMapped]` y desmapeadas en Fluent API con `e.Ignore(x => x.ZonaId)` y `e.Ignore(x => x.Zona)`.
+  - Soporte de `Cumplida = null` (celdas neutras / no evaluadas / sin programar): `CausaId` es exigido ÚNICAMENTE si `Cumplida.HasValue && Cumplida.Value == false`. Celdas neutras no registran fila en BD o remueven la fila previa existente si la hubiere.
+
+### 2. Migraciones DDL Transaccionales Ejecutadas en VPS (PostgreSQL)
+- `Migrations/Manual/20260829_UpdateBimBloqueoTorreNivelSector.sql`:
+  - `ALTER TABLE bim_bloqueo DROP CONSTRAINT fk_bim_bloqueo_zona_sector;`
+  - Renombrado de columnas `zona_id` → `torre_id`, `zona_nivel_id` → `nivel_id`, `zona_sector_id` → `sector`.
+  - Creación de FKs `fk_bim_bloqueo_bim_proyecto_torre_torre_id` y `fk_bim_bloqueo_bim_torre_nivel_nivel_id`.
+- `Migrations/Manual/20260829_UpdateBimRegistroDiarioTorreFk.sql`:
+  - Renombrado de columna `zona_id` → `torre_id` en `bim_registro_diario`.
+  - Removidas constraints obsoletas `bim_registro_diario_zona_sector_id_fkey`, `bim_registro_diario_zona_nivel_id_fkey`.
+  - Recreadas constraints limpias: `fk_bim_registro_diario_torre` ON `torre_id` → `bim_proyecto_torre(id)` y `fk_bim_registro_diario_nivel` ON `nivel_id` → `bim_torre_nivel(id)`.
+
+### 3. Verificación
+- Compilación `dotnet build` → **0 errores** (247 warnings preexistentes sin cambios).
+- Commit realizado en rama **`victor-backend`**: `feat(planeamiento-bim): refactor Torres, Niveles, Restricciones y Carga Diaria`.
+
+## Sesión 2026-08-30 — Diagnóstico post-merge de Planeamiento BIM + campo Responsable Planeamiento UDP
+
+### 1. Actualizar rama + diagnóstico del merge
+- `actualizar rama` trajo 1 commit ajeno de `origin/master` (`0530e5c9`, presupuesto-materiales, de otra persona) — confirmado sin relación alguna a Planeamiento BIM (sin tocar `Features/PlaneamientoBimFeature/`, sin migraciones, sin menciones a `bim_zona_sector`/`bim_bloqueo`/`bim_torre`/etc.). Build limpio tras el merge.
+- A pedido del usuario se auditó a fondo el commit `dbffca3c` (rediseño Torres/Niveles/Restricciones/Carga Diaria, autoría propia del 2026-08-29) para retomar el diseño de Restricciones que había quedado sin cerrar.
+
+### 2. Shim `[NotMapped]` de `BimRestriccion.cs`: diagnóstico y decisión
+- Se verificó que el commit `dbffca3c` agregó dos shims de compatibilidad de nombres viejos (`Zona*`), pero con propósitos distintos:
+  - `CeldaDto`/`CeldaUpdateDto.ZonaId` (`CargaDiariaDtos.cs`) — **real y activo**: wire-compat con el frontend que puede seguir mandando `zonaId` en el JSON. Consumido en `PlaneamientoBimCargaDiariaRepository.cs:159` y `PlaneamientoBimReportePdfService.cs:96,99`. **No tocar.**
+  - `BimRestriccion.ZonaId/.Zona/.ZonaNivelId/.ZonaNivel/.ZonaSectorId` (el modelo EF) — **código muerto**: la entidad nunca se serializa directo (siempre pasa por `RestriccionDto`, ya renombrado sin campos legados en el mismo commit), y no hay ningún consumidor C# real. No hay tests en el repo.
+- Decisión del usuario: no completar el shim (dejar el hueco de `ZonaSector` sin agregar) ni eliminarlo todavía — queda como limpieza pendiente para cuando se cierre el diseño completo de cascada de Restricciones (Controller/Service/UX, que `dbffca3c` nunca tocó).
+
+### 3. Deuda histórica de sectores sin clasificar en Carga Diaria
+- Query real contra producción (túnel SSH `localhost:5544`, confirmado que no hay separación local/prod real en este proyecto — mismo connection string en `appsettings.Development.json`/`appsettings.Production.json`): 3 registros de `bim_registro_diario` (ids 1, 2 en **KAURÍ**; id 3 en **TORRE ABRIL**) cuyo nivel (`Piso 1` de `Torre A` en ambos proyectos) tiene `tipo_estructura = NULL` — mismo patrón ya documentado en `BimTorreNivel.cs` para BOSQUE REAL.
+- Decisión del usuario (opción 1): dejar esos 3 registros tal cual, sin tocar/reinterpretar/asignar default. Quedan como deuda histórica hasta que alguien clasifique esos niveles (tipo_estructura + cantidad de sectores) en Configuración Inicial. La validación de rango de `SectorId` en `PlaneamientoBimCargaDiariaService` aplica solo a guardados nuevos.
+
+### 4. Feature nueva: "Responsable Planeamiento UDP" en Configuración de Proyectos
+- Requerimiento: campo nuevo tipo autocomplete en Configuración → Proyectos → sección RESPONSABLE, mismo patrón que "Responsable UDP"/"Responsable Arq. Comercial" (`GET api/v1/project/responsables?tipo=...`, filtro por `Worker.Subarea` + `WorkersEstadoId == Activo`).
+- Investigación previa a codear: la subárea real en el catálogo de `workers` es `"Planeamiento BIM"` (5 activos), distinta de `"Ingeniería BIM"` (2 activos, modelado/arquitectura BIM — explícitamente excluida por el usuario).
+- **Hallazgo clave que cambió el diseño**: `Project.ResponsablePlaneamientoBimId`/`ResponsablePlaneamientoBim` ya existían y ya estaban cableados end-to-end desde Planeamiento BIM → Configuración Inicial (`PlaneamientoBimConfiguracionRepository`, mismo filtro exacto por subárea "Planeamiento BIM"). El usuario confirmó que es el mismo dato/rol — no se creó columna nueva ni migración.
+- Cambios (commit `a8a73f0e`, rama `victor-backend`, **sin push todavía** — pendiente de verificación en UI real con frontend antes de mergear/considerar cerrado, ver [[project_responsable_planeamiento_udp]] en memoria):
+  - `ProjectRepository.cs`: nuevo case `"PLANEAMIENTO_UDP" => "Planeamiento BIM"` en el switch de `GetResponsables(tipo)`; campo agregado a la proyección `ProjectDto` del listado/detalle; agregado a ambos overloads de `ApplyDtoToEntity` (`ProjectCreateDto` y `ProjectEditDto`).
+  - `ProjectDto.cs`, `ProjectEditDto.cs`, `ProjectCreateDto.cs`: agregado el par `ResponsablePlaneamientoBim`/`ResponsablePlaneamientoBimId`.
+- Build `dotnet build` → 0 errores.
+- **Pendiente**: esperar a que frontend termine su parte y verificar en UI real (crear/editar proyecto desde Configuración de Proyectos, confirmar persistencia y que no rompe lo que ya guarda Planeamiento BIM → Configuración Inicial sobre la misma columna) antes de dar la feature por cerrada.
+
+## Sesión 2026-08-30 (cont.) — 2 reglas de acceso por rol en Planeamiento BIM (rol PLANEAMIENTO_UDP)
+
+Requerimiento nuevo del usuario, separado del anterior: diseñar e implementar que un `PLANEAMIENTO_UDP` (rol real en BD, `role_id=80`, nombre `"PLANEAMIENTO UDP"` — **no estaba en `Roles.cs`**, el archivo saltaba de 78 a 83) solo vea/edite proyectos donde es `Project.ResponsablePlaneamientoBimId`; `ADMINISTRADOR_SISTEMA`/`ADMINISTRADOR_UDP` siguen viendo todo, sin cambios.
+
+### 1. Investigación de modelo de roles/permisos (solo lectura)
+- `AdministradorUdp = "2"` en `Roles.cs`. Acceso a los 5 controllers de Planeamiento BIM vía `[Authorize]` + `[RequireFeature("planeamiento-bim.configuracion-inicial")]` (Portafolio usa `.portafolio`, no tocado) — filtro dinámico contra `role_feature`/`feature`, no roles hardcodeados.
+- `role_feature` real (consultado contra producción, túnel SSH) para esos feature_keys: roles `1` (AdministradorSistema), `2` (AdministradorUdp), **`80`** (PlaneamientoUdp) — la nota vieja de una sesión anterior que decía "UsuarioUdp (3)" estaba desactualizada.
+- `Project.ResponsablePlaneamientoBimId` guarda `Worker.Id`, sin FK real en BD (igual que `ResponsableUdpId`). Cruce `User→Person.UserId→Worker.PersonId` (ya existente en `ProjectRepository.GetMyProjectIds`), no hay atajo directo `User.WorkerId`.
+- Selector "Proyecto Seleccionado" de las 4 pestañas (Config. Inicial, Carga Diaria, Restricciones, Dashboard — Portafolio no aplica, tabla completa) resuelto en frontend por `ProjectResidentService.getProjectsDescription()` → `GET api/v1/projectResident/projects`, compartido con Control de IVTs/Cuaderno de Obra/Seguimiento de Residentes (repo `Abril-Frontend`, sibling de este). El endpoint filtra por `JOIN ProjectResident` + exclusión `ProyectoFiltroFuncionalidades.Residentes`, **no** por `Project.State && Active` simple — verificado con query real: 9 resultados vs. 30 con el criterio simple (21 de diferencia, incluía pseudo-proyectos administrativos como `OFICINA CENTRAL`/`EVENTOS`).
+
+### 2. Endpoints nuevos (commit `3c9b4d5d`)
+- `GET api/v1/project/me/worker` (`ProjectController.cs`, junto a `mine`): resuelve `MyWorkerDto { WorkerId, ApellidoNombre }` del usuario logueado, mismo cruce que `GetMyProjectIds`. 404 si no tiene ficha.
+- `GET /api/v1/planeamiento-bim/proyectos` (ruta absoluta en `PlaneamientoBimConfiguracionController.cs`, a propósito sin el segmento `configuracion` — las 4 pestañas comparten `feature_key`): admin ve el mismo universo que `projectResident.GetProjectsDescription()` (criterio replicado tal cual dentro de `PlaneamientoBimConfiguracionRepository`, no expuesto directo — decisión explícita del usuario tras confirmar la diferencia real de 21 proyectos); `PlaneamientoUdp` ve solo donde es `ResponsablePlaneamientoBimId`; sin ninguno de los 2 roles, `[]`.
+- `Roles.cs`: agregada la constante faltante `PlaneamientoUdp = "80"`.
+- Pendiente documentado (no backend): frontend debe cambiar las 4 pestañas para llamar al endpoint nuevo en vez de `projectResident`.
+
+### 3. Autorización real por projectId (commit `43cd63c2`)
+Frontend hizo la pregunta correcta: sin esto, el filtro del dropdown es solo cosmético — nada impedía llamar a mano (Postman/DevTools) a cualquiera de los 15 endpoints de las 4 pestañas con el `projectId` de un proyecto ajeno. Se auditaron los 4 controllers endpoint por endpoint (ninguno validaba pertenencia hasta ahora) y se encontró un caso extra no cubierto por la descripción original del problema: `PlaneamientoBimRestriccionController.Update`/`Cerrar` (`PUT {id}`, `PUT {id}/cerrar`) no reciben `projectId` en la ruta, solo el `id` de la restricción (secuencial, adivinable).
+
+- `IPlaneamientoBimAccesoService`/`PlaneamientoBimAccesoService` (nuevo, registrado en `PlaneamientoBimModule.cs`): `ValidarAccesoProyecto(userId, projectId, esAdmin, esPlaneamientoUdp)` (403 si no corresponde) y `ResolverProjectIdDeRestriccion(restriccionId)` (404 si no existe, resuelve `BimRestriccion.ProjectId` antes de validar) — único lugar con la lógica, para no duplicar el cruce Worker+rol en cada acción.
+- Los 4 controllers llaman a `ValidarAccesoProyecto` al inicio de las 15 acciones que reciben `projectId` (13 directas + `Update`/`Cerrar` de Restricciones vía `ResolverProjectIdDeRestriccion`), antes de tocar el service de negocio.
+- Build `dotnet build` → 0 errores en ambos commits.
+
+### Pendiente
+- Frontend: migrar las 4 pestañas de `projectResident.getProjectsDescription()` a `GET /api/v1/planeamiento-bim/proyectos`.
+- Frontend/QA: verificar que un usuario `PLANEAMIENTO_UDP` sin proyecto asignado recibe 403 al intentar acceder a un `projectId` ajeno por URL directa, y que un admin sigue viendo/editando todo sin cambios.
+
 ## Sesión 2026-08-30 — Módulo PETS: estructura completa, Firmas, exportación PDF + Presupuesto Materiales: progreso de estandarización y ratios masivo
 
 ### 1) PETS — resto de la estructura del documento
@@ -6076,6 +6161,27 @@ Continuación directa de la sesión anterior: completar los últimos mecanismos 
 - Corregir `cantidad_real` en `ss_hh_carga_linea`/Kardex de Vigilancia para que refleje turnos reales por línea (hoy siempre 1) — permitiría volver a calcular el precio de Vigilancia desde Ratios en vez del valor fijo S/3,500.
 - Regenerar los presupuestos ya creados antes del fix de doble conteo (quedan con líneas duplicadas viejas).
 
+## Sesión 2026-09-05 — Hitos obligatorios y puntuales en el catálogo Milestone
+
+### Contexto
+Cronograma de Hitos (Milestone Schedule): faltaba distinguir hitos "fijos/obligatorios" (deben tener sí o sí una fecha, no se puede borrar) de hitos "puntuales" (una sola fecha de cumplimiento, sin rango inicio-fin). Investigación previa (no asumida) confirmó contra la base real: el catálogo vive en la tabla `milestone` (`Infrastructure/Models/Milestone.cs`, sin columna de orden), 23 filas activas; los 4 hitos obligatorios exactos son **"Inicio de obra"**, **"Nivel 0.00"**, **"Fin Casco"** (sin "de") y **"Fin de Obra"** ("Recepción de obra" no existe); el POST de nueva versión (`MilestoneScheduleHistoryController.Create`) no validaba fechas y tampoco devuelve los hitos en su respuesta (solo `{message}`).
+
+### Cambios
+- **Migración EF** `20260905000904_AddEsObligatorioYEsPuntualAMilestone`: agrega `es_obligatorio`/`es_puntual` (boolean, default false) a `milestone`. La generación automática arrastró ~1100 líneas de drift de modelo no relacionado (cambios ya aplicados por otros vía `Migrations_Manual/` pero nunca capturados en una migración EF) — se verificó que cada pieza de ese drift ya tenía su SQL manual aplicado y se recortó el `Up()`/`Down()` a mano para que solo toque `milestone` (mismo patrón que `AddEsHitoCriticoToMilestoneSchedule`); el Designer.cs/snapshot sí quedaron con el modelo completo actualizado (correcto: sincroniza por fin el historial de EF con la realidad).
+- **Modelo** `Milestone.cs`: propiedades `EsObligatorio`/`EsPuntual`.
+- **DTOs**: `MilestoneScheduleDTO`, `MilestoneScheduleFakeDataDTO` (`Application/Dtos/MilestoneScheduleDtos.cs`) y `MilestoneSimpleDTO` (`Application/DTOs/Milestone/`) — agregado `EsObligatorio`/`EsPuntual`, propagados desde `MilestoneScheduleRepository` (GET de plantilla), `MilestoneScheduleService.BuildFakeSchedule` y `MilestoneRepository.GetAllFactorySimple`.
+- **Validación server-side** (`MilestoneScheduleHistoryRepository.ValidarHitosObligatoriosAsync`, llamada al inicio de `Create`): si algún hito con `es_obligatorio=true` llega con `PlannedEndDate == null`, rechaza con `AbrilException` → 400 listando por nombre los hitos faltantes. Última línea de defensa aunque el frontend también valide.
+- **Convención de campo confirmada con evidencia real**: para hitos puntuales, la fecha única va en `PlannedEndDate` (no `PlannedStartDate`, que es `DateOnly` no-nullable en el DTO y siempre debe llevar un valor). Se ajustó `BuildFakeSchedule` para que los 6 hitos puntuales (los 4 obligatorios + "Montaje escuadras p/ obras provisionales" + "Montaje torre grúa") pongan la fecha en `PlannedEndDate` y rellenen `PlannedStartDate` con la misma fecha — antes hacía lo opuesto (fecha en Start, End siempre null), lo que habría hecho fallar en silencio la validación de obligatorios si el frontend seguía esa convención vieja.
+- **Datos**: corridos en la base conectada por `appsettings.Development.json` (túnel SSH `localhost:5544`, **misma base que producción** — confirmado sin `appsettings.Local.json` ni ninguna `defaultdb_local` real separada; usuario confirmó explícitamente proceder sabiendo esto). Se aplicó primero el DDL (`ALTER TABLE milestone ADD COLUMN es_obligatorio/es_puntual`, la migración EF nunca se corre con `dotnet ef database update`) y luego el `UPDATE` de datos: `es_obligatorio=true` en los 4 hitos confirmados, `es_puntual=true` en esos 4 + los 2 de montaje. Verificado por SELECT: exactamente 4+6, "Desarrollo de proyecto" (id 23) quedó sin marcar por falta de evidencia para clasificarlo.
+
+### Verificado
+`dotnet build` → 0 errores, 263 warnings (mismo baseline, sin warnings nuevos). SELECT final contra la base confirmó las 23 filas con los flags exactos esperados.
+
+### Pendiente
+- Usuario va a verificar en `localhost:4200` que la pantalla de plantilla de hitos muestra bien badges/inputs/alertas antes de dar la feature por cerrada.
+- **No se corrió nada contra el VPS de producción por fuera de lo de arriba** — la única base tocada es la del túnel 5544, que ya es compartida con "producción" según la config actual (ver hallazgo de la sesión 2026-08-30 en este mismo archivo: no hay separación real local/prod en este proyecto).
+- Clasificar "Desarrollo de proyecto" (`es_puntual`) cuando haya evidencia o decisión explícita del usuario.
+
 ## Sesión 2026-09-10 — Presupuesto/cierre de periodo en Costos, Devoluciones+import Excel en Almacén, auditoría de módulos en curso
 
 ### Contexto
@@ -6177,6 +6283,98 @@ Se empezó investigando un 500 en `personal-hitos` (`OverflowException` real, ve
   - Definir si "Monitores" va como una sola línea agregada o separada en Etapa 1/Etapa 2 (¿corte en qué hito? ¿"Casco Torre" en adelante?).
   - Definir destino de los materiales que no caen en ninguna de las ~14 partidas del modelo (alcohol, cintas, clavos, botiquín suelto, etc.) — ¿"Varios Seguridad", se omiten del Resumen, o una línea catch-all nueva?
 - Confirmar en producción que las dos migraciones manuales de esta sesión ya se corrieron antes de que alguien use el export (si no, 500 con relation ... does not exist).
+
+## Sesión 2026-09-15 (continuación) — Cronograma de Hitos: validación de fechas faltantes antes de guardar
+
+### Contexto
+El usuario reportó que al guardar el cronograma de hitos, la plantilla completa se carga en pantalla pero al guardar solo persisten los hitos que se estuvieron editando — causa raíz identificada: `MilestoneScheduleHistoryRepository.Create` reemplaza por completo la versión anterior con lo que venga en el payload (no hace merge), y la única validación existente (`ValidarHitosObligatoriosAsync`) solo revisaba los hitos `es_obligatorio=true` que sí llegaban en el envío, sin detectar hitos ausentes por completo.
+
+Se evaluaron dos enfoques con el usuario:
+1. Notificación en tiempo real al guardar si faltan fechas — **aprobado**.
+2. Forzar que todo proyecto tenga siempre los mismos hitos del catálogo (endpoint bloqueante) — **rechazado explícitamente** por el usuario.
+
+También se armó (y luego se revirtió a pedido del usuario) un tercer enfoque intermedio: aviso mensual por correo a residentes cuyo cronograma ya subido no cubre el catálogo completo (`GetProjectsWithIncompleteMilestoneScheduleAsync` + `SendMilestoneScheduleIncompleteReminderAsync` en `ReminderService`). El usuario pidió cambiarlo por una validación síncrona en el guardado en vez de un correo — el código de correo fue removido por completo, no quedó rastro en el diff final.
+
+### Cambios
+- **`MilestoneScheduleHistoryRepository.cs`**: nuevo método `ValidarFechasCompletasAsync`, llamado en `Create` justo después de `ValidarHitosObligatoriosAsync` (antes de tocar la BD). Revisa **todos** los hitos del envío (catálogo y personalizados) y si alguno no trae `PlannedEndDate`, lanza `AbrilException` con mensaje `"Los siguientes hitos no tienen fecha registrada: X, Y. Si deseas guardar de todas formas, confirma nuevamente."` — bypasseable si `dto.ConfirmarHitosSinFecha == true`. Respeta la excepción de "Inicio de obra" (fecha única en `PlannedStartDate`). Los hitos ya bloqueados duro por `ValidarHitosObligatoriosAsync` (obligatorios sin fecha) nunca llegan a aparecer en este mensaje porque la ejecución ya cortó antes.
+- **`MilestoneScheduleDtos.cs`**: nuevo campo `ConfirmarHitosSinFecha` (bool) en `MilestoneScheduleHistoryCreateDTO`, independiente de `ForceSave` (ese sigue siendo solo para "cronograma igual a la última versión subida" — ambas confirmaciones pueden viajar juntas si aplican a la vez).
+- Se le entregó al usuario un prompt para replicar el manejo en el frontend Angular: capturar el 400 con ese mensaje, mostrar diálogo de confirmación (mismo patrón UI que ya existe para `ForceSave`) y reenviar el payload con `ConfirmarHitosSinFecha: true` si el usuario confirma.
+- Commit incluyó además trabajo previo sin commitear en el mismo módulo (de sesión(es) anterior(es), no de este hilo): restricción de `Create`/`CulminarAsync`/`MarcarCriticoAsync` del cronograma al residente asignado al proyecto (o `ADMINISTRADOR DE RESIDENTES`), fix de la excepción "Inicio de obra" en `BuildFakeSchedule`, y `ProjectRepository.GetLookups` con la subárea "Planeamiento BIM" (`PlaneamientoUdp`) — todo bundleado en un solo commit por venir junto en el `git status` de la rama.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/Repositories/MilestoneScheduleHistoryRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Dtos/MilestoneScheduleDtos.cs`
+
+### Verificado
+`dotnet build` → 0 errores, sin warnings nuevos en los archivos tocados.
+
+### Pendiente
+- Implementar en Abril-Frontend el manejo del nuevo mensaje/flag `ConfirmarHitosSinFecha` (prompt ya entregado al usuario para una sesión de Claude Code en ese repo).
+- No se tocó el chequeo duro de hitos obligatorios ni se implementó la opción 2 (mismos hitos para todos) — descartada explícitamente por el usuario.
+
+## Sesión 2026-09-16 — Editar hito individual (ADMIN), reglas D1-D5 de BD, hallazgo local=prod
+
+### Contexto
+Sesión iniciada con "actualizar rama" (trae `origin/master`), seguida de varios pedidos encadenados: análisis de qué del merge necesitaba trabajo en frontend, análisis de duplicación entre "Dashboard de Proyectos" y "Dashboard UDP", una feature nueva de edición de hitos para ADMINISTRADOR DE RESIDENTES, y — a raíz de un pedido de correr SQL "en producción" — la confirmación (ya no solo documentada, sino re-verificada) de que este proyecto no tiene separación real entre entorno local y producción.
+
+### Cambios
+
+**1) `actualizar rama`** — merge de `origin/master` a `victor-backend` (commit `9b1d0f41`). Un conflicto real en `MilestoneScheduleHistoryRepository.cs`: ambos lados agregaron métodos privados nuevos en el mismo punto del archivo sin solapamiento lógico (mis validaciones de hitos + `DeleteAsync` vs. `TrasladarPersonalYVigilanciaAsync` de master) — resuelto conservando ambos bloques. Build limpio. Trajo 6 commits de master (Reclutamiento, correo de aprobación Presupuesto Materiales, Resumen SSOMA/Ratios).
+
+**2) Prompts entregados para Abril-Frontend (sin código tocado en ese repo desde acá)**:
+- Cambios de API de Unidad de Proyectos que quedaban pendientes de reflejar: `ConfirmarHitosSinFecha`, nuevas restricciones 403 en Crear/Culminar/MarcarCritico, nuevo `DELETE` de versión de cronograma, lookup `PlaneamientoUdp`.
+- Análisis "Dashboard de Proyectos" vs "Dashboard UDP" (ambas leen `Project`+`ProjectActivity`, mismo rol asignado en BD, se solapan pero cada una tiene piezas únicas — Gantt/heatmap/ranking en una, KPIs/SPI en la otra). Se armó un plan de dos fases (migrar lo único a Dashboard UDP, después eliminar Dashboard de Proyectos) y se entregó como prompt.
+
+**3) Nuevo feature backend: editar hito individual ya guardado (commit `0866eb2c`)** — pedido explícito: "que ADMINISTRADOR DE RESIDENTES pueda editar los hitos internos de cada cronograma subido".
+- Nuevo `PUT api/v1/milestoneSchedule/{milestoneScheduleId}`, body = `MilestoneScheduleCreateDTO` (reusado, sin DTO nuevo). Edita en el lugar `MilestoneId`, `CustomDescription`, `Order`, `PlannedStartDate`, `PlannedEndDate`, `EsHitoCritico` de un hito de una versión YA subida, sin crear una versión nueva (eso sigue siendo el `POST` de `MilestoneScheduleHistory`).
+- Restringido con `[Authorize(Roles = Roles.AdministradorResidentes)]` — exclusivo del admin, en cualquier proyecto (mismo alcance que el `DELETE` de versión de cronograma que ya existía). No se extendió al RESIDENTE asignado normal (decisión explícita: solo lo pedido).
+- Repite la validación de hito obligatorio de catálogo (`PlannedEndDate` requerido salvo "Inicio de obra") ya usada en `Create`.
+- Se entregó prompt para el frontend: nuevo método en `MilestoneScheduleService` (core), botón "Editar hito" admin-only en el modal de detalle del modo "Ver cronograma" (gateado por `hasRole(ADMINISTRADOR_RESIDENTES)`, NO por `puedeEditarCronograma` que incluye RESIDENTE normal), modal nuevo con orden/fechas/descripción-si-personalizado/crítico. **No implementado en frontend todavía.**
+
+**4) Hallazgo re-verificado: no hay separación local/producción**
+A raíz de un pedido de correr SQL "contra producción" (distinto del "defaultdb_local" que el usuario asumía), se encontró que ese hallazgo ya estaba documentado en sesiones previas (2026-08-30, 2026-09-05) pero se **re-verificó en el momento**, no solo citado: `appsettings.Development.json` y `appsettings.Production.json` tienen el mismo `PostgreSQL` connection string byte por byte (mismo túnel SSH `localhost:5544`, misma base `abril`). El intento de correr un `SELECT` de solo lectura contra esa base fue bloqueado por el clasificador de auto mode de Claude Code (motivo: "Credential Materialization", al pasar la contraseña por variable de entorno) — no se llegó a ejecutar ningún query, se le devolvió al usuario el mini-proyecto .NET+Npgsql armado en el scratchpad para que lo corra él mismo con `!`.
+
+**5) `CLAUDE.md`: nueva sección "## Reglas de base de datos" (D1-D5)** (commit `e14f53ce`) — a pedido del usuario, quien dictó el texto completo de las 5 reglas. No existía una sección "B1-B10" de reglas de backend en el archivo (se buscó a fondo en ambos repos y en la memoria de Claude Code antes de confirmarlo), así que se agregó al final del archivo:
+- **D1**: no hay separación local/producción real (el hallazgo de arriba) — mostrar SQL completo antes de correrlo, verificar con SELECT de solo lectura cuando se pueda, doble confirmación para cambios destructivos.
+- **D2**: `ON CONFLICT DO NOTHING` en INSERTs de `feature`/`role_feature`.
+- **D3**: usar SELECT para resolver `feature_id` en vez de hardcodearlo (el ID difiere entre entornos... aunque D1 aclara que para datos de negocio como `milestone` no aplica esa variación).
+- **D4**: tras aplicar SQL de features, el usuario debe cerrar sesión y volver a entrar (refresca `allowed_features` en `localStorage`).
+- **D5**: connection string va en `appsettings.Development.json` (gitignored), nunca en `appsettings.json`.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/{Application,Infrastructure,Presentation}/...` (5 archivos del nuevo `PUT` de editar hito).
+- `CLAUDE.md` (nueva sección Reglas de base de datos).
+
+### Verificado
+`dotnet build` → 0 errores de código en ambos commits (solo warnings preexistentes + el error de copia del `.exe` por tener el backend corriendo en paralelo, no relacionado al código).
+
+### Pendiente
+- Implementar en Abril-Frontend el nuevo `PUT` de editar hito (prompt ya entregado).
+- Implementar en Abril-Frontend el plan de Dashboard de Proyectos → Dashboard UDP (prompt ya entregado, dos fases).
+- Confirmar con SELECT de solo lectura (pendiente, bloqueado por el clasificador esta sesión) el estado real de `es_obligatorio`/`es_puntual` en la base — altamente probable que ya esté aplicado desde la sesión 2026-09-05, dado el hallazgo D1, pero no verificado de nuevo en esta sesión.
+
+## Sesión 2026-09-16 (continuación) — Intentos de verificación contra BD real: bloqueados, sin código tocado
+
+### Contexto
+Continuación de la sesión anterior del mismo día. Tres pedidos del usuario, todos de solo lectura contra la base real (consistente con D1), ninguno se pudo ejecutar desde Claude Code — cero cambios de código en este tramo.
+
+### Intentos
+1. **Chequeo de `role_feature`** para confirmar si `role_id=4` (ADMINISTRADOR DE RESIDENTES) tiene el featureKey `mejora-continua.milestone-schedule.editar` (el que protege el nuevo `PUT` de editar hito). Se armó un segundo mini-proyecto .NET+Npgsql en el scratchpad (`role-feature-check/`, separado de `milestone-check/` para no pisar el chequeo anterior de `es_obligatorio`/`es_puntual`) con el `SELECT` correspondiente. Bloqueado por el clasificador de auto mode ("Credential Materialization") al intentar correrlo.
+2. **Intento de conexión SSH directa** (`ssh jefe@intranet.abril.pe`, para usar `psql` en vez de Npgsql) — no llegó ni a pedir contraseña: el cliente SSH rechazó la conexión por **host key mismatch** (`WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`, fingerprint `SHA256:SmgWIehS1zGqOqBst2bl6D6y2L3skLVK4/SC5na+IZw` no coincide con `C:\Users\vcolonio\.ssh\known_hosts`). No se intentó sortear (nada de `StrictHostKeyChecking=no` ni editar `known_hosts`) — es una decisión de seguridad que le corresponde al usuario, no resuelta en esta sesión. `jefe@intranet.abril.pe` sí es el host correcto según P3 de este mismo archivo; el problema es específicamente la huella de clave.
+3. **Chequeo de alcance de datos**: cuántas filas de `milestone_schedule` (de los 6 hitos `es_puntual=true`) tienen la fecha real en `planned_start_date` vs `planned_end_date`. Se corrigió el SQL que trajo el usuario (`m.nombre` no existe, es `m.milestone_description`) y se armó un tercer mini-proyecto (`puntual-fecha-check/`). Mismo bloqueo del clasificador al intentar correrlo.
+
+### Resultado
+Ninguno de los tres SELECT se ejecutó. Se le entregaron al usuario, para cada uno, el SQL corregido/verificado contra el schema real y el comando exacto (`PG_CONN=... dotnet run`) para que los corra él mismo con el prefijo `!`.
+
+### Archivos clave (fuera del repo, no versionados)
+- `<scratchpad>/milestone-check/` (de sesión anterior, sin tocar)
+- `<scratchpad>/role-feature-check/` (nuevo)
+- `<scratchpad>/puntual-fecha-check/` (nuevo)
+
+### Pendiente
+- Los 3 SELECT de solo lectura siguen sin resultado real: `es_obligatorio`/`es_puntual` (sesión anterior), `role_feature` para el `PUT` de editar hito, y el conteo de `planned_start_date` vs `planned_end_date` en hitos puntuales. El usuario los tiene que correr manualmente hasta que se resuelva el bloqueo del clasificador o se verifique la clave SSH del VPS.
+- Verificar la huella de clave real de `intranet.abril.pe` con quien administra el VPS antes de aceptar la nueva y reintentar SSH (o seguir usando el túnel/Npgsql que ya está activo).
+- Nada pusheado a `origin/victor-backend` todavía en esta sesión hasta que corra el paso de push de "guardar rama".
 
 ## Sesión 2026-09-16 — Bug "entregables desaparecen de Bandeja" + fichas duplicadas por DNI
 
@@ -6362,3 +6560,73 @@ El modal "Reingresar" bloqueaba con 400 al intentar reingresar a un trabajador R
 
 ### Pendiente
 - Ninguno identificado; el flujo de subida de evidencia para un trabajador Retirado ya funcionaba sin cambios (panel de entregables de `trabajadores.html` no filtra por estado).
+
+## Sesión 2026-09-23 — Agregar hito individual al cronograma de hitos (MilestoneSchedule)
+
+### Contexto
+Hasta ahora la única forma de modificar el cronograma de hitos de un proyecto era subir una versión completa nueva (`POST` de crear en `MilestoneScheduleHistoryFeature`) o editar un hito ya existente (`PUT /{milestoneScheduleId}`). Faltaba una forma de agregar un solo hito nuevo a una versión vigente sin recrearla entera.
+
+### Cambios
+- `MilestoneScheduleCreateDTO` se separó en dos DTOs nuevos y más chicos: `MilestoneScheduleEditDTO` (para el `PUT` existente — `PlannedStartDate` ahora nullable, para poder mover la fecha de un hito de "inicio" a "fin" sin recrear la versión) y `MilestoneScheduleAddDTO` (para el `POST` nuevo, sin `Order` — se calcula server-side).
+- Nuevo endpoint `POST api/v1/milestoneSchedule/{milestoneScheduleHistoryId}/hito` (`AddHitoAsync`): inserta un hito (de catálogo o `CustomDescription` personalizado) en una `MilestoneScheduleHistory` activa, calculando `Order` como `maxOrder + 1`, validando la regla de "Inicio de obra" (única fecha va en `PlannedStartDate`) y de hitos obligatorios (`PlannedEndDate` requerido salvo "Inicio de obra"). Devuelve el `MilestoneScheduleDTO` completo (incluye `order`, `plannedStartDate`, `plannedEndDate`) para que el frontend actualice el Gantt en memoria sin un segundo `GET`.
+- Nuevo endpoint `GET api/v1/milestoneSchedule/faltantes?projectId=` (`GetFaltantesAsync`): lista los hitos del catálogo (activos) que todavía no están en la history vigente del proyecto, para armar el selector de "hitos faltantes" antes de llamar al `POST` de arriba. Si el proyecto no tiene ninguna history activa, devuelve el catálogo completo.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Dtos/MilestoneScheduleDtos.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/{Interfaces,Services}/*MilestoneScheduleService.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/{Interfaces,Repositories}/*MilestoneScheduleRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Presentation/MilestoneScheduleController.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (solo warnings preexistentes + NU1903 de Microsoft.OpenApi). No se probó en vivo (el usuario verifica él mismo).
+
+### Pendiente
+- Ninguno identificado en el backend. Falta el consumo desde el frontend (selector de "hitos faltantes" + botón "agregar hito" en el Gantt).
+
+## Sesión 2026-09-23 (cont.) — Diagnóstico "proyectos activos no aparecen en Cronograma" + flag TieneUnidadDeProyectos expuesto
+
+### Contexto
+El usuario reportó que ciertos proyectos que el negocio considera "activos" no aparecen en `GET /api/v1/cronograma-actividades/proyectos` (pantalla Cronograma de Actividades). Se armó un diagnóstico completo antes de tocar nada.
+
+### Diagnóstico
+- `CronogramaActividadesRepository.GetProyectosAsync()` filtra por `p.State && p.Active && p.TieneUnidadDeProyectos && NOT EXISTS(ProyectoFiltro con funcionalidad_id=6/UdpCronograma y active=false)`. Sin paginación.
+- `Project` tiene **varios campos de "estado" que se prestan a confusión**: `State`/`Active` (bools de auditoría/soft-delete), `Activo` (string, ciclo de vida real: `Finalizado | Activo | Inactivo` — es el que el negocio entiende como "proyecto activo"), `Estado` (string, otro campo, no usado acá), `Operativo` (bool, no usado acá). La query de Cronograma **no usa `Project.Activo` en absoluto** — por eso un proyecto con `Activo = 'Activo'` puede seguir sin aparecer si `State`/`Active` (bools) o `TieneUnidadDeProyectos` están en `false`, o si hay una fila en `ProyectoFiltro` (funcionalidad 6) con `active=false`.
+- Se armó un SELECT de solo lectura para pgAdmin cruzando `project` + `proyecto_filtro` (funcionalidad_id=6) filtrando por `activo='Activo'`, para ver de un vistazo cuál de las 4 condiciones excluye a cada proyecto. El usuario lo corrió y encontró 7 proyectos (9 Nogales, Bosque Real, Bugambilias, Cedro 33, Cápac Yupanqui, Kaurí, Máximo Abril) que SÍ cumplen las 4 condiciones — o sea, la causa real de que no aparezcan (si no aparecen) no está en el `WHERE` de este método sino en otra capa (frontend, o un `HasQueryFilter` global de EF no visible en el repo). No se llegó a identificar la causa puntual en esta sesión — quedó cerrado el diagnóstico del lado del `WHERE`, pendiente de investigar frontend/query filters si el síntoma persiste.
+- Ya existía un endpoint `GET /api/v1/cronograma-actividades/debug-proyectos` de una sesión anterior, marcado "TEMPORAL, quitar tras diagnóstico" — quedó sin borrar. Se eliminó al cierre de esta sesión (ver abajo).
+
+### Cambios: TieneUnidadDeProyectos expuesto en Configuración → Proyectos
+Pedido separado del usuario: exponer `Project.TieneUnidadDeProyectos` en la UI de Configuración → Proyectos (incluye la pestaña interna "Proyectos Activos" de Configuración de Hitos, que reusa el mismo `ProyectoService`/`ProjectDto` del frontend — confirmado leyendo `Abril-Frontend/.../configuration/pages/milestones/milestones.ts` y su `CONTEXT.md`).
+- `ProjectDto.cs`: agregado `TieneUnidadDeProyectos` (bool) en Flags.
+- `ProjectRepository.GetPaged()`: proyección incluye el campo nuevo.
+- Nuevo `UpdateTieneUnidadDeProyectosDto` (`{ Value: bool }`) y endpoint `PATCH api/v1/project/{id}/tiene-unidad-de-proyectos` (`ProjectController.UpdateTieneUnidadDeProyectos`, mismo patrón que `ToggleArquitecturaComercial` pero con valor explícito en vez de toggle) — evita el riesgo de sobreescritura que tiene el patrón existente en frontend (`toggleProyectoActive()` arma un `ProjectEditDto` completo por spread y hace `PUT` entero solo para cambiar `active`).
+- Gateado con `[RequireFeature("projects.config.milestones")]` — mismo feature key que ya restringe el acceso a la ruta `configuration/milestones` completa en el frontend (`configuracion-routing-module.ts`), confirmado antes de aplicarlo en vez de inventar uno nuevo.
+- `IProjectRepository`/`IProjectService`: agregado `SetTieneUnidadDeProyectos(int projectId, bool value)`.
+
+### Cambios: eliminación de endpoint temporal
+Quitado `GET /api/v1/cronograma-actividades/debug-proyectos` completo (controller, `ICronogramaActividadesService`/`CronogramaActividadesService`, `ICronogramaActividadesRepository`/`CronogramaActividadesRepository`, `DebugProyectoDto`) — ya cumplió su propósito de diagnóstico.
+
+### Archivos clave
+- `Features/ConfigurationModule/Features/ProjectFeature/Application/Dtos/{ProjectDto,UpdateTieneUnidadDeProyectosDto}.cs`
+- `Features/ConfigurationModule/Features/ProjectFeature/{Application/Services/ProjectService,Application/Interfaces/IProjectService,Infrastructure/Repositories/ProjectRepository,Infrastructure/Interfaces/IProjectRepository,Presentation/ProjectController}.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/{Presentation/CronogramaActividadesController,Application/Services/CronogramaActividadesService,Application/Interfaces/ICronogramaActividadesService,Infrastructure/Repositories/CronogramaActividadesRepository,Infrastructure/Interfaces/ICronogramaActividadesRepository,Application/Dtos/CronogramaActividadesDtos}.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores en ambos cambios (297 warnings preexistentes, sin nuevos). Se probó en vivo: se reinició el proceso local (`dotnet run`, puerto 5236) tras el primer cambio y se confirmó `PATCH /api/v1/project/42/tiene-unidad-de-proyectos` respondiendo `401` (antes `404`) sin token — ruta reconocida correctamente.
+
+### Pendiente
+- No se identificó la causa puntual de por qué los 7 proyectos (si es que no aparecen) faltan en el listado de Cronograma — el `WHERE` del repo quedó descartado como causa con el SELECT del usuario; falta revisar frontend y/o `HasQueryFilter` global de EF sobre `Project`/`ProjectActivity` en `AppDbContext`.
+- Falta el consumo desde el frontend del nuevo PATCH (`tieneUnidadDeProyectos` en el DTO + switch en la pestaña "Proyectos Activos", análogo a `toggleProyectoActive()` pero llamando al PATCH chico en vez del PUT completo).
+
+## Sesión 2026-09-24 — Deploy a master de trabajo acumulado en victor-backend
+
+### Contexto
+Sesión de solo git: "actualizar rama" (trae `origin/master` a `victor-backend`, merge limpio) seguido de "guardar master" para llevar a producción el trabajo acumulado en `victor-backend` que ya estaba documentado en sesiones anteriores (evaluación 360 staff, hitos de cronograma, planeamiento BIM, reingreso de trabajador, hoja de ruta de contratistas SSOMA, EPP, etc. — ver secciones previas de este archivo).
+
+### Cambios
+- Sin cambios de código en esta sesión; se mergeó `victor-backend` → `master` y se subió a `origin/master`.
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores, tanto antes del merge (sobre `master`) como el build previo verificado al cierre de "actualizar rama" sobre `victor-backend`.
+
+### Pendiente
+- Ninguno nuevo; ver pendientes de cada sesión individual fusionada.

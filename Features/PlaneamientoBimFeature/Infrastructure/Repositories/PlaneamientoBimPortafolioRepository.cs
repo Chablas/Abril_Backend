@@ -21,7 +21,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
 
         /// <summary>Alcance del portafolio: proyectos con al menos una zona configurada en Planeamiento BIM.</summary>
         private static Task<List<int>> GetProyectosEnAlcance(AppDbContext ctx)
-            => ctx.BimProyectoZona.Select(z => z.ProjectId).Distinct().ToListAsync();
+            => ctx.BimProyectoTorre.Select(t => t.ProjectId).Distinct().ToListAsync();
 
         public async Task<PortafolioKpisDto> GetKpis()
         {

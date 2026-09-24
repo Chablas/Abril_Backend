@@ -4,18 +4,24 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
 
     public class ConfiguracionInicialDto
     {
-        public List<ZonaDto> Zonas { get; set; } = new();
+        public List<TorreDto> Torres { get; set; } = new();
         public List<FaseDto> Fases { get; set; } = new();
         public int? ResponsableId { get; set; }
         public string? ResponsableNombre { get; set; }
         public decimal? MetaPpc { get; set; }
     }
 
-    public class ZonaDto
+    public class TorreDto
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
+        /// <summary>Cantidad de sectores (1..N, derivados) para los niveles de
+        /// esta torre con TipoEstructura = SUBESTRUCTURA.</summary>
+        public int CantidadSectoresSubestructura { get; set; }
+        /// <summary>Análogo a <see cref="CantidadSectoresSubestructura"/> para
+        /// niveles con TipoEstructura = SUPERESTRUCTURA.</summary>
+        public int CantidadSectoresSuperestructura { get; set; }
         public List<NivelDto> Niveles { get; set; } = new();
     }
 
@@ -25,22 +31,23 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
         public string? TipoEstructura { get; set; }
-        /// <summary>Efectivo: sectores propios de este nivel + sectores
-        /// compartidos de la zona (zona_nivel_id NULL).</summary>
-        public List<SectorDto> Sectores { get; set; } = new();
-    }
-
-    public class SectorDto
-    {
-        public int Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-        public int Orden { get; set; }
     }
 
     public class ResponsableBimLookupDto
     {
         public int Id { get; set; }
         public string ApellidoNombre { get; set; } = string.Empty;
+    }
+
+    /// <summary>Opción del selector "Proyecto Seleccionado" de las 4 pestañas de Planeamiento
+    /// BIM que lo usan (Configuración Inicial, Carga Diaria, Restricciones, Dashboard —
+    /// Portafolio no aplica, tiene su propio criterio de acceso). Mismo shape que
+    /// ProjectSimpleDTO (projectId/projectDescription) para no romper el contrato que el
+    /// frontend ya consume de projectResident.</summary>
+    public class ProyectoBimSimpleDto
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
     }
 
     /// <summary>Id de la fila bim_proyecto_fase (no del catálogo bim_fase). Las 5 fases siempre existen; solo se editan sus fechas.</summary>
@@ -56,24 +63,22 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
 
     public class ConfiguracionInicialUpdateDto
     {
-        public List<ZonaUpdateDto> Zonas { get; set; } = new();
+        public List<TorreUpdateDto> Torres { get; set; } = new();
         public List<FaseUpdateDto> Fases { get; set; } = new();
         public int? ResponsableId { get; set; }
         public string? ResponsableNombre { get; set; }
         public decimal? MetaPpc { get; set; }
     }
 
-    /// <summary>Id null/0 = zona nueva a crear; Id existente = actualizar esa fila.</summary>
-    public class ZonaUpdateDto
+    /// <summary>Id null/0 = torre nueva a crear; Id existente = actualizar esa fila.</summary>
+    public class TorreUpdateDto
     {
         public int? Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
+        public int CantidadSectoresSubestructura { get; set; }
+        public int CantidadSectoresSuperestructura { get; set; }
         public List<NivelUpdateDto> Niveles { get; set; } = new();
-        /// <summary>Sectores compartidos por TODOS los niveles de esta zona
-        /// (zona_nivel_id NULL al persistir). Separado de los sectores
-        /// propios de cada nivel (ver NivelUpdateDto.Sectores).</summary>
-        public List<SectorUpdateDto> SectoresCompartidos { get; set; } = new();
     }
 
     public class NivelUpdateDto
@@ -82,15 +87,6 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos
         public string Nombre { get; set; } = string.Empty;
         public int Orden { get; set; }
         public string? TipoEstructura { get; set; }
-        /// <summary>Sectores exclusivos de este nivel (zona_nivel_id = este nivel).</summary>
-        public List<SectorUpdateDto> Sectores { get; set; } = new();
-    }
-
-    public class SectorUpdateDto
-    {
-        public int? Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-        public int Orden { get; set; }
     }
 
     /// <summary>Id obligatorio: debe ser una de las 5 filas bim_proyecto_fase ya creadas para el proyecto. No se crean ni eliminan fases desde acá.</summary>

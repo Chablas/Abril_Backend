@@ -1963,56 +1963,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var workerType = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase)
-                ? "CASA"
-                : "CONTRATISTA";
-
-            var todosItems = await ctx.SsItemTrabajador
-                .Where(i => i.Activo)
-                .ToListAsync();
-
-            var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
-            var categoriaWorker = worker.PuestoCatalogo?.Categoria?.Nombre;
-            var esCasaPracticante = workerType == "CASA"
-                && worker.PuestoCatalogo?.CategoriaId == CategoriaIds.Practicante;
-
-            var itemsAplicables = todosItems
-                .Where(i => i.AplicaA == "TODOS" ||
-                            (i.AplicaA == "CASA" && workerType == "CASA") ||
-                            (i.AplicaA == "CONTRATISTA" && workerType == "CONTRATISTA"))
-                .Where(i => CsvContiene(i.AplicaCategoria, categoriaWorker))
-                .Where(i => CsvContiene(i.AplicaObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
-                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
-                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, categoriaWorker))
-                .Where(i => !(esCasaPracticante && i.Id == HabItemIds.VidaLey))
-                .ToList();
-
-            var itemIds = itemsAplicables.Select(i => i.Id).ToList();
-
-            var existentesIds = (await ctx.SsHabTrabajador
-                .Where(h => h.WorkerId == workerId && itemIds.Contains(h.ItemId))
-                .Select(h => h.ItemId)
-                .ToListAsync())
-                .ToHashSet();
-
-            var nuevos = itemsAplicables
-                .Where(i => !existentesIds.Contains(i.Id))
-                .Select(i => new SsHabTrabajador
-                {
-                    WorkerId = workerId,
-                    ItemId = i.Id,
-                    Estado = "Falta",
-                    Vigencia = null,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                })
-                .ToList();
-
-            if (nuevos.Count > 0)
-            {
-                ctx.SsHabTrabajador.AddRange(nuevos);
-                await ctx.SaveChangesAsync();
-            }
+            await HabilitacionIngresoHelper.InicializarEntregablesAsync(
+                ctx, worker, worker.PuestoCatalogo?.CategoriaId, worker.PuestoCatalogo?.Categoria?.Nombre);
+            await ctx.SaveChangesAsync();
         }
 
         private static async Task SincronizarPolizasSctrVidaLeyAsync(int workerId, int itemId, AppDbContext ctx)
@@ -2587,48 +2540,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 throw new AbrilException("El trabajador ya tiene una asignación activa en este proyecto.", 409);
 
             var fechaInicio = dto.FechaInicio ?? DateOnly.FromDateTime(DateTime.UtcNow);
-            var now = DateTimeOffset.UtcNow;
 
-            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
-            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
-            var induccionYaAprobada = await ctx.SsHabTrabajador
-                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
-
-            // Reabre la asignación cerrada al mismo proyecto en vez de crear una fila nueva —
-            // mismo patrón que SincronizarWorkerProyectoCambioAsync, para no duplicar el historial
-            // cuando el trabajador vuelve a un proyecto en el que ya estuvo (p.ej. tras un reingreso
-            // que no sincronizó esta tabla).
-            var asignacion = await ctx.WorkerProyecto
-                .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == dto.ProyectoId && wp.FechaFin != null)
-                .OrderByDescending(wp => wp.CreatedAt)
-                .ThenByDescending(wp => wp.Id)
-                .FirstOrDefaultAsync();
-
-            if (asignacion != null)
-            {
-                asignacion.EmpresaId = dto.EmpresaId ?? asignacion.EmpresaId;
-                asignacion.FechaInicio = fechaInicio;
-                asignacion.FechaFin = null;
-                asignacion.InduccionCompletada = induccionYaAprobada;
-                asignacion.FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null;
-                asignacion.UpdatedAt = now;
-            }
-            else
-            {
-                asignacion = new WorkerProyecto
-                {
-                    WorkerId = workerId,
-                    ProyectoId = dto.ProyectoId,
-                    EmpresaId = dto.EmpresaId,
-                    FechaInicio = fechaInicio,
-                    FechaFin = null,
-                    InduccionCompletada = induccionYaAprobada,
-                    FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
-                    CreatedAt = now,
-                    UpdatedAt = null
-                };
-                ctx.WorkerProyecto.Add(asignacion);
-            }
+            // Crear o reabrir la asignación es lo mismo que hace la aprobación de la carta oferta
+            // de Reclutamiento, por eso vive en el helper compartido.
+            var asignacion = await HabilitacionIngresoHelper.AsignarProyectoAsync(
+                ctx, workerId, dto.ProyectoId, dto.EmpresaId, fechaInicio, DateTimeOffset.UtcNow);
 
             await ctx.SaveChangesAsync();
 

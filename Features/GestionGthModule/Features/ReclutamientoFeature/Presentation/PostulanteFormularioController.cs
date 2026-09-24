@@ -13,7 +13,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// Formulario de información del postulante. Dos caras:
     ///   • Pública (postulante): GET/POST por token, sin autenticación (<c>[AllowAnonymous]</c>).
     ///   • GTH (bandeja de reclutamiento): enviar el enlace, revisar y aprobar/rechazar. Protegida por
-    ///     JWT + feature <c>gestion-gth.reclutamiento</c>.
+    ///     JWT: ver el formulario pide la feature <c>gestion-gth.reclutamiento</c>; enviarlo y
+    ///     decidir, <c>gestion-gth.reclutamiento.gestionar</c> (sin ella la bandeja es de solo lectura).
     /// La clase no lleva <c>[Authorize]</c> a nivel de tipo para permitir los endpoints anónimos; los
     /// de GTH declaran su propio <c>[Authorize]</c> + <c>[RequireFeature]</c>.
     /// </summary>
@@ -104,7 +105,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>GTH: envía (o reenvía) el formulario al correo del postulante de un candidato aprobado.</summary>
         [HttpPost("candidato/{candidatoId:int}/enviar")]
         [Authorize]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> Enviar(int candidatoId, [FromBody] EnviarFormularioDto dto)
         {
             try
@@ -130,7 +131,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         [HttpPost("enviar-masivo")]
         [Authorize]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> EnviarMasivo([FromBody] EnviarFormularioMasivoDto dto)
         {
             try
@@ -173,7 +174,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>GTH: registra la decisión sobre el formulario completado (aprobar/rechazar).</summary>
         [HttpPost("candidato/{candidatoId:int}/decision")]
         [Authorize]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> Decision(int candidatoId, [FromBody] FormularioDecisionDto dto)
         {
             try

@@ -209,7 +209,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: bandeja de reclutamiento (tarjeta "En proceso" + tabla de solicitudes de
         /// contratación de toda la organización), en una sola petición.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>
+        /// Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature. Es la
+        /// feature de VER (esta bandeja y el detalle): todo lo que mueve el proceso exige además
+        /// <c>gestion-gth.reclutamiento.gestionar</c>, así que un rol que solo tenga esta entra en
+        /// solo lectura. Las features se suman entre los roles del usuario: con cualquier rol que
+        /// traiga la de gestionar, gestiona.
+        /// </remarks>
         [HttpGet("bandeja")]
         [RequireFeature("gestion-gth.reclutamiento")]
         public async Task<IActionResult> GetBandeja()
@@ -230,9 +236,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>Vista de GTH: actualiza la prioridad (Alta/Media/Baja) de un requerimiento.</summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPatch("requerimiento/{id:int}/prioridad")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> UpdatePrioridad(int id, [FromBody] UpdatePrioridadDto dto)
         {
             try
@@ -284,9 +290,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: guarda la asignación interna del requerimiento (responsable del proceso,
         /// tipo de proceso y SLA, prioridad interna y razón social activa).
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPatch("requerimiento/{id:int}/asignacion-gth")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> UpdateAsignacionGth(int id, [FromBody] AsignacionGthUpdateDto dto)
         {
             try
@@ -311,9 +317,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// y avanza el requerimiento a la fase PUBLICACION. No publica en los portales (no hay
         /// APIs integradas): solo registra y continúa el flujo. Devuelve el estado resultante.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPut("requerimiento/{id:int}/publicaciones")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> ReplacePublicaciones(int id, [FromBody] PublicacionesUpdateDto dto)
         {
             try
@@ -337,9 +343,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: inicia la revisión de CV — avanza el requerimiento de PUBLICACION a
         /// LONG_LIST. Devuelve el estado resultante.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPatch("requerimiento/{id:int}/iniciar-revision-cv")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> IniciarRevisionCv(int id)
         {
             try
@@ -362,9 +368,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>
         /// Vista de GTH: marca/desmarca el check informativo del Multitest de un candidato aprobado.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPatch("candidato/{candidatoId:int}/multitest")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> SetMultitest(int candidatoId, [FromBody] MultitestUpdateDto dto)
         {
             try
@@ -388,9 +394,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: continúa a la programación de entrevistas — avanza el requerimiento de
         /// LONG_LIST_APROBADA a ENTREVISTAS. Devuelve el estado resultante.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPatch("requerimiento/{id:int}/continuar-entrevistas")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> ContinuarAEntrevistas(int id)
         {
             try
@@ -416,9 +422,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// nadie con quien seguir: en EMO_NO_APTO (el EMO del seleccionado salió No Apto) o cuando
         /// ya no queda ningún candidato en carrera porque los descartaron a todos.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/retomar-candidato/{candidatoId:int}")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> RetomarCandidatoRechazado(int id, int candidatoId)
         {
             try
@@ -451,9 +457,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// volver a LONG_LIST para preparar una long list nueva. Mismas fases y misma condición que
         /// retomar a un rechazado.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/nueva-long-list")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> VolverALongList(int id)
         {
             try
@@ -482,9 +488,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
         /// invitación al correo que declaró en su formulario del postulante.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("candidato/{candidatoId:int}/entrevista")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> GuardarEntrevista(int candidatoId, [FromBody] EntrevistaGuardarDto dto)
         {
             try
@@ -510,9 +516,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// files con las claves <c>informeFinal</c> y <c>evaluacionConocimientos</c>, los dos
         /// opcionales.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPut("candidato/{candidatoId:int}/evaluacion")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(45 * 1024 * 1024)] // los dos archivos del informe (20 MB c/u) + margen
         public async Task<IActionResult> GuardarEvaluacion(int candidatoId, [FromForm] string data)
@@ -565,9 +571,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: envía al candidato el correo de agradecimiento por no continuar en el
         /// proceso y deja su resultado en NO_PASO.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("candidato/{candidatoId:int}/agradecimiento")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> EnviarAgradecimiento(int candidatoId)
         {
             try
@@ -590,9 +596,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// Vista de GTH: saca del proceso al postulante cuyo formulario quedó rechazado y le envía
         /// el correo de fin de proceso, dejando su resultado en NO_PASO.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("candidato/{candidatoId:int}/rechazo-postulante")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> RechazarPostulante(int candidatoId)
         {
             try
@@ -666,9 +672,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// correo configurado (tipo LONG_LIST) con los adjuntos y avanza el requerimiento a
         /// LONG_LIST_ENVIADA.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("requerimiento/{id:int}/long-list/enviar")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(65 * 1024 * 1024)] // MaxLongListTotalBytes (60 MB) + margen
         public async Task<IActionResult> EnviarLongList(int id, [FromForm] string data)

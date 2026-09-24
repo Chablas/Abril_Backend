@@ -6,6 +6,7 @@ using Abril_Backend.Features.GestionGthModule.Shared.FileDigital.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
@@ -756,7 +757,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Convierte la ficha de pre-ingreso del seleccionado en un trabajador de Abril:
-        /// FINALISTA_APROBADO → ACTIVO, con su primer periodo laboral y su primera vinculación.
+        /// FINALISTA_APROBADO → ACTIVO, con su primer periodo laboral, su primera vinculación, su
+        /// asignación al proyecto en Habilitación y sus entregables.
         ///
         /// <para><b>Por qué acá.</b> Aprobar la carta oferta firmada es el único punto del sistema
         /// en el que GTH declara que la persona entra. Hasta el 2026-09-08 ningún camino del backend
@@ -799,13 +801,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
 
             // Snapshot de la categoría en la vinculación, igual que el alta de trabajador y los
-            // cambios de obra: sale del puesto (puesto.categoria_id), no de la ficha.
-            var categoriaId = ficha.PuestoId == null
+            // cambios de obra: sale del puesto (puesto.categoria_id), no de la ficha. El nombre
+            // viaja en la misma consulta porque las reglas de entregables comparan por nombre.
+            var categoria = ficha.PuestoId == null
                 ? null
                 : await ctx.Puesto
                     .Where(p => p.PuestoId == ficha.PuestoId.Value)
-                    .Select(p => (int?)p.CategoriaId)
+                    .Select(p => new { p.CategoriaId, Nombre = p.Categoria != null ? p.Categoria.Nombre : null })
                     .FirstOrDefaultAsync();
+            var categoriaId = categoria?.CategoriaId;
 
             // La fecha que pactó la carta. Si no la tiene, hoy en hora de Perú y no del servidor:
             // en prod el Postgres corre en UTC y una aprobación de la tarde caería al día siguiente.
@@ -853,6 +857,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 RegistradoPorId = userId,
                 CreatedAt       = now,
             });
+
+            // Y lo que deja el alta de trabajador en Habilitación: la asignación al proyecto, que
+            // es de donde «Programar Inducción» saca a quién inducir, y sus entregables. Sin esto
+            // el ingreso no se podía mandar a inducción y salía «Habilitado» con el único
+            // entregable que tenía (el del EMO).
+            if (req != null)
+                await HabilitacionIngresoHelper.AsignarProyectoAsync(
+                    ctx, ficha.Id, req.ProjectId, ficha.ContributorId, fechaIngreso, now);
+            await HabilitacionIngresoHelper.InicializarEntregablesAsync(
+                ctx, ficha, categoriaId, categoria?.Nombre);
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────

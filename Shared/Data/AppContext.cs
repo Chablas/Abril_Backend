@@ -351,6 +351,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionGestionSsoma> EvEvaluacionesGestionSsoma => Set<EvEvaluacionGestionSsoma>();
         public DbSet<EvEvaluacionGestionSsomaDetalle> EvEvaluacionesGestionSsomaDetalle => Set<EvEvaluacionGestionSsomaDetalle>();
         public DbSet<EvEvaluacionGestionSsomaCumplimiento> EvEvaluacionesGestionSsomaCumplimiento => Set<EvEvaluacionGestionSsomaCumplimiento>();
+        public DbSet<EvStaffPlantilla> EvStaffPlantillas => Set<EvStaffPlantilla>();
+        public DbSet<EvEvaluacionStaff> EvEvaluacionesStaff => Set<EvEvaluacionStaff>();
+        public DbSet<EvEvaluacionStaffDetalle> EvEvaluacionesStaffDetalle => Set<EvEvaluacionStaffDetalle>();
         public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
         public DbSet<SsomaPaso> SsomaPasos { get; set; }
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
@@ -1437,6 +1440,10 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
                 entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZonaNullable);
+            });
+            modelBuilder.Entity<Abril_Backend.Features.Evaluaciones.Infrastructure.Models.EvEvaluacionStaff>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone").HasConversion(utcSinZona);
             });
 
             modelBuilder.Entity<ProjectSubContractor>(entity =>

@@ -42,12 +42,14 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
             using var ctx = _factory.CreateDbContext();
             return await ctx.SsCumplimientoActividad
                 .OrderBy(a => a.Frecuencia)
+                .ThenBy(a => a.Categoria)
                 .ThenBy(a => a.Orden)
                 .Select(a => new CumplimientoActividadDto
                 {
                     Id             = a.Id,
                     Nombre         = a.Nombre,
                     Descripcion    = a.Descripcion,
+                    Categoria      = a.Categoria,
                     RolResponsable = a.RolResponsable,
                     Frecuencia     = a.Frecuencia,
                     Orden          = a.Orden,
@@ -64,6 +66,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
             {
                 Nombre         = dto.Nombre,
                 Descripcion    = dto.Descripcion,
+                Categoria      = dto.Categoria,
                 RolResponsable = dto.RolResponsable,
                 Frecuencia     = dto.Frecuencia,
                 Orden          = dto.Orden,
@@ -84,10 +87,33 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
 
             entity.Nombre         = dto.Nombre;
             entity.Descripcion    = dto.Descripcion;
+            entity.Categoria      = dto.Categoria;
             entity.RolResponsable = dto.RolResponsable;
             entity.Frecuencia     = dto.Frecuencia;
             entity.Orden          = dto.Orden;
             entity.UpdatedAt      = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        // No borra si ya tiene registros de cumplimiento (evita huecos silenciosos en el
+        // histórico de algún proyecto) — se desactiva en su lugar, igual que ya se puede
+        // hacer desde el form de editar (Activo=false), y el registro histórico queda intacto.
+        public async Task DeleteActividadAsync(int actividadId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.SsCumplimientoActividad.FindAsync(actividadId)
+                ?? throw new KeyNotFoundException($"Actividad {actividadId} no encontrada.");
+
+            var tieneRegistros = await ctx.SsCumplimientoRegistro.AnyAsync(r => r.ActividadId == actividadId);
+            if (tieneRegistros)
+            {
+                entity.Activo = false;
+                entity.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            else
+            {
+                ctx.SsCumplimientoActividad.Remove(entity);
+            }
             await ctx.SaveChangesAsync();
         }
 
@@ -130,6 +156,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
                     ActividadId       = a.Id,
                     Nombre            = a.Nombre,
                     Descripcion       = a.Descripcion,
+                    Categoria         = a.Categoria,
                     RolResponsable    = a.RolResponsable,
                     Frecuencia        = a.Frecuencia,
                     Periodo           = periodo,
@@ -194,6 +221,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
                 ActividadId       = actividad.Id,
                 Nombre            = actividad.Nombre,
                 Descripcion       = actividad.Descripcion,
+                Categoria         = actividad.Categoria,
                 RolResponsable    = actividad.RolResponsable,
                 Frecuencia        = actividad.Frecuencia,
                 Periodo           = periodo,

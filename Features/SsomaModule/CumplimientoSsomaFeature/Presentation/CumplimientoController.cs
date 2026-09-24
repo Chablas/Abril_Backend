@@ -56,6 +56,18 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Presentati
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
         }
 
+        [HttpDelete("actividades/{actividadId:int}")]
+        public async Task<IActionResult> DeleteActividad(int actividadId)
+        {
+            try
+            {
+                await _service.DeleteActividadAsync(actividadId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         // CUMPLIMIENTO POR PROYECTO
         // ─────────────────────────────────────────────────────────────────

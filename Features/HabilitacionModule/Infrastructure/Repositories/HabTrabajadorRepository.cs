@@ -1056,6 +1056,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             //   3) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
             var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioRiesgoAscendente;
 
+            // Se resuelve acá (antes de armar los correos) porque el aviso al médico solo tiene
+            // sentido si hay un EMO gestionado por el módulo clínico (personal Casa). Un
+            // contratista no tiene WorkerEmo activo — su certificado de aptitud es un documento
+            // subido y aprobado/rechazado por SSOMA, sin revisión médica — así que no hay nada
+            // que "convalidar" y el correo al médico solo sería ruido.
+            var ultimoEmo = requiereRevisionAptitud
+                ? await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync()
+                : null;
+
             if (requiereRevisionAptitud)
             {
                 itemsToReset.Add(HabItemIds.CertAptitud);
@@ -1099,11 +1112,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             ? "• Certificado de Aptitud (revisión por cambio de puesto y categoría)"
                             : "• Certificado de Aptitud (revisión por cambio de puesto)";
 
-                pendingEmails.Add((
-                    [EmailMedico],
-                    $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
-                    BuildBodyReingreso(worker, proyectoDestino, motivoAptitud)
-                ));
+                if (ultimoEmo != null)
+                    pendingEmails.Add((
+                        [EmailMedico],
+                        $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
+                        BuildBodyReingreso(worker, proyectoDestino, motivoAptitud)
+                    ));
             }
 
             foreach (var v in activas)
@@ -1280,12 +1294,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (requiereRevisionAptitud)
             {
-                var ultimoEmo = await ctx.WorkerEmo
-                    .Where(e => e.WorkerId == workerId && e.Activo)
-                    .OrderByDescending(e => e.FechaEmo)
-                    .ThenByDescending(e => e.Id)
-                    .FirstOrDefaultAsync();
-
                 _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
 
                 var empresaDestinoResuelta = dto.NuevaEmpresaId ?? currentEmpresaId;

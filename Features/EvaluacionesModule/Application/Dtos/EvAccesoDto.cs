@@ -14,6 +14,9 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public bool EsCoordinadorSsoma { get; set; }
         public bool EsPrevencionista { get; set; }
 
+        /// <summary>Residente por PUESTO (CategoriaIds.Residente) — evalúa 360° a su staff de proyecto.</summary>
+        public bool EsResidente { get; set; }
+
         /// <summary>Coordinador SSOMA o Prevencionista — el "equipo SSOMA" que evalúa al Jefe SSOMA.</summary>
         public bool EsEquipoSsoma => EsCoordinadorSsoma || EsPrevencionista;
     }

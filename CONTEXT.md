@@ -6362,3 +6362,17 @@ El modal "Reingresar" bloqueaba con 400 al intentar reingresar a un trabajador R
 
 ### Pendiente
 - Ninguno identificado; el flujo de subida de evidencia para un trabajador Retirado ya funcionaba sin cambios (panel de entregables de `trabajadores.html` no filtra por estado).
+
+## Sesión 2026-09-24 — Deploy a master de trabajo acumulado en victor-backend
+
+### Contexto
+Sesión de solo git: "actualizar rama" (trae `origin/master` a `victor-backend`, merge limpio) seguido de "guardar master" para llevar a producción el trabajo acumulado en `victor-backend` que ya estaba documentado en sesiones anteriores (evaluación 360 staff, hitos de cronograma, planeamiento BIM, reingreso de trabajador, hoja de ruta de contratistas SSOMA, EPP, etc. — ver secciones previas de este archivo).
+
+### Cambios
+- Sin cambios de código en esta sesión; se mergeó `victor-backend` → `master` y se subió a `origin/master`.
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores, tanto antes del merge (sobre `master`) como el build previo verificado al cierre de "actualizar rama" sobre `victor-backend`.
+
+### Pendiente
+- Ninguno nuevo; ver pendientes de cada sesión individual fusionada.

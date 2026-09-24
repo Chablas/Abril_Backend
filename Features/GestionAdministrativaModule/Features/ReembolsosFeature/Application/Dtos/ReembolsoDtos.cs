@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dtos
@@ -299,6 +300,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     public class ReembolsoObservacionDto : ReembolsoSeleccionDto
     {
         public string? Observacion { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que necesita el aviso a Tesorería de que confirmó la revisión: los consolidados que
+    /// quedaron listos para pagar —uno por correo— y su destinatario principal, el rol TESORERO.
+    /// Van juntos porque se resuelven con el mismo contexto.
+    ///
+    /// Los demás destinatarios NO salen de acá: son los de Reembolsos → Configuración → Correos y
+    /// los agrega el resolver al enviar. Este DTO solo trae el principal.
+    /// </summary>
+    public class ReembolsoPorPagarCorreoInfoDto
+    {
+        public List<ConsolidadoPorPagarCorreoDatos> Consolidados { get; set; } = new();
+        /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
+        public List<string> Destinatarios { get; set; } = new();
     }
 
     // ── Seguimiento (11.4 del requerimiento) ─────────────────────────────────

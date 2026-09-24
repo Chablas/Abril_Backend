@@ -74,6 +74,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         Task<List<ConsolidadoCorreoDatos>> GetConsolidadoCorreoDatos(IReadOnlyCollection<int> solicitudIds);
 
         /// <summary>
+        /// Destinatario principal de los avisos a Tesorería: quien tiene el rol TESORERO (ver
+        /// <c>CorreosTesoreriaLoader</c>). Lo usa el preview de la confirmación de la revisión.
+        /// </summary>
+        Task<List<string>> GetCorreosTesoreria();
+
+        /// <summary>
+        /// Lo que necesita el aviso a Tesorería de que confirmó la revisión: UNO por consolidado de
+        /// las salidas indicadas, con lo que ese consolidado tiene hoy por pagar, y el rol TESORERO
+        /// como destinatario principal.
+        /// </summary>
+        Task<ReembolsoPorPagarCorreoInfoDto> GetPorPagarCorreoInfo(IReadOnlyCollection<int> solicitudIds);
+
+        /// <summary>
         /// Seguimiento de Tesorería (11.4): lo ya abonado, agrupado por colaborador. Mira solo lo
         /// Pagado — no es una bandeja de trabajo sino la consulta del histórico de pagos.
         /// </summary>

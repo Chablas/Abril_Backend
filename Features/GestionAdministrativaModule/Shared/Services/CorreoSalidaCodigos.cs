@@ -128,6 +128,15 @@
         public const string TesoreriaSubsanada = "TESORERIA_SUBSANADA";
 
         /// <summary>
+        /// A Tesorería: confirmó la revisión de un consolidado y quedó en «Proceder con el
+        /// reembolso», listo para programar el pago (plantilla 21, «El consolidado está listo para
+        /// programación de pago»). Sale UNO por consolidado y al mismo destinatario principal que
+        /// <see cref="TesoreriaReembolso"/> —el rol TESORERO, no la categoría del puesto—, pero se
+        /// origina en Reembolsos, que es donde se confirma, y se administra ahí.
+        /// </summary>
+        public const string TesoreriaPorPagar = "TESORERIA_POR_PAGAR";
+
+        /// <summary>
         /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Se origina en
         /// Reembolsos y cierra el ciclo.
         /// </summary>
@@ -222,7 +231,11 @@
         /// </summary>
         public const string Consolidados = "CONSOLIDADOS";
 
-        /// <summary>Tesorería: el aviso de pago al solicitante, que es lo que cierra el ciclo.</summary>
+        /// <summary>
+        /// Tesorería: el aviso a ella misma de que un consolidado quedó listo para pagar, la
+        /// observación que le devuelve al consolidador y el aviso de pago al solicitante, que es lo
+        /// que cierra el ciclo.
+        /// </summary>
         public const string Reembolsos = "REEMBOLSOS";
 
         /// <summary>

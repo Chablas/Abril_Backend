@@ -78,6 +78,81 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return await ConsolidadoCorreoLoader.LoadAsync(ctx, solicitudIds);
         }
 
+        public async Task<List<string>> GetCorreosTesoreria()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await CorreosTesoreriaLoader.LoadAsync(ctx);
+        }
+
+        public async Task<ReembolsoPorPagarCorreoInfoDto> GetPorPagarCorreoInfo(IReadOnlyCollection<int> solicitudIds)
+        {
+            var info = new ReembolsoPorPagarCorreoInfoDto();
+            var ids  = solicitudIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return info;
+
+            using var ctx = _factory.CreateDbContext();
+
+            // El documento de cada salida confirmada, con la precedencia del módulo: el aviso es por
+            // consolidado, no por salida ni por planilla.
+            var confirmadas = await ctx.GaSolicitudSalida
+                .Where(s => ids.Contains(s.Id))
+                .Select(s => new { s.Id, s.RendicionId })
+                .ToListAsync();
+
+            var consolidadoIds = (await ConsolidadoS10Loader.LoadAsync(
+                    ctx, confirmadas.ToDictionary(x => x.Id, x => x.RendicionId)))
+                .Values
+                .Select(c => c.Id)
+                .Distinct()
+                .ToList();
+            if (consolidadoIds.Count == 0) return info;
+
+            // Lo que cada uno tiene HOY por pagar —lo recién confirmado y lo que se hubiera
+            // confirmado antes—, que es exactamente lo que va a desembolsar «Marcar como pagado».
+            var porPagar = await SalidasPorConsolidadoAsync(
+                ctx, consolidadoIds, new[] { EstadosSalida.Reembolso.PorPagar });
+            if (porPagar.Count == 0) return info;
+
+            var porPagarIds = porPagar.Keys.ToList();
+            var subareaPorSolicitud = await (
+                from s in ctx.GaSolicitudSalida.Where(x => porPagarIds.Contains(x.Id))
+                join w in ctx.Worker on s.WorkerId equals w.Id
+                select new { s.Id, Subarea = (string?)w.Subarea }
+            ).ToDictionaryAsync(x => x.Id, x => x.Subarea);
+
+            var montoPorSolicitud = await MontoPorSolicitudAsync(ctx, subareaPorSolicitud);
+
+            // El área es la del consolidador, la misma con la que se armó el código CONS-SIGLA y la
+            // que lleva el aviso de consolidado firmado.
+            var conPorPagar = porPagar.Values.Distinct().ToList();
+            var cabeceras = await (
+                from c  in ctx.GaConsolidadoS10.AsNoTracking()
+                join s  in ctx.AreaScope on c.AreaScopeId equals (int?)s.AreaScopeId into sGroup
+                from s  in sGroup.DefaultIfEmpty()
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai in aiGroup.DefaultIfEmpty()
+                where conPorPagar.Contains(c.Id)
+                select new { c.Id, c.Codigo, c.NumeroReembolso, Area = ai != null ? ai.AreaItemName : null }
+            ).ToListAsync();
+
+            info.Destinatarios = await CorreosTesoreriaLoader.LoadAsync(ctx);
+            info.Consolidados  = cabeceras
+                .OrderBy(c => c.Id)
+                .Select(c => new ConsolidadoPorPagarCorreoDatos
+                {
+                    ConsolidadoId   = c.Id,
+                    Codigo          = c.Codigo,
+                    Area            = c.Area,
+                    NumeroReembolso = c.NumeroReembolso,
+                    MontoTotal      = porPagar
+                        .Where(kv => kv.Value == c.Id)
+                        .Sum(kv => montoPorSolicitud.TryGetValue(kv.Key, out var m) ? m : 0m),
+                })
+                .ToList();
+
+            return info;
+        }
+
         public async Task<ReembolsoFilterDataDto> GetFilterData()
         {
             using var ctx = _factory.CreateDbContext();
@@ -162,7 +237,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             if (ids.Count == 0) return new();
 
             using var ctx = _factory.CreateDbContext();
+            return (await SalidasPorConsolidadoAsync(ctx, ids, estadoIds)).Keys.ToList();
+        }
 
+        /// <summary>
+        /// solicitudId → consolidadoId de las salidas de la bandeja que están en
+        /// <paramref name="estadoIds"/> y cuyo consolidado vigente es uno de <paramref name="ids"/>.
+        /// Es la traducción de <see cref="ResolverSolicitudIds(IEnumerable{int}, int[])"/>,
+        /// conservando a qué documento pertenece cada salida para quien tiene que agrupar por él.
+        /// </summary>
+        private static async Task<Dictionary<int, int>> SalidasPorConsolidadoAsync(
+            AppDbContext ctx, List<int> ids, int[] estadoIds)
+        {
             // Las planillas que cubren esos consolidados y, de ellas, solo las salidas que están en
             // la bandeja y en el estado que la acción admite: la selección viene de una pantalla
             // que pudo quedar desactualizada.
@@ -190,8 +276,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
             return candidatas
                 .Where(x => consolidados.TryGetValue(x.Id, out var c) && ids.Contains(c.Id))
-                .Select(x => x.Id)
-                .ToList();
+                .ToDictionary(x => x.Id, x => consolidados[x.Id].Id);
         }
 
         public async Task<List<int>> ConfirmarRevision(IEnumerable<int> ids, int tesoreroUserId) =>

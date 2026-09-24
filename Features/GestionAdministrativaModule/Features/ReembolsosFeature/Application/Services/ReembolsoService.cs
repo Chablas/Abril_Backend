@@ -79,8 +79,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
             var confirmadas = await _repo.ConfirmarRevision(ids, tesoreroUserId);
 
-            // Confirmar la revisión no avisa a nadie: es un paso interno de Tesorería y el
-            // colaborador se entera recién con el pago.
+            // El aviso es para Tesorería misma (plantilla 21): el consolidado ya se puede pagar. El
+            // colaborador sigue enterándose recién con el pago.
+            await NotificarPorPagarAsync(confirmadas);
+
             return new ReembolsoBulkResultDto
             {
                 Procesadas = confirmadas.Count,
@@ -146,14 +148,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         }
 
         /// <summary>
+        /// A quién le llegaría el aviso de que la revisión quedó confirmada: a Tesorería, resuelta
+        /// por el rol TESORERO (no por la categoría del puesto) más lo que se agregue en Reembolsos →
+        /// Configuración → Correos. Se pregunta sobre las salidas firmadas de la selección, que son
+        /// las que de verdad se van a confirmar: sin ninguna no se confirma nada y no sale correo.
+        /// </summary>
+        public Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewConfirmacion(ReembolsoSeleccionDto dto) =>
+            PreviewAsync(
+                dto,
+                new[] { EstadosSalida.Reembolso.Firmado },
+                CorreoEventoCodigos.TesoreriaPorPagar,
+                "A Tesorería",
+                async _ => await _repo.GetCorreosTesoreria(),
+                "preview del correo de revisión confirmada");
+
+        /// <summary>
         /// A quién le llegaría el aviso de pago si se marcan como pagados los consolidados
         /// seleccionados. Se resuelve con la MISMA llamada que hace el envío
         /// (<see cref="NotificarPagoAsync"/>) sobre las salidas que de verdad se van a pagar —las
         /// que ya pasaron la revisión de Tesorería—, así que la confirmación no promete un aviso
         /// que la configuración dejó fuera ni nombra a alguien a quien el pago no va a tocar.
-        ///
-        /// Confirmar la revisión no manda ningún correo, así que no tiene preview: el único correo
-        /// de esta pantalla es el del pago.
         ///
         /// Best-effort: ante un error devuelve una lista vacía y la confirmación sale sin correos.
         /// </summary>
@@ -213,6 +227,64 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             {
                 _logger.LogError(ex, "Error resolviendo el {Que}", queSeEstabaHaciendo);
                 return new();
+            }
+        }
+
+        // ── Aviso a Tesorería ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Avisa a Tesorería que el consolidado quedó en «Proceder con el reembolso», listo para
+        /// programar el pago (plantilla 21). Va UNO por consolidado —lo que se paga es el documento—
+        /// con lo que ese consolidado tiene por pagar. El destinatario principal es el rol TESORERO,
+        /// igual que en el aviso de consolidado firmado, y los de Reembolsos → Configuración →
+        /// Correos se suman como copia.
+        ///
+        /// Es best-effort, como el resto de los avisos del ciclo: la revisión ya quedó confirmada y
+        /// no se revierte porque un correo falle.
+        /// </summary>
+        private async Task NotificarPorPagarAsync(List<int> solicitudIds)
+        {
+            if (solicitudIds.Count == 0) return;
+
+            try
+            {
+                var info = await _repo.GetPorPagarCorreoInfo(solicitudIds);
+                if (info.Consolidados.Count == 0) return;
+
+                // El destinatario no depende del consolidado: se resuelve una sola vez para el lote.
+                var envio = await _correoResolver.ResolveEnvioAsync(
+                    CorreoEventoCodigos.TesoreriaPorPagar, info.Destinatarios);
+
+                if (!envio.Enviar)
+                {
+                    _logger.LogInformation(
+                        "Correo {Codigo} no enviado para los consolidados {Ids}: está apagado, sin "
+                        + "destinatarios configurados o sin nadie con el rol de Tesorería.",
+                        CorreoEventoCodigos.TesoreriaPorPagar,
+                        string.Join(",", info.Consolidados.Select(c => c.ConsolidadoId)));
+                    return;
+                }
+
+                var layout = SalidaEmailLayout.Desde(_configuration);
+
+                foreach (var d in info.Consolidados)
+                {
+                    // El botón abre el consolidado en Reembolsos, que es donde se marca como pagado.
+                    var url = SalidaEnlaces.Reembolsos(_configuration, d.ConsolidadoId);
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: "El consolidado está listo para programación de pago"
+                                 + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso),
+                        body: ReembolsoEmailTemplates.ConsolidadoListoParaPago(layout, d, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error avisando a Tesorería la revisión confirmada de las salidas {Ids}",
+                    string.Join(",", solicitudIds));
             }
         }
 

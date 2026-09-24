@@ -1,4 +1,5 @@
-﻿using Abril_Backend.Shared.Services.Email.Layout;
+﻿using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Email.Layout;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 {
@@ -79,6 +80,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
+    /// Lo que necesita el aviso a Tesorería de que confirmó la revisión de un Consolidado del S10 y
+    /// quedó listo para programar el pago (plantilla 21). Es el resumen de lo que va a desembolsar,
+    /// uno por consolidado, igual que el aviso de consolidado firmado.
+    /// </summary>
+    public sealed class ConsolidadoPorPagarCorreoDatos
+    {
+        public int ConsolidadoId { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN. Null en los consolidados anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
+        /// <summary>Área con la que se armó el código (la del consolidador). Null en los antiguos.</summary>
+        public string? Area { get; set; }
+        /// <summary>Número de reembolso que devolvió el S10. Null en los consolidados viejos.</summary>
+        public string? NumeroReembolso { get; set; }
+        /// <summary>
+        /// Lo que quedó listo para pagar: la suma de sus salidas en «Proceder con el reembolso», que
+        /// es exactamente lo que desembolsa «Marcar como pagado». Casi siempre es el consolidado
+        /// entero; es menos cuando alguna de sus planillas todavía espera a su jefatura o ya se pagó.
+        /// </summary>
+        public decimal MontoTotal { get; set; }
+    }
+
+    /// <summary>
     /// Lo que necesita el aviso al trabajador de que su rendición quedó incluida en un Consolidado
     /// del S10. Va UNO por (planilla, trabajador), igual que el de pago: una planilla puede agrupar
     /// a varios trabajadores y a cada uno le importa lo suyo.
@@ -144,6 +167,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///     bandeja. Uno por consolidado, no uno por planilla.</item>
     ///   <item>A Tesorería, en lugar del anterior: el consolidado que ella había observado vuelve
     ///     firmado, con la observación subsanada.</item>
+    ///   <item>A Tesorería: confirmó la revisión del consolidado y quedó listo para programar el
+    ///     pago.</item>
     ///   <item>Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49).</item>
     ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo.</item>
     /// </list>
@@ -169,6 +194,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         private const string IconoPago        = "req-aprobada";
         private const string IconoSubsanada   = "req-aprobada";
+        private const string IconoPorPagar    = "req-aprobada";
 
         private const string FilaTrabajador = "req-solicitante";
         private const string FilaArea       = "req-area";
@@ -179,6 +205,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaRendiciones = "req-formulario";
         private const string FilaFirma       = "req-vistobueno";
         private const string FilaObservacion = "req-comentario";
+        private const string FilaEstado      = "req-estado";
 
         /// <summary>
         /// Al trabajador: su rendición quedó incluida en el Consolidado del S10 que acaba de adjuntar
@@ -361,6 +388,41 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
+        /// A Tesorería: confirmó la revisión documental de un Consolidado del S10 y quedó en
+        /// «Proceder con el reembolso», listo para programar el pago (plantilla 21). Va UNO por
+        /// consolidado, con el resumen de lo que se va a pagar. El botón lo abre en Reembolsos, que
+        /// es donde se marca como pagado.
+        ///
+        /// El título completo de la plantilla no entra en la cabecera (va en una sola línea): lo
+        /// lleva el asunto. La franja se adaptó al flujo real: la app no registra montos pagados
+        /// —marca el consolidado como pagado— y al pagar se avisa a los colaboradores, no al
+        /// consolidador. Si eso cambia, cambia esta línea.
+        /// </summary>
+        public static string ConsolidadoListoParaPago(
+            SalidaEmailLayout l, ConsolidadoPorPagarCorreoDatos d, string urlPagar)
+        {
+            // Los consolidados anteriores al código se nombran por su número de reembolso.
+            var nombre = !string.IsNullOrWhiteSpace(d.Codigo)
+                ? $" <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>"
+                : !string.IsNullOrWhiteSpace(d.NumeroReembolso)
+                    ? $" <b>N.° {AbrilEmailLayout.Esc(d.NumeroReembolso)}</b>"
+                    : string.Empty;
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoPorPagar,
+                    "Consolidado listo para programación de pago",
+                    $"La revisión del Consolidado del S10{nombre} fue confirmada y ahora puede continuar "
+                    + "con la programación del pago."),
+                l.Tarjeta(FilasPorPagar(d)),
+                l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
+                    "Registra el pago en <b>Reembolsos</b>. Al marcarlo como pagado, Abril One notificará "
+                    + "a <b>todos los colaboradores incluidos en el consolidado</b>."),
+                l.Boton("Programar pago", urlPagar),
+                l.EnlaceDirecto(urlPagar));
+        }
+
+        /// <summary>
         /// Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49). Es el mismo
         /// mensaje de fondo que el de la jefatura —qué corregir y por dónde— pero dice claramente de
         /// dónde viene: el consolidado ya estaba firmado, así que si no se nombra a Tesorería se va a
@@ -512,6 +574,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (d.Firmantes.Count > 0)
                 filas.Add(new(FilaFirma, "Firmado por",
                     string.Join("<br />", d.Firmantes.Select(AbrilEmailLayout.Esc))));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Filas del aviso de revisión confirmada, en el orden de la plantilla 21: el resumen del
+        /// pago. Las que no tienen dato (consolidados anteriores al código o al área) no se agregan.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasPorPagar(ConsolidadoPorPagarCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>();
+
+            if (!string.IsNullOrWhiteSpace(d.Codigo))
+                filas.Add(new(FilaPlanilla, "Consolidado", AbrilEmailLayout.Esc(d.Codigo)));
+
+            if (!string.IsNullOrWhiteSpace(d.Area))
+                filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+
+            // Siempre, aunque sea cero: es lo que se va a pagar.
+            filas.Add(new(FilaMonto, "Monto total",
+                $"S/ {d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            // El nombre literal del estado (RG-26), no el «Por pagar» corto de las tablas.
+            filas.Add(new(FilaEstado, "Estado",
+                AbrilEmailLayout.Esc(EstadosSalida.Reembolso.NombrePorPagar)));
 
             return filas;
         }

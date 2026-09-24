@@ -39,7 +39,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
 
         /// <summary>
         /// Confirma la revisión documental de lo seleccionado: sus salidas firmadas pasan a
-        /// "Proceder con el reembolso", que es el único estado desde el que se puede pagar.
+        /// "Proceder con el reembolso", que es el único estado desde el que se puede pagar, y se le
+        /// avisa a Tesorería (rol TESORERO) que cada consolidado quedó listo para programar el pago.
         /// </summary>
         Task<ReembolsoBulkResultDto> ConfirmarRevision(ReembolsoSeleccionDto dto, int tesoreroUserId);
 
@@ -58,6 +59,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
         Task<ReembolsoBulkResultDto> MarcarPagadas(ReembolsoSeleccionDto dto, int tesoreroUserId);
 
         /// <summary>
+        /// A quién le llegaría el aviso de revisión confirmada de lo seleccionado (a Tesorería). Lo
+        /// piden las confirmaciones (el botón masivo y el del modal de detalle) para nombrar las
+        /// direcciones reales. Lista vacía = hoy no sale ningún correo.
+        /// </summary>
+        Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewConfirmacion(ReembolsoSeleccionDto dto);
+
+        /// <summary>
         /// A quién le llegaría el aviso de pago de lo seleccionado. Lo piden las confirmaciones
         /// (el botón masivo y el del modal de detalle) para nombrar las direcciones reales en vez
         /// de prometer un aviso genérico. Lista vacía = hoy no sale ningún correo.
@@ -66,8 +74,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
 
         /// <summary>
         /// Lo mismo para el aviso de que Tesorería devolvió el reembolso, que le llega al
-        /// consolidador. Confirmar la revisión es el único paso de la pantalla que no manda correo y
-        /// por eso no tiene preview.
+        /// consolidador.
         /// </summary>
         Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewObservacion(ReembolsoSeleccionDto dto);
 

@@ -209,9 +209,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Presentation
         }
 
         /// <summary>
+        /// A quién le llegaría el aviso de que la revisión quedó confirmada (a Tesorería, por el rol
+        /// TESORERO). Lo piden las confirmaciones del botón masivo y del modal de detalle.
+        /// </summary>
+        [HttpPost("confirmar-revision/correo-preview")]
+        public async Task<IActionResult> GetCorreoPreviewConfirmacion([FromBody] ReembolsoSeleccionDto dto)
+        {
+            try
+            {
+                return Ok(await _service.GetCorreoPreviewConfirmacion(dto));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReembolsoController.GetCorreoPreviewConfirmacion");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// A quién le llegaría el aviso de pago de lo seleccionado. Lo piden las confirmaciones
-        /// (el botón masivo y el del modal de detalle) para nombrar las direcciones reales. No hay
-        /// preview para confirmar la revisión: ese paso no manda ningún correo.
+        /// (el botón masivo y el del modal de detalle) para nombrar las direcciones reales.
         /// </summary>
         [HttpPost("pagar/correo-preview")]
         public async Task<IActionResult> GetCorreoPreviewPago([FromBody] ReembolsoSeleccionDto dto)

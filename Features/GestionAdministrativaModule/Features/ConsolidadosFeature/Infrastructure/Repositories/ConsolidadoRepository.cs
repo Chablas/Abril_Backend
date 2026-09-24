@@ -1116,7 +1116,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         public async Task<List<string>> GetCorreosTesoreria()
         {
             using var ctx = _factory.CreateDbContext();
-            return await CorreosTesoreriaAsync(ctx);
+            return await CorreosTesoreriaLoader.LoadAsync(ctx);
         }
 
         public async Task<HashSet<int>> GetConsolidadosQueVuelvenATesoreria(IEnumerable<int> consolidadoIds)
@@ -1138,25 +1138,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             ).Distinct().ToListAsync();
 
             return vuelven.ToHashSet();
-        }
-
-        /// <summary>
-        /// Destinatario principal del aviso a Tesorería. Lo usan el preview y el envío
-        /// (<see cref="GetTesoreriaCorreoInfo"/>), así la confirmación no puede prometer otra lista.
-        /// El requisito es el mismo que abre la bandeja: el rol TESORERO. No se pide además el
-        /// puesto de categoría Tesorero — si se pidiera, el aviso dejaría fuera a gente que sí entra.
-        /// </summary>
-        private static Task<List<string>> CorreosTesoreriaAsync(AppDbContext ctx)
-        {
-            var rolTesorero = int.Parse(Roles.Tesorero);
-            return (
-                from w   in ctx.Worker
-                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
-                join ur  in ctx.UserRole on per.UserId equals (int?)ur.UserId
-                where ur.RoleId == rolTesorero && ur.State && ur.Active
-                   && w.EmailCorporativo != null && w.EmailCorporativo != ""
-                select w.EmailCorporativo!
-            ).Distinct().ToListAsync();
         }
 
         public async Task<string?> GetRendicionFolderUrl()
@@ -1214,7 +1195,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             return new TesoreriaCorreoInfoDto
             {
-                Destinatarios = await CorreosTesoreriaAsync(ctx),
+                // El mismo principal que el preview (GetCorreosTesoreria): la confirmación no puede
+                // prometer otra lista.
+                Destinatarios = await CorreosTesoreriaLoader.LoadAsync(ctx),
                 Datos = new ConsolidadoTesoreriaCorreoDatos
                 {
                     ConsolidadoId    = consolidado.Id,

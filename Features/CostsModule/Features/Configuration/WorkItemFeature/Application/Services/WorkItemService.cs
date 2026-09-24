@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Infrastructure.Interfaces;
@@ -40,7 +41,21 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
         public async Task Update(WorkItemEditDto dto, int userId)
         {
+            ValidateValorizationForms(dto.ValorizationForms);
             await _repository.Update(dto, userId);
+        }
+
+        // Cláusula 5.1: el desglose no puede pasar del 100%. Sin el "mayor a 0", un porcentaje
+        // negativo dejaría pasar un total real mayor a 100.
+        private static void ValidateValorizationForms(List<WorkItemValorizationFormUpsertDto> forms)
+        {
+            if (forms.Any(f => f.Percentage <= 0))
+                throw new AbrilException("Cada forma de valorización debe tener un porcentaje mayor a 0.");
+
+            var total = forms.Sum(f => f.Percentage);
+            if (total > 100)
+                throw new AbrilException(
+                    $"Las formas de valorización suman {total.ToString("0.##", CultureInfo.InvariantCulture)}% y no pueden superar el 100%.");
         }
 
         public async Task<bool> Delete(int workItemId, int userId)

@@ -37,9 +37,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// colaborador para que GTH la revise. No envía nada ni mueve la fase del requerimiento: es
         /// un borrador que se puede regenerar mientras la carta no se haya mandado.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("generar")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> Generar(int id, [FromBody] CartaOfertaGenerarDto? dto)
         {
             try
@@ -69,9 +69,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// base de datos (<c>person.email</c>) salvo que GTH lo haya corregido a mano. Solo se acepta
         /// con el requerimiento en EMO_APTO o EMO_APTO_RESTRICCIONES.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de carta + margen
         public async Task<IActionResult> Enviar(int id, [FromForm] string data, [FromForm] IFormFile? carta)
@@ -120,9 +120,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// cuando el correo del envío no salió, cuando lo perdió o cuando cambió de correo. El token
         /// del enlace original se conserva.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("reenviar")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> ReenviarEnlace(int id, [FromBody] CartaOfertaReenviarDto? dto)
         {
             try
@@ -145,9 +145,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// es que la firme él mismo desde el enlace público. Se guarda en la carpeta «Carta Oferta
         /// Firmada» del file digital del colaborador y queda pendiente de aprobación por GTH.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("firmada")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de carta + margen
         public async Task<IActionResult> SubirFirmada(int id, [FromForm] IFormFile? archivo)
@@ -179,9 +179,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// seleccionado aparece en Onboarding como candidato por ingresar. Es el único camino al
         /// cierre.
         /// </summary>
-        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
         [HttpPost("firmada/aprobar")]
-        [RequireFeature("gestion-gth.reclutamiento")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
         public async Task<IActionResult> Aprobar(int id)
         {
             try

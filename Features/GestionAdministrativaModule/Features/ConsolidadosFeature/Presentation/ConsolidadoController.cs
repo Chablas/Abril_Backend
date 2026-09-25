@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -20,12 +21,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
     public class ConsolidadoController : ControllerBase
     {
         private readonly IConsolidadoService _service;
+        private readonly IVerificacionMfaFirma _verificacionMfa;
         private readonly ILogger<ConsolidadoController> _logger;
 
-        public ConsolidadoController(IConsolidadoService service, ILogger<ConsolidadoController> logger)
+        public ConsolidadoController(
+            IConsolidadoService service,
+            IVerificacionMfaFirma verificacionMfa,
+            ILogger<ConsolidadoController> logger)
         {
-            _service = service;
-            _logger  = logger;
+            _service         = service;
+            _verificacionMfa = verificacionMfa;
+            _logger          = logger;
         }
 
         private int? CurrentUserId =>
@@ -154,11 +160,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
 
         /// <summary>
         /// Aprueba el reembolso, que ES firmarlo: estampa la firma en la planilla y en el
-        /// Consolidado del S10 y lo manda a la bandeja de Tesorería.
+        /// Consolidado del S10 y lo manda a la bandeja de Tesorería. Como firma, exige la
+        /// verificación de Microsoft (<see cref="IVerificacionMfaFirma"/>).
         /// </summary>
         [HttpPatch("reembolso/aprobar")]
-        public Task<IActionResult> AprobarReembolso([FromBody] ConsolidadoAccionDto dto) =>
-            DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso));
+        public Task<IActionResult> AprobarReembolso(
+            [FromBody] ConsolidadoAccionDto dto,
+            [FromHeader(Name = IVerificacionMfaFirma.Header)] string? firmaMfa) =>
+            DecidirAsync(dto, aprobar: true, nameof(AprobarReembolso), firmaMfa);
 
         /// <summary>
         /// Observa el reembolso: vuelve al consolidador para que subsane. La observación es
@@ -172,15 +181,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
         /// <summary>
         /// Vuelve a estampar la firma de quien ya firmó, mientras el consolidado siga esperando la
         /// del que viene detrás. Rehace las copias firmadas desde el original: no agrega una segunda
-        /// estampa de la misma persona ni completa el documento.
+        /// estampa de la misma persona ni completa el documento. También exige la verificación de
+        /// Microsoft: vuelve a estampar la firma.
         /// </summary>
         [HttpPatch("reembolso/volver-a-firmar")]
-        public async Task<IActionResult> VolverAFirmar([FromBody] ConsolidadoAccionDto dto)
+        public async Task<IActionResult> VolverAFirmar(
+            [FromBody] ConsolidadoAccionDto dto,
+            [FromHeader(Name = IVerificacionMfaFirma.Header)] string? firmaMfa)
         {
             try
             {
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value,
+                    $"Consolidados.VolverAFirmar [{string.Join(",", dto.ConsolidadoIds)}]");
                 return Ok(await _service.VolverAFirmar(dto, Scope(), userId.Value));
             }
             catch (AbrilException ex)
@@ -283,12 +297,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
             }
         }
 
-        private async Task<IActionResult> DecidirAsync(ConsolidadoAccionDto dto, bool aprobar, string accion)
+        /// <param name="firmaMfa">Solo cuenta al aprobar (que es firmar); observar no firma y sigue igual.</param>
+        private async Task<IActionResult> DecidirAsync(ConsolidadoAccionDto dto, bool aprobar, string accion, string? firmaMfa = null)
         {
             try
             {
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+                if (aprobar)
+                    await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value,
+                        $"Consolidados.Aprobar [{string.Join(",", dto.ConsolidadoIds)}]");
                 return Ok(await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
             }
             catch (AbrilException ex)

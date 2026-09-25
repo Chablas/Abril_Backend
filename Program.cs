@@ -297,6 +297,9 @@ builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>(
 // Gestion Administrativa (planilla de rendicion de salidas).
 builder.Services.AddScoped<IFirmaPersonalRepository, FirmaPersonalRepository>();
 builder.Services.AddScoped<IFirmaPersonalService, FirmaPersonalService>();
+// Verificación de Microsoft (contraseña + Authenticator recién) que exigen los endpoints que
+// estampan esa firma: Consolidados (aprobar / volver a firmar) y Facturas (firmar).
+builder.Services.AddScoped<IVerificacionMfaFirma, VerificacionMfaFirma>();
 
 // Equivalencia legacy (workers.area/subarea/jefatura) de un nodo del árbol area_scope. Lo usan el
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint

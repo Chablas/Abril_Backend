@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Firma.Interfaces;
 
 namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Presentation
 {
@@ -14,11 +15,13 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
     public class InvoiceController : ControllerBase
     {
         private readonly IInvoiceService _service;
+        private readonly IVerificacionMfaFirma _verificacionMfa;
         private readonly ILogger<InvoiceController> _logger;
 
-        public InvoiceController(IInvoiceService service, ILogger<InvoiceController> logger)
+        public InvoiceController(IInvoiceService service, IVerificacionMfaFirma verificacionMfa, ILogger<InvoiceController> logger)
         {
             _service = service;
+            _verificacionMfa = verificacionMfa;
             _logger = logger;
         }
 
@@ -125,15 +128,17 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             }
         }
 
+        /// <summary>Estampa la firma del usuario: exige la verificación de Microsoft (<see cref="IVerificacionMfaFirma"/>).</summary>
         [HttpPost("{invoiceId:int}/sign")]
         [Authorize(Roles = Roles.ContabilidadFirmante)]
-        public async Task<IActionResult> Sign(int invoiceId)
+        public async Task<IActionResult> Sign(int invoiceId, [FromHeader(Name = IVerificacionMfaFirma.Header)] string? firmaMfa)
         {
             try
             {
                 var userId = GetUserId();
                 if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
 
+                await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value, $"Facturas.Firmar #{invoiceId}");
                 var signedDocumentUrl = await _service.Sign(invoiceId, userId.Value);
                 return Ok(new { message = "Documento firmado generado exitosamente.", signedDocumentUrl });
             }

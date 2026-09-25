@@ -30,18 +30,10 @@ using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisoresRendicion.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.AreaConsolidadores.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
@@ -147,31 +139,22 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IGaTrayectoRepository, GaTrayectoRepository>();
             services.AddScoped<IGaTrayectoService, GaTrayectoService>();
 
-            // El jefe personalizado por trabajador (workers_revisores) ya no se configura acá:
-            // se asigna con el checkbox "Jefe personalizado" del formulario de trabajadores
-            // (Gestión de Ingresos) y lo gestiona IJefePersonalizadoService, servicio compartido
-            // registrado en Program.cs junto a IJefeRevisorResolver.
+            // Lo personalizado por trabajador (workers_actor_asignacion) no se configura acá: se
+            // asigna en la sección de actores del formulario de trabajadores (Gestión de Ingresos) y
+            // lo gestiona IActoresPersonalizadosService, servicio compartido registrado en Program.cs
+            // junto a IActoresResolver.
 
             // Carpeta de adjuntos (configuración: carpeta SharePoint/OneDrive detectada por link
             // donde se guardan los documentos adjuntos de las solicitudes de salida)
             services.AddScoped<ICarpetaAdjuntosRepository, CarpetaAdjuntosRepository>();
             services.AddScoped<ICarpetaAdjuntosService, CarpetaAdjuntosService>();
 
-            // Revisores de áreas (configuración: n revisores por área estándar, 2do paso
-            // al resolver el revisor de una salida, entre workers_revisores y el fallback GTH)
-            services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
-            services.AddScoped<IAreaRevisorService, AreaRevisorService>();
-
-            // Gemela de la anterior: los aprobadores de la primera revisión y los firmantes del
-            // consolidado. area_revisores quedó solo para aprobar la salida (2026-09-21).
-            services.AddScoped<IAreaRevisorRendicionRepository, AreaRevisorRendicionRepository>();
-            services.AddScoped<IAreaRevisorRendicionService, AreaRevisorRendicionService>();
-
-            // Consolidadores de áreas (Consolidados → Configuración: quién hace el trámite del S10
-            // de las planillas de cada área — el propio trabajador ya no). Misma pantalla que
-            // Revisores de Áreas; acá quedan vigentes todos los activos y no solo el primero.
-            services.AddScoped<IAreaConsolidadorRepository, AreaConsolidadorRepository>();
-            services.AddScoped<IAreaConsolidadorService, AreaConsolidadorService>();
+            // Revisores de Áreas (Configuración): los cinco actores —aprobar la salida, jefe
+            // notificado, 1.ª revisión, consolidar, firmar el consolidado— por tipo de trabajador de
+            // cada área, con lo personalizado encima del algoritmo. Reemplazó (2026-09-25) a las tres
+            // secciones que hacían lo mismo en Solicitud de Salidas, Mis Rendiciones y Consolidados.
+            services.AddScoped<IRevisoresAreasRepository, RevisoresAreasRepository>();
+            services.AddScoped<IRevisoresAreasService, RevisoresAreasService>();
 
             // Capturas por área (configuración: qué áreas exigen capturas de movilidad para rendir)
             services.AddScoped<ICapturaAreaRepository, CapturaAreaRepository>();

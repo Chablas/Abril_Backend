@@ -19,6 +19,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
         public DateTimeOffset PreparadaAt { get; set; }
 
         /// <summary>
+        /// Usuario (app_user) que la preparó: es el único que sigue su trámite (ver
+        /// <c>TramiteConsolidador</c>).
+        /// </summary>
+        public int PreparadaPorId { get; set; }
+
+        /// <summary>
         /// Planillas de rendición que cubre (sus vínculos vigentes), ordenadas por código. El S10 se
         /// sube para todas a la vez: es el documento que se registró.
         /// </summary>

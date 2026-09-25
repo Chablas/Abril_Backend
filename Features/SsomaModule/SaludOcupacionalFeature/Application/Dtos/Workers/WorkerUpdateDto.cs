@@ -1,4 +1,6 @@
-﻿namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
+﻿using Abril_Backend.Shared.Services.Actores.Interfaces;
+
+namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
 {
     public class WorkerUpdateDto
     {
@@ -56,18 +58,15 @@
         public int? ProyectoId { get; set; }
         public int? AniosExperiencia { get; set; }
         /// <summary>
-        /// true = el formulario gestiona el jefe del trabajador y <see cref="JefePersonalizadoWorkerId"/>
-        /// manda: se guarda ese jefe personalizado o, si viene null, se quita el que tuviera para que
-        /// vuelva a depender del revisor de su área. false (por defecto) = el formulario no muestra el
-        /// campo (contratistas) y no se toca lo que ya estuviera guardado.
-        ///
-        /// Lo mandan las tres clasificaciones de personal de casa: Staff y Oficina Central detrás
-        /// del checkbox "Jefe personalizado" (el campo muestra por defecto el revisor de su área), y
-        /// Obra con un desplegable opcional suelto — un obrero no tiene área en el árbol, así que sin
-        /// jefe elegido a mano cae directo al fallback de GTH (ver JefeRevisorResolver).
+        /// true = el formulario gestiona los actores del trabajador (quién aprueba su salida, qué jefe
+        /// se entera, quién revisa su planilla, quiénes la consolidan y quiénes firman su consolidado)
+        /// y <see cref="ActoresPersonalizados"/> manda: lo que viene se guarda y lo que no viene se
+        /// quita, para que ese actor vuelva a salir de su área. false (por defecto) = el formulario no
+        /// muestra la sección (contratistas) y no se toca lo que ya estuviera guardado.
         /// </summary>
-        public bool GestionaJefe { get; set; } = false;
-        /// <summary>Jefe elegido a mano (workers.id), que se sobrepone al revisor del área.</summary>
-        public int? JefePersonalizadoWorkerId { get; set; }
+        public bool GestionaActores { get; set; } = false;
+
+        /// <summary>Lo personalizado en la ficha, por actor y en orden.</summary>
+        public List<ActorPersonalizadoInputDto> ActoresPersonalizados { get; set; } = new();
     }
 }

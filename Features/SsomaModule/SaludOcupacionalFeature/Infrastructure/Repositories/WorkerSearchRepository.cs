@@ -5,7 +5,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
-using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.Actores.Interfaces;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -18,16 +18,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IAreaScopeLegacyResolver _areaLegacyResolver;
-        private readonly IJefePersonalizadoService _jefePersonalizado;
+        private readonly IActoresPersonalizadosService _actoresPersonalizados;
 
         public WorkerSearchRepository(
             IDbContextFactory<AppDbContext> factory,
             IAreaScopeLegacyResolver areaLegacyResolver,
-            IJefePersonalizadoService jefePersonalizado)
+            IActoresPersonalizadosService actoresPersonalizados)
         {
             _factory = factory;
             _areaLegacyResolver = areaLegacyResolver;
-            _jefePersonalizado = jefePersonalizado;
+            _actoresPersonalizados = actoresPersonalizados;
         }
 
         /// <summary>
@@ -435,10 +435,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 await ctx.SaveChangesAsync();
             }
 
-            // Jefe personalizado (checkbox del formulario). Solo se toca cuando el formulario
-            // gestiona el campo: en obreros y contratistas ni siquiera se muestra.
-            if (dto.GestionaJefe)
-                await _jefePersonalizado.SetAsync(worker.Id, dto.JefePersonalizadoWorkerId);
+            // Actores personalizados en la ficha. Solo se tocan cuando el formulario gestiona la
+            // sección: en contratistas ni siquiera se muestra.
+            if (dto.GestionaActores)
+                await _actoresPersonalizados.SetAsync(
+                    worker.Id, ActorPersonalizadoInputDto.PorActor(dto.ActoresPersonalizados));
 
             return worker.Id;
         }
@@ -586,10 +587,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             await GuardarCuidandoEmailUnicoAsync(ctx);
 
-            // Jefe personalizado (checkbox del formulario). Solo se toca cuando el formulario
-            // gestiona el campo: en obreros y contratistas ni siquiera se muestra.
-            if (dto.GestionaJefe)
-                await _jefePersonalizado.SetAsync(id, dto.JefePersonalizadoWorkerId);
+            // Actores personalizados en la ficha. Solo se tocan cuando el formulario gestiona la
+            // sección: en contratistas ni siquiera se muestra.
+            if (dto.GestionaActores)
+                await _actoresPersonalizados.SetAsync(
+                    id, ActorPersonalizadoInputDto.PorActor(dto.ActoresPersonalizados));
         }
 
         public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto, bool puedeEditarDni)

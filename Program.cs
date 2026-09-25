@@ -49,6 +49,8 @@ using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
+using Abril_Backend.Shared.Services.Actores.Interfaces;
+using Abril_Backend.Shared.Services.Actores.Services;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Consolidadores.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
@@ -276,21 +278,21 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 // de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
 builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 
-// Jefe/revisor de un trabajador: jefe personalizado (checkbox del formulario de trabajadores)
-// → revisor del área (/configuracion/revisores-areas) → fallback GTH. Registrado globalmente
-// porque lo usan Gestión Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional
-// (correos de EMO e interconsultas).
-builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+// Los cinco actores del ciclo de una salida (aprobar la salida, jefe notificado, 1.ª revisión,
+// consolidar, firmar el consolidado): lo personalizado por trabajador → lo personalizado por área
+// (Gestión Administrativa → Configuración → Revisores de Áreas) → el algoritmo → GTH. Es el ÚNICO
+// lugar que decide; registrado globalmente porque lo usan Gestión Administrativa, Habilitación
+// (la ficha del trabajador), SSOMA (correos de EMO e interconsultas) y Evaluaciones.
+builder.Services.AddScoped<IActoresResolver, ActoresResolver>();
 
-// Consolidadores del S10 de un trabajador: el propio trabajador + los que resuelve el mismo
-// recorrido del árbol de áreas (asignados en Gestión de Rendiciones → Configuración →
-// Consolidadores, o deducidos: Jefe del área, Gerente de la gerencia, residente de la obra).
-// A diferencia del revisor, acá no gana uno solo: todos los activos quedan habilitados.
+// Fachadas del anterior con la forma que ya consumían las pantallas: "el jefe" de un trabajador y
+// los aprobadores de un documento, y los consolidadores de un trabajador.
+builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
 builder.Services.AddScoped<IConsolidadorResolver, ConsolidadorResolver>();
 
-// Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
-// más el catálogo de jefes candidatos que alimenta su desplegable.
-builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>();
+// Escritura de lo personalizado por trabajador (workers_actor_asignacion) desde el formulario de
+// trabajadores, más el catálogo de personas que alimenta sus desplegables.
+builder.Services.AddScoped<IActoresPersonalizadosService, ActoresPersonalizadosService>();
 
 // Firma de una persona (person.signature_*). Registrada globalmente porque una persona tiene UNA
 // firma y la usan tres modulos: Contabilidad (visado de facturas), Gestion GTH (carta oferta) y

@@ -5,7 +5,8 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
-using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Actores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
@@ -14,24 +15,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IAreaScopeLegacyResolver _legacyResolver;
-        private readonly IJefeRevisorResolver _revisorResolver;
+        private readonly IActoresResolver _actores;
 
         public CatalogosHabilitacionRepository(
             IDbContextFactory<AppDbContext> factory,
             IAreaScopeLegacyResolver legacyResolver,
-            IJefeRevisorResolver revisorResolver)
+            IActoresResolver actores)
         {
             _factory = factory;
             _legacyResolver = legacyResolver;
-            _revisorResolver = revisorResolver;
+            _actores = actores;
         }
 
         /// <summary>
-        /// Árbol de áreas para los desplegables del formulario de trabajadores, con la equivalencia
-        /// legacy y el revisor ya resueltos por nodo. Una sola petición alimenta toda la cascada y
-        /// el campo de revisor, sin ir al servidor cada vez que se cambia de área.
+        /// Árbol de áreas para los desplegables, con la equivalencia legacy ya resuelta por nodo. Una
+        /// sola petición alimenta toda la cascada, sin ir al servidor cada vez que se cambia de área.
         /// </summary>
-        public async Task<List<AreaArbolNodoDto>> GetAreaArbolAsync(int? workerId = null)
+        public async Task<List<AreaArbolNodoDto>> GetAreaArbolAsync()
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -53,43 +53,86 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (nodos.Count == 0) return nodos;
 
-            var ids = nodos.Select(n => n.AreaScopeId).ToList();
             var legacy = await _legacyResolver.ResolveTodosAsync();
-            var revisores = await _revisorResolver.ResolveByAreaScopeManyAsync(ids, workerId);
 
             foreach (var nodo in nodos)
             {
-                if (legacy.TryGetValue(nodo.AreaScopeId, out var eq))
-                {
-                    nodo.Area = eq.Area;
-                    nodo.Subarea = eq.Subarea;
-                    nodo.Jefatura = eq.Jefatura;
-                }
+                if (!legacy.TryGetValue(nodo.AreaScopeId, out var eq)) continue;
 
-                if (!revisores.TryGetValue(nodo.AreaScopeId, out var rev)) continue;
-
-                nodo.Revisor = MapRevisor(rev.Area.Revisor);
-                nodo.EsRevisorDeSuPropiaArea = rev.Area.EsRevisorDeSuPropiaArea;
-                nodo.RevisorPorProyecto = rev.PorProyecto
-                    .Select(kv => new AreaArbolRevisorProyectoDto
-                    {
-                        ProyectoId = kv.Key,
-                        Revisor = MapRevisor(kv.Value.Revisor),
-                        EsRevisorDeSuPropiaArea = kv.Value.EsRevisorDeSuPropiaArea,
-                    })
-                    .ToList();
+                nodo.Area = eq.Area;
+                nodo.Subarea = eq.Subarea;
+                nodo.Jefatura = eq.Jefatura;
             }
 
             return nodos;
         }
 
-        private static AreaArbolRevisorDto? MapRevisor(JefeRevisorResolution? r) => r == null ? null : new()
+        public async Task<ActoresTrabajadorDto> GetActoresAsync(int? workerId, int? puestoId, int? proyectoId)
         {
-            WorkerId = r.WorkerId,
-            PersonId = r.PersonId,
-            Nombre = r.Nombre,
-            Email = r.Email,
-        };
+            // Área y categoría salen del puesto del formulario (workers ya no las guarda); los
+            // nombres de los dos catálogos van en la misma conexión.
+            int? areaScopeId = null, categoriaId = null;
+            Dictionary<int, (string Nombre, bool Multiple)> actores;
+            Dictionary<int, string> casos;
+
+            using (var ctx = _factory.CreateDbContext())
+            {
+                if (puestoId is > 0)
+                {
+                    var puesto = await ctx.Puesto.AsNoTracking()
+                        .Where(p => p.PuestoId == puestoId.Value)
+                        .Select(p => new { p.AreaDestinoScopeId, p.CategoriaId })
+                        .FirstOrDefaultAsync();
+                    areaScopeId = puesto?.AreaDestinoScopeId;
+                    categoriaId = puesto?.CategoriaId;
+                }
+
+                actores = (await ctx.GaActor.AsNoTracking().Where(a => a.State).ToListAsync())
+                    .ToDictionary(a => a.GaActorId, a => (a.Nombre, a.Multiple));
+                casos = await ctx.GaActorCaso.AsNoTracking()
+                    .ToDictionaryAsync(c => c.GaActorCasoId, c => c.Nombre);
+            }
+
+            var resuelto = await _actores.ResolverContextoAsync(new ContextoTrabajador(
+                workerId is > 0 ? workerId : null, areaScopeId, categoriaId, proyectoId is > 0 ? proyectoId : null));
+
+            static List<ActorPersonaTrabajadorDto> Personas(ActorResultado? r) => r == null
+                ? new List<ActorPersonaTrabajadorDto>()
+                : r.Personas.Select(p => new ActorPersonaTrabajadorDto
+                {
+                    WorkerId = p.WorkerId,
+                    PersonId = p.PersonId,
+                    Nombre   = p.Nombre,
+                    Email    = p.Email,
+                }).ToList();
+
+            return new ActoresTrabajadorDto
+            {
+                CasoId     = resuelto.CasoId,
+                CasoNombre = casos.GetValueOrDefault(resuelto.CasoId) ?? string.Empty,
+                Actores    = ActorIds.Todos
+                    .Where(resuelto.Actores.ContainsKey)
+                    .Select(id =>
+                    {
+                        var r = resuelto.Actores[id];
+                        var personalizado = r.Origen == ActorOrigen.Trabajador;
+                        var grupo = personalizado ? r.SinPersonalizar : r;
+                        var (nombre, multiple) = actores.TryGetValue(id, out var a) ? a : (string.Empty, ActorIds.EsMultiple(id));
+
+                        return new ActorTrabajadorDto
+                        {
+                            ActorId        = id,
+                            Nombre         = nombre,
+                            Multiple       = multiple,
+                            Aplica         = r.Aplica,
+                            Grupo          = Personas(grupo),
+                            GrupoOrigen    = (grupo?.Origen ?? ActorOrigen.Algoritmo).ToString(),
+                            Personalizados = personalizado ? Personas(r) : new List<ActorPersonaTrabajadorDto>(),
+                        };
+                    })
+                    .ToList(),
+            };
+        }
 
         public async Task<List<SsItemTrabajador>> GetItemsTrabajadorAsync()
         {

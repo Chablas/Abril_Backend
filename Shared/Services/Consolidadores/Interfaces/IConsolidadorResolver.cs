@@ -1,28 +1,16 @@
 namespace Abril_Backend.Shared.Services.Consolidadores.Interfaces
 {
     /// <summary>
-    /// Resuelve QUIÉNES pueden consolidar (adjuntar el Consolidado del S10) por un trabajador.
+    /// QUIÉNES pueden consolidar (preparar la planilla grupal y subir el Consolidado del S10) por un
+    /// trabajador.
     ///
-    /// Es el mismo algoritmo que el del jefe/revisor de un trabajador —se parte del nodo
-    /// <c>puesto.area_destino_scope_id</c> y se sube por el árbol hasta el primer nodo que
-    /// resuelva; en cada nodo mandan primero las asignaciones a mano (acá
-    /// <c>area_consolidadores</c>, primero las del proyecto del trabajador y después las del área);
-    /// si no hay ninguna, la jefatura del nodo tal como la leen los revisores de rendiciones: el
-    /// jefe fijado a mano en esa pantalla (<c>area_revisores_rendicion</c>, con la misma herencia
-    /// área → proyectos) y, si tampoco hay, el ALGORITMO: el ADMINISTRADOR DE OBRA —y nadie más— si
-    /// el nodo filtra por proyecto y la obra lo tiene cargado, y si no el Jefe del área o el Gerente
-    /// de la gerencia— con UNA diferencia: no gana uno solo. En revisores la
-    /// solicitud se manda al primer revisor activo; acá TODOS los activos del nodo que resuelve
-    /// quedan habilitados, porque consolidar no es decidir: es hacer el trámite del S10 por las
-    /// rendiciones del área.
-    ///
-    /// El propio trabajador NO consolida lo suyo (desde el 2026-09-15): después de la primera
-    /// revisión todo el trámite del S10 es del consolidador de su área. Por eso esta lista es
-    /// exactamente la que muestra Consolidados → Configuración → Consolidadores, y nadie más.
-    ///
-    /// La jefatura de la que sale el candidato cuando el área no tiene consolidadores propios —la de
-    /// Revisores y la que deduce el árbol— la carga <c>EstructuraAreaLoader</c>, compartido con
-    /// <c>IJefeRevisorResolver</c>: el jefe de un área tiene que ser el mismo para las dos pantallas.
+    /// Desde el 2026-09-25 es una FACHADA de <c>IActoresResolver</c> sobre el actor
+    /// <c>ActorIds.Consolidador</c>: lo personalizado por trabajador, lo personalizado por área en
+    /// Revisores de Áreas y, si no hay nada, el algoritmo — la jefatura del área para oficina central,
+    /// el administrador de obra para el staff, y a una jefatura sus pares de la misma categoría (a un
+    /// residente, los de su misma obra) —. A diferencia de los aprobadores, no gana uno solo: todos
+    /// los de la lista pueden EMPEZAR; el trámite de una planilla grupal ya preparada lo sigue solo
+    /// quien la preparó (ver <c>TramiteConsolidador</c>).
     /// </summary>
     public interface IConsolidadorResolver
     {
@@ -33,59 +21,33 @@ namespace Abril_Backend.Shared.Services.Consolidadores.Interfaces
         Task<Dictionary<int, List<ConsolidadorElegido>>> ResolveManyAsync(IReadOnlyCollection<int> workerIds);
 
         /// <summary>
-        /// Previsualización por ÁREA para la pantalla de configuración: para cada nodo
-        /// <c>area_scope</c> pedido, quiénes consolidarían por un trabajador ubicado ahí (y, en los
-        /// nodos que filtran por proyecto, quiénes por cada proyecto).
-        ///
-        /// Sale del MISMO recorrido que <see cref="ResolveManyAsync"/>, así que la pantalla no
-        /// puede mostrar a alguien distinto de quien va a poder consolidar.
-        /// </summary>
-        Task<Dictionary<int, AreaScopeConsolidadoresPreview>> ResolveByAreaScopeManyAsync(
-            IReadOnlyCollection<int> areaScopeIds);
-
-        /// <summary>
-        /// De los trabajadores indicados, cuáles puede consolidar el usuario. Es lo que consume
-        /// Gestión de Rendiciones para habilitar (o no) el botón "Consolidado S10" de cada planilla
-        /// y para validar la subida en el servidor, y Consolidados para las acciones del
-        /// consolidador (avisar a la jefatura, pedir la corrección al Coordinador ERP).
-        ///
-        /// La comparación es por PERSONA además de por ficha: un reingreso deja varias filas en
-        /// <c>workers</c> para la misma persona y la asignación puede estar en cualquiera.
+        /// De los trabajadores indicados, cuáles puede consolidar el usuario. La comparación es por
+        /// PERSONA además de por ficha: un reingreso deja varias fichas para la misma persona.
         /// </summary>
         Task<HashSet<int>> FiltrarQuePuedeConsolidarAsync(int userId, IReadOnlyCollection<int> workerIds);
+
+        /// <summary>
+        /// <see cref="FiltrarQuePuedeConsolidarAsync"/> para varios usuarios de una vez (una sola
+        /// resolución): usuario → trabajadores que puede consolidar. Lo usa la regla de quién sigue
+        /// el trámite de una planilla grupal, que tiene que saber si quien la preparó sigue siendo
+        /// consolidador.
+        /// </summary>
+        Task<Dictionary<int, HashSet<int>>> FiltrarQuePuedenConsolidarAsync(
+            IReadOnlyCollection<int> userIds, IReadOnlyCollection<int> workerIds);
     }
 
-    /// <summary>Un consolidador apto, con el motivo por el que lo es.</summary>
+    /// <summary>Un consolidador apto, con de dónde salió.</summary>
     /// <param name="PersonId">Persona (<c>workers.person_id</c>), para comparar por persona y no por ficha.</param>
     public record ConsolidadorElegido(
         int WorkerId, int? PersonId, string Email, string? Nombre, ConsolidadorOrigen Origen);
 
-    /// <summary>
-    /// De dónde salió un consolidador, <b>visto desde el área por la que se preguntó</b>. Mismo
-    /// criterio relativo que <c>RevisorOrigen</c>: lo que alguien cargó más arriba del árbol le
-    /// llega a esta área porque el sistema fue a buscarlo, así que para ella es
-    /// <see cref="Algoritmo"/>.
-    /// </summary>
+    /// <summary>De dónde salió un consolidador.</summary>
     public enum ConsolidadorOrigen
     {
-        /// <summary>Alguien lo asignó a mano <b>para esta área</b> (fila de <c>area_consolidadores</c>).</summary>
+        /// <summary>Alguien lo eligió a mano: en la ficha del trabajador o en Revisores de Áreas.</summary>
         Personalizado = 0,
 
-        /// <summary>
-        /// Lo dedujo el sistema de la jefatura del área —el jefe fijado en Revisores o, si no hay,
-        /// el Jefe/Gerente del área o el residente de la obra— o subió por el árbol hasta la
-        /// configuración de otra área.
-        /// </summary>
+        /// <summary>Lo dedujo el sistema de la estructura.</summary>
         Algoritmo = 1,
     }
-
-    /// <summary>
-    /// Consolidadores que le tocarían a un trabajador de un nodo del árbol. Se separa el caso sin
-    /// proyecto del caso por proyecto por los nodos marcados "filtrar por proyecto"
-    /// (<c>ga_salidas_area_config</c>): ahí la respuesta depende de la obra, así que se precalcula
-    /// una por proyecto y el consumidor indexa por la que tenga a la vista.
-    /// </summary>
-    public record AreaScopeConsolidadoresPreview(
-        List<ConsolidadorElegido> Area,
-        Dictionary<int, List<ConsolidadorElegido>> PorProyecto);
 }

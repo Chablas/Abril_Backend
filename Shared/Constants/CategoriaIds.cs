@@ -136,7 +136,12 @@
         /// el algoritmo de <c>SalidaVisibilityResolver</c>, que les concede esa área y su subárbol
         /// —el revisor/consolidador deducido de la estructura no tiene fila que mirar—.
         /// </summary>
-        public static readonly int[] ConVistaDeSuArea = { Jefe, Coordinador, Gerente };
+        /// <remarks>
+        /// SUB GERENTE se sumó el 2026-09-25: el algoritmo de los actores lo pone a aprobar su área
+        /// por delante del JEFE (<see cref="JefaturaDeAreaPorPrecedencia"/>), y sin esto le tocaba
+        /// decidir sobre una rama que no podía ver.
+        /// </remarks>
+        public static readonly int[] ConVistaDeSuArea = { SubGerente, Jefe, Coordinador, Gerente };
 
         /// <summary>
         /// La jefatura de un área NO gerencial, <b>en orden de precedencia</b>: de las que existan

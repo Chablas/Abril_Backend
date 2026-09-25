@@ -5,12 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
-    /// Qué nodos del árbol de áreas se pueden configurar en las pantallas que asignan personas a
-    /// áreas (Revisores de Áreas y Consolidadores de Áreas) y cuál de ellos ve un usuario que no
-    /// las administra.
-    ///
-    /// Las dos listan exactamente los mismos nodos: si una ofreciera configurar un área que la otra
-    /// no, el algoritmo —que es el mismo— resolvería distinto según la pantalla.
+    /// Qué nodos del árbol de áreas se pueden configurar en Revisores de Áreas y cuál de ellos ve un
+    /// usuario que no administra la pantalla.
     /// </summary>
     public static class AreaAsignacionNodos
     {
@@ -99,36 +95,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return null;
         }
 
-        /// <summary>
-        /// Marca/desmarca "filtrar por proyecto" para un nodo configurable. La bandera vive en
-        /// <c>ga_salidas_area_config</c> y la comparten las dos pantallas: es una propiedad del
-        /// área, no de quién se le asigna.
-        /// </summary>
-        public static async Task SetFiltroProyectoAsync(
-            AppDbContext ctx, int areaScopeId, bool filtraPorProyecto)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var config = await ctx.GaSalidasAreaConfig
-                .FirstOrDefaultAsync(f => f.State && f.AreaScopeId == areaScopeId);
-
-            if (config == null)
-            {
-                ctx.GaSalidasAreaConfig.Add(new Models.GaSalidasAreaConfig
-                {
-                    AreaScopeId = areaScopeId,
-                    FiltraPorProyecto = filtraPorProyecto,
-                    State = true,
-                    Active = true,
-                    CreatedAt = now,
-                });
-            }
-            else if (config.FiltraPorProyecto != filtraPorProyecto)
-            {
-                config.FiltraPorProyecto = filtraPorProyecto;
-                config.UpdatedAt = now;
-            }
-
-            await ctx.SaveChangesAsync();
-        }
     }
 }

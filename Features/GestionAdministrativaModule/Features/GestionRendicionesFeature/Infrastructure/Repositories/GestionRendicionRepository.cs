@@ -792,9 +792,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
             var workerIds = TrabajadoresDe(conjuntos.Values.SelectMany(c => c));
 
-            var habilitado = userId == null || workerIds.Count == 0
-                ? new HashSet<int>()
-                : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId.Value, workerIds);
+            // A quién puede consolidar el usuario y, en la misma resolución, quienes prepararon las
+            // planillas grupales de la tabla: la planilla que uno agrupó la sigue solo él
+            // (TramiteConsolidador), salvo que ya no pueda consolidar por esa gente.
+            var duenos = preparadas.Values.Select(g => g.PreparadaPorId).Where(id => id > 0).Distinct().ToList();
+            var habilitados = userId == null || workerIds.Count == 0
+                ? new Dictionary<int, HashSet<int>>()
+                : await _consolidadorResolver.FiltrarQuePuedenConsolidarAsync(
+                    duenos.Append(userId.Value).Distinct().ToList(), workerIds);
+            var habilitado = userId != null && habilitados.TryGetValue(userId.Value, out var delUsuario)
+                ? delUsuario
+                : new HashSet<int>();
 
             return planillas.ToDictionary(p => p.Id, p =>
             {
@@ -825,8 +833,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                                                 : totalesFuera.GetValueOrDefault(id),
                     }).ToList(),
                     // El consolidado cubre los documentos enteros: hace falta poder por TODOS los
-                    // trabajadores del conjunto, también por los que la tabla no muestra.
-                    PuedeConsolidar = trabajadores.Count > 0 && trabajadores.All(habilitado.Contains),
+                    // trabajadores del conjunto, también por los que la tabla no muestra. Y una
+                    // planilla grupal ya preparada la sigue quien la preparó.
+                    PuedeConsolidar = userId != null && TramiteConsolidador.PuedeSeguir(
+                        userId.Value,
+                        planillaGrupal?.PreparadaPorId,
+                        trabajadores,
+                        habilitado,
+                        planillaGrupal != null ? habilitados.GetValueOrDefault(planillaGrupal.PreparadaPorId) : null),
                 };
             });
         }
@@ -846,9 +860,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// nunca fue su trabajo. La visibilidad se administra aparte, en Gestión de Salidas →
         /// Configuración → Visibilidad.
         ///
-        /// "Nadie decide lo suyo" ya no hace falta como regla aparte: el firmante nunca está dentro
-        /// del documento, salvo que TODOS sus trabajadores tengan el mismo jefe personalizado y ese
-        /// sea él —la excepción explícita de Gestión de Ingresos → ficha → "Jefe personalizado"—.
+        /// "Nadie decide lo suyo" ya no hace falta como regla aparte: el algoritmo nunca señala a
+        /// alguien de dentro del documento. Solo lo decide quien fue elegido a mano (en su ficha o en
+        /// Revisores de Áreas), que es una elección explícita.
         ///
         /// Un número fijo de consultas: las fichas del usuario, un lote para todas las planillas y,
         /// solo si algún firmante es el fallback de GTH, el árbol de áreas.

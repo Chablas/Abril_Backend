@@ -1,23 +1,17 @@
-﻿using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Shared.Services.Jerarquia
 {
     /// <summary>
-    /// Lo que el ÁRBOL DE ÁREAS dice de la organización, sin opinar sobre para qué se usa: la
-    /// cadena de cada nodo hacia la raíz, la jefatura que se fijó a mano para cada nodo en Revisores,
-    /// el Jefe/Gerente que le corresponde a cada nodo y el residente de cada obra.
+    /// Lo que el ÁRBOL DE ÁREAS y las obras dicen de la organización, sin opinar sobre para qué se
+    /// usa: la cadena de cada nodo hacia la raíz, qué nodos son gerencias, la jefatura de cada nodo
+    /// y el residente y el administrador de cada obra.
     ///
-    /// Existe porque hay dos algoritmos que derivan una persona de un área y tienen que derivar la
-    /// MISMA: <c>JefeRevisorResolver</c> (quién revisa/aprueba una salida) y
-    /// <c>ConsolidadorResolver</c> (quién puede consolidar el S10 de un trabajador). Lo que cambia
-    /// entre los dos es cómo eligen entre los candidatos —uno se queda con el primero, el otro con
-    /// todos— y que los consolidadores tienen además su propia tabla de asignaciones, que va antes
-    /// que todo esto. Quién es el jefe de un área no cambia, y copiarlo habría dejado que las dos
-    /// pantallas discreparan sobre él: pasó hasta el 2026-09-16, cuando la jefatura de Revisores
-    /// todavía no estaba acá y un área con revisor puesto a mano le seguía avisando (y dejando
-    /// consolidar) al Jefe por categoría.
+    /// Es la materia prima del algoritmo de los actores (<c>IActoresResolver</c>): de acá sale a
+    /// quién señala el sistema cuando nadie personalizó nada. Lo personalizado (por área o por
+    /// trabajador) NO se carga acá: lo lee el propio resolver, que es quien decide qué gana.
     ///
     /// Todo se carga por lotes: un número FIJO de consultas sea para 1 nodo o para todo el árbol.
     /// </summary>
@@ -27,29 +21,9 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         public const string EmailDomainCorp = "@abril.pe";
 
         /// <summary>
-        /// Para QUE se esta resolviendo. Cambia dos cosas y solo dos: de que tabla salen los
-        /// asignados a mano, y a quien de la obra senala el algoritmo cuando el nodo filtra por
-        /// proyecto. El recorrido del arbol y la jefatura por categoria son identicos.
-        ///
-        /// Existe desde el 2026-09-21, cuando entro el administrador de obra: hasta entonces
-        /// <c>area_revisores</c> decidia las tres cosas (aprobar la salida, revisar la planilla y
-        /// firmar el consolidado) y el residente era el unico de la obra en el algoritmo.
-        /// </summary>
-        public enum AmbitoRevisor
-        {
-            /// <summary>Aprobar la SALIDA: <c>area_revisores</c> y el RESIDENTE de la obra.</summary>
-            Salidas,
-
-            /// <summary>
-            /// Primera revision de la planilla y firma del consolidado:
-            /// <c>area_revisores_rendicion</c> y el ADMINISTRADOR DE OBRA.
-            /// </summary>
-            Rendiciones,
-        }
-
-        /// <summary>
-        /// Una persona que el árbol señala para un nodo o para una obra: el Jefe/Gerente del área,
-        /// o el residente del proyecto. No dice para qué sirve — eso lo decide quien la consume.
+        /// Una persona que el árbol señala para un nodo o para una obra: una jefatura del área, el
+        /// residente o el administrador de una obra. No dice para qué sirve — eso lo decide quien la
+        /// consume.
         /// </summary>
         /// <param name="PersonId">
         /// Persona (<c>workers.person_id</c>). Hace falta para comparar por persona y no por ficha:
@@ -57,65 +31,40 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         /// </param>
         /// <param name="CategoriaId">
         /// Categoría del puesto de esa persona (<c>workers.puesto_id → puesto.categoria_id</c>), null
-        /// si su ficha no tiene puesto. Viaja con la persona porque hay reglas que miran QUÉ es el
-        /// que salió elegido y no solo de dónde salió: el aviso informativo al jefe del área de
-        /// Solicitud de Salidas se dispara cuando el revisor es <c>CategoriaIds.Residente</c>, venga
-        /// del algoritmo o asignado a mano. Sacarla acá evita una consulta extra por cada resolución.
+        /// si su ficha no tiene puesto. Viaja con la persona porque hay reglas que miran QUÉ es el que
+        /// salió elegido: los consolidadores de una jefatura son sus pares de la MISMA categoría.
         /// </param>
         public sealed record PersonaDeArea(
             int WorkerId, int? PersonId, string Email, string? Nombre, int? CategoriaId = null);
 
-        /// <summary>
-        /// Una fila viva y activa de <c>area_revisores</c>: la jefatura que alguien fijó a mano para
-        /// un nodo en Solicitud de Salidas → Configuración → Revisores (o que el propio revisor
-        /// ajustó en Delegación de Revisión). Se sobrepone a lo que deduce el árbol.
-        /// </summary>
-        /// <param name="ProjectId">NULL = a nivel de área; con valor = solo para ese proyecto del área.</param>
-        /// <param name="Id"><c>area_revisores_id</c>: desempate estable entre filas de igual prioridad.</param>
-        /// <param name="ApruebaPrimeraRevision">
-        /// Solo en <see cref="AmbitoRevisor.Rendiciones"/>: su visto bueno hace falta en la primera
-        /// revision. En Salidas siempre true — esa tabla no tiene la bandera y su fila no se filtra.
-        /// </param>
-        /// <param name="ApruebaConsolidado">Idem para la firma del consolidado.</param>
-        public sealed record RevisorAsignado(
-            int AreaScopeId, int? ProjectId, int OrdenPrioridad, int Id, PersonaDeArea Persona,
-            bool ApruebaPrimeraRevision = true, bool ApruebaConsolidado = true);
+        /// <summary>El árbol vivo: el padre de cada nodo y cuáles son "Área de Gerencia".</summary>
+        public sealed record Arbol(
+            IReadOnlyDictionary<int, int?> PadreDe,
+            IReadOnlySet<int> Gerencias);
 
         /// <summary>La estructura ya resuelta para un conjunto de nodos.</summary>
-        /// <param name="RevisoresPorNodo">
-        /// area_scope_id → la jefatura fijada a mano en Revisores para ese nodo, por área y por
-        /// proyecto. Va sin ordenar: en qué orden manda lo decide <see cref="RevisoresAsignados"/>.
-        /// </param>
-        /// <param name="JefePorNodo">
-        /// area_scope_id → Jefe (en un "Área Estándar") o Gerente (en un "Área de Gerencia") cuyo
-        /// puesto apunta a ese nodo. Puede haber más de uno; van ordenados por ficha más antigua,
-        /// que es un desempate arbitrario pero estable entre llamadas.
+        /// <param name="JefaturaPorNodo">
+        /// area_scope_id → la jefatura cuyo puesto apunta a ese nodo: el GERENTE en un "Área de
+        /// Gerencia"; el SUB GERENTE, el JEFE y el RESIDENTE en cualquier otro nodo, en ese orden de
+        /// precedencia (<see cref="CategoriaIds.JefaturaDeAreaPorPrecedencia"/>) y, entre iguales,
+        /// por ficha más antigua.
         /// </param>
         /// <param name="ResidentePorProyecto">project_id → residente de la obra. OFICINA CENTRAL no está.</param>
         /// <param name="AdministradorPorProyecto">
-        /// project_id → administrador de obra (<c>project.workers_coord_admin_id</c>). Es quien
-        /// revisa la planilla y firma el consolidado en las áreas filtradas por proyecto, donde el
-        /// residente solo aprueba la salida. OFICINA CENTRAL tampoco está.
+        /// project_id → administrador de obra (<c>project.workers_coord_admin_id</c>). OFICINA CENTRAL
+        /// tampoco está.
+        /// </param>
+        /// <param name="Obras">Los proyectos que son obras (todos menos OFICINA CENTRAL).</param>
+        /// <param name="ObraDeJefatura">
+        /// workers.id de cada jefatura → su obra vigente. Hace falta porque a un residente lo
+        /// consolidan los residentes de su MISMA obra.
         /// </param>
         public sealed record EstructuraArea(
-            ILookup<int, RevisorAsignado> RevisoresPorNodo,
-            ILookup<int, PersonaDeArea> JefePorNodo,
+            ILookup<int, PersonaDeArea> JefaturaPorNodo,
             IReadOnlyDictionary<int, PersonaDeArea> ResidentePorProyecto,
             IReadOnlyDictionary<int, PersonaDeArea> AdministradorPorProyecto,
-            AmbitoRevisor Ambito = AmbitoRevisor.Salidas)
-        {
-            /// <summary>
-            /// Quien de la obra senala el algoritmo, segun para que se resolvio: el residente
-            /// aprueba las salidas y el administrador de obra revisa la planilla y firma el
-            /// consolidado. Es el unico lugar donde se elige entre los dos, para que nadie tenga
-            /// que acordarse de mirar el diccionario correcto.
-            /// </summary>
-            public bool TryPersonaDeLaObra(int projectId, out PersonaDeArea persona)
-                => (Ambito == AmbitoRevisor.Rendiciones
-                        ? AdministradorPorProyecto
-                        : ResidentePorProyecto)
-                    .TryGetValue(projectId, out persona!);
-        }
+            IReadOnlySet<int> Obras,
+            IReadOnlyDictionary<int, int?> ObraDeJefatura);
 
         /// <summary>Padre de cada nodo vivo del árbol (tabla chica: se trae entera).</summary>
         public static async Task<Dictionary<int, int?>> CargarArbolAsync(AppDbContext ctx)
@@ -125,6 +74,23 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
                 .ToListAsync();
             return scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId);
+        }
+
+        /// <summary>El árbol vivo con el tipo de cada nodo, en una sola consulta.</summary>
+        public static async Task<Arbol> CargarArbolConTiposAsync(AppDbContext ctx)
+        {
+            var scopes = await (
+                from s in ctx.AreaScope.AsNoTracking()
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                where s.State
+                select new { s.AreaScopeId, s.AreaScopeParentId, ai.AreaTypeId }
+            ).ToListAsync();
+
+            return new Arbol(
+                scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId),
+                scopes.Where(s => s.AreaTypeId == AreaTypeIds.AreaDeGerencia)
+                      .Select(s => s.AreaScopeId)
+                      .ToHashSet());
         }
 
         /// <summary>
@@ -153,83 +119,29 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         }
 
         /// <summary>
-        /// La jefatura de cada nodo y los residentes de cada obra, en tres consultas fijas.
+        /// La jefatura de cada nodo y las dos personas de cada obra, en un número fijo de consultas.
         ///
-        ///   • Fijada a MANO: las filas vivas y activas de <c>area_revisores</c> del nodo cuyo
-        ///     revisor tiene correo corporativo. No se mira el estado de la ficha: la designación es
-        ///     la que manda.
         ///   • Por ÁREA: el trabajador cuyo puesto apunta a ese nodo con la categoría que le toca al
-        ///     tipo de nodo — Jefe en un "Área Estándar", Gerente en un "Área de Gerencia". La
-        ///     categoría sale del puesto (<c>workers</c> ya no la guarda) y el nodo también
-        ///     (<c>puesto.area_destino_scope_id</c>).
-        ///   • Por PROYECTO: <c>project.residente_workers_id</c>. OFICINA CENTRAL queda fuera: no es
-        ///     una obra, así que ahí manda el jefe del área como en cualquier nodo sin filtro.
+        ///     tipo de nodo. La categoría y el nodo salen del puesto (<c>workers</c> ya no los guarda).
+        ///   • Por OBRA: <c>project.residente_workers_id</c> (aprueba las salidas del staff) y
+        ///     <c>project.workers_coord_admin_id</c> (revisa la planilla, consolida y firma primero).
+        ///     OFICINA CENTRAL no es una obra: ahí manda la jefatura del área.
+        ///
+        /// Solo entra gente que hoy está adentro (<see cref="WorkersEstadoIds.EstanAdentro"/>) y con
+        /// correo corporativo: es a quien el sistema le va a pedir algo por correo. Lo que se asigna A
+        /// MANO no pasa por este filtro — esa designación es explícita y la lee el resolver.
         /// </summary>
-        public static async Task<EstructuraArea> CargarAsync(
-            AppDbContext ctx, IReadOnlyCollection<int> nodos,
-            AmbitoRevisor ambito = AmbitoRevisor.Salidas)
+        public static async Task<EstructuraArea> CargarAsync(AppDbContext ctx, IReadOnlyCollection<int> nodos)
         {
             var ids = nodos as List<int> ?? nodos.ToList();
 
-            // Cada ambito tiene su propia tabla de asignaciones. Se proyectan a la MISMA forma para
-            // que todo lo que sigue —el recorrido, el orden, el ranking— no tenga que distinguirlas.
-            var revisores = ambito == AmbitoRevisor.Rendiciones
-                ? await (
-                    from r in ctx.AreaRevisoresRendicion.AsNoTracking()
-                    where r.State && r.Active && ids.Contains(r.AreaScopeId)
-                    join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
-                    where w.EmailCorporativo != null
-                          && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                    select new
-                    {
-                        r.AreaScopeId,
-                        r.ProjectId,
-                        r.OrdenPrioridad,
-                        AsignacionId = r.AreaRevisoresRendicionId,
-                        w.Id,
-                        w.PersonId,
-                        w.EmailCorporativo,
-                        Nombre = w.Person != null ? w.Person.FullName : null,
-                        CategoriaId = w.PuestoCatalogo != null ? (int?)w.PuestoCatalogo.CategoriaId : null,
-                        r.ApruebaPrimeraRevision,
-                        r.ApruebaConsolidado,
-                    }
-                ).ToListAsync()
-                : await (
-                    from r in ctx.AreaRevisores.AsNoTracking()
-                    where r.State && r.Active && ids.Contains(r.AreaScopeId)
-                    join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
-                    where w.EmailCorporativo != null
-                          && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                    select new
-                    {
-                        r.AreaScopeId,
-                        r.ProjectId,
-                        r.OrdenPrioridad,
-                        AsignacionId = r.AreaRevisoresId,
-                        w.Id,
-                        w.PersonId,
-                        w.EmailCorporativo,
-                        Nombre = w.Person != null ? w.Person.FullName : null,
-                        CategoriaId = w.PuestoCatalogo != null ? (int?)w.PuestoCatalogo.CategoriaId : null,
-                        ApruebaPrimeraRevision = true,
-                        ApruebaConsolidado = true,
-                    }
-                ).ToListAsync();
-
-            var revisoresPorNodo = revisores.ToLookup(
-                r => r.AreaScopeId,
-                r => new RevisorAsignado(
-                    r.AreaScopeId, r.ProjectId, r.OrdenPrioridad, r.AsignacionId,
-                    new PersonaDeArea(r.Id, r.PersonId, r.EmailCorporativo!, r.Nombre, r.CategoriaId),
-                    r.ApruebaPrimeraRevision, r.ApruebaConsolidado));
-
-            // Las dos categorías se traen juntas y se filtra por tipo de nodo al armar el lookup:
-            // una sola consulta en vez de dos.
+            // Las cuatro categorías se traen juntas y se filtra por tipo de nodo al armar el lookup:
+            // una sola consulta en vez de una por categoría.
             var jefes = await (
                 from w in ctx.Worker.AsNoTracking()
                 join pu in ctx.Puesto.AsNoTracking() on w.PuestoId equals pu.PuestoId
                 where w.State
+                      && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
                       && pu.AreaDestinoScopeId != null
                       && ids.Contains(pu.AreaDestinoScopeId.Value)
                       && (pu.CategoriaId == CategoriaIds.Gerente
@@ -253,7 +165,7 @@ namespace Abril_Backend.Shared.Services.Jerarquia
 
             // La categoría que manda depende del tipo de nodo, así que un Jefe que cuelga de un
             // "Área de Gerencia" no cuenta ahí, ni un Gerente en un "Área Estándar".
-            var jefePorNodo = jefes
+            var jefaturaPorNodo = jefes
                 .Where(j => j.AreaTypeId == AreaTypeIds.AreaDeGerencia
                     ? j.CategoriaId == CategoriaIds.Gerente
                     : CategoriaIds.JefaturaDeAreaPorPrecedencia.Contains(j.CategoriaId))
@@ -262,20 +174,16 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 .OrderBy(j => PrecedenciaDeJefatura(j.CategoriaId))
                 // Y recién ahí el desempate entre iguales: la ficha más antigua. Ese sí es
                 // arbitrario a propósito — lo que importa es que no cambie entre llamadas; el área
-                // que quiera otro orden lo fija a mano en su pantalla de asignaciones.
+                // que quiera otro orden lo fija a mano en Revisores de Áreas.
                 .ThenBy(j => j.Id)
                 .ToLookup(
                     j => j.AreaScopeId,
-                    j => new PersonaDeArea(
-                        j.Id, j.PersonId, j.EmailCorporativo!, j.Nombre, j.CategoriaId));
+                    j => new PersonaDeArea(j.Id, j.PersonId, j.EmailCorporativo!.Trim(), j.Nombre, j.CategoriaId));
 
-            // Las DOS personas de la obra, cada una con su consulta y el mismo filtro: el residente
-            // (project.residente_workers_id), que aprueba las salidas, y el ADMINISTRADOR DE OBRA
-            // (project.workers_coord_admin_id — el campo que la pantalla de Proyectos llama
-            // "Administrador de obra"), que desde el 2026-09-21 revisa la planilla y firma el
-            // consolidado. Se piden por join explícito y no por navegación: `project` solo tiene
-            // mapeada la del coordinador, y agregar la otra traería una FK sombra. Qué es una obra
-            // (OFICINA CENTRAL no) lo dice ObrasLoader, el mismo que usa la visibilidad.
+            // Las DOS personas de la obra, cada una con su consulta y el mismo filtro. Se piden por
+            // join explícito y no por navegación: `project` solo tiene mapeada la del coordinador, y
+            // agregar la otra traería una FK sombra. Qué es una obra lo dice ObrasLoader, el mismo que
+            // usa la visibilidad.
             var obras = await ObrasLoader.Obras(ctx)
                 .Select(p => new { p.ProjectId, p.ResidenteWorkersId, p.WorkersCoordAdminId })
                 .ToListAsync();
@@ -302,41 +210,23 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                     administradorPorProyecto[o.ProjectId] = adm;
             }
 
+            // La obra de cada jefatura: solo la mira la regla de los consolidadores de un residente
+            // (sus pares de la misma obra), pero es una consulta y no depende de cuántos sean.
+            var obraDeJefatura = await ObrasLoader.ObraVigentePorTrabajadorAsync(
+                ctx, jefes.Select(j => j.Id).Distinct().ToList());
+
             return new EstructuraArea(
-                revisoresPorNodo, jefePorNodo, residentePorProyecto, administradorPorProyecto, ambito);
-        }
-
-        /// <summary>
-        /// La jefatura fijada a mano para un nodo, en el orden en que manda:
-        ///
-        ///   • con <paramref name="proyectoSiFiltra"/> (el nodo filtra por proyecto y hay obra),
-        ///     primero lo asignado a ese proyecto y detrás lo del área — por eso lo cargado a nivel
-        ///     de área vale para todos los proyectos sin asignación propia y enmascara al residente;
-        ///   • sin él, solo lo del área: las filas por proyecto de un nodo que no filtra no cuentan;
-        ///   • dentro de cada grupo, por <c>orden_prioridad</c> y después por id.
-        ///
-        /// Es la misma lista para los dos algoritmos: el revisor la pone delante de lo que deduce el
-        /// árbol y se queda con el primero que no sea el propio trabajador; los consolidadores la
-        /// toman entera cuando el nodo no tiene consolidadores propios.
-        /// </summary>
-        public static List<RevisorAsignado> RevisoresAsignados(
-            EstructuraArea estructura, int nodo, int? proyectoSiFiltra)
-        {
-            var delNodo = estructura.RevisoresPorNodo[nodo];
-            var delArea = PorPrioridad(delNodo.Where(r => r.ProjectId == null));
-
-            return proyectoSiFiltra == null
-                ? delArea.ToList()
-                : PorPrioridad(delNodo.Where(r => r.ProjectId == proyectoSiFiltra))
-                    .Concat(delArea)
-                    .ToList();
+                jefaturaPorNodo,
+                residentePorProyecto,
+                administradorPorProyecto,
+                obras.Select(o => o.ProjectId).ToHashSet(),
+                obraDeJefatura);
         }
 
         /// <summary>
         /// Las fichas indicadas como candidatas, indexadas por <c>workers.id</c>. Solo entran las
-        /// vivas y con correo corporativo — el mismo filtro que se le aplica a cualquier otro
-        /// candidato, para que nadie llegue al ranking sin poder recibir el correo que ese papel
-        /// implica.
+        /// vivas, de gente que está adentro y con correo corporativo — el mismo filtro que se le aplica
+        /// a cualquier otro candidato que deduce el árbol.
         /// </summary>
         private static async Task<Dictionary<int, PersonaDeArea>> PersonasAsync(
             AppDbContext ctx, List<int> workerIds)
@@ -346,6 +236,7 @@ namespace Abril_Backend.Shared.Services.Jerarquia
             var personas = await (
                 from w in ctx.Worker.AsNoTracking()
                 where workerIds.Contains(w.Id) && w.State
+                      && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
                 select new
@@ -360,9 +251,6 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 x => x.Id,
                 x => new PersonaDeArea(x.Id, x.PersonId, x.EmailCorporativo!.Trim(), x.Nombre, x.CategoriaId));
         }
-
-        private static IEnumerable<RevisorAsignado> PorPrioridad(IEnumerable<RevisorAsignado> filas)
-            => filas.OrderBy(r => r.OrdenPrioridad).ThenBy(r => r.Id);
 
         /// <summary>
         /// Posición de una categoría en la precedencia de la jefatura de un nodo: cuanto más chico,

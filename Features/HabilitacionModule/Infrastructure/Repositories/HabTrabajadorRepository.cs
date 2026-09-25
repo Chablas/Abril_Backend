@@ -23,7 +23,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly ITrabajadorRestringidoService _restringidoService;
-        private readonly IJefePersonalizadoService _jefePersonalizado;
         private readonly ILogger<HabTrabajadorRepository> _logger;
 
         private const string MensajeRestriccion =
@@ -43,13 +42,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             ITrabajadorRestringidoService restringidoService,
-            IJefePersonalizadoService jefePersonalizado,
             ILogger<HabTrabajadorRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _restringidoService = restringidoService;
-            _jefePersonalizado = jefePersonalizado;
             _logger = logger;
         }
 
@@ -2030,16 +2027,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync(x => x.Id == workerId);
             if (w is null) return null;
 
-            var detalle = MapToDetalle(w);
-
-            // Jefe personalizado vigente: es lo que decide si el formulario abre el campo de
-            // revisor como "el que sugiere el sistema" (el del área) o con el jefe elegido a mano.
-            var jefe = await _jefePersonalizado.GetAsync(workerId);
-            detalle.JefePersonalizadoWorkerId = jefe?.WorkerId;
-            detalle.JefePersonalizadoNombre   = jefe?.FullName;
-            detalle.JefePersonalizadoEmail    = jefe?.Email;
-
-            return detalle;
+            // Los actores del trabajador (aprobador de la salida y demás) no viajan acá: la ficha los
+            // pide aparte con el puesto y la obra que tiene a la vista (GET catalogos/actores).
+            return MapToDetalle(w);
         }
 
         public async Task<WorkerDetalleDto> UpdateAsync(int workerId, WorkerUpdateDto dto)

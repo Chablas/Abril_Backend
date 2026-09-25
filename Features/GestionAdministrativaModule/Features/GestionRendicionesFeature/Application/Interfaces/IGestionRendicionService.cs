@@ -67,7 +67,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         /// Adjunta el PRIMER Consolidado del S10 de las planillas indicadas: una o varias, de uno o
         /// de varios trabajadores, de las razones sociales que sean. Solo lo sube el consolidador,
         /// que tiene que estar habilitado por TODOS los trabajadores de esas planillas
-        /// (Consolidados → Configuración → Consolidadores).
+        /// (Configuración → Revisores de Áreas).
         ///
         /// Ninguna puede tener ya un consolidado (409): reemplazarlo es de Consolidados
         /// (<c>IConsolidadoService.ReemplazarConsolidado</c>). El resto de las reglas (primera

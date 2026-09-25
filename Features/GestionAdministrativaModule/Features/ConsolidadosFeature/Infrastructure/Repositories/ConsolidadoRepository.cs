@@ -300,9 +300,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             var agrupables = await ConsolidadoS10Agrupacion.LoadPlanillasAsync(ctx, cubiertas);
 
             var todosLosTrabajadores = agrupables.Values.SelectMany(a => a.WorkerIds).Distinct().ToList();
-            var puedeConsolidarPor = currentUserId == null || todosLosTrabajadores.Count == 0
-                ? new HashSet<int>()
-                : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(currentUserId.Value, todosLosTrabajadores);
+
+            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador.
+            var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
+
+            // A quién puede consolidar el usuario y, en la misma resolución, quienes subieron los
+            // consolidados de la tabla: el trámite de cada uno lo sigue quien lo subió
+            // (TramiteConsolidador), salvo que ya no pueda consolidar por esa gente.
+            var habilitados = currentUserId == null || todosLosTrabajadores.Count == 0
+                ? new Dictionary<int, HashSet<int>>()
+                : await _consolidadorResolver.FiltrarQuePuedenConsolidarAsync(
+                    subidoPor.Values.Select(x => x.UserId).Where(id => id > 0)
+                        .Append(currentUserId.Value).Distinct().ToList(),
+                    todosLosTrabajadores);
+            var puedeConsolidarPor = currentUserId != null && habilitados.TryGetValue(currentUserId.Value, out var delUsuario)
+                ? delUsuario
+                : new HashSet<int>();
 
             // La corrección con el ERP viva de cada planilla (casi ninguna la tiene).
             var correcciones = await CorreccionS10Loader.LoadVigentesAsync(ctx, cubiertas);
@@ -324,8 +337,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var firmasPorConsolidado = await EstadoDeFirmasAsync(ctx, workersPorConsolidado, currentUserId);
 
-            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador.
-            var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
             var razones   = await RazonSocialConsolidador.LoadPorUsuarioAsync(
                 ctx, subidoPor.Values.Select(x => x.UserId).Distinct().ToList());
 
@@ -408,8 +419,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     .SelectMany(r => agrupables.TryGetValue(r.Id, out var a) ? a.WorkerIds : new List<int>())
                     .Distinct()
                     .ToList();
-                var puedeConsolidar = trabajadoresDelDocumento.Count > 0
-                                   && trabajadoresDelDocumento.All(puedeConsolidarPor.Contains);
+                var duenoUserId = subidoPor.TryGetValue(dto.Id, out var dueno) && dueno.UserId > 0
+                    ? dueno.UserId
+                    : (int?)null;
+                var puedeConsolidar = currentUserId != null && TramiteConsolidador.PuedeSeguir(
+                    currentUserId.Value,
+                    duenoUserId,
+                    trabajadoresDelDocumento,
+                    puedeConsolidarPor,
+                    duenoUserId != null ? habilitados.GetValueOrDefault(duenoUserId.Value) : null);
 
                 var correccion = rendiciones
                     .Select(r => correcciones.GetValueOrDefault(r.Id))
@@ -1730,9 +1748,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         }
 
         /// <summary>
-        /// True si el usuario es consolidador de TODOS los trabajadores de las planillas que cubre el
-        /// consolidado (sin recorte de visibilidad: el documento es uno solo). Mismo criterio que
-        /// habilita subirlo en Gestión de Rendiciones.
+        /// True si el usuario sigue el trámite del consolidado: es consolidador de TODOS los
+        /// trabajadores de las planillas que cubre (sin recorte de visibilidad: el documento es uno
+        /// solo) y es quien lo subió —o quien lo subió ya no puede consolidar por ellos— (ver
+        /// TramiteConsolidador). Mismo criterio que la lista.
         /// </summary>
         private async Task<bool> PuedeConsolidarAsync(AppDbContext ctx, int consolidadoId, int userId)
         {
@@ -1741,8 +1760,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 .Values.SelectMany(a => a.WorkerIds).Distinct().ToList();
             if (trabajadores.Count == 0) return false;
 
-            var habilitado = await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId, trabajadores);
-            return trabajadores.All(habilitado.Contains);
+            var dueno = await ctx.GaConsolidadoS10.AsNoTracking()
+                .Where(c => c.Id == consolidadoId)
+                .Select(c => (int?)c.UploadedById)
+                .FirstOrDefaultAsync();
+            if (dueno is <= 0) dueno = null;
+
+            var habilitados = await _consolidadorResolver.FiltrarQuePuedenConsolidarAsync(
+                dueno != null ? new[] { userId, dueno.Value } : new[] { userId }, trabajadores);
+
+            return TramiteConsolidador.PuedeSeguir(
+                userId,
+                dueno,
+                trabajadores,
+                habilitados.GetValueOrDefault(userId) ?? new HashSet<int>(),
+                dueno != null ? habilitados.GetValueOrDefault(dueno.Value) : null);
         }
 
         // ══ Helpers ═════════════════════════════════════════════════════════

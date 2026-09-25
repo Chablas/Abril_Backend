@@ -6,6 +6,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -35,17 +36,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         private readonly IGraphSharePointService _sharePointService;
         /// <summary>Quien arma la planilla grupal: el PDF de gasto es de Gestión de Salidas.</summary>
         private readonly IGestionSalidaService _gestionSalidaService;
+        /// <summary>Para saber si quien agrupó el documento sigue pudiendo consolidarlo (ver TramiteConsolidador).</summary>
+        private readonly IConsolidadorResolver _consolidadorResolver;
         private readonly ILogger<ConsolidadoS10Service> _logger;
 
         public ConsolidadoS10Service(
             IDbContextFactory<AppDbContext> factory,
             IGraphSharePointService sharePointService,
             IGestionSalidaService gestionSalidaService,
+            IConsolidadorResolver consolidadorResolver,
             ILogger<ConsolidadoS10Service> logger)
         {
             _factory = factory;
             _sharePointService = sharePointService;
             _gestionSalidaService = gestionSalidaService;
+            _consolidadorResolver = consolidadorResolver;
             _logger = logger;
         }
 
@@ -338,6 +343,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 ?? (anterioresIds.Count == 1
                     ? await ctx.GaConsolidadoS10.AsNoTracking().FirstOrDefaultAsync(c => c.Id == anterioresIds[0])
                     : null);
+
+            // ── Quién sigue el trámite ────────────────────────────────────────
+            // Quien llama ya validó que el usuario es consolidador de todos. Además, la planilla
+            // grupal (y el consolidado que nace de ella) la sigue solo quien la agrupó: el que la
+            // preparó para el primer S10, el que subió el consolidado que se reemplaza. Se valida
+            // acá, antes de tocar SharePoint, porque es el único camino de las dos subidas.
+            var dueno = preparada?.PreparadaPorId ?? reemplazado?.UploadedById;
+            if (dueno != null && dueno.Value > 0 && dueno.Value != userId)
+            {
+                var habilitados = await _consolidadorResolver.FiltrarQuePuedenConsolidarAsync(
+                    new[] { userId, dueno.Value }, workersDeLasPlanillas);
+
+                if (!TramiteConsolidador.PuedeSeguir(
+                        userId, dueno, workersDeLasPlanillas,
+                        habilitados.GetValueOrDefault(userId) ?? new HashSet<int>(),
+                        habilitados.GetValueOrDefault(dueno.Value)))
+                    throw new AbrilException(
+                        preparada != null
+                            ? "Esta planilla grupal la preparó otro consolidador: solo él puede subirle el Consolidado del S10."
+                            : "Este consolidado lo subió otro consolidador: solo él puede reemplazarlo.", 403);
+            }
 
             // ── Carpeta destino (la misma de las planillas de rendición) ──────
             var carpeta = await ResolverCarpetaAsync(ctx);

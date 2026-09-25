@@ -395,7 +395,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     (ids.Count == 1
                         ? $"No estás habilitado para {queHace}. "
                         : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
-                    + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
+                    + "Solo pueden hacerlo los consolidadores de su área (Configuración → Revisores de Áreas).", 403);
         }
 
         /// <summary>

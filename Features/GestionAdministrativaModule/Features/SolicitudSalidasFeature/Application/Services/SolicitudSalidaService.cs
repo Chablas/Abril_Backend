@@ -101,8 +101,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                             data.CorreoRevisorCopia = envioRevisor.Copia;
                         }
 
-                        // 1b) Aviso informativo al jefe del área, que solo existe cuando quien
-                        //     aprueba es un residente. Mismas llamadas que el envío real, para no
+                        // 1b) Aviso informativo al jefe notificado, que solo existe para el
+                        //     personal de staff. Mismas llamadas que el envío real, para no
                         //     anunciar un correo que después no sale.
                         var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
                         if (jefeArea != null)
@@ -402,16 +402,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     await _repo.SetEnviadoACorreo(solicitud.Id, aprobadorEmail);
                 else
                     _logger.LogWarning(
-                        "No se pudo resolver revisor para solicitud {SolicitudId} (worker {WorkerId}): sin revisores en workers_revisores y sin correo GTH configurado en area_scope.email",
+                        "No se pudo resolver revisor para solicitud {SolicitudId} (worker {WorkerId}): ni personalizado, ni área, ni correo GTH configurado en area_scope.email",
                         solicitud.Id, solicitante.Id);
 
                 var enviadoRevisorA = await SendNotificacionAprobadorAsync(
                     solicitud, trayectosResueltos, mostrarRecordatorio, aprobadorEmail, nombreSolicitante, adjuntos);
 
-                // 5a-bis. El jefe del área, que solo entra en juego cuando quien aprueba es un
-                //         RESIDENTE: en las áreas que filtran por proyecto la salida la decide el
-                //         residente de la obra y el jefe no se enteraba de las salidas de su gente.
-                //         Se resuelve UNA vez y lo usan los dos correos que siguen.
+                // 5a-bis. El jefe notificado, que solo existe para el personal de STAFF: la salida
+                //         la decide el residente de la obra y el jefe no se enteraba de las salidas
+                //         de su gente. Se resuelve UNA vez y lo usan los dos correos que siguen.
                 var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
 
                 // El aviso informativo va aparte y no como copia del correo del revisor a propósito:
@@ -774,43 +773,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return envio.Para;
         }
 
-        // ── Aviso informativo al jefe del área ───────────────────────────────
+        // ── Aviso informativo al jefe notificado ─────────────────────────────
         //
-        // Cuando el revisor de la solicitud es un RESIDENTE, el jefe del área del solicitante
-        // recibe un correo que le cuenta la salida sin pedirle nada: la aprueba el residente. La
-        // condición es la CATEGORÍA del revisor y no cómo se resolvió, así que también alcanza al
-        // residente puesto a mano en Revisores o como jefe personalizado del trabajador.
-
-        /// <summary>Si el revisor resuelto es un trabajador de categoría Residente.</summary>
-        private static bool EsResidente(JefeRevisorResolution? revisor)
-            => revisor?.CategoriaId == CategoriaIds.Residente;
+        // Al personal de STAFF lo aprueba el residente de su obra, y su jefe recibe un correo que le
+        // cuenta la salida sin pedirle nada: es el actor "jefe notificado de la salida"
+        // (ActorIds.JefeNotificado), que se personaliza igual que los demás — en Revisores de Áreas o
+        // en la ficha del trabajador —. A oficina central no aplica: ahí el que aprueba ya es el jefe.
 
         /// <summary>
-        /// El jefe del área al que hay que informar de esta salida, o null si no hay ninguno. Se
-        /// resuelve UNA vez por solicitud y lo comparten los dos correos que lo usan: el aviso
-        /// informativo y la confirmación al solicitante.
+        /// El jefe notificado de esta salida, o null si no hay ninguno. Se resuelve UNA vez por
+        /// solicitud y lo comparten los dos correos que lo usan: el aviso informativo y la
+        /// confirmación al solicitante.
         ///
         /// Devuelve null cuando:
         ///
-        ///   • el revisor no es un residente — es el caso normal y entonces no hay nada que informar;
-        ///   • el área no resuelve ningún jefe —sin jefatura no hay a quién informar, y el fallback
-        ///     de GTH está fuera a propósito (ver <c>IJefeRevisorResolver</c>);
-        ///   • el jefe resuelto ES el revisor. Pasa cuando el residente está cargado a nivel de
-        ///     ÁREA en Revisores: ahí gana también sin proyecto, así que el aviso sería una segunda
-        ///     copia del correo que acaba de recibir con los botones.
+        ///   • el solicitante no es staff — el actor no existe para él;
+        ///   • no se resuelve a nadie — sin jefatura no hay a quién informar, y el fallback de GTH está
+        ///     fuera a propósito (ver <c>IJefeRevisorResolver</c>);
+        ///   • el jefe notificado ES el revisor (una gerencia, o un personalizado igual en los dos): el
+        ///     aviso sería una segunda copia del correo que acaba de recibir con los botones.
         /// </summary>
         private async Task<JefeRevisorResolution?> ResolveJefeAInformarAsync(
             int solicitanteWorkerId, JefeRevisorResolution? revisor)
         {
-            if (!EsResidente(revisor)) return null;
+            // Sin revisor no hay salida que contar: el aviso nombra a quien la aprueba.
+            if (revisor == null) return null;
 
-            var jefeArea = await _revisorResolver.ResolveJefeDeAreaAsync(solicitanteWorkerId);
+            var jefeArea = await _revisorResolver.ResolveJefeNotificadoAsync(solicitanteWorkerId);
             if (jefeArea == null || string.IsNullOrWhiteSpace(jefeArea.Email)) return null;
 
             var esElRevisor =
-                (jefeArea.PersonId != null && jefeArea.PersonId == revisor!.PersonId)
-                || (jefeArea.WorkerId != null && jefeArea.WorkerId == revisor!.WorkerId)
-                || string.Equals(jefeArea.Email.Trim(), (revisor!.Email ?? "").Trim(),
+                (jefeArea.PersonId != null && jefeArea.PersonId == revisor.PersonId)
+                || (jefeArea.WorkerId != null && jefeArea.WorkerId == revisor.WorkerId)
+                || string.Equals(jefeArea.Email.Trim(), (revisor.Email ?? "").Trim(),
                                  StringComparison.OrdinalIgnoreCase);
 
             return esElRevisor ? null : jefeArea;

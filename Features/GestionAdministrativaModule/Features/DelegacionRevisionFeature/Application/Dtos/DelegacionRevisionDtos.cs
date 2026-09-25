@@ -2,9 +2,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applic
 {
     /// <summary>
     /// Carga inicial de la funcionalidad "Delegación de Revisión" (usuario final).
-    /// Lista las asignaciones (área, o área+proyecto) en las que el usuario logueado figura
-    /// como revisor vivo en area_revisores, para que pueda designar suplentes de su área y
-    /// activarse/desactivarse ("tomar/soltar el puesto").
+    /// Lista las asignaciones (área, o área+obra, y el tipo de trabajador) en las que el usuario
+    /// logueado figura como aprobador de la salida asignado a mano en Revisores de Áreas
+    /// (area_actor_asignacion), para que pueda designar suplentes y activarse/desactivarse ("tomar/
+    /// soltar el puesto").
     /// </summary>
     public class DelegacionInicialDto
     {
@@ -26,12 +27,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applic
         /// <summary>null = asignación a nivel de área; con valor = asignación de ese proyecto.</summary>
         public int? ProjectId { get; set; }
         public string? ProjectName { get; set; }
+        /// <summary>A qué tipo de trabajador aplica (<c>ActorCasoIds</c>): oficina central, staff…</summary>
+        public int CasoId { get; set; }
+        public string CasoNombre { get; set; } = string.Empty;
         public List<DelegacionRevisorAsignadoDto> Revisores { get; set; } = new();
         /// <summary>Trabajadores designables (pertenecen al área/subárbol o al proyecto), con @abril.pe.</summary>
         public List<DelegacionOptionDto> Options { get; set; } = new();
     }
 
-    /// <summary>Un revisor asignado (fila viva de area_revisores) mostrado en la delegación.</summary>
+    /// <summary>Un revisor asignado (fila viva de area_actor_asignacion) mostrado en la delegación.</summary>
     public class DelegacionRevisorAsignadoDto
     {
         public int Id { get; set; }
@@ -51,10 +55,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applic
         public string? Email { get; set; }
     }
 
-    /// <summary>Cuerpo del PUT: reemplaza los revisores de una asignación (área o área+proyecto).</summary>
+    /// <summary>Cuerpo del PUT: reemplaza los revisores de una asignación (área o área+proyecto, y caso).</summary>
     public class DelegacionUpdateDto
     {
         public int? ProjectId { get; set; }
+        /// <summary>Tipo de trabajador de la asignación (<c>ActorCasoIds</c>).</summary>
+        public int CasoId { get; set; }
         public List<DelegacionAsignacionDto> Revisores { get; set; } = new();
     }
 

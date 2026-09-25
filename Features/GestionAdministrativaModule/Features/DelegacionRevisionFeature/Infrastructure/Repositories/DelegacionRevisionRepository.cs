@@ -2,17 +2,20 @@
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
-using AreaRevisoresModel = Abril_Backend.Features.GestionAdministrativa.Shared.Models.AreaRevisores;
 
 namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Repositories
 {
     /// <summary>
     /// "Delegación de Revisión" (funcionalidad principal, usuario final). Deja que un revisor
-    /// autogestione la lista de revisores de las áreas/proyectos donde figura como revisor en
-    /// area_revisores: designar suplentes de su área (delegar), y activarse/desactivarse para
-    /// tomar/soltar el puesto. Reusa la tabla area_revisores (mismo modelo que Revisores de Áreas
-    /// de Configuración), pero con alcance y autorización acotados al propio usuario.
+    /// autogestione la lista de aprobadores de la salida de las áreas/proyectos donde figura
+    /// asignado a mano en Revisores de Áreas: designar suplentes de su área (delegar), y
+    /// activarse/desactivarse para tomar/soltar el puesto. Trabaja sobre las filas del actor
+    /// "aprobador de la salida" de area_actor_asignacion (las mismas que edita Configuración →
+    /// Revisores de Áreas), una asignación por área, obra y tipo de trabajador, con alcance y
+    /// autorización acotados al propio usuario.
     ///
     /// El acceso a la funcionalidad se controla por el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS;
     /// una vez dentro, cada quien solo administra las asignaciones en las que ya es revisor.
@@ -36,10 +39,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
             if (currentWorkerId == 0)
                 return new DelegacionInicialDto { CurrentWorkerId = 0 };
 
-            // Asignaciones (área[, proyecto]) donde el usuario es revisor vivo (cualquier active).
-            var asignacionesKeys = await ctx.AreaRevisores
-                .Where(r => r.State && r.RevisorId == currentWorkerId)
-                .Select(r => new { r.AreaScopeId, r.ProjectId })
+            // Asignaciones (área[, proyecto], caso) donde el usuario aprueba salidas (cualquier active).
+            var asignacionesKeys = await ctx.AreaActorAsignacion
+                .Where(r => r.State && r.GaActorId == ActorIds.AprobadorSalida && r.WorkerId == currentWorkerId)
+                .Select(r => new { r.AreaScopeId, r.ProjectId, CasoId = r.GaActorCasoId })
                 .Distinct()
                 .ToListAsync();
 
@@ -63,26 +66,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
             var areaIds = asignacionesKeys.Select(a => a.AreaScopeId).Distinct().ToList();
             var projectIds = asignacionesKeys.Where(a => a.ProjectId != null).Select(a => a.ProjectId!.Value).Distinct().ToList();
 
-            // Revisores vivos de las áreas involucradas (una query), con datos del revisor.
+            // Aprobadores vivos de las áreas involucradas (una query), con datos de cada uno.
             var revisores = await (
-                from r in ctx.AreaRevisores
-                where r.State && areaIds.Contains(r.AreaScopeId)
-                join w in ctx.Worker on r.RevisorId equals w.Id
+                from r in ctx.AreaActorAsignacion
+                where r.State && r.GaActorId == ActorIds.AprobadorSalida && areaIds.Contains(r.AreaScopeId)
+                join w in ctx.Worker on r.WorkerId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join pu in ctx.Puesto on w.PuestoId equals pu.PuestoId into puj
                 from pu in puj.DefaultIfEmpty()
                 join c in ctx.Categoria on pu.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
-                orderby r.OrdenPrioridad, r.AreaRevisoresId
+                orderby r.OrdenPrioridad, r.AreaActorAsignacionId
                 select new
                 {
                     r.AreaScopeId,
                     r.ProjectId,
+                    CasoId = r.GaActorCasoId,
                     Dto = new DelegacionRevisorAsignadoDto
                     {
-                        Id = r.AreaRevisoresId,
-                        RevisorWorkerId = r.RevisorId,
+                        Id = r.AreaActorAsignacionId,
+                        RevisorWorkerId = r.WorkerId,
                         RevisorFullName = p != null ? p.FullName : null,
                         RevisorEmail = w.EmailCorporativo,
                         RevisorCategory = c != null ? c.Nombre : null,
@@ -99,6 +103,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                     .Where(p => projectIds.Contains(p.ProjectId))
                     .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
 
+            var casos = await ctx.GaActorCaso.AsNoTracking()
+                .ToDictionaryAsync(c => c.GaActorCasoId, c => c.Nombre);
+
             var asignaciones = new List<DelegacionAsignacionItemDto>();
             foreach (var key in asignacionesKeys)
             {
@@ -110,8 +117,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                         ? pn : null,
                     ProjectId = key.ProjectId,
                     ProjectName = key.ProjectId != null && projectNames.TryGetValue(key.ProjectId.Value, out var prn) ? prn : null,
+                    CasoId = key.CasoId,
+                    CasoNombre = casos.TryGetValue(key.CasoId, out var cn) ? cn : string.Empty,
                     Revisores = revisores
-                        .Where(r => r.AreaScopeId == key.AreaScopeId && r.ProjectId == key.ProjectId)
+                        .Where(r => r.AreaScopeId == key.AreaScopeId && r.ProjectId == key.ProjectId && r.CasoId == key.CasoId)
                         .Select(r => r.Dto)
                         .ToList(),
                     Options = await GetOptionsAsync(ctx, key.AreaScopeId, key.ProjectId, childrenByParent),
@@ -125,11 +134,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                 Asignaciones = asignaciones
                     .OrderBy(a => a.AreaName)
                     .ThenBy(a => a.ProjectName)
+                    .ThenBy(a => a.CasoId)
                     .ToList(),
             };
         }
 
-        public async Task UpdateAsync(int userId, int areaScopeId, int? projectId, List<DelegacionAsignacionDto> revisores)
+        public async Task UpdateAsync(int userId, int areaScopeId, int? projectId, int casoId, List<DelegacionAsignacionDto> revisores)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -137,9 +147,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
             if (currentWorkerId == 0)
                 throw new AbrilException("No se encontró el trabajador del usuario.", 403);
 
-            // El usuario debe ser revisor vivo de esa asignación (área o área+proyecto).
-            var esRevisor = await ctx.AreaRevisores.AnyAsync(r =>
-                r.State && r.RevisorId == currentWorkerId && r.AreaScopeId == areaScopeId && r.ProjectId == projectId);
+            // El usuario debe ser aprobador vivo de esa asignación (área o área+proyecto, y caso).
+            var esRevisor = await ctx.AreaActorAsignacion.AnyAsync(r =>
+                r.State && r.GaActorId == ActorIds.AprobadorSalida && r.WorkerId == currentWorkerId
+                && r.AreaScopeId == areaScopeId && r.ProjectId == projectId && r.GaActorCasoId == casoId);
             if (!esRevisor)
                 throw new AbrilException("No tienes permiso para administrar los revisores de esta área.", 403);
 
@@ -192,12 +203,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                     throw new AbrilException("Solo puedes designar revisores que pertenezcan a tu área.", 400);
             }
 
-            // ── Diff con las filas vivas del mismo alcance (área o área+proyecto) ─
+            // ── Diff con las filas vivas del mismo alcance (área o área+proyecto, y caso) ─
             var now = DateTimeOffset.UtcNow;
-            var vivos = await ctx.AreaRevisores
-                .Where(r => r.State && r.AreaScopeId == areaScopeId && r.ProjectId == projectId)
+            var vivos = await ctx.AreaActorAsignacion
+                .Where(r => r.State && r.GaActorId == ActorIds.AprobadorSalida
+                         && r.AreaScopeId == areaScopeId && r.ProjectId == projectId
+                         && r.GaActorCasoId == casoId)
                 .ToListAsync();
-            var vivosByRevisor = vivos.ToDictionary(r => r.RevisorId);
+            var vivosByRevisor = vivos.ToDictionary(r => r.WorkerId);
 
             foreach (var d in deseados)
             {
@@ -212,11 +225,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
                 }
                 else
                 {
-                    ctx.AreaRevisores.Add(new AreaRevisoresModel
+                    ctx.AreaActorAsignacion.Add(new AreaActorAsignacion
                     {
                         AreaScopeId = areaScopeId,
                         ProjectId = projectId,
-                        RevisorId = d.RevisorWorkerId,
+                        GaActorId = ActorIds.AprobadorSalida,
+                        GaActorCasoId = casoId,
+                        WorkerId = d.RevisorWorkerId,
                         OrdenPrioridad = d.OrdenPrioridad,
                         Active = d.Active,
                         State = true,
@@ -228,7 +243,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
             var deseadosIds = deseados.Select(d => d.RevisorWorkerId).ToHashSet();
             foreach (var row in vivos)
             {
-                if (!deseadosIds.Contains(row.RevisorId))
+                if (!deseadosIds.Contains(row.WorkerId))
                 {
                     row.State = false;
                     row.UpdatedAt = now;

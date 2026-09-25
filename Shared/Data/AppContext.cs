@@ -258,16 +258,25 @@ namespace Abril_Backend.Infrastructure.Data
         // Override manual de "qué áreas ve este trabajador", por ámbito (salidas / rendiciones).
         public DbSet<GaVisibilidadAmbito> GaVisibilidadAmbito { get; set; }
         public DbSet<GaVisibilidadArea> GaVisibilidadArea { get; set; }
-        public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
-        public DbSet<AreaRevisores> AreaRevisores { get; set; }
+        /// <summary>
+        /// Los cinco actores del ciclo de una salida (aprobar la salida, enterarse, 1.ª revisión,
+        /// consolidar, firmar el consolidado) y los tipos de trabajador para los que se resuelven.
+        /// Catálogos de ids fijos: <c>ActorIds</c> y <c>ActorCasoIds</c>.
+        /// </summary>
+        public DbSet<GaActor> GaActor { get; set; }
+        public DbSet<GaActorCaso> GaActorCaso { get; set; }
 
         /// <summary>
-        /// Aprobadores de la primera revisión y firmantes del consolidado. Gemela de
-        /// <see cref="AreaRevisores"/>, que desde el 2026-09-21 quedó solo para aprobar la salida.
+        /// Lo personalizado por área (Configuración → Revisores de Áreas). Reemplazó a
+        /// area_revisores, area_revisores_rendicion y area_consolidadores (2026-09-25).
         /// </summary>
-        public DbSet<AreaRevisoresRendicion> AreaRevisoresRendicion { get; set; }
-        // Quién puede adjuntar el Consolidado del S10 por los trabajadores de un área.
-        public DbSet<AreaConsolidadores> AreaConsolidadores { get; set; }
+        public DbSet<AreaActorAsignacion> AreaActorAsignacion { get; set; }
+
+        /// <summary>
+        /// Lo personalizado por trabajador (ficha del trabajador). Reemplazó a workers_revisores,
+        /// el "jefe personalizado" (2026-09-25).
+        /// </summary>
+        public DbSet<WorkersActorAsignacion> WorkersActorAsignacion { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }

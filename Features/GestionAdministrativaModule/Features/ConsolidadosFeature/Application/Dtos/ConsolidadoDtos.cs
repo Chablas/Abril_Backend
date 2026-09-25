@@ -145,7 +145,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         // ── Qué puede hacer el consolidador ──────────────────────────────
         /// <summary>
         /// True si el usuario es consolidador de TODOS los trabajadores de las planillas que cubre
-        /// (Consolidados → Configuración → Consolidadores): es el dueño del trámite del S10 y las
+        /// (Configuración → Revisores de Áreas): es el dueño del trámite del S10 y las
         /// acciones de abajo son suyas.
         /// </summary>
         public bool PuedeConsolidar { get; set; }

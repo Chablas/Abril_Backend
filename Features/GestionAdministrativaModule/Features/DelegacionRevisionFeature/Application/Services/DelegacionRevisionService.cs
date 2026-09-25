@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applic
         public Task<DelegacionInicialDto> GetInitialDataAsync(int userId)
             => _repo.GetInitialDataAsync(userId);
 
-        public Task UpdateAsync(int userId, int areaScopeId, int? projectId, List<DelegacionAsignacionDto> revisores)
-            => _repo.UpdateAsync(userId, areaScopeId, projectId, revisores);
+        public Task UpdateAsync(int userId, int areaScopeId, int? projectId, int casoId, List<DelegacionAsignacionDto> revisores)
+            => _repo.UpdateAsync(userId, areaScopeId, projectId, casoId, revisores);
     }
 }

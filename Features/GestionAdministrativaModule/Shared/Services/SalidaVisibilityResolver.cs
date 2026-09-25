@@ -8,13 +8,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// <summary>
     /// Implementa la resolución de visibilidad. Ver <see cref="ISalidaVisibilityResolver"/>.
     ///
-    /// Piso obligatorio: si el usuario está designado como revisor de un nodo
-    /// (<c>area_revisores</c>) ve ese nodo y todo su subárbol SIEMPRE, sin importar su categoría de
-    /// trabajador; en los ámbitos de RENDICIONES y CONSOLIDADOS lo mismo vale para los nodos donde
-    /// está designado como consolidador (<c>area_consolidadores</c>) o como revisor de rendiciones
-    /// (<c>area_revisores_rendicion</c>). No es un caso más del algoritmo: se suma
-    /// tanto al override manual como al algoritmo, porque a esa persona le toca hacer un trabajo
-    /// sobre toda esa rama y tiene que poder verla.
+    /// Piso obligatorio: si el usuario está asignado a mano en Revisores de Áreas
+    /// (<c>area_actor_asignacion</c>) para un actor que actúa sobre la bandeja —aprobar la salida en
+    /// SALIDAS; además revisar, consolidar o firmar en RENDICIONES y CONSOLIDADOS— ve ese nodo y todo
+    /// su subárbol SIEMPRE, sin importar su categoría de trabajador. Y si está personalizado en la
+    /// ficha de un trabajador (<c>workers_actor_asignacion</c>), ve lo de ese trabajador. No es un caso
+    /// más del algoritmo: se suma tanto al override manual como al algoritmo, porque a esa persona le
+    /// toca hacer un trabajo sobre eso y tiene que poder verlo.
     ///
     /// Override (ga_visibilidad_area, filtrado POR ÁMBITO): si el usuario (a través de su/sus
     /// workers) tiene filas vivas en ese ámbito, esas definen su visibilidad — cada fila aporta su
@@ -106,25 +106,61 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
             var porArea = await ResolverAreasAsync(ctx, workers, ambitoId);
 
+            // Quien ya ve todo no necesita listas de trabajadores: no hay nada que recortar.
+            if (porArea.SeesAll) return porArea;
+
+            var workerIds = workers.Select(w => w.Id).ToList();
+
+            // Piso por TRABAJADOR: si en la ficha de alguien se personalizó a este usuario para un
+            // actor que actúa sobre esta bandeja, ve lo de ese trabajador. Es la contraparte del piso
+            // por área de Revisores de Áreas: sin esto, el aprobador o el consolidador elegido a mano
+            // tendría que decidir sobre algo que no ve.
+            var actores = ActoresDelAmbito(ambitoId);
+            var personalizados = (await ctx.WorkersActorAsignacion
+                    .Where(r => r.State && r.Active
+                             && workerIds.Contains(r.AsignadoId)
+                             && actores.Contains(r.GaActorId))
+                    .Select(r => r.WorkerId)
+                    .Distinct()
+                    .ToListAsync())
+                .ToHashSet();
+
             // Piso por OBRA: el residente y el administrador de obra ven todo lo de su obra. Se
             // suma también sobre el override: aprobar y firmar por la obra no depende de que alguien
             // se acuerde de darle visibilidad a quien hoy ocupa el puesto. Quien no está a cargo de
             // ninguna (casi todos) no paga ninguna consulta más: lo dijo ya la de sus fichas.
-            if (!workers.Any(w => w.ACargoDeObra)) return porArea;
+            var obras = workers.Any(w => w.ACargoDeObra)
+                ? await ObrasLoader.ObrasACargoAsync(ctx, workerIds)
+                : new List<ObrasLoader.ObraACargo>();
 
-            var obras = await ObrasLoader.ObrasACargoAsync(ctx, workers.Select(w => w.Id).ToList());
-            if (obras.Count == 0) return porArea;
+            if (obras.Count == 0 && personalizados.Count == 0) return porArea;
+
+            var deSusObras = obras.Count == 0
+                ? new HashSet<int>()
+                : await ObrasLoader.TrabajadoresDeLasObrasAsync(ctx, obras.Select(o => o.ProjectId).ToList());
+            deSusObras.UnionWith(personalizados);
 
             return porArea with
             {
                 Obras = obras,
-                // Quien ya ve todo no necesita la lista: no hay nada que recortar.
-                TrabajadoresDeSusObras = porArea.SeesAll
-                    ? new HashSet<int>()
-                    : await ObrasLoader.TrabajadoresDeLasObrasAsync(
-                        ctx, obras.Select(o => o.ProjectId).ToList()),
+                // Los dos pisos por trabajador van en la misma lista: el filtro los suma igual.
+                TrabajadoresDeSusObras = deSusObras,
             };
         }
+
+        /// <summary>
+        /// Los actores (<c>ActorIds</c>) que actúan sobre cada bandeja: en Gestión de Salidas solo el
+        /// que aprueba la salida; en Gestión de Rendiciones y en Consolidados también los que revisan
+        /// la planilla, la consolidan y firman el consolidado. El jefe notificado no entra: se entera
+        /// por correo, con el detalle completo, y no decide nada.
+        /// </summary>
+        private static int[] ActoresDelAmbito(int ambitoId) => ambitoId == VisibilidadAmbitoIds.Salidas
+            ? new[] { ActorIds.AprobadorSalida }
+            : new[]
+            {
+                ActorIds.AprobadorSalida, ActorIds.AprobadorPrimeraRevision,
+                ActorIds.Consolidador, ActorIds.AprobadorConsolidado,
+            };
 
         /// <summary>
         /// El alcance por ÁREA: piso de revisor/consolidador, override del ámbito y, si no hay
@@ -152,38 +188,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 .GroupBy(n => n.AreaScopeParentId!.Value)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.AreaScopeId).ToList());
 
-            // 3. Piso obligatorio: nodos donde el usuario está designado como revisor de área
-            //    (area_revisores) → ese nodo + su subárbol, sin importar categoría ni override.
-            //    Se exige Active además de State, igual que JefeRevisorResolver al elegir al
-            //    revisor de una solicitud: un revisor desactivado no recibe solicitudes, así
-            //    que tampoco gana visibilidad. Las filas por proyecto (project_id con valor)
-            //    cuentan igual que las de área: la visibilidad se expresa por area_scope, no
-            //    tiene dimensión de proyecto, y el revisor del proyecto es revisor de esa área.
-            var nodosAsignados = await ctx.AreaRevisores
-                .Where(r => r.State && r.Active && workerIds.Contains(r.RevisorId))
-                .Select(r => r.AreaScopeId)
+            // 3. Piso obligatorio: nodos donde el usuario está asignado a mano en Revisores de Áreas
+            //    (area_actor_asignacion) para algún actor que actúa sobre ESTA bandeja → ese nodo +
+            //    su subárbol, sin importar categoría ni override. Se exige Active además de State:
+            //    alguien desactivado no recibe nada, así que tampoco gana visibilidad. Las filas por
+            //    obra cuentan igual que las de área: la visibilidad se expresa por area_scope.
+            var actores = ActoresDelAmbito(ambitoId);
+            var nodosAsignados = await ctx.AreaActorAsignacion
+                .Where(a => a.State && a.Active
+                         && workerIds.Contains(a.WorkerId)
+                         && actores.Contains(a.GaActorId))
+                .Select(a => a.AreaScopeId)
                 .Distinct()
                 .ToListAsync();
-
-            // Consolidar el S10 de una planilla exige verla, así que el consolidador de un nodo
-            // tiene el mismo piso que su revisor — pero solo en las bandejas donde consolida: la
-            // que le adjunta el consolidado a la planilla y la que después lo muestra. Lo mismo
-            // quien está asignado a mano en Revisores de Áreas de RENDICIONES
-            // (area_revisores_rendicion): revisa la planilla o firma el consolidado de esa rama.
-            // Las dos tablas van en una sola consulta.
-            if (ambitoId == VisibilidadAmbitoIds.Rendiciones
-             || ambitoId == VisibilidadAmbitoIds.Consolidados)
-                nodosAsignados = nodosAsignados
-                    .Concat(await ctx.AreaConsolidadores
-                        .Where(c => c.State && c.Active && workerIds.Contains(c.ConsolidadorId))
-                        .Select(c => c.AreaScopeId)
-                        .Concat(ctx.AreaRevisoresRendicion
-                            .Where(r => r.State && r.Active && workerIds.Contains(r.RevisorId))
-                            .Select(r => r.AreaScopeId))
-                        .Distinct()
-                        .ToListAsync())
-                    .Distinct()
-                    .ToList();
 
             var comoRevisor = new HashSet<int>();
             foreach (var nodo in nodosAsignados)
@@ -244,11 +261,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 
                 // Jefatura del área → su propia área + descendientes.
                 //
-                // El piso obligatorio de más arriba solo ve lo asignado a mano, pero desde que el
-                // revisor se deduce de la estructura (JefeRevisorResolver: el Jefe del área
-                // estándar, el Gerente de la gerencia) una jefatura puede ser revisora —y, por
-                // ConsolidadorResolver, consolidadora— de su área SIN tener fila en
-                // area_revisores. Sin esta regla esa persona quedaba en cero áreas: le tocaba
+                // El piso obligatorio de más arriba solo ve lo asignado a mano, pero el algoritmo
+                // de los actores (IActoresResolver: la jefatura del área estándar, el Gerente de
+                // la gerencia) hace a una jefatura aprobadora y consolidadora de su área SIN tener
+                // nada asignado. Sin esta regla esa persona quedaba en cero áreas: le tocaba
                 // revisar una rama que no podía ver, y la bandeja le salía vacía. Se decide por
                 // categoría, igual que el otro algoritmo, para que los dos deduzcan lo mismo de
                 // la misma estructura.

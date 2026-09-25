@@ -129,7 +129,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.CapturasArea.Infrastructu
                 ctx.GaSalidasAreaConfig.Add(new GaSalidasAreaConfig
                 {
                     AreaScopeId = areaScopeId,
-                    FiltraPorProyecto = false,
                     CapturasObligatorias = false,
                     State = true,
                     Active = true,

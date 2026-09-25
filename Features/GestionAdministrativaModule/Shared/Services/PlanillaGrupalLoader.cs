@@ -72,6 +72,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             PdfUrl      = g.PdfUrl,
             PdfFilename = g.PdfFilename,
             PreparadaAt = g.PreparadaAt,
+            PreparadaPorId = g.PreparadaPorId,
         };
     }
 }

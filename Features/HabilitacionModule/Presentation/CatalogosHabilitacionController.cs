@@ -3,7 +3,7 @@ using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
-using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.Actores.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Shared.Filters;
@@ -16,16 +16,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     public class CatalogosHabilitacionController : ControllerBase
     {
         private readonly ICatalogosHabilitacionRepository _repo;
-        private readonly IJefePersonalizadoService _jefePersonalizado;
+        private readonly IActoresPersonalizadosService _actoresPersonalizados;
         private readonly ILogger<CatalogosHabilitacionController> _logger;
 
         public CatalogosHabilitacionController(
             ICatalogosHabilitacionRepository repo,
-            IJefePersonalizadoService jefePersonalizado,
+            IActoresPersonalizadosService actoresPersonalizados,
             ILogger<CatalogosHabilitacionController> logger)
         {
             _repo = repo;
-            _jefePersonalizado = jefePersonalizado;
+            _actoresPersonalizados = actoresPersonalizados;
             _logger = logger;
         }
 
@@ -113,30 +113,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         /// <summary>
-        /// Árbol de áreas (area_scope) para los desplegables en cascada del formulario de
-        /// trabajadores, con la equivalencia legacy area/subárea/jefatura y el revisor que le
-        /// tocaría al trabajador ya <b>elegido</b> por nodo (y por proyecto en las áreas que
-        /// filtran por proyecto). Una sola llamada: al cambiar de puesto el formulario no vuelve
-        /// al servidor y no decide nada, solo indexa.
-        ///
-        /// <paramref name="workerId"/> es el trabajador que se está editando: con él el revisor
-        /// viene descartándolo a él ("nadie es su propio jefe"). Se omite al crear uno nuevo y en
-        /// las pantallas que solo usan el árbol para los desplegables.
+        /// Árbol de áreas (area_scope) para los desplegables en cascada, con la equivalencia legacy
+        /// area/subárea/jefatura por nodo.
         /// </summary>
         [HttpGet("areas-arbol")]
-        public async Task<IActionResult> GetAreaArbol([FromQuery] int? workerId)
+        public async Task<IActionResult> GetAreaArbol()
         {
             try
             {
-                return Ok(await _repo.GetAreaArbolAsync(workerId));
+                return Ok(await _repo.GetAreaArbolAsync());
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetAreaArbol"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         /// <summary>
-        /// Trabajadores que pueden ser jefe (los que tienen correo corporativo @abril.pe),
-        /// para el desplegable que aparece al marcar "Jefe personalizado" en el formulario de
+        /// Personas que se pueden elegir como actor de un trabajador (los que tienen correo
+        /// corporativo @abril.pe), para los desplegables de la sección de actores del formulario de
         /// trabajadores. No exige que tengan usuario del sistema.
         /// </summary>
         [HttpGet("jefes")]
@@ -144,10 +137,28 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                return Ok(await _jefePersonalizado.GetCandidatosAsync());
+                return Ok(await _actoresPersonalizados.GetCandidatosAsync());
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetJefes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Los cinco actores de un trabajador para la sección "Aprobador de la salida" de su ficha: lo
+        /// que le toca por su área y lo personalizado en la ficha. Se pide con lo que el formulario
+        /// tiene a la vista (puesto y obra), que al crear o al cambiar de puesto todavía no es lo
+        /// guardado; <paramref name="workerId"/> solo aporta su persona y sus personalizados.
+        /// </summary>
+        [HttpGet("actores")]
+        public async Task<IActionResult> GetActores(
+            [FromQuery] int? workerId, [FromQuery] int? puestoId, [FromQuery] int? proyectoId)
+        {
+            try
+            {
+                return Ok(await _repo.GetActoresAsync(workerId, puestoId, proyectoId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetActores"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         /// <summary>

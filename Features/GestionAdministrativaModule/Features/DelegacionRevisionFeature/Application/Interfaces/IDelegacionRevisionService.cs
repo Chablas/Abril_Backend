@@ -5,6 +5,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Applic
     public interface IDelegacionRevisionService
     {
         Task<DelegacionInicialDto> GetInitialDataAsync(int userId);
-        Task UpdateAsync(int userId, int areaScopeId, int? projectId, List<DelegacionAsignacionDto> revisores);
+        Task UpdateAsync(int userId, int areaScopeId, int? projectId, int casoId, List<DelegacionAsignacionDto> revisores);
     }
 }

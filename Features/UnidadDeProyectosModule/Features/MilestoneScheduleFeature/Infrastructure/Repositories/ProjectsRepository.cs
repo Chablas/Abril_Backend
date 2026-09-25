@@ -18,7 +18,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, int pageSize = 10, string? search = null)
         {
             var projectQuery = _context.Project
-                .Where(p => p.Active && p.State && p.TieneUnidadDeProyectos
+                .Where(p => p.Active && p.State
+                    && _context.ProjectResident.Any(pr => pr.ProjectId == p.ProjectId && pr.Active && pr.State)
                     && (search == null || p.ProjectDescription.ToLower().Contains(search.ToLower())))
                 .OrderByDescending(p => p.ProjectId);
 

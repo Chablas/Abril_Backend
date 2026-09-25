@@ -211,7 +211,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     InhabilitadoSsoma = inhabilitadosSet.Contains(b.Id)
                                      || b.WorkersEstadoId == WorkersEstadoIds.InhabilitadoSsoma,
                     EsAbril = vin?.EmpresaId.HasValue == true
-                        && esAbrilPorEmpresa.TryGetValue(vin!.EmpresaId!.Value, out var ea) && ea
+                        && esAbrilPorEmpresa.TryGetValue(vin!.EmpresaId!.Value, out var ea) && ea,
+                    EsFinalistaAprobado = b.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
                 };
             }).ToList();
         }

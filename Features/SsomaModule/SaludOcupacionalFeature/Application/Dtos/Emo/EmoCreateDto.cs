@@ -8,6 +8,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public int WorkerId { get; set; }
         public int? TipoEmoId { get; set; }
         public int? EmpresaOrigenId { get; set; }
+
+        /// <summary>
+        /// Razón social elegida para una ficha de pre-ingreso al registrar su EMO de Ingreso: se le
+        /// asigna a la ficha y al requerimiento, igual que al programarlo. No es la empresa origen
+        /// del examen. Se ignora en cualquier otro caso.
+        /// </summary>
+        public int? RazonSocialId { get; set; }
         public DateOnly FechaEmo { get; set; }
         public int? ClinicaId { get; set; }
         public int? MedicoId { get; set; }

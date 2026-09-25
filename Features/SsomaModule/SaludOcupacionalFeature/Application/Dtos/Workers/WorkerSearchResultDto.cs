@@ -22,5 +22,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public DateOnly? FechaIngreso { get; set; }
         public bool InhabilitadoSsoma { get; set; }
         public bool EsAbril { get; set; }
+        /// <summary>true = ficha de pre-ingreso (finalista aprobado, aún sin contrato).</summary>
+        public bool EsFinalistaAprobado { get; set; }
     }
 }

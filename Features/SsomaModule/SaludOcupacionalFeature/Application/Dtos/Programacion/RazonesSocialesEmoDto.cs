@@ -20,5 +20,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         /// mostrando los cupos —el dato es cierto— pero deja elegir una razón social llena.
         /// </summary>
         public bool SinTopePorReemplazo { get; set; }
+
+        /// <summary>
+        /// La razón social que la ficha de pre-ingreso ya tiene, para traerla elegida. La usa
+        /// «Registrar resultados de EMO», que elige al trabajador con el buscador y no tiene la fila
+        /// de la lista. Null si no tiene ninguna o si ya está adentro: ahí la vigente es la de su
+        /// vinculación y no se elige en el EMO.
+        /// </summary>
+        public int? RazonSocialActualId { get; set; }
     }
 }

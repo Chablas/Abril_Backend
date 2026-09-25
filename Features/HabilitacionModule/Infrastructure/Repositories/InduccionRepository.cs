@@ -74,14 +74,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (nuevos.Count == 0) return [];
 
-            var empresaId = dto.EmpresaId ?? 0;
+            // Cada inducción lleva la razón social de SU trabajador, la misma que la lista de
+            // «Programar Inducción» le muestra. Antes llevaban todas la del primer seleccionado, y
+            // un trabajador sin ninguna caía en empresa_id = 0: la FK a contributor lo rechazaba
+            // con un 500 genérico (le pasó a un ingreso por carta oferta cuyo EMO se cargó con
+            // «Registrar EMO» en vez de programarse, que es donde se elige la razón social).
+            var empresas = await EmpresaEnProyectoAsync(ctx, nuevos, dto.ProyectoId);
+            var sinRazonSocial = nuevos.Where(wId => empresas[wId] == null).ToList();
+            if (sinRazonSocial.Count > 0)
+            {
+                var nombres = await ctx.Worker
+                    .Where(w => sinRazonSocial.Contains(w.Id))
+                    .Select(w => w.Person != null ? w.Person.FullName : null)
+                    .ToListAsync();
+                throw new AbrilException(sinRazonSocial.Count == 1
+                    ? $"{nombres.FirstOrDefault()} no tiene razón social asignada, así que no se le puede programar la inducción."
+                    : $"No tienen razón social asignada, así que no se les puede programar la inducción: {string.Join(", ", nombres)}.", 400);
+            }
+
             var now = DateTime.UtcNow;
 
             var inducciones = nuevos.Select(wId => new SsInduccion
             {
                 WorkerId = wId,
                 ProyectoId = dto.ProyectoId,
-                EmpresaId = empresaId,
+                EmpresaId = empresas[wId]!.Value,
                 FechaProgramada = fecha,
                 TrabajoAltura = dto.TrabajoAltura,
                 EquipoElectrico = dto.EquipoElectrico,
@@ -271,20 +288,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             workerIds = workers.Keys.ToList();
             if (workerIds.Count == 0) return [];
 
-            // Última vinculación de cada worker para resolver empresa
-            var todasVinculaciones = await ctx.WorkerVinculacion
-                .Where(v => workerIds.Contains(v.WorkerId))
-                .OrderByDescending(v => v.CreatedAt)
-                .ThenByDescending(v => v.Id)
-                .ToListAsync();
+            // Razón social de cada worker: la misma con la que se le guarda la inducción.
+            var empresaPorWorker = await EmpresaEnProyectoAsync(ctx, workerIds, proyectoId);
 
-            var ultimaVinculacion = todasVinculaciones
-                .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            var empresaIds = ultimaVinculacion.Values
-                .Where(v => v.EmpresaId.HasValue)
-                .Select(v => v.EmpresaId!.Value)
+            var empresaIds = empresaPorWorker.Values
+                .Where(e => e.HasValue)
+                .Select(e => e!.Value)
                 .Distinct()
                 .ToList();
 
@@ -298,29 +307,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(wp => wp.WorkerId)
                 .ToListAsync()).ToHashSet();
 
-            // Empresa con la que el worker está asignado a ESTE proyecto (multi-proyecto Casa).
-            // Sin esto, un worker asignado aquí con una empresa distinta a la de su vinculación
-            // principal (en otro proyecto) mostraba la empresa equivocada.
-            //
-            // Un worker puede tener más de una fila para el MISMO proyecto (doble asignación,
-            // p. ej. registrada por dos contratas o por error) — ToDictionaryAsync directo
-            // revienta con "An item with the same key has already been added" en ese caso
-            // (bug real, visto en Cedro 33: varios workers con 2 filas para proyecto_id=8).
-            // Se agrupa y se toma la más reciente, igual que ultimaVinculacion más arriba.
-            var empresaPorProyectoMap = (await ctx.WorkerProyecto
-                .Where(wp => wp.ProyectoId == proyectoId && workerIds.Contains(wp.WorkerId) && wp.EmpresaId.HasValue)
-                .ToListAsync())
-                .GroupBy(wp => wp.WorkerId)
-                .ToDictionary(g => g.Key, g => g.OrderByDescending(wp => wp.Id).First().EmpresaId!.Value);
-
             return workerIds
                 .Where(workers.ContainsKey)
                 .Select(wId =>
                 {
                     var w = workers[wId];
-                    var empId = empresaPorProyectoMap.TryGetValue(wId, out var empProyecto)
-                        ? empProyecto
-                        : ultimaVinculacion.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
+                    var empId = empresaPorWorker[wId];
                     empresaMap.TryGetValue(empId ?? 0, out var empNombre);
                     return new InduccionTrabajadorDto
                     {
@@ -472,6 +464,45 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 workerProyecto.FechaInduccion = DateOnly.FromDateTime(DateTime.UtcNow);
                 workerProyecto.UpdatedAt = DateTimeOffset.UtcNow;
             }
+        }
+
+        /// <summary>
+        /// La razón social con la que cada trabajador se induce en <paramref name="proyectoId"/>:
+        /// la de su asignación a ESE proyecto y, si no la tiene, la de su última vinculación. Null
+        /// si no tiene ninguna. La lista de «Programar Inducción» la muestra y
+        /// <see cref="CreateAsync"/> la guarda, así que las dos salen de acá.
+        ///
+        /// <para>Primero la del proyecto (multi-proyecto Casa): un worker asignado aquí con una
+        /// empresa distinta a la de su vinculación principal, en otro proyecto, mostraba la
+        /// equivocada. Y puede tener más de una fila para el MISMO proyecto (doble asignación, p. ej.
+        /// registrada por dos contratas o por error; visto en Cedro 33 con proyecto_id = 8), así
+        /// que un ToDictionary directo revienta con "An item with the same key has already been
+        /// added": se agrupa y manda la más reciente, igual que en la vinculación.</para>
+        /// </summary>
+        private static async Task<Dictionary<int, int?>> EmpresaEnProyectoAsync(
+            AppDbContext ctx, List<int> workerIds, int proyectoId)
+        {
+            var enProyecto = (await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId && workerIds.Contains(wp.WorkerId) && wp.EmpresaId.HasValue)
+                .Select(wp => new { wp.Id, wp.WorkerId, wp.EmpresaId })
+                .ToListAsync())
+                .GroupBy(wp => wp.WorkerId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(wp => wp.Id).First().EmpresaId);
+
+            var enUltimaVinculacion = (await ctx.WorkerVinculacion
+                .Where(v => workerIds.Contains(v.WorkerId))
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .Select(v => new { v.WorkerId, v.EmpresaId })
+                .ToListAsync())
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First().EmpresaId);
+
+            return workerIds.Distinct().ToDictionary(
+                id => id,
+                id => enProyecto.TryGetValue(id, out var empresa)
+                    ? empresa
+                    : enUltimaVinculacion.GetValueOrDefault(id));
         }
     }
 }

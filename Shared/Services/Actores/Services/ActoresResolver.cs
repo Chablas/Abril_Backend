@@ -227,20 +227,22 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         }
 
         /// <summary>
-        /// De quién se habla en una ficha: su cadena de áreas, su caso (por su categoría y su obra), su
-        /// obra y lo personalizado para él.
+        /// De quién se habla en una ficha: su cadena de áreas, su caso (por su categoría, su obra y si
+        /// administra alguna), su obra y lo personalizado para él.
         /// </summary>
         private static Sujeto SujetoDe(Contexto contexto, Ficha ficha, int? proyecto)
         {
             var esObra = proyecto is int p && contexto.Estructura.Obras.Contains(p);
+            var esAdministrador = ficha.WorkerId > 0
+                && contexto.Estructura.EsAdministradorDeObra(ficha.WorkerId, ficha.PersonId);
 
             var propios = ficha.WorkerId > 0 && contexto.Individuales.TryGetValue(ficha.WorkerId, out var ind)
                 ? ind
                 : SinPersonalizados;
 
             return new Sujeto(
-                contexto.Cadena(ficha.AreaScopeId), ActorCasoIds.De(ficha.CategoriaId, esObra), proyecto, esObra,
-                propios, Excluir: null, Previsualizacion: false);
+                contexto.Cadena(ficha.AreaScopeId), ActorCasoIds.De(ficha.CategoriaId, esObra, esAdministrador),
+                proyecto, esObra, propios, Excluir: null, Previsualizacion: false);
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -255,9 +257,9 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         /// <summary>Un actor para un sujeto: lo personalizado del trabajador, o lo del grupo.</summary>
         private static ActorResultado ResolverActor(Contexto contexto, Sujeto sujeto, int actorId)
         {
-            // El jefe notificado solo existe para el staff: la salida la aprueba el residente y su
-            // jefe se entera. En oficina central el que aprueba ya es el jefe.
-            if (actorId == ActorIds.JefeNotificado && sujeto.CasoId != ActorCasoIds.Staff)
+            // El jefe notificado solo existe donde la salida la aprueba el residente (staff y
+            // administrador de obra). En oficina central y en las jefaturas el que aprueba ya es el jefe.
+            if (actorId == ActorIds.JefeNotificado && !ActorCasoIds.TieneJefeNotificado(sujeto.CasoId))
                 return new ActorResultado { ActorId = actorId, Aplica = false };
 
             var grupo = ResolverGrupo(contexto, sujeto, actorId);
@@ -321,7 +323,8 @@ namespace Abril_Backend.Shared.Services.Actores.Services
 
                 foreach (var tramo in regla.Tramos)
                 {
-                    var validas = Validas(sujeto, tramo.Personas.Select(APersona));
+                    var candidatos = tramo.Personas.Select(APersona);
+                    var validas = tramo.AdmiteAdentro ? Distintas(candidatos) : Validas(sujeto, candidatos);
                     if (validas.Count > 0)
                         return new ActorResultado
                         {
@@ -357,6 +360,9 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         ///       – consolidar       → el administrador de obra y nadie más (sin él, la jefatura);
         ///       – firmar el consolidado → el administrador de obra y DESPUÉS el residente, en ese
         ///         orden (respaldo: la jefatura del área).
+        ///   • ADMINISTRADOR DE OBRA: como el staff, salvo que la 1.ª revisión es del RESIDENTE, el
+        ///     jefe notificado es nadie (ni siquiera en una gerencia: solo lo que se personalice) y el
+        ///     consolidado lo firma él mismo con el residente, aunque esté dentro del documento.
         ///   • JEFE / SUBGERENTE / RESIDENTE: los aprueba y los firma un gerente, así que los nodos
         ///     estándar no aportan nada para esos actores y la búsqueda sube sola hasta la gerencia.
         ///     Los consolida su par: los de su misma categoría en su área —el propio incluido— y, a un
@@ -365,6 +371,12 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         private static Regla Algoritmo(Contexto contexto, Sujeto sujeto, int nodo, int actorId)
         {
             var jefatura = contexto.Estructura.JefaturaPorNodo[nodo].ToList();
+            var esAdministrador = sujeto.CasoId == ActorCasoIds.AdministradorObra;
+
+            // De las salidas del administrador de obra no se avisa a ningún jefe: ni el del área ni,
+            // subiendo, el gerente. Solo lo que se personalice.
+            if (esAdministrador && actorId == ActorIds.JefeNotificado)
+                return Regla.Nada;
 
             // En una gerencia todo es su gerente: la jefatura de ese nodo solo tiene gerentes.
             if (contexto.Arbol.Gerencias.Contains(nodo))
@@ -376,12 +388,13 @@ namespace Abril_Backend.Shared.Services.Actores.Services
                     return Regla.De(new Tramo(jefatura, Todos: actorId == ActorIds.Consolidador));
 
                 case ActorCasoIds.Staff:
+                case ActorCasoIds.AdministradorObra:
                 {
                     // Una fila de la pantalla sin obra no puede nombrar a nadie de la obra: cada
                     // trabajador tiene la suya. Se describe la regla (el jefe notificado sí tiene
                     // nombre: es la jefatura del área).
                     if (sujeto.Previsualizacion && sujeto.ProyectoId == null && actorId != ActorIds.JefeNotificado)
-                        return Regla.Describir(DescriptorDeLaObra(actorId));
+                        return Regla.Describir(DescriptorDeLaObra(sujeto.CasoId, actorId));
 
                     EstructuraAreaLoader.PersonaDeArea? residente = null, administrador = null;
                     if (sujeto.EsObra && sujeto.ProyectoId is int obra)
@@ -396,11 +409,16 @@ namespace Abril_Backend.Shared.Services.Actores.Services
                     {
                         ActorIds.AprobadorSalida          => Regla.De(Tramo.De(residente), jefe),
                         ActorIds.JefeNotificado           => Regla.De(jefe),
-                        ActorIds.AprobadorPrimeraRevision => Regla.De(Tramo.De(administrador), jefe),
+                        // Al administrador lo revisa el residente; a su gente, él.
+                        ActorIds.AprobadorPrimeraRevision => Regla.De(Tramo.De(esAdministrador ? residente : administrador), jefe),
                         ActorIds.Consolidador             => administrador != null
                                                                  ? Regla.De(Tramo.De(administrador))
                                                                  : Regla.De(new Tramo(jefatura, Todos: true)),
-                        ActorIds.AprobadorConsolidado     => Regla.De(Tramo.De(administrador, residente), jefe),
+                        // Doble firma: el administrador firma también lo suyo, porque después firma
+                        // el residente.
+                        ActorIds.AprobadorConsolidado     => Regla.De(
+                                                                 Tramo.De(administrador, residente) with { AdmiteAdentro = esAdministrador },
+                                                                 jefe),
                         _                                  => Regla.Nada,
                     };
                 }
@@ -434,9 +452,11 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         }
 
         /// <summary>Cómo se nombra, en una fila sin obra, al que el algoritmo saca de la obra.</summary>
-        private static string DescriptorDeLaObra(int actorId) => actorId switch
+        private static string DescriptorDeLaObra(int casoId, int actorId) => actorId switch
         {
             ActorIds.AprobadorSalida      => "Residente de la obra",
+            ActorIds.AprobadorPrimeraRevision when casoId == ActorCasoIds.AdministradorObra
+                                          => "Residente de la obra",
             ActorIds.AprobadorConsolidado => "Administrador de obra y residente",
             _                             => "Administrador de obra",
         };
@@ -457,8 +477,11 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         /// <summary>
         /// Un grupo de candidatos del algoritmo. <paramref name="Todos"/> = en los actores de varios,
         /// cuentan todos (el administrador y el residente firman los dos); si no, solo el primero.
+        /// <paramref name="AdmiteAdentro"/> = vale aunque esté dentro del documento (la firma del
+        /// administrador de obra sobre lo suyo); si no, el algoritmo salta a los de adentro.
         /// </summary>
-        private sealed record Tramo(IReadOnlyList<EstructuraAreaLoader.PersonaDeArea> Personas, bool Todos)
+        private sealed record Tramo(
+            IReadOnlyList<EstructuraAreaLoader.PersonaDeArea> Personas, bool Todos, bool AdmiteAdentro = false)
         {
             public static Tramo De(params EstructuraAreaLoader.PersonaDeArea?[] personas) =>
                 new(personas.Where(p => p != null).Select(p => p!).ToList(), Todos: true);

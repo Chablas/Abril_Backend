@@ -102,8 +102,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                         }
 
                         // 1b) Aviso informativo al jefe notificado, que solo existe para el
-                        //     personal de staff. Mismas llamadas que el envío real, para no
-                        //     anunciar un correo que después no sale.
+                        //     staff (del administrador de obra, solo si se personalizó). Mismas
+                        //     llamadas que el envío real, para no anunciar un correo que después no sale.
                         var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
                         if (jefeArea != null)
                         {
@@ -410,7 +410,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 // 5a-bis. El jefe notificado, que solo existe para el personal de STAFF: la salida
                 //         la decide el residente de la obra y el jefe no se enteraba de las salidas
-                //         de su gente. Se resuelve UNA vez y lo usan los dos correos que siguen.
+                //         de su gente (del administrador de obra no se avisa a nadie, salvo que se
+                //         personalice). Se resuelve UNA vez y lo usan los dos correos que siguen.
                 var jefeArea = await ResolveJefeAInformarAsync(solicitante.Id, revisor);
 
                 // El aviso informativo va aparte y no como copia del correo del revisor a propósito:
@@ -778,7 +779,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         // Al personal de STAFF lo aprueba el residente de su obra, y su jefe recibe un correo que le
         // cuenta la salida sin pedirle nada: es el actor "jefe notificado de la salida"
         // (ActorIds.JefeNotificado), que se personaliza igual que los demás — en Revisores de Áreas o
-        // en la ficha del trabajador —. A oficina central no aplica: ahí el que aprueba ya es el jefe.
+        // en la ficha del trabajador —. Al administrador de obra también lo aprueba el residente, pero
+        // de sus salidas no se avisa a nadie salvo que se personalice. A oficina central no aplica:
+        // ahí el que aprueba ya es el jefe.
 
         /// <summary>
         /// El jefe notificado de esta salida, o null si no hay ninguno. Se resuelve UNA vez por
@@ -787,7 +790,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         ///
         /// Devuelve null cuando:
         ///
-        ///   • el solicitante no es staff — el actor no existe para él;
+        ///   • el solicitante no es staff ni administrador de obra — el actor no existe para él;
         ///   • no se resuelve a nadie — sin jefatura no hay a quién informar, y el fallback de GTH está
         ///     fuera a propósito (ver <c>IJefeRevisorResolver</c>);
         ///   • el jefe notificado ES el revisor (una gerencia, o un personalizado igual en los dos): el

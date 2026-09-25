@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
 {
     /// <summary>
     /// Lectura y escritura de Gestión Administrativa → Configuración → Revisores de Áreas: lo
-    /// personalizado por área (<c>area_actor_asignacion</c>) para los cinco actores y los cinco casos.
+    /// personalizado por área (<c>area_actor_asignacion</c>) para cada actor y cada tipo de trabajador.
     ///
     /// Reemplaza a las tres pantallas que decían lo mismo por separado (Revisores de Áreas de
     /// Solicitud de Salidas y de Mis Rendiciones, y Consolidadores de Consolidados). Lo que la
@@ -263,7 +263,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
                 if (!casosDeLaFila.Contains(celda.CasoId))
                     throw new AbrilException("Uno de los tipos de trabajador no corresponde a esta fila.", 400);
                 if (!Aplica(celda.ActorId, celda.CasoId) && (celda.Asignados?.Count ?? 0) > 0)
-                    throw new AbrilException("El jefe notificado solo se asigna para el personal de staff.", 400);
+                    throw new AbrilException(
+                        "El jefe notificado solo se asigna para el personal de staff y los administradores de obra.", 400);
                 if ((celda.Asignados ?? new List<AsignadoInputDto>()).GroupBy(a => a.WorkerId).Any(g => g.Count() > 1))
                     throw new AbrilException("No se puede asignar dos veces a la misma persona en un mismo actor.", 400);
             }
@@ -361,7 +362,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
         /// <summary>
         /// La cabecera del detalle de una fila y los casos que muestra: la fila del área, todos; la de
         /// una obra, los que pueden estar en una obra (no oficina central); la de OFICINA CENTRAL, los
-        /// que no son staff. Una gerencia no se parte por obra.
+        /// que no son de obra (ni staff ni administrador de obra). Una gerencia no se parte por obra.
         /// </summary>
         private static async Task<(RevisoresAreaDetalleDto Fila, int[] Casos)> DescribirFilaAsync(
             AppDbContext ctx, AreaAsignacionNodos.NodoArea nodo, int? projectId)
@@ -389,13 +390,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
             fila.EsObra = await ObrasLoader.Obras(ctx).AnyAsync(p => p.ProjectId == projectId.Value);
 
             return (fila, fila.EsObra
-                ? new[] { ActorCasoIds.Staff, ActorCasoIds.Jefe, ActorCasoIds.Residente, ActorCasoIds.Subgerente }
+                ? new[] { ActorCasoIds.Staff, ActorCasoIds.AdministradorObra, ActorCasoIds.Jefe, ActorCasoIds.Residente, ActorCasoIds.Subgerente }
                 : new[] { ActorCasoIds.OficinaCentral, ActorCasoIds.Jefe, ActorCasoIds.Residente, ActorCasoIds.Subgerente });
         }
 
-        /// <summary>El jefe notificado solo existe para el staff; el resto de los actores, para todos.</summary>
+        /// <summary>
+        /// El jefe notificado solo existe para el staff y el administrador de obra; el resto de los
+        /// actores, para todos.
+        /// </summary>
         private static bool Aplica(int actorId, int casoId)
-            => actorId != ActorIds.JefeNotificado || casoId == ActorCasoIds.Staff;
+            => actorId != ActorIds.JefeNotificado || ActorCasoIds.TieneJefeNotificado(casoId);
 
         /// <summary>
         /// Para cada área, las obras vigentes de la gente de su rama (el nodo y todo su subárbol):

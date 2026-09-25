@@ -59,12 +59,23 @@ namespace Abril_Backend.Shared.Services.Jerarquia
         /// workers.id de cada jefatura → su obra vigente. Hace falta porque a un residente lo
         /// consolidan los residentes de su MISMA obra.
         /// </param>
+        /// <param name="AdministradoresEnFunciones">
+        /// Quienes administran alguna obra ACTIVA: son el caso «Administrador de obra». Una obra
+        /// cerrada no cuenta, porque su administrador puede estar hoy en otro puesto.
+        /// </param>
         public sealed record EstructuraArea(
             ILookup<int, PersonaDeArea> JefaturaPorNodo,
             IReadOnlyDictionary<int, PersonaDeArea> ResidentePorProyecto,
             IReadOnlyDictionary<int, PersonaDeArea> AdministradorPorProyecto,
             IReadOnlySet<int> Obras,
-            IReadOnlyDictionary<int, int?> ObraDeJefatura);
+            IReadOnlyDictionary<int, int?> ObraDeJefatura,
+            IReadOnlyList<PersonaDeArea> AdministradoresEnFunciones)
+        {
+            /// <summary>true = la ficha, o la misma persona con otra ficha, administra una obra activa.</summary>
+            public bool EsAdministradorDeObra(int workerId, int? personId) =>
+                AdministradoresEnFunciones.Any(a =>
+                    a.WorkerId == workerId || (personId != null && a.PersonId == personId));
+        }
 
         /// <summary>Padre de cada nodo vivo del árbol (tabla chica: se trae entera).</summary>
         public static async Task<Dictionary<int, int?>> CargarArbolAsync(AppDbContext ctx)
@@ -185,7 +196,7 @@ namespace Abril_Backend.Shared.Services.Jerarquia
             // agregar la otra traería una FK sombra. Qué es una obra lo dice ObrasLoader, el mismo que
             // usa la visibilidad.
             var obras = await ObrasLoader.Obras(ctx)
-                .Select(p => new { p.ProjectId, p.ResidenteWorkersId, p.WorkersCoordAdminId })
+                .Select(p => new { p.ProjectId, p.Active, p.ResidenteWorkersId, p.WorkersCoordAdminId })
                 .ToListAsync();
 
             var personasDeObra = await PersonasAsync(
@@ -196,8 +207,9 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                      .Distinct()
                      .ToList());
 
-            var residentePorProyecto     = new Dictionary<int, PersonaDeArea>();
-            var administradorPorProyecto = new Dictionary<int, PersonaDeArea>();
+            var residentePorProyecto       = new Dictionary<int, PersonaDeArea>();
+            var administradorPorProyecto   = new Dictionary<int, PersonaDeArea>();
+            var administradoresEnFunciones = new List<PersonaDeArea>();
 
             foreach (var o in obras)
             {
@@ -207,7 +219,10 @@ namespace Abril_Backend.Shared.Services.Jerarquia
 
                 if (o.WorkersCoordAdminId != null
                     && personasDeObra.TryGetValue(o.WorkersCoordAdminId.Value, out var adm))
+                {
                     administradorPorProyecto[o.ProjectId] = adm;
+                    if (o.Active) administradoresEnFunciones.Add(adm);
+                }
             }
 
             // La obra de cada jefatura: solo la mira la regla de los consolidadores de un residente
@@ -220,7 +235,8 @@ namespace Abril_Backend.Shared.Services.Jerarquia
                 residentePorProyecto,
                 administradorPorProyecto,
                 obras.Select(o => o.ProjectId).ToHashSet(),
-                obraDeJefatura);
+                obraDeJefatura,
+                administradoresEnFunciones);
         }
 
         /// <summary>

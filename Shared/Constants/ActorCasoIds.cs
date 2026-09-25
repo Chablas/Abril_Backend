@@ -28,15 +28,24 @@ namespace Abril_Backend.Shared.Constants
         /// <summary>Categoría SUB GERENTE.</summary>
         public const int Subgerente = 5;
 
-        /// <summary>Los cinco, en el orden en que se muestran.</summary>
-        public static readonly int[] Todos = { OficinaCentral, Staff, Jefe, Residente, Subgerente };
+        /// <summary>
+        /// Trabajador que no es jefatura, trabaja en una obra y administra alguna obra activa
+        /// (<c>project.workers_coord_admin_id</c>). Es un cargo del proyecto, no una categoría. Como el
+        /// staff, salvo que su 1.ª revisión la aprueba el residente, de sus salidas no se avisa a
+        /// ningún jefe y su consolidado lo firma él mismo junto con el residente.
+        /// </summary>
+        public const int AdministradorObra = 6;
+
+        /// <summary>Todos, en el orden en que se muestran.</summary>
+        public static readonly int[] Todos = { OficinaCentral, Staff, AdministradorObra, Jefe, Residente, Subgerente };
 
         /// <summary>
-        /// El caso de un trabajador: su categoría si es jefatura y, si no, dónde trabaja.
-        /// Ficha sin puesto = sin categoría = trabajador normal.
+        /// El caso de un trabajador: su categoría si es jefatura y, si no, dónde trabaja y si
+        /// administra una obra. Ficha sin puesto = sin categoría = trabajador normal.
         /// </summary>
         /// <param name="esObra">true si su obra vigente es una obra (no OFICINA CENTRAL ni ninguna).</param>
-        public static int De(int? categoriaId, bool esObra) => categoriaId switch
+        /// <param name="esAdministradorDeObra">true si administra alguna obra activa.</param>
+        public static int De(int? categoriaId, bool esObra, bool esAdministradorDeObra = false) => categoriaId switch
         {
             CategoriaIds.Residente  => Residente,
             CategoriaIds.Jefe       => Jefe,
@@ -44,13 +53,19 @@ namespace Abril_Backend.Shared.Constants
             CategoriaIds.Gerente
                 or CategoriaIds.GerenteGeneral
                 or CategoriaIds.GerenteAdministracionFinanzas => Jefe,
-            _ => esObra ? Staff : OficinaCentral,
+            _ => !esObra ? OficinaCentral : esAdministradorDeObra ? AdministradorObra : Staff,
         };
 
         /// <summary>true = el caso es una jefatura: lo aprueba y lo firma un gerente.</summary>
         public static bool EsJefatura(int casoId) => casoId is Jefe or Residente or Subgerente;
 
-        /// <summary>true = el caso es de un trabajador normal (oficina o staff).</summary>
-        public static bool EsNormal(int casoId) => casoId is OficinaCentral or Staff;
+        /// <summary>true = el caso es de un trabajador que no es jefatura.</summary>
+        public static bool EsNormal(int casoId) => casoId is OficinaCentral or Staff or AdministradorObra;
+
+        /// <summary>
+        /// true = el caso tiene jefe notificado de la salida: el staff y el administrador de obra, cuya
+        /// salida aprueba el residente. En el resto el que aprueba ya es el jefe.
+        /// </summary>
+        public static bool TieneJefeNotificado(int casoId) => casoId is Staff or AdministradorObra;
     }
 }

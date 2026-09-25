@@ -15,8 +15,8 @@
 --
 -- Ahora son CINCO actores —aprobador de la salida, jefe notificado de la salida,
 -- aprobador de la 1.ª revisión, consolidadores y aprobadores del consolidado—,
--- cada uno resuelto por TIPO de trabajador (oficina central, staff, jefe,
--- residente, subgerente), en UNA pantalla (Gestión Administrativa →
+-- cada uno resuelto por TIPO de trabajador (oficina central, staff, administrador
+-- de obra, jefe, residente, subgerente), en UNA pantalla (Gestión Administrativa →
 -- Configuración → Revisores de Áreas) y en la ficha del trabajador:
 --
 --   • ga_actor, ga_actor_caso     catálogos (ids fijos: ActorIds / ActorCasoIds).
@@ -105,12 +105,18 @@ CREATE TABLE IF NOT EXISTS ga_actor_caso (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_ga_actor_caso_codigo ON ga_actor_caso (codigo) WHERE state;
 
 INSERT INTO ga_actor_caso (ga_actor_caso_id, codigo, nombre, display_order) VALUES
-    (1, 'OFICINA_CENTRAL', 'Oficina central', 1),
-    (2, 'STAFF',           'Staff',           2),
-    (3, 'JEFE',            'Jefe',            3),
-    (4, 'RESIDENTE',       'Residente',       4),
-    (5, 'SUBGERENTE',      'Subgerente',      5)
+    (1, 'OFICINA_CENTRAL',    'Oficina central',       1),
+    (2, 'STAFF',              'Staff',                 2),
+    (6, 'ADMINISTRADOR_OBRA', 'Administrador de obra', 3),
+    (3, 'JEFE',               'Jefe',                  4),
+    (4, 'RESIDENTE',          'Residente',             5),
+    (5, 'SUBGERENTE',         'Subgerente',            6)
 ON CONFLICT (ga_actor_caso_id) DO NOTHING;
+
+-- El administrador de obra (id 6) llegó después: se muestra detrás de Staff.
+UPDATE ga_actor_caso c SET display_order = v.orden
+FROM (VALUES (1, 1), (2, 2), (6, 3), (3, 4), (4, 5), (5, 6)) AS v(id, orden)
+WHERE c.ga_actor_caso_id = v.id AND c.display_order <> v.orden;
 
 COMMENT ON TABLE ga_actor_caso IS
     'Tipo de trabajador para el que se resuelven los actores. Ids fijos (ActorCasoIds).';

@@ -25,6 +25,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         /// <summary>
         /// El <b>jefe notificado</b> de la salida del trabajador: solo existe para el personal de
         /// staff, al que aprueba su residente, y es su jefatura de área (o quien se haya personalizado).
+        /// Para el administrador de obra, solo quien se haya personalizado.
         /// null cuando no aplica o no se resuelve a nadie. Sin fallback a GTH: sin jefatura no hay a
         /// quién informar.
         /// </summary>

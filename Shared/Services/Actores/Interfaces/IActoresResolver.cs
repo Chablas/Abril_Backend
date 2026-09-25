@@ -94,7 +94,8 @@ namespace Abril_Backend.Shared.Services.Actores.Interfaces
         public int ActorId { get; init; }
 
         /// <summary>
-        /// false = el actor no existe para este caso (el jefe notificado solo existe para el staff).
+        /// false = el actor no existe para este caso (el jefe notificado solo existe para el staff y el
+        /// administrador de obra).
         /// </summary>
         public bool Aplica { get; init; } = true;
 

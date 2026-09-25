@@ -15,6 +15,7 @@ using Abril_Backend.Shared.Services;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using System.Globalization;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
 {
@@ -1908,6 +1909,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // aparte.
             var cartaOferta = await CartaOfertaRepository.Leer(ctx, requerimientoId);
 
+            // Un proceso cancelado dice cuándo, quién y desde qué fase: el modal lo dibuja como
+            // quedó en esa fase, en solo lectura. El roundtrip solo se paga si está cancelado.
+            var cancelacion = head.EstadoCodigo == EstadoReclutamiento.Cancelado
+                ? (await QueryCancelacion(ctx, requerimientoId))?.Dto
+                : null;
+
             return new DetalleRequerimientoGthDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -1943,6 +1950,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 CandidatosRechazados = candidatosRechazados,
                 Seleccionado         = seleccionado,
                 CartaOferta          = cartaOferta,
+                Cancelacion          = cancelacion,
             };
         }
 
@@ -1983,6 +1991,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var entrevistas = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.Entrevistas)
                 ?? throw new AbrilException("No está configurado el estado ENTREVISTAS de reclutamiento.", 500);
             var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            // Un cancelado tiene el orden del cierre y caería en el "ya está más adelante" de abajo,
+            // que responde como si hubiera funcionado.
+            EstadoReclutamiento.ValidarNoCancelado(actual?.Codigo);
 
             // Idempotente: si ya está en Entrevistas (o más adelante) no se retrocede ni se revalida.
             if (actual != null && actual.Orden >= entrevistas.Orden)
@@ -2058,15 +2070,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Candidato + puesto/código del requerimiento.
+            // Candidato + puesto/código del requerimiento, y su fase: a un proceso cancelado no se
+            // le cita a nadie.
             var cand = await (
                 from c in ctx.GthCandidato
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, c.MultitestRealizado }).FirstOrDefaultAsync();
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, c.MultitestRealizado, EstadoCodigo = e.Codigo })
+                .FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
+            EstadoReclutamiento.ValidarNoCancelado(cand.EstadoCodigo);
 
             // Formulario del postulante (debe estar aprobado) y correo al que se cita.
             var form = await (
@@ -2199,6 +2215,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from u in uJoin.DefaultIfEmpty()
                 join ps in ctx.Person on r.Solicitud!.SolicitanteUserId equals ps.UserId into psJoin
                 from ps in psJoin.DefaultIfEmpty()
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 select new
                 {
                     c.Nombre,
@@ -2211,9 +2228,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     LugarReferencia = l != null ? l.Referencia : null,
                     SolicitanteEmail  = u != null ? u.Email : null,
                     SolicitanteNombre = ps != null ? ps.FullName : null,
+                    EstadoCodigo      = e.Codigo,
                 }).FirstOrDefaultAsync();
             if (contexto == null)
                 throw new AbrilException("No se encontró el proceso al que corresponde esta entrevista.", 404);
+
+            // La citación de un proceso cancelado quedó sin efecto: responderla no registra nada ni
+            // le avisa al solicitante de una entrevista que ya no va a haber.
+            if (contexto.EstadoCodigo == EstadoReclutamiento.Cancelado)
+                throw new AbrilException(
+                    "Esta citación ya no está vigente: el proceso de selección fue cancelado.", 409);
 
             // Abrir dos veces el mismo enlace no es una respuesta nueva: se conserva la fecha
             // original y el llamador se ahorra mandarle a GTH un aviso que no cuenta nada nuevo.
@@ -2308,6 +2332,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
+
+            // Los dos que pasan por acá —enviar el informe de finalista y el correo de fin de
+            // proceso— le escriben a alguien: un proceso cancelado ya no manda ninguno.
+            EstadoReclutamiento.ValidarNoCancelado(cand.EstadoCodigo);
 
             var correo = await ctx.GthEntrevista
                 .Where(e => e.GthCandidatoId == candidatoId && e.State)
@@ -2585,9 +2613,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where c.GthCandidatoId == candidatoId && c.State
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, Puesto = p.Nombre, r.Codigo })
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo, EstadoCodigo = e.Codigo })
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("Candidato no encontrado.", 404);
+            EstadoReclutamiento.ValidarNoCancelado(cand.EstadoCodigo);
 
             var formulario = await (
                 from f in ctx.GthPostulanteFormulario
@@ -3384,6 +3414,114 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        public async Task<CancelarRequerimientoResultDto> CancelarRequerimiento(
+            int requerimientoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El requerimiento (rastreado: es el que se modifica) y la fase en la que está, en un
+            // roundtrip.
+            var data = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { Req = r, EstadoCodigo = e.Codigo, EstadoNombre = e.Nombre })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            if (data.EstadoCodigo == EstadoReclutamiento.Cancelado)
+                throw new AbrilException("Este proceso ya estaba cancelado.", 409);
+
+            if (EstadoReclutamiento.FasesTerminadas.Contains(data.EstadoCodigo))
+                throw new AbrilException(
+                    $"Este proceso ya terminó («{data.EstadoNombre}»): no se puede cancelar.", 409);
+
+            // El corte que se pidió es la carta oferta: en cuanto GTH se la manda al seleccionado,
+            // la propuesta está en su correo y el proceso ya no se cancela. Se mira la carta y no
+            // solo la fase —aunque ninguna fase de FasesCancelables pueda tener una enviada— para
+            // que el corte sea exactamente ese y no dependa de cómo se mueva la fase mañana. El
+            // borrador (generada y no enviada) no cuenta: al candidato no le llegó nada.
+            var cartaEnviada = await (
+                from ca in ctx.GthCartaOferta
+                where ca.State && ca.EnviadaDateTime != null
+                join c in ctx.GthCandidato on ca.GthCandidatoId equals c.GthCandidatoId
+                where c.State && c.GthRequerimientoId == requerimientoId
+                select ca.GthCartaOfertaId).AnyAsync();
+            if (cartaEnviada)
+                throw new AbrilException(
+                    "Ya se le envió la carta oferta al seleccionado: el proceso ya no se puede cancelar.", 409);
+
+            if (!EstadoReclutamiento.FasesCancelables.Contains(data.EstadoCodigo))
+                throw new AbrilException(
+                    $"En la fase «{data.EstadoNombre}» el proceso no se puede cancelar.", 409);
+
+            var cancelado = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && e.Codigo == EstadoReclutamiento.Cancelado)
+                .Select(e => new { e.GthEstadoRequerimientoId, e.Codigo, e.Nombre })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el estado CANCELADO de reclutamiento.", 500);
+
+            // Solo la fase. Los candidatos, sus formularios, entrevistas e informes se quedan como
+            // están: son el expediente del proceso y el detalle los sigue mostrando, en solo
+            // lectura. Tampoco se tocan la ficha de pre-ingreso del seleccionado ni su cita de EMO
+            // (si la tiene), que son de SSOMA. La fila del historial la escribe el interceptor con
+            // la fase de la que salió, que es lo que el detalle muestra como "cancelado en".
+            data.Req.GthEstadoRequerimientoId = cancelado.GthEstadoRequerimientoId;
+            data.Req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+            data.Req.UpdatedUserId            = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new CancelarRequerimientoResultDto
+            {
+                Codigo       = data.Req.Codigo,
+                EstadoCodigo = cancelado.Codigo,
+                EstadoNombre = cancelado.Nombre,
+            };
+        }
+
+        /// <summary>
+        /// Cuándo, quién y desde qué fase se canceló el proceso: la última fila del historial de
+        /// estados que lo pasó a CANCELADO. No hay columnas propias para esto porque el historial ya
+        /// lo registra —lo escribe el interceptor en el mismo guardado que la cancelación— y la
+        /// fase de la que salió es justamente su <c>estado_anterior_id</c>. Null si el requerimiento
+        /// no tiene esa fila (no está cancelado).
+        /// </summary>
+        private static async Task<(CancelacionRequerimientoDto Dto, int? FaseOrden)?> QueryCancelacion(
+            AppDbContext ctx, int requerimientoId)
+        {
+            var fila = await (
+                from h in ctx.GthRequerimientoEstadoHistorial
+                where h.GthRequerimientoId == requerimientoId && h.State
+                join e in ctx.GthEstadoRequerimiento on h.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo == EstadoReclutamiento.Cancelado
+                join ea in ctx.GthEstadoRequerimiento
+                    on h.EstadoAnteriorId equals (int?)ea.GthEstadoRequerimientoId into anteriorJoin
+                from ea in anteriorJoin.DefaultIfEmpty()
+                // Quién lo canceló. LEFT porque el usuario puede no tener ficha de persona.
+                join ps in ctx.Person on h.CambioUserId equals ps.UserId into personaJoin
+                from ps in personaJoin.DefaultIfEmpty()
+                orderby h.CambioDateTime descending, h.GthRequerimientoEstadoHistorialId descending
+                select new
+                {
+                    FaseCodigo   = ea != null ? ea.Codigo : null,
+                    FaseNombre   = ea != null ? ea.Nombre : null,
+                    FaseOrden    = ea != null ? (int?)ea.Orden : null,
+                    h.CambioDateTime,
+                    CanceladoPor = ps != null ? ps.FullName : null,
+                }).FirstOrDefaultAsync();
+
+            if (fila == null) return null;
+
+            return (new CancelacionRequerimientoDto
+            {
+                FaseCodigo   = fila.FaseCodigo,
+                FaseNombre   = fila.FaseNombre,
+                CanceladoEn  = fila.CambioDateTime.ToOffset(PeruOffset).DateTime,
+                CanceladoPor = fila.CanceladoPor,
+            }, fila.FaseOrden);
+        }
+
         public async Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -3510,6 +3648,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ?? throw new AbrilException("No está configurado el estado PUBLICACION de reclutamiento.", 500);
             var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
 
+            // Antes del SaveChanges: los canales de arriba se descartan con el rechazo.
+            EstadoReclutamiento.ValidarNoCancelado(actual?.Codigo);
+
             if (actual == null || actual.Orden < publicacion.Orden)
             {
                 req.GthEstadoRequerimientoId = publicacion.GthEstadoRequerimientoId;
@@ -3543,6 +3684,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var longList = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList)
                 ?? throw new AbrilException("No está configurado el estado LONG_LIST de reclutamiento.", 500);
             var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            // Mismo motivo que en ContinuarAEntrevistas: un cancelado no puede pasar por "ya hecho".
+            EstadoReclutamiento.ValidarNoCancelado(actual?.Codigo);
 
             // Idempotente: si ya está en Long list (o más adelante) no se retrocede ni se duplica.
             if (actual != null && actual.Orden >= longList.Orden)
@@ -3875,6 +4019,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 })
                 .ToListAsync();
 
+            // Un proceso cancelado se dibuja parado en la fase en la que estaba al cancelarse: su
+            // orden (el de CERRADO) daría todas las fases por cumplidas, que es justo lo contrario.
+            // Esa fase no está en el requerimiento sino en el historial de estados.
+            var cancelado = head.EstadoCodigo == EstadoReclutamiento.Cancelado;
+            var cancelacion = cancelado ? await QueryCancelacion(ctx, requerimientoId) : null;
+
+            // La fase que la línea de tiempo toma como la del requerimiento.
+            var faseVigente = cancelado ? cancelacion?.Dto.FaseCodigo : head.EstadoCodigo;
+
             // El ingreso directo FFT no recorre el pipeline completo: dejar «Publicación», «Long
             // list», «Formulario» o «Entrevistas» como pasos pendientes dejaría al solicitante
             // esperando algo que no va a pasar. La aprobación tampoco la recorre — a un FFT no lo
@@ -3887,17 +4040,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // quitarles su fase actual daría el proceso por más avanzado de lo que está.
             if (head.EsFft)
             {
-                fases.RemoveAll(f => f.Codigo != head.EstadoCodigo
+                fases.RemoveAll(f => f.Codigo != faseVigente
                                   && (FftFlujo.FasesOmitidas.Contains(f.Codigo)
                                    || (!head.TieneDetalle && f.Codigo == EstadoReclutamiento.AprobacionGg)));
             }
 
             // Un requerimiento rechazado por Gerencia General se quedó en esa fase: su orden (13,
             // fuera del pipeline) marcaría todas las fases como cumplidas, que es justo lo contrario.
+            // Uno cancelado sin su fila en el historial (no debería pasar) queda sin ninguna fase
+            // vigente antes que con todas cumplidas.
             var rechazadoGg = head.EstadoCodigo == EstadoReclutamiento.RechazadoGg;
             var ordenEfectivo = rechazadoGg
                 ? fases.FirstOrDefault(f => f.Codigo == EstadoReclutamiento.AprobacionGg)?.Orden ?? head.EstadoOrden
-                : head.EstadoOrden;
+                : cancelado
+                    ? cancelacion?.FaseOrden ?? 0
+                    : head.EstadoOrden;
 
             // Estado visual de cada fase respecto a la fase actual del requerimiento.
             foreach (var f in fases)
@@ -3971,6 +4128,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 // cuando el examen ya se hizo y ya se sabe cómo salió.
                 SiguientePaso         = rechazadoGg
                     ? "Gerencia General no aprobó esta vacante. Para volver a pedirla hay que registrar una nueva solicitud."
+                    : cancelado
+                    ? "GTH canceló este proceso de selección"
+                      + (cancelacion is { } c
+                            ? $" el {c.Dto.CanceladoEn.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture)}"
+                            : "")
+                      + ". Para volver a pedir la vacante hay que registrar una nueva solicitud."
                     : SiguientePasoTrasEmo(head.EstadoCodigo)
                       ?? (head.EsFft && head.EstadoCodigo == FftFlujo.FaseFormularioLegado
                             ? FftFlujo.SiguientePasoFormulario
@@ -4921,6 +5084,63 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string CerradoSinCubrir  = "CERRADO_SIN_CUBRIR";
 
         /// <summary>
+        /// Estado final del proceso que GTH <b>canceló</b>: el requerimiento no continúa y nada lo
+        /// vuelve a mover. Se llega desde cualquier fase de <see cref="FasesCancelables"/> y solo
+        /// mientras al seleccionado no se le haya enviado la carta oferta: con la carta en su correo
+        /// la propuesta ya salió y el proceso termina por la carta (ver
+        /// <c>CancelarRequerimiento</c>).
+        ///
+        /// Sembrado como <see cref="CerradoSinCubrir"/>: <c>active = false</c> (no es un paso de la
+        /// línea de tiempo) y con el <c>orden</c> de <see cref="Cerrado"/>, que es lo que hace que
+        /// las transiciones que comparan por orden («si ya llegó más allá, no se mueve») lo traten
+        /// como un proceso terminado. La fase en la que estaba al cancelarse no se guarda aparte:
+        /// es el <c>estado_anterior_id</c> de su fila en el historial de estados.
+        /// </summary>
+        public const string Cancelado         = "CANCELADO";
+
+        /// <summary>
+        /// Fases desde las que GTH puede cancelar el proceso: todas las suyas, desde que la vacante
+        /// le llega (<see cref="Nuevo"/> / <see cref="ValidacionGth"/>) hasta el resultado del EMO
+        /// de ingreso. La lista se corta justo antes de <see cref="CartaOferta"/>: enviar la carta
+        /// es el límite que pidió el usuario.
+        ///
+        /// Quedan fuera <see cref="AprobacionGg"/> (la vacante todavía no es de GTH; mientras nadie
+        /// la decide, el solicitante la puede anular desde «Solicitud de Personal») y los estados
+        /// terminales. Se escribe entera, como <see cref="FasesEnvioLongList"/>, en vez de comparar
+        /// por <c>orden</c>: los estados terminales comparten orden con el cierre.
+        /// </summary>
+        public static readonly HashSet<string> FasesCancelables = new()
+        {
+            Nuevo,
+            ValidacionGth,
+            Publicacion,
+            LongList,
+            LongListEnviada,
+            LongListAprobada,
+            Entrevistas,
+            SeleccionJefatura,
+            EmoIngreso,
+            EmoApto,
+            EmoAptoRestricciones,
+            EmoObservado,
+            EmoNoApto,
+        };
+
+        /// <summary>
+        /// Corta una acción sobre un proceso cancelado. El detalle de un cancelado ya no ofrece
+        /// ninguna, así que esto es para lo que llega igual: una pestaña que quedó abierta desde
+        /// antes de cancelar, un enlace de un correo viejo o una llamada que no viene de la
+        /// pantalla. Va en las acciones que le escriben a alguien (postulante, candidato o
+        /// solicitante) sin pasar por una validación de fase, que son las que un cancelado podía
+        /// seguir recibiendo.
+        /// </summary>
+        public static void ValidarNoCancelado(string? estadoCodigo)
+        {
+            if (estadoCodigo == Cancelado)
+                throw new AbrilException("Este proceso de selección fue cancelado: ya no admite cambios.", 409);
+        }
+
+        /// <summary>
         /// Las dos fases desde las que GTH puede mandarle la carta oferta al seleccionado: las que
         /// dicen que el examen médico salió bien.
         /// </summary>
@@ -4960,8 +5180,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <list type="bullet">
         ///   <item><description>Lo anterior a <see cref="LongList"/> (la vacante ni siquiera está
         ///   aprobada o publicada: no hay a quién mandarle nada).</description></item>
-        ///   <item><description><see cref="Cerrado"/>, <see cref="CerradoSinCubrir"/> y
-        ///   <see cref="RechazadoGg"/>: el proceso terminó.</description></item>
+        ///   <item><description><see cref="Cerrado"/>, <see cref="CerradoSinCubrir"/>,
+        ///   <see cref="Cancelado"/> y <see cref="RechazadoGg"/>: el proceso terminó.</description></item>
         /// </list>
         ///
         /// Un ingreso directo (FFT) tampoco entra, pero eso no se decide por la fase sino por
@@ -4994,6 +5214,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             Cerrado,
             CerradoSinCubrir,
+            Cancelado,
             RechazadoGg,
         };
 
@@ -5088,11 +5309,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // calcula recortando estas mismas etapas.
             new("CARTA_OFERTA", "Carta oferta", new[] { EstadoReclutamiento.CartaOferta,
                                                         EstadoReclutamiento.CartaOfertaFirmada }),
-            // CERRADO_SIN_CUBRIR entra en la etapa de cierre porque el proceso terminó igual: si no,
-            // "En proceso" (que es el total menos esta etapa) seguiría contando un requerimiento
-            // que ya no tiene nada pendiente.
+            // CERRADO_SIN_CUBRIR y CANCELADO entran en la etapa de cierre porque el proceso terminó
+            // igual: si no, "En proceso" (que es el total menos esta etapa) seguiría contando un
+            // requerimiento que ya no tiene nada pendiente. Ninguno de los dos suma en "Procesos
+            // finalizados", que cuenta solo CERRADO (la vacante se cubrió).
             new("CIERRE",      "Cierre",      new[] { EstadoReclutamiento.Cerrado,
-                                                      EstadoReclutamiento.CerradoSinCubrir }),
+                                                      EstadoReclutamiento.CerradoSinCubrir,
+                                                      EstadoReclutamiento.Cancelado }),
         };
 
         /// <summary>Código de la etapa terminal: lo ya cerrado no cuenta como proceso activo.</summary>

@@ -472,6 +472,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             int requerimientoId, int? userId) =>
             _repo.VolverALongList(requerimientoId, userId);
 
+        public Task<CancelarRequerimientoResultDto> CancelarRequerimiento(
+            int requerimientoId, int? userId) =>
+            _repo.CancelarRequerimiento(requerimientoId, userId);
+
         public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
             int candidatoId, EntrevistaGuardarDto dto, int? userId)
         {

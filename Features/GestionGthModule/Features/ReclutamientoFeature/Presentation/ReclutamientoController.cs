@@ -485,6 +485,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Vista de GTH: cancela el proceso de selección. El requerimiento pasa a CANCELADO, un
+        /// estado terminal, desde cualquier fase de GTH hasta que al seleccionado se le envía la
+        /// carta oferta. No manda correos.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento.gestionar</c> en role_feature.</remarks>
+        [HttpPost("requerimiento/{id:int}/cancelar")]
+        [RequireFeature("gestion-gth.reclutamiento.gestionar")]
+        public async Task<IActionResult> CancelarRequerimiento(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var res = await _service.CancelarRequerimiento(id, userId);
+                return Ok(new
+                {
+                    message = $"El requerimiento {res.Codigo} quedó cancelado.",
+                    res.EstadoCodigo,
+                    res.EstadoNombre,
+                });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.CancelarRequerimiento");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
         /// invitación al correo que declaró en su formulario del postulante.
         /// </summary>

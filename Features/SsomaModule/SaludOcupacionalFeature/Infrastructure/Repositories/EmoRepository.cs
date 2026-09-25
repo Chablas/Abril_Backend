@@ -5,6 +5,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
@@ -552,6 +553,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Tipo de EMO no válido.", 400);
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            // El EMO de Ingreso de una ficha de pre-ingreso es donde se elige la razón social con la
+            // que entra, también cuando se registra sin haberlo programado (el examen se hizo por
+            // fuera). Sin esto la ficha llegaba sin ninguna a la carta oferta y entraba así. Va antes
+            // de escribir nada: un rechazo no puede dejar el EMO a medio guardar.
+            if (worker.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
+                && string.Equals(tipo.Nombre?.Trim(), "Ingreso", StringComparison.OrdinalIgnoreCase))
+            {
+                if (dto.RazonSocialId is int elegida)
+                    await RazonSocialIngresoHelper.AsignarAsync(ctx, worker, elegida, _reclutamientoEmo, userId);
+                else if (worker.ContributorId == null)
+                    throw new AbrilException(
+                        "Este trabajador no tiene razón social asignada: elígele una antes de registrar el EMO.", 400);
+            }
 
             var vigenciaMeses = tipo.VigenciaMeses ?? 0;
             if (worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)

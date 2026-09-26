@@ -388,6 +388,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
         public DbSet<UserCronogramaPreference> UserCronogramaPreferences { get; set; }
+        public DbSet<CronogramaTemplateItem> CronogramaTemplateItems { get; set; }
         public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
         // ── Dossier Semanal ────────────────────────────────────────────────────
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
@@ -1603,6 +1604,17 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.HasKey(e => new { e.UserId, e.ProjectId });
                 entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30);
                 entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+            });
+
+            modelBuilder.Entity<CronogramaTemplateItem>(entity =>
+            {
+                entity.ToTable("cronograma_template_item");
+                entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.Codigo).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.Nombre).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.ParentCodigo).HasMaxLength(30);
+                entity.Property(e => e.PredecesoraCodigo).HasMaxLength(30);
+                entity.HasIndex(e => new { e.TipoCronograma, e.Codigo }).IsUnique();
             });
 
             // ── RAC — HasColumnName para prefijos conflictivos en snake_case ──

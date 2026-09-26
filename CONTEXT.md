@@ -6667,3 +6667,31 @@ Se retomó "Plantillas de Cronograma" (`CronogramaActividades`, dentro de `Unida
 - Aplicar en producción: script de esquema (`migration_cronograma_template_item_y_fix_historial.sql` o equivalente) + seed de `Migrations_Manual/2026-09-26_cronograma_template_item_seed.sql` — el usuario lo hace manualmente.
 - Reiniciar el backend local y recargar `/mejora-continua/milestone-schedule` para confirmar visualmente los 9 proyectos esperados.
 - No hay CRUD de frontend todavía para `api/v1/cronograma-actividades/plantillas` (por ahora solo consumido internamente por `AplicarPlantillaAsync`).
+
+## Sesión 2026-09-26 (cont.) — Fix subárea "Planeamiento BIM" mal escrita (7 lugares)
+
+### Contexto
+Reporte: en Configuración → Proyectos, "Responsable Planeamiento UDP" mostraba "N/A" para los 31 proyectos activos sin excepción, aunque 6 de ellos sí tenían `responsable_planeamiento_bim_id` cargado en la base. Diagnóstico sin tocar código primero (a pedido del usuario).
+
+### Diagnóstico
+- `ProjectRepository.GetPaged()` expone `ResponsablePlaneamientoBim`/`Id` como columnas planas de `project` (sin JOIN ni matching) — el campo "Responsable Planeamiento UDP" reutiliza el mismo dato que Planeamiento BIM → Configuración Inicial (decisión de la sesión 2026-08-30, `a8a73f0e`, ya en `master`).
+- El bug real está en `ProjectRepository.GetLookups()` (línea 334): `const string SubareaPlaneamientoUdp = "Planeamiento BIM"` — ese valor ya no existe en `workers.subarea`. El valor real hoy es `"Ingeniería BIM"` (confirmado por el usuario: 7 trabajadores activos, incluido worker 13714, asignado como responsable en KAURÍ/CEDRO 33). Como `GetLookups()` siempre devolvía `planeamientoUdp: []` vacío, el combo del modal de editar proyecto nunca podía matchear el id ya guardado → se veía "N/A" aunque el dato existiera en BD.
+- Histórico (`CONTEXT.md` sesión 2026-08-30): en ese momento "Planeamiento BIM" tenía 5 activos y "Ingeniería BIM" 2 (excluida a propósito). La subárea se reclasificó/renombró en algún punto entre esa fecha y hoy sin que el código se actualizara.
+- Grep de `"Planeamiento BIM"` como literal de comparación encontró **6 lugares más** con el mismo bug, no reportados originalmente por el usuario: `PlaneamientoBimConfiguracionRepository.GetResponsables()` (el propio combo de Planeamiento BIM → Configuración Inicial — el más grave, rompía la asignación en su pantalla nativa), `EvAsignacionSupervisorRepository` (Evaluaciones → Asignaciones), `EvEvaluacionResidenteRepository` (Evaluaciones → Residentes evaluables), `EvContratistaRepository` (Evaluaciones → Contratistas), `EvRecordatorioRepository` (cron de recordatorios, 2 ocurrencias), `HabTrabajadorRepository.EsCandidatoPlaneamiento()` (desactiva asignaciones huérfanas al editar ficha de trabajador).
+
+### Cambios
+Cambio idéntico en los 7 archivos: literal `"Planeamiento BIM"` → `"Ingeniería BIM"` en cada punto de comparación, sin tocar ninguna otra lógica (condiciones `OR` con "Unidad de Proyectos", queries alrededor, etc. quedaron igual). Aplicado en 2 tandas a pedido explícito del usuario: primero solo `ProjectRepository.cs:334` (el reportado), después los 6 restantes tras inventariarlos uno por uno (archivo/línea, lectura vs. escritura, pantalla que afecta).
+
+### Archivos clave
+- `Features/ConfigurationModule/Features/ProjectFeature/Infrastructure/Repositories/ProjectRepository.cs`
+- `Features/PlaneamientoBimFeature/Infrastructure/Repositories/PlaneamientoBimConfiguracionRepository.cs`
+- `Features/EvaluacionesModule/Infrastructure/Repositories/{EvAsignacionSupervisorRepository,EvEvaluacionResidenteRepository,EvContratistaRepository,EvRecordatorioRepository}.cs`
+- `Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores (287 warnings preexistentes, sin nuevos) en ambas tandas. `git diff` de los 7 archivos confirmado línea por línea: solo cambió el literal, nada más. No se corrió nada contra producción — solo se entregaron al usuario 2 SELECT de solo lectura para que él confirme: (1) que `GetLookups()` ahora traería los 7 trabajadores de "Ingeniería BIM", y (2) si hay asignaciones activas en `ev_asignacion_supervisor` de gente de "Ingeniería BIM" que el bug de `HabTrabajadorRepository` pudo haber dejado sin desactivar en el pasado (evaluación aparte, no corregido en esta sesión).
+
+### Pendiente
+- Confirmar en UI real que el combo "Responsable Planeamiento UDP" y el de Planeamiento BIM → Configuración Inicial ahora traen los 7 candidatos y matchean los 6 proyectos con responsable ya guardado.
+- Evaluar si hay asignaciones huérfanas en `ev_asignacion_supervisor` que quedaron activas por el bug histórico de `HabTrabajadorRepository` (pendiente de que el usuario corra el SELECT de verificación y decida).
+- Ninguna migración de esquema involucrada — es un fix de literal en código, no de datos.

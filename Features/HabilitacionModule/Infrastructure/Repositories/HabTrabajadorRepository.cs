@@ -2192,7 +2192,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // desactivan solas al cambiar de puesto/subárea.
             bool EsCandidatoPlaneamiento(string? subarea, string? area, int? obraOficinaId) =>
                 (subarea == "Unidad de Proyectos" && obraOficinaId == ObraOficinaStaffIds.OficinaCentral && area == "Proyectos")
-                || subarea == "Planeamiento BIM";
+                || subarea == "Ingeniería BIM";
 
             var eraCandidatoPlaneamiento = EsCandidatoPlaneamiento(subareaAnterior, areaAnterior, obraOficinaAnterior);
             var esCandidatoPlaneamientoAhora = EsCandidatoPlaneamiento(w.Subarea, w.Area, w.ObraOficinaStaffId);

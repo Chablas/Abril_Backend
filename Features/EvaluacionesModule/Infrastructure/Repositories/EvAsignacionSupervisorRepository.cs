@@ -35,7 +35,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     AND (
                       (w.subarea = 'Unidad de Proyectos' AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral} AND w.area = 'Proyectos')
                       OR
-                      (w.subarea = 'Planeamiento BIM')
+                      (w.subarea = 'Ingeniería BIM')
                     )
                   ORDER BY w.subarea, p.full_name")).ToList();
 

@@ -331,7 +331,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         {
             const string SubareaArqCom          = "Arquitectura Comercial";
             const string SubareaUdp             = "Unidad de Proyectos";
-            const string SubareaPlaneamientoUdp = "Planeamiento BIM";
+            const string SubareaPlaneamientoUdp = "Ingeniería BIM";
 
             // Un solo roundtrip: se filtra por la unión de los tres criterios y se reparte
             // en memoria. El coordinador administrativo usa el mismo criterio que Gestión de

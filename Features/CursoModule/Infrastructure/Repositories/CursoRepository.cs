@@ -77,6 +77,7 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             entity.NotaMinimaAprobacion = datos.NotaMinimaAprobacion;
             entity.Activo = datos.Activo;
             entity.ColorTema = datos.ColorTema;
+            entity.LogoUrl = datos.LogoUrl;
             entity.UpdatedAt = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
@@ -100,6 +101,7 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             entity.TipoCodigo = datos.TipoCodigo;
             entity.EsEvaluable = datos.EsEvaluable;
             entity.Puntaje = datos.Puntaje;
+            entity.ContarParaNota = datos.ContarParaNota;
             entity.ModoCorreccion = datos.ModoCorreccion;
             entity.ConfiguracionJson = datos.ConfiguracionJson;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -123,6 +125,7 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
                 TipoCodigo = original.TipoCodigo,
                 EsEvaluable = original.EsEvaluable,
                 Puntaje = original.Puntaje,
+                ContarParaNota = original.ContarParaNota,
                 ModoCorreccion = original.ModoCorreccion,
                 ConfiguracionJson = original.ConfiguracionJson,
             };
@@ -138,6 +141,33 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             var entity = await ctx.CursoSlides.FirstOrDefaultAsync(s => s.Id == slideId);
             if (entity == null) return;
             ctx.CursoSlides.Remove(entity);
+            await ctx.SaveChangesAsync();
+        }
+
+        // ---- Banco de preguntas reutilizable entre cursos ----
+
+        public async Task<List<CursoPreguntaBanco>> GetPreguntasBancoAsync(string? tipoCodigo)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = ctx.CursoPreguntasBanco.Where(p => p.Activo);
+            if (!string.IsNullOrWhiteSpace(tipoCodigo)) query = query.Where(p => p.TipoCodigo == tipoCodigo);
+            return await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
+        }
+
+        public async Task<CursoPreguntaBanco> CreatePreguntaBancoAsync(CursoPreguntaBanco pregunta)
+        {
+            using var ctx = _factory.CreateDbContext();
+            ctx.CursoPreguntasBanco.Add(pregunta);
+            await ctx.SaveChangesAsync();
+            return pregunta;
+        }
+
+        public async Task DeletePreguntaBancoAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.CursoPreguntasBanco.FirstOrDefaultAsync(p => p.Id == id);
+            if (entity == null) return;
+            ctx.CursoPreguntasBanco.Remove(entity);
             await ctx.SaveChangesAsync();
         }
     }

@@ -148,7 +148,9 @@ namespace Abril_Backend.Features.CursoModule.Application.Services
 
             var respuestas = await _intentoRepo.GetRespuestasAsync(intentoId);
             var slides = await _cursoRepo.GetSlidesOrdenadasAsync(intento.CursoId);
-            var slidesEvaluables = slides.Where(s => s.EsEvaluable).ToList();
+            // ContarParaNota=false ("solo práctica"): ResponderAsync igual corrige y devuelve
+            // acierto/error (ver EsEvaluable ahí), pero su puntaje no entra a la nota final.
+            var slidesEvaluables = slides.Where(s => s.EsEvaluable && s.ContarParaNota).ToList();
 
             decimal puntajeTotal = slidesEvaluables.Sum(s => s.Puntaje ?? 0m);
             decimal puntajeObtenido = respuestas

@@ -326,6 +326,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
         public DbSet<CursoIntentoRespuesta> CursoIntentoRespuestas => Set<CursoIntentoRespuesta>();
         public DbSet<CursoIntentoEvidencia> CursoIntentoEvidencias => Set<CursoIntentoEvidencia>();
+        public DbSet<CursoPreguntaBanco> CursoPreguntasBanco => Set<CursoPreguntaBanco>();
         public DbSet<EvPlantilla> EvPlantillas => Set<EvPlantilla>();
         public DbSet<EvEvaluacionResidente> EvEvaluacionesResidente => Set<EvEvaluacionResidente>();
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
@@ -1541,6 +1542,7 @@ namespace Abril_Backend.Infrastructure.Data
             // ── CursoModule ──────────────────────────────────────────────────
             modelBuilder.Entity<CursoSlide>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
             modelBuilder.Entity<CursoIntentoRespuesta>().Property(e => e.RespuestaJson).HasColumnType("jsonb");
+            modelBuilder.Entity<CursoPreguntaBanco>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
 
             // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // ScopeItem: evitar ambigüedad en FK self-referential con snake_case

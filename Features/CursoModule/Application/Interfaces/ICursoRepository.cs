@@ -22,5 +22,10 @@ namespace Abril_Backend.Features.CursoModule.Application.Interfaces
         Task UpdateSlideAsync(int slideId, CursoSlide datos);
         Task<CursoSlide> DuplicarSlideAsync(int slideId, int? cursoDestinoId);
         Task DeleteSlideAsync(int slideId);
+
+        // ---- Banco de preguntas reutilizable entre cursos ----
+        Task<List<CursoPreguntaBanco>> GetPreguntasBancoAsync(string? tipoCodigo);
+        Task<CursoPreguntaBanco> CreatePreguntaBancoAsync(CursoPreguntaBanco pregunta);
+        Task DeletePreguntaBancoAsync(int id);
     }
 }

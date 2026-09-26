@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public decimal NotaMinimaAprobacion { get; set; }
         public bool Activo { get; set; }
         public string? ColorTema { get; set; }
+        public string? LogoUrl { get; set; }
     }
 
     public class CursoUpsertDto
@@ -21,6 +22,7 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public decimal NotaMinimaAprobacion { get; set; }
         public bool Activo { get; set; } = true;
         public string? ColorTema { get; set; }
+        public string? LogoUrl { get; set; }
     }
 
     public class CursoSlideUpsertDto
@@ -29,6 +31,7 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public string TipoCodigo { get; set; } = string.Empty;
         public bool EsEvaluable { get; set; }
         public decimal? Puntaje { get; set; }
+        public bool ContarParaNota { get; set; } = true;
         public string? ModoCorreccion { get; set; }
         public string ConfiguracionJson { get; set; } = "{}";
     }
@@ -46,7 +49,28 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public string TipoCodigo { get; set; } = string.Empty;
         public bool EsEvaluable { get; set; }
         public decimal? Puntaje { get; set; }
+        public bool ContarParaNota { get; set; } = true;
         public string? ModoCorreccion { get; set; }
+        public string ConfiguracionJson { get; set; } = "{}";
+    }
+
+    /// <summary>Entrada del banco de preguntas reutilizable entre cursos (ver CursoPreguntaBanco).</summary>
+    public class CursoPreguntaBancoDto
+    {
+        public int Id { get; set; }
+        public string TipoCodigo { get; set; } = string.Empty;
+        public string Titulo { get; set; } = string.Empty;
+        public string? Categoria { get; set; }
+        public decimal? PuntajeSugerido { get; set; }
+        public string ConfiguracionJson { get; set; } = "{}";
+    }
+
+    public class CursoPreguntaBancoUpsertDto
+    {
+        public string TipoCodigo { get; set; } = string.Empty;
+        public string Titulo { get; set; } = string.Empty;
+        public string? Categoria { get; set; }
+        public decimal? PuntajeSugerido { get; set; }
         public string ConfiguracionJson { get; set; } = "{}";
     }
 }

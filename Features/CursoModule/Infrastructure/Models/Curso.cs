@@ -19,6 +19,10 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Models
         /// <summary>Color de acento del tema del curso (hex, ej. "#c9a53b"). Todas sus slides lo heredan
         /// por defecto vía SlideEstilo en el frontend; una slide puntual puede sobreescribirlo.</summary>
         public string? ColorTema { get; set; }
+
+        /// <summary>URL del logotipo de marca del curso (subido vía POST /imagenes), para insertarlo
+        /// rápidamente como elemento en cualquier pantalla del lienzo libre.</summary>
+        public string? LogoUrl { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
     }

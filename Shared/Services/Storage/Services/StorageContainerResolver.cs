@@ -190,5 +190,15 @@ namespace Abril_Backend.Infrastructure.Services
                 _ => throw new InvalidOperationException("Proveedor de storage no válido")
             };
         }
+
+        public string GetAtsContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.AtsContainer,
+                "local" => _options.LocalStorage.AtsContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
     }
 }

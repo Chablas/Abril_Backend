@@ -27,6 +27,14 @@ using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastruct
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
@@ -249,6 +257,15 @@ namespace Abril_Backend.Features.Ssoma
             // Auditoría ATS
             services.AddScoped<IAuditoriaAtsRepository, AuditoriaAtsRepository>();
             services.AddScoped<IAuditoriaAtsService, AuditoriaAtsService>();
+
+            // ATS Digital — cada staff llena y firma su propio Análisis de Trabajo Seguro,
+            // con selfie + geolocalización + firma como evidencia de trazabilidad.
+            services.AddScoped<IAtsRepository, AtsRepository>();
+            services.AddScoped<IAtsService, AtsService>();
+
+            // PETAR — Permiso Escrito de Trabajo de Alto Riesgo, enlazado al ATS que lo origina.
+            services.AddScoped<IPetarRepository, PetarRepository>();
+            services.AddScoped<IPetarService, PetarService>();
 
             // Amonestaciones y Suspensiones
             services.AddScoped<IAmonestacionRepository, AmonestacionRepository>();

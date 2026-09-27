@@ -11,6 +11,11 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public bool Activo { get; set; }
         public string? ColorTema { get; set; }
         public string? LogoUrl { get; set; }
+        public string? ColorMarcaSecundario { get; set; }
+        public string? ColorMarcaTerciario { get; set; }
+        public string? ColorTextoMarca { get; set; }
+        public string? EstilosTextoMarcaJson { get; set; }
+        public bool EsPlantilla { get; set; }
     }
 
     public class CursoUpsertDto
@@ -23,6 +28,11 @@ namespace Abril_Backend.Features.CursoModule.Application.Dtos
         public bool Activo { get; set; } = true;
         public string? ColorTema { get; set; }
         public string? LogoUrl { get; set; }
+        public string? ColorMarcaSecundario { get; set; }
+        public string? ColorMarcaTerciario { get; set; }
+        public string? ColorTextoMarca { get; set; }
+        public string? EstilosTextoMarcaJson { get; set; }
+        public bool EsPlantilla { get; set; }
     }
 
     public class CursoSlideUpsertDto

@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             var roleValues = roleIds.Select(r => r.ToString()).ToArray();
 
             return await ctx.Cursos
-                .Where(c => c.Activo && (c.RolDestino == null || c.RolDestino == "" || roleValues.Contains(c.RolDestino)))
+                .Where(c => c.Activo && !c.EsPlantilla && (c.RolDestino == null || c.RolDestino == "" || roleValues.Contains(c.RolDestino)))
                 .OrderBy(c => c.Titulo)
                 .ToListAsync();
         }
@@ -78,9 +78,32 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             entity.Activo = datos.Activo;
             entity.ColorTema = datos.ColorTema;
             entity.LogoUrl = datos.LogoUrl;
+            entity.ColorMarcaSecundario = datos.ColorMarcaSecundario;
+            entity.ColorMarcaTerciario = datos.ColorMarcaTerciario;
+            entity.ColorTextoMarca = datos.ColorTextoMarca;
+            entity.EstilosTextoMarcaJson = datos.EstilosTextoMarcaJson;
+            entity.EsPlantilla = datos.EsPlantilla;
             entity.UpdatedAt = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<bool> TieneIntentosAsync(int cursoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.CursoIntentos.AnyAsync(i => i.CursoId == cursoId);
+        }
+
+        public async Task DeleteCursoAsync(int cursoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var intentoIds = await ctx.CursoIntentos.Where(i => i.CursoId == cursoId).Select(i => i.Id).ToListAsync();
+
+            await ctx.CursoIntentoEvidencias.Where(e => intentoIds.Contains(e.CursoIntentoId)).ExecuteDeleteAsync();
+            await ctx.CursoIntentoRespuestas.Where(r => intentoIds.Contains(r.CursoIntentoId)).ExecuteDeleteAsync();
+            await ctx.CursoIntentos.Where(i => i.CursoId == cursoId).ExecuteDeleteAsync();
+            await ctx.CursoSlides.Where(s => s.CursoId == cursoId).ExecuteDeleteAsync();
+            await ctx.Cursos.Where(c => c.Id == cursoId).ExecuteDeleteAsync();
         }
 
         public async Task<CursoSlide> CreateSlideAsync(CursoSlide slide)

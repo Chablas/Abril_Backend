@@ -58,6 +58,35 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.SubirImagen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Indica si el curso tiene al menos un intento registrado — el frontend usa
+        /// esto para decidir cuántas confirmaciones pedir antes de eliminar (2 si nadie rindió,
+        /// 3 si ya hay evaluaciones, porque se pierde evidencia SUNAFIL).</summary>
+        [HttpGet("{id:int}/tiene-evaluaciones")]
+        public async Task<IActionResult> TieneEvaluaciones(int id)
+        {
+            try
+            {
+                var tiene = await _repo.TieneIntentosAsync(id);
+                return Ok(new { tieneEvaluaciones = tiene });
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.TieneEvaluaciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> EliminarCurso(int id)
+        {
+            try
+            {
+                var curso = await _repo.GetByIdAsync(id)
+                    ?? throw new AbrilException("Curso no encontrado.", 404);
+
+                await _repo.DeleteCursoAsync(id);
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.EliminarCurso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("admin")]
         public async Task<IActionResult> GetTodos()
         {
@@ -84,6 +113,11 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     Activo = dto.Activo,
                     ColorTema = dto.ColorTema,
                     LogoUrl = dto.LogoUrl,
+                    ColorMarcaSecundario = dto.ColorMarcaSecundario,
+                    ColorMarcaTerciario = dto.ColorMarcaTerciario,
+                    ColorTextoMarca = dto.ColorTextoMarca,
+                    EstilosTextoMarcaJson = dto.EstilosTextoMarcaJson,
+                    EsPlantilla = dto.EsPlantilla,
                 });
                 return Ok(MapToDto(curso));
             }
@@ -105,6 +139,11 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     Activo = dto.Activo,
                     ColorTema = dto.ColorTema,
                     LogoUrl = dto.LogoUrl,
+                    ColorMarcaSecundario = dto.ColorMarcaSecundario,
+                    ColorMarcaTerciario = dto.ColorMarcaTerciario,
+                    ColorTextoMarca = dto.ColorTextoMarca,
+                    EstilosTextoMarcaJson = dto.EstilosTextoMarcaJson,
+                    EsPlantilla = dto.EsPlantilla,
                 });
                 return Ok();
             }
@@ -291,6 +330,11 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             Activo = c.Activo,
             ColorTema = c.ColorTema,
             LogoUrl = c.LogoUrl,
+            ColorMarcaSecundario = c.ColorMarcaSecundario,
+            ColorMarcaTerciario = c.ColorMarcaTerciario,
+            ColorTextoMarca = c.ColorTextoMarca,
+            EstilosTextoMarcaJson = c.EstilosTextoMarcaJson,
+            EsPlantilla = c.EsPlantilla,
         };
 
         /// <summary>Slide completa (con "respuestaCorrecta" incluida) para el editor administrativo —

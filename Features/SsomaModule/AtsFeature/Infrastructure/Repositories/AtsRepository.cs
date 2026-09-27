@@ -1,0 +1,792 @@
+using System.Security.Cryptography;
+using System.Text;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Repositories;
+
+public class AtsRepository : IAtsRepository
+{
+    private const int PageSize = 20;
+
+    /// <summary>Categorías que le tocan a CUALQUIER puesto — el resto (Liberación de Seguridad/
+    /// Producción/Calidad) solo aparece si hay un mapeo explícito en ss_ats_paso_puesto.</summary>
+    private static readonly string[] CategoriasUniversales = ["Trabajos de gabinete", "Supervisión en campo"];
+
+    private readonly IDbContextFactory<AppDbContext> _factory;
+
+    public AtsRepository(IDbContextFactory<AppDbContext> factory)
+    {
+        _factory = factory;
+    }
+
+    public async Task<int> ResolverWorkerIdAsync(int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var person = await ctx.Person.FirstOrDefaultAsync(p => p.UserId == userId)
+            ?? throw new AbrilException("No tienes un perfil de persona asociado a tu usuario.", 403);
+
+        var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.PersonId == person.PersonId)
+            ?? throw new AbrilException("No tienes un perfil de trabajador registrado en el sistema.", 403);
+
+        return worker.Id;
+    }
+
+    public async Task<(int? PuestoId, int? ProyectoActualId)> GetPuestoYProyectoActual(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+
+        var vinculacionVigente = await ctx.Set<Abril_Backend.Infrastructure.Models.WorkerVinculacion>()
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .FirstOrDefaultAsync();
+
+        return (worker?.PuestoId, vinculacionVigente?.ProyectoId);
+    }
+
+    public async Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var categorias = await ctx.SsAtsCategoriaPaso
+            .Where(c => c.Activo)
+            .OrderBy(c => c.Orden)
+            .Include(c => c.Pasos.Where(p => p.Activo))
+            .ToListAsync();
+
+        var pasoIdsPermitidos = puestoId.HasValue
+            ? await ctx.SsAtsPasoPuesto.Where(pp => pp.PuestoId == puestoId).Select(pp => pp.PasoId).ToListAsync()
+            : [];
+
+        return categorias
+            .Select(c => new AtsCategoriaPasoDto
+            {
+                Id = c.Id,
+                Nombre = c.Nombre,
+                Pasos = c.Pasos
+                    .Where(p => CategoriasUniversales.Contains(c.Nombre) || pasoIdsPermitidos.Contains(p.Id))
+                    .OrderBy(p => p.Orden)
+                    .Select(p => new AtsPasoDto { Id = p.Id, Texto = p.Texto })
+                    .ToList(),
+            })
+            .Where(c => c.Pasos.Count > 0)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Agrega un paso al catálogo sobre la marcha — el ATS es dinámico, así que un paso que un
+    /// trabajador necesita y no está listado queda disponible para todos desde ese momento, no
+    /// solo para este ATS puntual. Nace SIN mapeo de puesto (visible para nadie más hasta que
+    /// alguien lo asigne en "Pasos por puesto"), salvo que su categoría sea universal.
+    /// </summary>
+    public async Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var maxOrden = await ctx.SsAtsPaso.Where(p => p.CategoriaId == categoriaId).Select(p => (short?)p.Orden).MaxAsync() ?? 0;
+
+        var paso = new SsAtsPaso { CategoriaId = categoriaId, Texto = texto, Orden = (short)(maxOrden + 1), Activo = true };
+        ctx.SsAtsPaso.Add(paso);
+        await ctx.SaveChangesAsync();
+
+        return new AtsPasoDto { Id = paso.Id, Texto = paso.Texto };
+    }
+
+    public async Task<List<AtsPeligroDto>> GetPeligrosConRiesgos()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var peligros = await ctx.SsAtsPeligro
+            .Where(p => p.Activo)
+            .OrderBy(p => p.Orden)
+            .Include(p => p.Riesgos.Where(r => r.Activo))
+            .ToListAsync();
+
+        return peligros.Select(p => new AtsPeligroDto
+        {
+            Id = p.Id,
+            Nombre = p.Nombre,
+            Riesgos = p.Riesgos.OrderBy(r => r.Orden)
+                .Select(r => new AtsRiesgoDto { Id = r.Id, Nombre = r.Nombre, RequierePetar = r.RequierePetar })
+                .ToList(),
+        }).ToList();
+    }
+
+    public async Task SetRiesgoRequierePetar(int riesgoId, bool requierePetar)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var riesgo = await ctx.SsAtsRiesgo.FirstOrDefaultAsync(r => r.Id == riesgoId)
+            ?? throw new AbrilException("Riesgo no encontrado.", 404);
+        riesgo.RequierePetar = requierePetar;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<AtsEppDto>> GetEppActivos()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsEpp.Where(e => e.Activo).OrderBy(e => e.Orden)
+            .Select(e => new AtsEppDto { Id = e.Id, Nombre = e.Nombre }).ToListAsync();
+    }
+
+    public async Task<List<AtsHerramientaDto>> GetHerramientasActivas()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsHerramienta.Where(h => h.Activo).OrderBy(h => h.Categoria).ThenBy(h => h.Orden)
+            .Select(h => new AtsHerramientaDto { Id = h.Id, Nombre = h.Nombre, Categoria = h.Categoria }).ToListAsync();
+    }
+
+    public async Task<List<AtsProyectoDto>> GetProyectosActivos()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Project.Where(p => p.Active).OrderBy(p => p.ProjectDescription)
+            .Select(p => new AtsProyectoDto { Id = p.ProjectId, Nombre = p.ProjectDescription }).ToListAsync();
+    }
+
+    public async Task<List<AtsPlantillaDto>> GetPlantillasActivas()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var plantillas = await ctx.SsAtsPlantilla
+            .Where(p => p.Activo)
+            .Include(p => p.Peligros)
+            .Include(p => p.Epps)
+            .Include(p => p.Herramientas)
+            .ToListAsync();
+
+        return plantillas.Select(p => new AtsPlantillaDto
+        {
+            Id = p.Id,
+            Nombre = p.Nombre,
+            PuestoId = p.PuestoId,
+            PeligroIds = p.Peligros.Select(x => x.PeligroId).ToList(),
+            EppIds = p.Epps.Select(x => x.EppId).ToList(),
+            HerramientaIds = p.Herramientas.Select(x => x.HerramientaId).ToList(),
+        }).ToList();
+    }
+
+    public async Task<List<AtsPuestoDto>> GetPuestos()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Set<Abril_Backend.Shared.Models.Puesto>()
+            .Where(p => p.Active && p.State)
+            .OrderBy(p => p.Nombre)
+            .Select(p => new AtsPuestoDto { Id = p.PuestoId, Nombre = p.Nombre })
+            .ToListAsync();
+    }
+
+    public async Task<List<AtsPasoPuestoDto>> GetPasoPuestoMapeo()
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var pasos = await ctx.SsAtsPaso
+            .Include(p => p.Categoria)
+            .Where(p => p.Activo && !CategoriasUniversales.Contains(p.Categoria!.Nombre))
+            .OrderBy(p => p.Categoria!.Orden).ThenBy(p => p.Orden)
+            .ToListAsync();
+
+        var mapeos = await ctx.SsAtsPasoPuesto.ToListAsync();
+
+        return pasos.Select(p => new AtsPasoPuestoDto
+        {
+            PasoId = p.Id,
+            CategoriaNombre = p.Categoria!.Nombre,
+            Texto = p.Texto,
+            PuestoIds = mapeos.Where(m => m.PasoId == p.Id).Select(m => m.PuestoId).ToList(),
+        }).ToList();
+    }
+
+    public async Task SetPasoPuestos(int pasoId, List<int> puestoIds)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var existentes = await ctx.SsAtsPasoPuesto.Where(m => m.PasoId == pasoId).ToListAsync();
+        ctx.SsAtsPasoPuesto.RemoveRange(existentes);
+        foreach (var puestoId in puestoIds.Distinct())
+            ctx.SsAtsPasoPuesto.Add(new SsAtsPasoPuesto { PasoId = pasoId, PuestoId = puestoId });
+
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int?> GetPlantillaSugerida(int? puestoId)
+    {
+        if (!puestoId.HasValue) return null;
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsPlantilla.Where(p => p.Activo && p.PuestoId == puestoId).Select(p => (int?)p.Id).FirstOrDefaultAsync();
+    }
+
+    public async Task<int> Crear(int workerId, AtsGuardarRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+
+        var ats = new SsAts
+        {
+            WorkerId = workerId,
+            ProyectoId = dto.ProyectoId,
+            PuestoId = worker?.PuestoId,
+            PlantillaId = dto.PlantillaId,
+            Actividad = dto.Actividad,
+            Lugar = dto.Lugar,
+            Fecha = DateOnly.FromDateTime(DateTime.Today),
+            Estado = "Borrador",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        await LlenarDetalle(ctx, ats, dto);
+
+        ctx.SsAts.Add(ats);
+        await ctx.SaveChangesAsync();
+
+        var hash = ComputeHash(null, "Creado", ats.Id, workerId);
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog
+        {
+            AtsId = ats.Id,
+            Evento = "Creado",
+            Detalle = $"proyecto_id={dto.ProyectoId}",
+            HashAnterior = null,
+            Hash = hash,
+        });
+        await ctx.SaveChangesAsync();
+
+        return ats.Id;
+    }
+
+    public async Task Editar(int id, int workerId, AtsGuardarRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var ats = await ctx.SsAts
+            .Include(a => a.Pasos).Include(a => a.Epps).Include(a => a.Herramientas).Include(a => a.RiesgosDetalle)
+            .FirstOrDefaultAsync(a => a.Id == id)
+            ?? throw new AbrilException("ATS no encontrado.", 404);
+
+        if (ats.WorkerId != workerId)
+            throw new AbrilException("Este ATS no te pertenece.", 403);
+        if (ats.Estado != "Borrador")
+            throw new AbrilException("Un ATS firmado no se puede editar. Crea uno nuevo si necesitas corregirlo.", 409);
+
+        ats.ProyectoId = dto.ProyectoId;
+        ats.PlantillaId = dto.PlantillaId;
+        ats.Actividad = dto.Actividad;
+        ats.Lugar = dto.Lugar;
+        ats.UpdatedAt = DateTime.UtcNow;
+
+        ctx.SsAtsPasoSeleccionado.RemoveRange(ats.Pasos);
+        ctx.SsAtsEppSeleccionado.RemoveRange(ats.Epps);
+        ctx.SsAtsHerramientaSeleccionada.RemoveRange(ats.Herramientas);
+        ctx.SsAtsRiesgoDetalle.RemoveRange(ats.RiesgosDetalle);
+        ats.Pasos.Clear();
+        ats.Epps.Clear();
+        ats.Herramientas.Clear();
+        ats.RiesgosDetalle.Clear();
+
+        await LlenarDetalle(ctx, ats, dto);
+
+        await ctx.SaveChangesAsync();
+
+        var hashAnterior = await GetUltimoHashAuditLog(id);
+        var hash = ComputeHash(hashAnterior, "Editado", id, workerId);
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog { AtsId = id, Evento = "Editado", HashAnterior = hashAnterior, Hash = hash });
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Arma el detalle (pasos/EPP/herramientas/riesgos) como snapshot del catálogo — un
+    /// cambio posterior al catálogo nunca reescribe un ATS ya creado, ni siquiera en borrador.</summary>
+    private static async Task LlenarDetalle(AppDbContext ctx, SsAts ats, AtsGuardarRequestDto dto)
+    {
+        if (dto.Pasos.Count > 0)
+        {
+            var pasoIds = dto.Pasos.Select(p => p.PasoId).ToList();
+            var pasosCatalogo = await ctx.SsAtsPaso.Include(p => p.Categoria)
+                .Where(p => pasoIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+
+            short orden = 0;
+            foreach (var p in dto.Pasos)
+            {
+                if (!pasosCatalogo.TryGetValue(p.PasoId, out var cat)) continue;
+                ats.Pasos.Add(new SsAtsPasoSeleccionado
+                {
+                    PasoId = p.PasoId,
+                    CategoriaNombre = cat.Categoria?.Nombre ?? string.Empty,
+                    Texto = cat.Texto,
+                    Aplica = p.Aplica,
+                    Orden = orden++,
+                });
+            }
+        }
+
+        if (dto.EppIds.Count > 0)
+        {
+            var epps = await ctx.SsAtsEpp.Where(e => dto.EppIds.Contains(e.Id)).ToListAsync();
+            foreach (var e in epps)
+                ats.Epps.Add(new SsAtsEppSeleccionado { EppId = e.Id, Nombre = e.Nombre });
+        }
+
+        if (dto.HerramientaIds.Count > 0)
+        {
+            var herramientas = await ctx.SsAtsHerramienta.Where(h => dto.HerramientaIds.Contains(h.Id)).ToListAsync();
+            foreach (var h in herramientas)
+                ats.Herramientas.Add(new SsAtsHerramientaSeleccionada { HerramientaId = h.Id, Nombre = h.Nombre });
+        }
+
+        if (dto.Riesgos.Count > 0)
+        {
+            var riesgoIds = dto.Riesgos.Select(r => r.RiesgoId).ToList();
+            var riesgosCatalogo = await ctx.SsAtsRiesgo.Include(r => r.Peligro)
+                .Where(r => riesgoIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id);
+
+            short orden = 0;
+            foreach (var r in dto.Riesgos)
+            {
+                if (!riesgosCatalogo.TryGetValue(r.RiesgoId, out var cat)) continue;
+                ats.RiesgosDetalle.Add(new SsAtsRiesgoDetalle
+                {
+                    PeligroId = r.PeligroId,
+                    RiesgoId = r.RiesgoId,
+                    PeligroNombre = cat.Peligro?.Nombre ?? string.Empty,
+                    RiesgoNombre = cat.Nombre,
+                    RiesgoBase = r.RiesgoBase,
+                    Controles = r.Controles,
+                    RiesgoResidual = r.RiesgoResidual,
+                    Orden = orden++,
+                });
+            }
+        }
+    }
+
+    public async Task<SsAts?> GetEntidad(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAts.FirstOrDefaultAsync(a => a.Id == id);
+    }
+
+    public async Task<AtsResponseDto?> GetPorId(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ats = await ctx.SsAts
+            .Include(a => a.Worker).ThenInclude(w => w!.Person)
+            .Include(a => a.Proyecto)
+            .Include(a => a.Puesto)
+            .Include(a => a.Pasos)
+            .Include(a => a.Epps)
+            .Include(a => a.Herramientas)
+            .Include(a => a.RiesgosDetalle)
+            .FirstOrDefaultAsync(a => a.Id == id);
+
+        return ats == null ? null : ToDto(ats);
+    }
+
+    private static AtsResponseDto ToDto(SsAts ats) => new()
+    {
+        Id = ats.Id,
+        WorkerId = ats.WorkerId,
+        WorkerNombre = ats.Worker?.Person?.FullName,
+        ProyectoId = ats.ProyectoId,
+        ProyectoNombre = ats.Proyecto?.ProjectDescription,
+        PuestoId = ats.PuestoId,
+        PuestoNombre = ats.Puesto?.Nombre,
+        PlantillaId = ats.PlantillaId,
+        Actividad = ats.Actividad,
+        Lugar = ats.Lugar,
+        Fecha = ats.Fecha,
+        HoraServidorFirma = ats.HoraServidorFirma,
+        Lat = ats.Lat,
+        Lng = ats.Lng,
+        PrecisionMetros = ats.PrecisionMetros,
+        SelfieUrl = ats.SelfieUrl,
+        FirmaUrl = ats.FirmaUrl,
+        Estado = ats.Estado,
+        AtsAnteriorId = ats.AtsAnteriorId,
+        PdfHash = ats.PdfHash,
+        AutorizaNombre = ats.AutorizaNombre,
+        AutorizaCargo = ats.AutorizaCargo,
+        AutorizaFirmaUrl = ats.AutorizaFirmaUrl,
+        AutorizaHoraServidor = ats.AutorizaHoraServidor,
+        SsomaNombre = ats.SsomaNombre,
+        SsomaCargo = ats.SsomaCargo,
+        SsomaFirmaUrl = ats.SsomaFirmaUrl,
+        SsomaHoraServidor = ats.SsomaHoraServidor,
+        Pasos = ats.Pasos.OrderBy(p => p.Orden).Select(p => new AtsPasoResponseDto
+        {
+            PasoId = p.PasoId,
+            CategoriaNombre = p.CategoriaNombre,
+            Texto = p.Texto,
+            Aplica = p.Aplica,
+        }).ToList(),
+        Epps = ats.Epps.Select(e => e.Nombre).ToList(),
+        Herramientas = ats.Herramientas.Select(h => h.Nombre).ToList(),
+        Riesgos = ats.RiesgosDetalle.OrderBy(r => r.Orden).Select(r => new AtsRiesgoDetalleResponseDto
+        {
+            PeligroId = r.PeligroId,
+            RiesgoId = r.RiesgoId,
+            PeligroNombre = r.PeligroNombre,
+            RiesgoNombre = r.RiesgoNombre,
+            RiesgoBase = r.RiesgoBase,
+            Controles = r.Controles,
+            RiesgoResidual = r.RiesgoResidual,
+        }).ToList(),
+    };
+
+    public async Task CompletarInfoPetar(List<AtsResponseDto> ats)
+    {
+        if (ats.Count == 0) return;
+        using var ctx = _factory.CreateDbContext();
+
+        var riesgoIdsQueRequierenPetar = await ctx.SsAtsRiesgo.Where(r => r.RequierePetar).Select(r => r.Id).ToListAsync();
+
+        var atsIds = ats.Select(a => a.Id).ToList();
+        var petares = await ctx.SsPetar
+            .Include(p => p.Tipo)
+            .Where(p => atsIds.Contains(p.AtsId))
+            .ToListAsync();
+        var petaresPorAts = petares.ToLookup(p => p.AtsId);
+
+        foreach (var dto in ats)
+        {
+            dto.RequierePetar = dto.Riesgos.Any(r => riesgoIdsQueRequierenPetar.Contains(r.RiesgoId));
+            dto.Petares = petaresPorAts[dto.Id]
+                .Select(p => new AtsPetarResumenDto { Id = p.Id, TipoNombre = p.Tipo?.Nombre, Estado = p.Estado })
+                .ToList();
+        }
+    }
+
+    public async Task<bool> TieneConsentimiento(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsConsentimiento.AnyAsync(c => c.WorkerId == workerId);
+    }
+
+    public async Task RegistrarConsentimiento(int workerId, string? ipOrigen)
+    {
+        using var ctx = _factory.CreateDbContext();
+        ctx.SsAtsConsentimiento.Add(new SsAtsConsentimiento { WorkerId = workerId, IpOrigen = ipOrigen, AceptadoEn = DateTime.UtcNow });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<bool> TieneAutorizacionPermiso(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsAutorizacionPermiso.AnyAsync(a => a.WorkerId == workerId);
+    }
+
+    public async Task SubirAutorizacionPermiso(int workerId, string archivoUrl, int? subidoPorUserId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existente = await ctx.SsAtsAutorizacionPermiso.FirstOrDefaultAsync(a => a.WorkerId == workerId);
+
+        if (existente != null)
+        {
+            existente.ArchivoUrl = archivoUrl;
+            existente.SubidoPorUserId = subidoPorUserId;
+            existente.SubidoEn = DateTime.UtcNow;
+        }
+        else
+        {
+            ctx.SsAtsAutorizacionPermiso.Add(new SsAtsAutorizacionPermiso
+            {
+                WorkerId = workerId,
+                ArchivoUrl = archivoUrl,
+                SubidoPorUserId = subidoPorUserId,
+                SubidoEn = DateTime.UtcNow,
+            });
+        }
+
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Universo: todo trabajador activo — cualquiera puede necesitar hacer un ATS,
+    /// a diferencia del enrolamiento de Arquitectura Comercial que solo aplica a "obreros AC".</summary>
+    public async Task<List<AtsAutorizacionTrabajadorDto>> GetTrabajadoresParaAutorizacion()
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var workers = await ctx.Worker
+            .Where(w => w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo)
+            .OrderBy(w => w.Person != null ? w.Person.FullName : null)
+            .Select(w => new { w.Id, Nombre = w.Person != null ? w.Person.FullName : null, Dni = w.Person != null ? w.Person.DocumentIdentityCode : null })
+            .ToListAsync();
+
+        var workerIds = workers.Select(w => w.Id).ToList();
+        var autorizaciones = await ctx.SsAtsAutorizacionPermiso
+            .Where(a => workerIds.Contains(a.WorkerId))
+            .ToListAsync();
+        var autorizacionMap = autorizaciones.ToDictionary(a => a.WorkerId, a => a);
+
+        return workers.Select(w => new AtsAutorizacionTrabajadorDto
+        {
+            WorkerId = w.Id,
+            Nombre = w.Nombre ?? $"Worker {w.Id}",
+            Dni = w.Dni,
+            TieneAutorizacion = autorizacionMap.ContainsKey(w.Id),
+            SubidoEn = autorizacionMap.GetValueOrDefault(w.Id)?.SubidoEn,
+            ArchivoUrl = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl,
+        }).ToList();
+    }
+
+    public async Task Firmar(
+        SsAts ats, string selfieUrl, string selfieHash, string firmaUrl, string firmaHash,
+        DateTime horaServidor, AtsFirmarRequestDto body, string? ipOrigen, string? userAgent)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var entidad = await ctx.SsAts.FirstOrDefaultAsync(a => a.Id == ats.Id)
+            ?? throw new AbrilException("ATS no encontrado.", 404);
+        if (entidad.Estado != "Borrador")
+            throw new AbrilException("Este ATS ya fue firmado.", 409);
+
+        entidad.SelfieUrl = selfieUrl;
+        entidad.SelfieHash = selfieHash;
+        entidad.FirmaUrl = firmaUrl;
+        entidad.FirmaHash = firmaHash;
+        entidad.HoraServidorFirma = horaServidor;
+        entidad.HoraDispositivo = body.HoraDispositivo;
+        entidad.Lat = body.Lat;
+        entidad.Lng = body.Lng;
+        entidad.PrecisionMetros = body.PrecisionMetros;
+        entidad.IpOrigen = ipOrigen;
+        entidad.UserAgent = userAgent;
+        entidad.Estado = "Firmado";
+        entidad.UpdatedAt = DateTime.UtcNow;
+
+        await ctx.SaveChangesAsync();
+
+        var hashAnterior = await GetUltimoHashAuditLog(ats.Id);
+        var hash = ComputeHash(hashAnterior, "Firmado", ats.Id, entidad.WorkerId, firmaHash);
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog
+        {
+            AtsId = ats.Id,
+            Evento = "Firmado",
+            IpOrigen = ipOrigen,
+            Detalle = $"lat={body.Lat};lng={body.Lng};precision={body.PrecisionMetros};firma_hash={firmaHash}",
+            HashAnterior = hashAnterior,
+            Hash = hash,
+        });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task GuardarPdf(int id, string pdfUrl, string pdfHash)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ats = await ctx.SsAts.FirstOrDefaultAsync(a => a.Id == id) ?? throw new AbrilException("ATS no encontrado.", 404);
+
+        ats.PdfUrl = pdfUrl;
+        ats.PdfHash = pdfHash;
+        await ctx.SaveChangesAsync();
+
+        var hashAnterior = await GetUltimoHashAuditLog(id);
+        var hash = ComputeHash(hashAnterior, "PdfExportado", id, ats.WorkerId, pdfHash);
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog { AtsId = id, Evento = "PdfExportado", Detalle = $"pdf_hash={pdfHash}", HashAnterior = hashAnterior, Hash = hash });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<AtsResponsablesDto> GetResponsables(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var proyecto = await ctx.Project.Include(p => p.CoordAdmin)
+            .FirstOrDefaultAsync(p => p.ProjectId == proyectoId)
+            ?? throw new AbrilException("Proyecto no encontrado.", 404);
+
+        Abril_Backend.Infrastructure.Models.Worker? residente = proyecto.ResidenteWorkersId.HasValue
+            ? await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == proyecto.ResidenteWorkersId)
+            : null;
+
+        var ssomaEmails = new List<string>();
+        if (!string.IsNullOrWhiteSpace(proyecto.EmailCoordSsoma)) ssomaEmails.Add(proyecto.EmailCoordSsoma.Trim());
+        if (!string.IsNullOrWhiteSpace(proyecto.CoordAdmin?.EmailCorporativo)) ssomaEmails.Add(proyecto.CoordAdmin.EmailCorporativo.Trim());
+
+        return new AtsResponsablesDto
+        {
+            ProyectoNombre = proyecto.ProjectDescription,
+            ResidenteWorkerId = residente?.Id,
+            ResidenteNombre = residente?.Person?.FullName,
+            ResidenteEmail = residente?.EmailCorporativo,
+            SsomaEmails = ssomaEmails.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+        };
+    }
+
+    public async Task<string?> GetEmailDeUsuario(int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.User.Where(u => u.UserId == userId).Select(u => u.Email).FirstOrDefaultAsync();
+    }
+
+    public async Task<string?> GetEmailCorporativoWorker(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Worker.Where(w => w.Id == workerId).Select(w => w.EmailCorporativo).FirstOrDefaultAsync();
+    }
+
+    public async Task<(string Nombre, string? Dni)> GetNombreYDni(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == workerId)
+            ?? throw new AbrilException("Trabajador no encontrado.", 404);
+        return (worker.Person?.FullName ?? $"Worker {workerId}", worker.Person?.DocumentIdentityCode);
+    }
+
+    public async Task<(string Nombre, string? Cargo)> GetNombreYCargo(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var worker = await ctx.Worker.Include(w => w.Person).Include(w => w.PuestoCatalogo).FirstOrDefaultAsync(w => w.Id == workerId)
+            ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+        return (worker.Person?.FullName ?? $"Worker {workerId}", worker.PuestoCatalogo?.Nombre);
+    }
+
+    public async Task FirmarVisto(int atsId, string rol, int workerId, string nombre, string? cargo, string firmaUrl, string firmaHash, DateTime horaServidor)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ats = await ctx.SsAts.FirstOrDefaultAsync(a => a.Id == atsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+
+        if (ats.Estado != "Firmado")
+            throw new AbrilException("El ejecutante debe firmar el ATS antes de que se agreguen las demás firmas.", 409);
+
+        if (rol == "Autoriza")
+        {
+            if (ats.AutorizaFirmaUrl != null)
+                throw new AbrilException("Este ATS ya tiene la firma de Autoriza (Residente/Ing. Producción).", 409);
+            ats.AutorizaWorkerId = workerId;
+            ats.AutorizaNombre = nombre;
+            ats.AutorizaCargo = cargo;
+            ats.AutorizaFirmaUrl = firmaUrl;
+            ats.AutorizaFirmaHash = firmaHash;
+            ats.AutorizaHoraServidor = horaServidor;
+        }
+        else
+        {
+            if (ats.SsomaFirmaUrl != null)
+                throw new AbrilException("Este ATS ya tiene el Visto Bueno de SSOMA.", 409);
+            ats.SsomaWorkerId = workerId;
+            ats.SsomaNombre = nombre;
+            ats.SsomaCargo = cargo;
+            ats.SsomaFirmaUrl = firmaUrl;
+            ats.SsomaFirmaHash = firmaHash;
+            ats.SsomaHoraServidor = horaServidor;
+        }
+
+        ats.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        var hashAnterior = await GetUltimoHashAuditLog(atsId);
+        var hash = ComputeHash(hashAnterior, $"Firmado{rol}", atsId, workerId, firmaHash);
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog { AtsId = atsId, Evento = $"Firmado{rol}", UserId = null, Detalle = $"firma_hash={firmaHash}", HashAnterior = hashAnterior, Hash = hash });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetUltimoHashAuditLog(int atsId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsAuditLog.Where(l => l.AtsId == atsId).OrderByDescending(l => l.Id).Select(l => l.Hash).FirstOrDefaultAsync();
+    }
+
+    public async Task AgregarAuditLog(int atsId, string evento, int? userId, string? ipOrigen, string? detalle, string hashAnterior, string hash)
+    {
+        using var ctx = _factory.CreateDbContext();
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog { AtsId = atsId, Evento = evento, UserId = userId, IpOrigen = ipOrigen, Detalle = detalle, HashAnterior = hashAnterior, Hash = hash });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExisteSelfieHash(string selfieHash)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAts.AnyAsync(a => a.SelfieHash == selfieHash);
+    }
+
+    public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var query = ctx.SsAts
+            .Include(a => a.Worker).ThenInclude(w => w!.Person)
+            .Include(a => a.Proyecto)
+            .Include(a => a.Puesto)
+            .Include(a => a.Pasos)
+            .Include(a => a.Epps)
+            .Include(a => a.Herramientas)
+            .Include(a => a.RiesgosDetalle)
+            .AsQueryable();
+
+        if (filtro.ProyectoId.HasValue) query = query.Where(a => a.ProyectoId == filtro.ProyectoId);
+        if (filtro.WorkerId.HasValue) query = query.Where(a => a.WorkerId == filtro.WorkerId);
+        if (filtro.FechaDesde.HasValue) query = query.Where(a => a.Fecha >= filtro.FechaDesde);
+        if (filtro.FechaHasta.HasValue) query = query.Where(a => a.Fecha <= filtro.FechaHasta);
+        if (!string.IsNullOrWhiteSpace(filtro.Estado)) query = query.Where(a => a.Estado == filtro.Estado);
+
+        query = query.OrderByDescending(a => a.Fecha).ThenByDescending(a => a.Id);
+
+        var total = await query.CountAsync();
+        var page = Math.Max(1, filtro.Page);
+        var data = await query.Skip((page - 1) * PageSize).Take(PageSize).ToListAsync();
+
+        return new AtsListResponseDto
+        {
+            Data = data.Select(ToDto).ToList(),
+            Page = page,
+            PageSize = PageSize,
+            TotalRecords = total,
+            TotalPages = (int)Math.Ceiling(total / (double)PageSize),
+        };
+    }
+
+    // ── Administración de plantillas ────────────────────────────────────
+
+    public async Task<int> CrearPlantilla(AtsPlantillaGuardarRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var plantilla = new SsAtsPlantilla { Nombre = dto.Nombre, PuestoId = dto.PuestoId, Activo = true, CreatedAt = DateTime.UtcNow };
+        AsignarPlantillaDetalle(plantilla, dto);
+        ctx.SsAtsPlantilla.Add(plantilla);
+        await ctx.SaveChangesAsync();
+        return plantilla.Id;
+    }
+
+    public async Task EditarPlantilla(int id, AtsPlantillaGuardarRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var plantilla = await ctx.SsAtsPlantilla
+            .Include(p => p.Peligros).Include(p => p.Epps).Include(p => p.Herramientas)
+            .FirstOrDefaultAsync(p => p.Id == id) ?? throw new AbrilException("Plantilla no encontrada.", 404);
+
+        plantilla.Nombre = dto.Nombre;
+        plantilla.PuestoId = dto.PuestoId;
+        ctx.SsAtsPlantillaPeligro.RemoveRange(plantilla.Peligros);
+        ctx.SsAtsPlantillaEpp.RemoveRange(plantilla.Epps);
+        ctx.SsAtsPlantillaHerramienta.RemoveRange(plantilla.Herramientas);
+        plantilla.Peligros.Clear();
+        plantilla.Epps.Clear();
+        plantilla.Herramientas.Clear();
+        AsignarPlantillaDetalle(plantilla, dto);
+
+        await ctx.SaveChangesAsync();
+    }
+
+    private static void AsignarPlantillaDetalle(SsAtsPlantilla plantilla, AtsPlantillaGuardarRequestDto dto)
+    {
+        foreach (var pid in dto.PeligroIds) plantilla.Peligros.Add(new SsAtsPlantillaPeligro { PeligroId = pid });
+        foreach (var eid in dto.EppIds) plantilla.Epps.Add(new SsAtsPlantillaEpp { EppId = eid });
+        foreach (var hid in dto.HerramientaIds) plantilla.Herramientas.Add(new SsAtsPlantillaHerramienta { HerramientaId = hid });
+    }
+
+    public async Task DesactivarPlantilla(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var plantilla = await ctx.SsAtsPlantilla.FirstOrDefaultAsync(p => p.Id == id) ?? throw new AbrilException("Plantilla no encontrada.", 404);
+        plantilla.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Hash que encadena la fila anterior de <see cref="SsAtsAuditLog"/> con el evento
+    /// actual — ver el mismo mecanismo documentado en AtsModels.cs.</summary>
+    private static string ComputeHash(string? hashAnterior, string evento, int atsId, int workerId, string? extra = null)
+    {
+        var payload = $"{hashAnterior}|{evento}|{atsId}|{workerId}|{DateTime.UtcNow:O}|{extra}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+}

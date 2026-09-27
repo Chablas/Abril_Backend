@@ -99,7 +99,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
 
             return await ctx.Worker
-                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == "Planeamiento BIM")
+                .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == "Ingeniería BIM")
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new ResponsableBimLookupDto
                 {

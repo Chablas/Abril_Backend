@@ -267,4 +267,46 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public int ActividadesCreadas { get; set; }
     }
+
+    public class PlantillaItemDto
+    {
+        public int Id { get; set; }
+        public string TipoCronograma { get; set; } = string.Empty;
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
+    }
+
+    public class PlantillaDto
+    {
+        public string TipoCronograma { get; set; } = string.Empty;
+        public List<PlantillaItemDto> Items { get; set; } = new();
+    }
+
+    public class CrearPlantillaItemRequest
+    {
+        public string TipoCronograma { get; set; } = string.Empty;
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
+    }
+
+    public class EditarPlantillaItemRequest
+    {
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
+    }
 }

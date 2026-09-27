@@ -185,7 +185,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             bool esOficinaProyectos = Eq(evaluador.ObraOficina, "Oficina Central")
                                       && Eq(evaluador.Area, "Proyectos");
             bool esSubareaEspecial  = Eq(evaluador.Subarea, "Unidad de Proyectos")
-                                      || Eq(evaluador.Subarea, "Planeamiento BIM");
+                                      || Eq(evaluador.Subarea, "Ingeniería BIM");
 
             // REGLA 1: Oficina Central, Proyectos, subarea general, Jefe/Coordinador → ve todos
             if (esOficinaProyectos && !esSubareaEspecial

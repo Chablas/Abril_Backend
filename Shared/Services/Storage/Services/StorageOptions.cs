@@ -27,6 +27,8 @@ namespace Abril_Backend.Infrastructure.Services
         public string EppImagenesContainer { get; set; } = "epp-imagenes";
         public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
         public string ResiduosContainer { get; set; } = "residuos";
+        public string CursoImagenesContainer { get; set; } = "curso-imagenes";
+        public string AtsContainer { get; set; } = "ats";
     }
 
     public class LocalStorageOptions
@@ -48,5 +50,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string EppImagenesContainer { get; set; } = "epp-imagenes";
         public string EppFichasTecnicasContainer { get; set; } = "epp-fichas-tecnicas";
         public string ResiduosContainer { get; set; } = "residuos";
+        public string CursoImagenesContainer { get; set; } = "curso-imagenes";
+        public string AtsContainer { get; set; } = "ats";
     }
 }

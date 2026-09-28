@@ -15,6 +15,30 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Models
 
         public decimal NotaMinimaAprobacion { get; set; }
         public bool Activo { get; set; } = true;
+
+        /// <summary>Color de acento del tema del curso (hex, ej. "#c9a53b"). Todas sus slides lo heredan
+        /// por defecto vía SlideEstilo en el frontend; una slide puntual puede sobreescribirlo.</summary>
+        public string? ColorTema { get; set; }
+
+        /// <summary>URL del logotipo de marca del curso (subido vía POST /imagenes), para insertarlo
+        /// rápidamente como elemento en cualquier pantalla del lienzo libre.</summary>
+        public string? LogoUrl { get; set; }
+
+        // ---- Kit de marca (estilo Genially, gratis en Abril) ----
+        public string? ColorMarcaSecundario { get; set; }
+        public string? ColorMarcaTerciario { get; set; }
+        public string? ColorTextoMarca { get; set; }
+
+        /// <summary>JSON opaco con fuente/tamaño/color/negrita/cursiva/subrayado de cada rol de
+        /// "Estilos de texto" (Título 1/2, Subtítulo, Párrafo) — el frontend arma y parsea este
+        /// campo, el backend solo lo guarda tal cual.</summary>
+        public string? EstilosTextoMarcaJson { get; set; }
+
+        /// <summary>true = este curso es una PLANTILLA reutilizable (creada vía "Guardar como
+        /// plantilla" desde un curso real), no un curso tomable — se excluye del catálogo público
+        /// (GetActivosPorRolAsync) y aparece en la galería "Empezar desde una plantilla" del editor.</summary>
+        public bool EsPlantilla { get; set; } = false;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
     }

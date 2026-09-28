@@ -37,11 +37,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             services.AddScoped<ICronogramaActividadesService, CronogramaActividadesService>();
             services.AddScoped<ICronogramaSchedulingService, CronogramaSchedulingService>();
 
+            // PlantillaCronograma
+            services.AddScoped<IPlantillaCronogramaRepository, PlantillaCronogramaRepository>();
+            services.AddScoped<IPlantillaCronogramaService, PlantillaCronogramaService>();
+
             // MilestoneSchedule
             services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
             services.AddScoped<IMilestoneScheduleService, MilestoneScheduleService>();
             services.AddScoped<IMilestoneScheduleHistoryRepository, MilestoneScheduleHistoryRepository>();
             services.AddScoped<IMilestoneScheduleHistoryService, MilestoneScheduleHistoryService>();
+            services.AddScoped<ICronogramaPermisosRepository, CronogramaPermisosRepository>();
 
             // Projects (paged-with-residents)
             services.AddScoped<IProjectsRepo, ProjectsRepo>();

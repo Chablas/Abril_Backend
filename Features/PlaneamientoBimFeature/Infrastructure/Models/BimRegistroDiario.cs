@@ -18,17 +18,26 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         public int ProjectId { get; set; }
         public Project Project { get; set; } = null!;
 
-        [Column("zona_id")]
-        public int ZonaId { get; set; }
-        public BimProyectoZona Zona { get; set; } = null!;
+        [Column("torre_id")]
+        public int TorreId { get; set; }
+        public BimProyectoTorre Torre { get; set; } = null!;
+
+        [NotMapped]
+        public int ZonaId { get => TorreId; set => TorreId = value; }
+
+        [NotMapped]
+        public BimProyectoTorre Zona { get => Torre; set => Torre = value; }
 
         [Column("nivel_id")]
         public int NivelId { get; set; }
-        public BimZonaNivel Nivel { get; set; } = null!;
+        public BimTorreNivel Nivel { get; set; } = null!;
 
+        /// <summary>Número de sector derivado (1..N), no FK — ver BimZonaSector.cs.
+        /// Válido para el nivel si está entre 1 y la cantidad de sectores que le
+        /// corresponde en la torre según TipoEstructura del nivel; se valida en
+        /// PlaneamientoBimCargaDiariaService, no hay constraint de BD.</summary>
         [Column("sector_id")]
         public int SectorId { get; set; }
-        public BimZonaSector Sector { get; set; } = null!;
 
         [Column("actividad_id")]
         public int ActividadId { get; set; }
@@ -37,8 +46,10 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         [Column("fecha")]
         public DateOnly Fecha { get; set; }
 
-        /// <summary>% de avance de la actividad ese día, 0-100. Set fijo validado en el service
-        /// (0/25/50/75/100) — ver PlaneamientoBimCargaDiariaService.PorcentajesValidos.</summary>
+        /// <summary>% de avance de la actividad ese día. Desde el toggle binario de Carga
+        /// Diaria (Torre→Nivel→Sector) el service solo escribe 100 (hecho) o 0 (no hecho).
+        /// Valores intermedios (25/50/75) son datos históricos de un modelo anterior —
+        /// no se generan más pero no se tocan.</summary>
         [Column("porcentaje_avance")]
         public decimal PorcentajeAvance { get; set; }
 

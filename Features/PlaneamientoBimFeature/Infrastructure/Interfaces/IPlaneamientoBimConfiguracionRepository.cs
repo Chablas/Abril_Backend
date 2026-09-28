@@ -7,5 +7,6 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Interface
         Task<ConfiguracionInicialDto?> GetConfiguracion(int projectId);
         Task<List<ResponsableBimLookupDto>> GetResponsables();
         Task GuardarConfiguracion(int projectId, ConfiguracionInicialUpdateDto dto);
+        Task<List<ProyectoBimSimpleDto>> GetProyectosDisponibles(int userId, bool esAdmin, bool esPlaneamientoUdp);
     }
 }

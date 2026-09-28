@@ -5,7 +5,9 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CursoModule.Application.Dtos;
 using Abril_Backend.Features.CursoModule.Application.Interfaces;
 using Abril_Backend.Features.CursoModule.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
@@ -16,12 +18,200 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
     public class CursoController : ControllerBase
     {
         private readonly ICursoRepository _repo;
+        private readonly IFileStorageService _fileStorageService;
+        private readonly IStorageContainerResolver _containerResolver;
         private readonly ILogger<CursoController> _logger;
 
-        public CursoController(ICursoRepository repo, ILogger<CursoController> logger)
+        public CursoController(
+            ICursoRepository repo,
+            IFileStorageService fileStorageService,
+            IStorageContainerResolver containerResolver,
+            ILogger<CursoController> logger)
         {
             _repo = repo;
+            _fileStorageService = fileStorageService;
+            _containerResolver = containerResolver;
             _logger = logger;
+        }
+
+        /// <summary>Sube una imagen para usar en el contenido de una slide (portada, tarjetas, galería, etc.)
+        /// y devuelve su URL pública. No queda asociada a ningún curso/slide todavía: el frontend pega la
+        /// URL devuelta dentro del ConfiguracionJson de la slide que corresponda.</summary>
+        [HttpPost("imagenes")]
+        public async Task<IActionResult> SubirImagen(IFormFile archivo)
+        {
+            try
+            {
+                if (archivo == null || archivo.Length == 0)
+                    throw new AbrilException("El archivo está vacío.", 400);
+
+                var container = _containerResolver.GetCursoImagenesContainerName();
+                var fileName = $"{Guid.NewGuid()}{Path.GetExtension(archivo.FileName)}";
+
+                await using var stream = archivo.OpenReadStream();
+                var urls = await _fileStorageService.UploadFilesAsync(
+                    new[] { (Stream: (Stream)stream, FileName: fileName) }, container);
+
+                return Ok(new { url = urls.First() });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.SubirImagen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Indica si el curso tiene al menos un intento registrado — el frontend usa
+        /// esto para decidir cuántas confirmaciones pedir antes de eliminar (2 si nadie rindió,
+        /// 3 si ya hay evaluaciones, porque se pierde evidencia SUNAFIL).</summary>
+        [HttpGet("{id:int}/tiene-evaluaciones")]
+        public async Task<IActionResult> TieneEvaluaciones(int id)
+        {
+            try
+            {
+                var tiene = await _repo.TieneIntentosAsync(id);
+                return Ok(new { tieneEvaluaciones = tiene });
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.TieneEvaluaciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> EliminarCurso(int id)
+        {
+            try
+            {
+                var curso = await _repo.GetByIdAsync(id)
+                    ?? throw new AbrilException("Curso no encontrado.", 404);
+
+                await _repo.DeleteCursoAsync(id);
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.EliminarCurso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("admin")]
+        public async Task<IActionResult> GetTodos()
+        {
+            try
+            {
+                var cursos = await _repo.GetTodosAsync();
+                return Ok(cursos.Select(MapToDto));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetTodos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> CrearCurso([FromBody] CursoUpsertDto dto)
+        {
+            try
+            {
+                var curso = await _repo.CreateCursoAsync(new Curso
+                {
+                    Titulo = dto.Titulo,
+                    Descripcion = dto.Descripcion,
+                    CategoriaNombre = dto.CategoriaNombre,
+                    RolDestino = dto.RolDestino,
+                    NotaMinimaAprobacion = dto.NotaMinimaAprobacion,
+                    Activo = dto.Activo,
+                    ColorTema = dto.ColorTema,
+                    LogoUrl = dto.LogoUrl,
+                    ColorMarcaSecundario = dto.ColorMarcaSecundario,
+                    ColorMarcaTerciario = dto.ColorMarcaTerciario,
+                    ColorTextoMarca = dto.ColorTextoMarca,
+                    EstilosTextoMarcaJson = dto.EstilosTextoMarcaJson,
+                    EsPlantilla = dto.EsPlantilla,
+                });
+                return Ok(MapToDto(curso));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.CrearCurso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> ActualizarCurso(int id, [FromBody] CursoUpsertDto dto)
+        {
+            try
+            {
+                await _repo.UpdateCursoAsync(id, new Curso
+                {
+                    Titulo = dto.Titulo,
+                    Descripcion = dto.Descripcion,
+                    CategoriaNombre = dto.CategoriaNombre,
+                    RolDestino = dto.RolDestino,
+                    NotaMinimaAprobacion = dto.NotaMinimaAprobacion,
+                    Activo = dto.Activo,
+                    ColorTema = dto.ColorTema,
+                    LogoUrl = dto.LogoUrl,
+                    ColorMarcaSecundario = dto.ColorMarcaSecundario,
+                    ColorMarcaTerciario = dto.ColorMarcaTerciario,
+                    ColorTextoMarca = dto.ColorTextoMarca,
+                    EstilosTextoMarcaJson = dto.EstilosTextoMarcaJson,
+                    EsPlantilla = dto.EsPlantilla,
+                });
+                return Ok();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.ActualizarCurso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/slides")]
+        public async Task<IActionResult> CrearSlide(int id, [FromBody] CursoSlideUpsertDto dto)
+        {
+            try
+            {
+                var slide = await _repo.CreateSlideAsync(new CursoSlide
+                {
+                    CursoId = id,
+                    Orden = dto.Orden,
+                    TipoCodigo = dto.TipoCodigo,
+                    EsEvaluable = dto.EsEvaluable,
+                    Puntaje = dto.Puntaje,
+                    ContarParaNota = dto.ContarParaNota,
+                    ModoCorreccion = dto.ModoCorreccion,
+                    ConfiguracionJson = dto.ConfiguracionJson,
+                });
+                return Ok(MapSlideDtoCompleto(slide));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.CrearSlide"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("slides/{slideId:int}")]
+        public async Task<IActionResult> ActualizarSlide(int slideId, [FromBody] CursoSlideUpsertDto dto)
+        {
+            try
+            {
+                await _repo.UpdateSlideAsync(slideId, new CursoSlide
+                {
+                    Orden = dto.Orden,
+                    TipoCodigo = dto.TipoCodigo,
+                    EsEvaluable = dto.EsEvaluable,
+                    Puntaje = dto.Puntaje,
+                    ContarParaNota = dto.ContarParaNota,
+                    ModoCorreccion = dto.ModoCorreccion,
+                    ConfiguracionJson = dto.ConfiguracionJson,
+                });
+                return Ok();
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.ActualizarSlide"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("slides/{slideId:int}/duplicar")]
+        public async Task<IActionResult> DuplicarSlide(int slideId, [FromQuery] int? cursoDestinoId)
+        {
+            try
+            {
+                var copia = await _repo.DuplicarSlideAsync(slideId, cursoDestinoId);
+                return Ok(MapSlideDtoCompleto(copia));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.DuplicarSlide"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("slides/{slideId:int}")]
+        public async Task<IActionResult> EliminarSlide(int slideId)
+        {
+            try
+            {
+                await _repo.DeleteSlideAsync(slideId);
+                return Ok();
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.EliminarSlide"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet]
@@ -58,6 +248,77 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetSlides"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("{id:int}/slides/admin")]
+        public async Task<IActionResult> GetSlidesAdmin(int id)
+        {
+            try
+            {
+                var curso = await _repo.GetByIdAsync(id)
+                    ?? throw new AbrilException("Curso no encontrado.", 404);
+
+                var slides = await _repo.GetSlidesOrdenadasAsync(id);
+                return Ok(slides.Select(MapSlideDtoCompleto));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetSlidesAdmin"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ---- Banco de preguntas reutilizable entre cursos ----
+
+        [HttpGet("preguntas-banco")]
+        public async Task<IActionResult> GetPreguntasBanco([FromQuery] string? tipoCodigo)
+        {
+            try
+            {
+                var preguntas = await _repo.GetPreguntasBancoAsync(tipoCodigo);
+                return Ok(preguntas.Select(MapPreguntaBancoDto));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetPreguntasBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("preguntas-banco")]
+        public async Task<IActionResult> CrearPreguntaBanco([FromBody] CursoPreguntaBancoUpsertDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.Titulo))
+                    throw new AbrilException("El título es obligatorio.", 400);
+
+                var pregunta = await _repo.CreatePreguntaBancoAsync(new CursoPreguntaBanco
+                {
+                    TipoCodigo = dto.TipoCodigo,
+                    Titulo = dto.Titulo,
+                    Categoria = dto.Categoria,
+                    PuntajeSugerido = dto.PuntajeSugerido,
+                    ConfiguracionJson = dto.ConfiguracionJson,
+                });
+                return Ok(MapPreguntaBancoDto(pregunta));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.CrearPreguntaBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("preguntas-banco/{id:int}")]
+        public async Task<IActionResult> EliminarPreguntaBanco(int id)
+        {
+            try
+            {
+                await _repo.DeletePreguntaBancoAsync(id);
+                return Ok();
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.EliminarPreguntaBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private static CursoPreguntaBancoDto MapPreguntaBancoDto(CursoPreguntaBanco p) => new()
+        {
+            Id = p.Id,
+            TipoCodigo = p.TipoCodigo,
+            Titulo = p.Titulo,
+            Categoria = p.Categoria,
+            PuntajeSugerido = p.PuntajeSugerido,
+            ConfiguracionJson = p.ConfiguracionJson,
+        };
+
         private static CursoDto MapToDto(Curso c) => new()
         {
             Id = c.Id,
@@ -67,19 +328,53 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             RolDestino = c.RolDestino,
             NotaMinimaAprobacion = c.NotaMinimaAprobacion,
             Activo = c.Activo,
+            ColorTema = c.ColorTema,
+            LogoUrl = c.LogoUrl,
+            ColorMarcaSecundario = c.ColorMarcaSecundario,
+            ColorMarcaTerciario = c.ColorMarcaTerciario,
+            ColorTextoMarca = c.ColorTextoMarca,
+            EstilosTextoMarcaJson = c.EstilosTextoMarcaJson,
+            EsPlantilla = c.EsPlantilla,
+        };
+
+        /// <summary>Slide completa (con "respuestaCorrecta" incluida) para el editor administrativo —
+        /// a diferencia de MapSlideDtoSinRespuesta, este mapeo es solo para pantallas de administración,
+        /// nunca para el player que rinde el curso a un usuario evaluándose.</summary>
+        private static CursoSlideDto MapSlideDtoCompleto(CursoSlide s) => new()
+        {
+            Id = s.Id,
+            CursoId = s.CursoId,
+            Orden = s.Orden,
+            TipoCodigo = s.TipoCodigo,
+            EsEvaluable = s.EsEvaluable,
+            Puntaje = s.Puntaje,
+            ContarParaNota = s.ContarParaNota,
+            ModoCorreccion = s.ModoCorreccion,
+            ConfiguracionJson = s.ConfiguracionJson,
         };
 
         /// <summary>
         /// Mapea la slide quitando "respuestaCorrecta" (y cualquier dato de solución) de
         /// ConfiguracionJson antes de exponerla al frontend, para no filtrar la respuesta.
         /// </summary>
+        /// <summary>Tipos cuya corrección se hace en el FRONTEND con comparación tolerante
+        /// (trim/minúsculas/sin tildes, ver normalizarTexto en el frontend) — necesitan
+        /// conocer la respuesta correcta del lado del cliente para poder compararla, a
+        /// diferencia de V/F, opción múltiple, ordenar y emparejar (donde el jugador solo
+        /// envía su elección y el backend corrige sin que el cliente sepa la respuesta).</summary>
+        private static readonly HashSet<string> TiposConCorreccionEnCliente = new()
+        {
+            "pregunta_respuesta_corta",
+            "pregunta_completar_huecos",
+        };
+
         private static CursoSlideDto MapSlideDtoSinRespuesta(CursoSlide s)
         {
             string configuracionLimpia = s.ConfiguracionJson;
             try
             {
                 var node = JsonNode.Parse(s.ConfiguracionJson) as JsonObject;
-                if (node != null && node.ContainsKey("respuestaCorrecta"))
+                if (node != null && node.ContainsKey("respuestaCorrecta") && !TiposConCorreccionEnCliente.Contains(s.TipoCodigo))
                 {
                     node.Remove("respuestaCorrecta");
                     configuracionLimpia = node.ToJsonString();

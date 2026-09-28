@@ -1,0 +1,171 @@
+using System.Security.Claims;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.PetarFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Abril_Backend.Features.SsomaModule.PetarFeature.Presentation
+{
+    [ApiController]
+    [Route("api/v1/ssoma/petar")]
+    [Authorize]
+    [RequireFeature("ssoma.gestion.ats")]
+    public class PetarController : ControllerBase
+    {
+        private readonly IPetarService _service;
+        private readonly ILogger<PetarController> _logger;
+
+        public PetarController(IPetarService service, ILogger<PetarController> logger)
+        {
+            _service = service;
+            _logger = logger;
+        }
+
+        private int CurrentUserId()
+        {
+            var val = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(val, out var id))
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            return id;
+        }
+
+        private bool EsAdmin()
+        {
+            var roleIds = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            return roleIds.Contains(Roles.AdministradorSistema) || roleIds.Contains(Roles.AdministradorSsoma);
+        }
+
+        [HttpGet("init/{atsId:int}")]
+        public async Task<IActionResult> GetInit(int atsId)
+        {
+            try { return Ok(await _service.GetInit(atsId)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetInit"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Crear([FromBody] PetarGuardarRequestDto dto)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                var id = await _service.Crear(workerId, dto);
+                return Ok(new { id });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Crear"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Editar(int id, [FromBody] PetarGuardarRequestDto dto)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                await _service.Editar(id, workerId, dto);
+                return Ok(new { message = "PETAR actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Editar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetPorId(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.GetPorId(id, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetPorId"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Listar([FromQuery] PetarFiltroDto filtro)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.Listar(filtro, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Listar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/firmar")]
+        public async Task<IActionResult> Firmar(int id, [FromBody] PetarFirmarRequestDto body)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                await _service.Firmar(id, workerId, body, ip, userAgent);
+                return Ok(new { message = "PETAR firmado por el ejecutante." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Firmar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/firmar-supervisor")]
+        public async Task<IActionResult> FirmarSupervisor(int id, [FromBody] PetarFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarSupervisor(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Firmado como Supervisor/Responsable." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.FirmarSupervisor"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/visto-bueno-ssoma")]
+        public async Task<IActionResult> FirmarVistoSsoma(int id, [FromBody] PetarFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarVistoSsoma(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Visto bueno de SSOMA registrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.FirmarVistoSsoma"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/cerrar")]
+        public async Task<IActionResult> Cerrar(int id, [FromBody] PetarCerrarRequestDto body)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                await _service.Cerrar(id, workerId, body);
+                return Ok(new { message = "PETAR cerrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Cerrar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{id:int}/verificar-publico")]
+        [AllowAnonymous]
+        public async Task<IActionResult> VerificarPublico(int id, [FromQuery] string? hash)
+        {
+            try { return Ok(await _service.VerificarPublico(id, hash)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.VerificarPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpGet("{id:int}/pdf")]
+        public async Task<IActionResult> GetPdf(int id)
+        {
+            try
+            {
+                var bytes = await _service.GenerarPdf(id);
+                return File(bytes, "application/pdf", $"PETAR-{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+    }
+}

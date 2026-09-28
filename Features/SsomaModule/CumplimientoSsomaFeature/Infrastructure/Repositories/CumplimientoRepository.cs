@@ -29,6 +29,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
             {
                 "semanal" => hoy.AddDays(-((int)hoy.DayOfWeek == 0 ? 6 : (int)hoy.DayOfWeek - 1)),
                 "mensual" => new DateOnly(hoy.Year, hoy.Month, 1),
+                "anual" => new DateOnly(hoy.Year, 1, 1),
                 _ => hoy
             };
         }
@@ -332,10 +333,20 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
                       r => r.ActividadId, a => a.Id, (r, a) => r)
                 .ToListAsync();
 
-            var paso = frecuencia switch { "semanal" => 7, "mensual" => 0, _ => 1 };
+            var paso = frecuencia switch { "semanal" => 7, "mensual" => 0, "anual" => -1, _ => 1 };
             var dias = new List<CumplimientoHistoricoDiaDto>();
 
-            if (paso == 0)
+            if (paso == -1)
+            {
+                // Anual: un punto por cada 1 de enero dentro del rango.
+                var cursor = new DateOnly(desde.Year, 1, 1);
+                while (cursor <= hasta)
+                {
+                    dias.Add(ArmarDia(cursor, totalActividades, registros, frecuencia));
+                    cursor = cursor.AddYears(1);
+                }
+            }
+            else if (paso == 0)
             {
                 // Mensual: un punto por cada día 1 de mes dentro del rango.
                 var cursor = new DateOnly(desde.Year, desde.Month, 1);

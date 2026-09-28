@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature
     {
         public static IServiceCollection AddPlaneamientoBimModule(this IServiceCollection services)
         {
+            services.AddScoped<IPlaneamientoBimAccesoService, PlaneamientoBimAccesoService>();
+
             services.AddScoped<IPlaneamientoBimConfiguracionRepository, PlaneamientoBimConfiguracionRepository>();
             services.AddScoped<IPlaneamientoBimConfiguracionService, PlaneamientoBimConfiguracionService>();
 

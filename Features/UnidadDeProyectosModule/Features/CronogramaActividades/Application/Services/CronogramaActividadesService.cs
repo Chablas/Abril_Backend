@@ -93,9 +93,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task EliminarActividadAsync(int projectActivityId, int userId)
             => _repository.EliminarActividadAsync(projectActivityId, userId);
 
-        public Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
-            => _repository.GetDebugProyectosAsync();
-
         public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId, string tipoCronograma = "ANTEPROYECTO")
         {
             var result = await _repository.ImportarMppAsync(proyectoId, archivo, userId, tipoCronograma);

@@ -148,7 +148,9 @@ namespace Abril_Backend.Features.CursoModule.Application.Services
 
             var respuestas = await _intentoRepo.GetRespuestasAsync(intentoId);
             var slides = await _cursoRepo.GetSlidesOrdenadasAsync(intento.CursoId);
-            var slidesEvaluables = slides.Where(s => s.EsEvaluable).ToList();
+            // ContarParaNota=false ("solo práctica"): ResponderAsync igual corrige y devuelve
+            // acierto/error (ver EsEvaluable ahí), pero su puntaje no entra a la nota final.
+            var slidesEvaluables = slides.Where(s => s.EsEvaluable && s.ContarParaNota).ToList();
 
             decimal puntajeTotal = slidesEvaluables.Sum(s => s.Puntaje ?? 0m);
             decimal puntajeObtenido = respuestas
@@ -235,6 +237,85 @@ namespace Abril_Backend.Features.CursoModule.Application.Services
                 }).ToList(),
                 Evidencia = evidencia == null ? null : MapEvidencia(evidencia),
             };
+        }
+
+        public async Task<List<MiCursoProgresoDto>> GetMisCursosAsync(int userId, int[] roleIds)
+        {
+            var cursos = await _cursoRepo.GetActivosPorRolAsync(roleIds);
+            var intentos = await _intentoRepo.GetPorUsuarioAsync(userId);
+            // GetPorUsuarioAsync ya viene ordenado por FechaInicio descendente: el primero de
+            // cada grupo por CursoId es el intento más reciente de ese curso.
+            var ultimoIntentoPorCurso = intentos
+                .GroupBy(i => i.CursoId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var resultado = new List<MiCursoProgresoDto>();
+            foreach (var curso in cursos)
+            {
+                var dto = new MiCursoProgresoDto
+                {
+                    CursoId = curso.Id,
+                    Titulo = curso.Titulo,
+                    CategoriaNombre = curso.CategoriaNombre,
+                    ColorTema = curso.ColorTema,
+                    LogoUrl = curso.LogoUrl,
+                    NotaMinimaAprobacion = curso.NotaMinimaAprobacion,
+                    Estado = "no_iniciado",
+                    TotalSlides = (await _cursoRepo.GetSlidesOrdenadasAsync(curso.Id)).Count,
+                };
+
+                if (ultimoIntentoPorCurso.TryGetValue(curso.Id, out var intento))
+                {
+                    dto.IntentoId = intento.Id;
+                    dto.NotaFinal = intento.NotaFinal;
+                    dto.FechaInicio = intento.FechaInicio;
+                    dto.FechaFin = intento.FechaFin;
+                    dto.Estado = intento.Estado == "en_progreso"
+                        ? "en_progreso"
+                        : (intento.Aprobado == true ? "aprobado" : "desaprobado");
+
+                    var respuestas = await _intentoRepo.GetRespuestasAsync(intento.Id);
+                    dto.SlidesRespondidas = respuestas.Select(r => r.CursoSlideId).Distinct().Count();
+                    dto.SegundosInvertidos = respuestas.Sum(r => r.TiempoRespuestaSeg ?? 0);
+                }
+
+                resultado.Add(dto);
+            }
+
+            return resultado;
+        }
+
+        public async Task<List<CursoIntentoHistorialDto>> GetHistorialAsync(int? cursoId, DateTime? desde, DateTime? hasta)
+        {
+            var intentos = await _intentoRepo.GetHistorialAsync(cursoId, desde, hasta);
+            if (intentos.Count == 0) return new List<CursoIntentoHistorialDto>();
+
+            var cursos = (await _cursoRepo.GetTodosAsync()).ToDictionary(c => c.Id, c => c.Titulo);
+            var nombres = await _intentoRepo.GetNombresTrabajadoresAsync(intentos.Select(i => i.UserId).Distinct().ToArray());
+
+            var resultado = new List<CursoIntentoHistorialDto>();
+            foreach (var intento in intentos)
+            {
+                var evidencia = await _intentoRepo.GetEvidenciaAsync(intento.Id);
+                resultado.Add(new CursoIntentoHistorialDto
+                {
+                    IntentoId = intento.Id,
+                    CursoId = intento.CursoId,
+                    CursoTitulo = cursos.TryGetValue(intento.CursoId, out var titulo) ? titulo : "(curso eliminado)",
+                    UserId = intento.UserId,
+                    TrabajadorNombre = nombres.TryGetValue(intento.UserId, out var nombre) ? nombre : "(sin nombre)",
+                    FechaInicio = intento.FechaInicio,
+                    FechaFin = intento.FechaFin,
+                    NotaFinal = intento.NotaFinal,
+                    Aprobado = intento.Aprobado,
+                    Estado = intento.Estado,
+                    IpAddress = evidencia?.IpAddress,
+                    HashSha256 = evidencia?.HashSha256,
+                    SelladoAt = evidencia?.SelladoAt,
+                });
+            }
+
+            return resultado;
         }
 
         private static CursoIntentoEvidenciaDto MapEvidencia(CursoIntentoEvidencia e) => new()

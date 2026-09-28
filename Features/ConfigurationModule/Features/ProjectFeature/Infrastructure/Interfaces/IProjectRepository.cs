@@ -16,7 +16,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
         Task<ProjectEmailsDto?> GetEmails(int projectId);
         Task<bool?> ToggleArquitecturaComercial(int projectId);
+        Task<bool?> SetTieneUnidadDeProyectos(int projectId, bool value);
         Task<ProjectLookupsDto> GetLookups();
         Task<List<int>> GetMyProjectIds(int userId);
+        Task<MyWorkerDto?> GetMyWorker(int userId);
     }
 }

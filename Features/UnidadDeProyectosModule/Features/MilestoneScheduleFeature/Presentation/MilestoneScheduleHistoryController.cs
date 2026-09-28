@@ -4,15 +4,17 @@ using System.Security.Claims;
 using System.Text;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [RequireFeature("mejora-continua.milestone-schedule")]
+    [RequireFeature(CronogramaHitosFeatures.Ver)]
     public class MilestoneScheduleHistoryController : ControllerBase
     {
         private readonly IMilestoneScheduleHistoryService _service;
@@ -44,15 +46,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
+        /// <summary>Sube una versión nueva del cronograma: solo el residente del proyecto (rol
+        /// RESIDENTE + residente en Emails SSOMA), ver MilestoneScheduleHistoryService.Create.</summary>
         [Authorize]
         [HttpPost]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar)]
         public async Task<IActionResult> Create([FromBody] MilestoneScheduleHistoryCreateDTO dto)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var result = await _service.Create(dto, userId);
+                var esResidente = User.IsInRole(Roles.Residente);
+                var result = await _service.Create(dto, userId, esResidente);
 
                 if (result.Changes.Any())
                 {
@@ -68,7 +73,30 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Eliminar (soft-delete) una versión de cronograma ya creada — solo quien
+        /// administra el cronograma, en cualquier proyecto.</summary>
+        [Authorize]
+        [HttpDelete("{milestoneScheduleHistoryId:int}")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
+        public async Task<IActionResult> Delete(int milestoneScheduleHistoryId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                await _service.DeleteAsync(milestoneScheduleHistoryId, userId);
+                return Ok(new { message = "Cronograma eliminado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

@@ -167,6 +167,32 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>Worker del usuario logueado, mismo cruce User→Person.UserId→Worker.PersonId
+        /// que <see cref="GetMine"/>. Usado por Planeamiento BIM para resolver "soy yo el
+        /// responsable de este proyecto" sin duplicar el cruce en cada feature.</summary>
+        [Authorize]
+        [HttpGet("me/worker")]
+        public async Task<IActionResult> GetMyWorker()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var worker = await _service.GetMyWorker(userId);
+                if (worker == null)
+                    return NotFound(new { message = "Tu usuario no está vinculado a una ficha de trabajador." });
+
+                return Ok(worker);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>
         /// Los desplegables del modal crear/editar proyecto (responsables Arq. Comercial y
         /// UDP + elegibles como coordinador administrativo) en una sola petición.
@@ -208,8 +234,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>El residente que se guarda acá decide quién sube el Cronograma de Hitos de
+        /// la obra, así que no basta con estar logueado: exige la misma feature que la pantalla
+        /// (Configuración → Proyectos), que es la única que llama a este endpoint.</summary>
         [Authorize]
         [HttpPatch("{id}/emails")]
+        [RequireFeature("configuracion.proyectos")]
         public async Task<IActionResult> UpdateEmails(int id, [FromBody] ProjectEmailsUpdateDto dto)
         {
             try
@@ -250,6 +280,31 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                     return NotFound(new { message = "Proyecto no encontrado." });
 
                 return Ok(new { tieneArquitecturaComercial = nuevoValor.Value });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Activa/desactiva si el proyecto pertenece al módulo Unidad de Proyectos
+        /// (Cronograma de Actividades, Actas de Reunión, Dashboard UDP, etc.) sin pasar
+        /// por el PUT completo de edición — evita el riesgo de sobreescribir campos no
+        /// enviados que tiene reconstruir un ProjectEditDto completo solo para este flag.
+        /// </summary>
+        [Authorize]
+        [RequireFeature("projects.config.milestones")]
+        [HttpPatch("{id}/tiene-unidad-de-proyectos")]
+        public async Task<IActionResult> UpdateTieneUnidadDeProyectos(int id, [FromBody] UpdateTieneUnidadDeProyectosDto dto)
+        {
+            try
+            {
+                var nuevoValor = await _service.SetTieneUnidadDeProyectos(id, dto.Value);
+                if (nuevoValor == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(new { tieneUnidadDeProyectos = nuevoValor.Value });
             }
             catch (Exception)
             {

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Options;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
@@ -11,6 +13,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     public class ProjectsService : IProjectsService
     {
         private readonly IProjectsRepository _repository;
+        private readonly ICronogramaPermisosRepository _permisosRepository;
         private readonly IGraphSharePointService _sharePoint;
         private readonly SharePointSiteRef _site;
 
@@ -19,19 +22,38 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         public ProjectsService(
             IProjectsRepository repository,
+            ICronogramaPermisosRepository permisosRepository,
             IGraphSharePointService sharePoint,
             IConfiguration configuration)
         {
             _repository = repository;
+            _permisosRepository = permisosRepository;
             _sharePoint = sharePoint;
             _site = SharePointSiteRef.FromConfig(configuration, "ProyectosAbril");
         }
 
-        public Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, int pageSize = 10, string? search = null)
-            => _repository.GetPagedWithResidents(page, pageSize, search);
-
-        public async Task<string> UploadFotoAsync(int projectId, IFormFile foto)
+        /// <summary>El RESIDENTE solo ve los proyectos donde es el residente de Emails SSOMA,
+        /// aunque además tenga un rol de solo lectura (USUARIO DE ABRIL) que ve todos. Quien
+        /// administra el cronograma ve todos aunque también tenga el rol RESIDENTE.</summary>
+        public async Task<PagedResult<MilestoneProjectDTO>> GetPagedWithResidents(int userId, int[] roleIds, bool esResidente, int page, int pageSize = 10, string? search = null)
         {
+            var soloDelResidente = esResidente && !await _permisosRepository.AdministraAsync(roleIds);
+            return await _repository.GetPagedWithResidents(userId, soloDelResidente, page, pageSize, search);
+        }
+
+        /// <summary>La foto y la característica de la tarjeta las cambia quien administra el
+        /// cronograma o el residente del proyecto; el resto las ve en solo lectura.</summary>
+        private async Task ValidarEdicionAsync(int projectId, int userId, int[] roleIds, bool esResidente)
+        {
+            var puedeEditar = await _permisosRepository.PuedeEditarProyectoAsync(userId, roleIds, esResidente, projectId);
+            if (!puedeEditar)
+                throw new AbrilException("No tienes permiso para modificar este proyecto.", 403);
+        }
+
+        public async Task<string> UploadFotoAsync(int projectId, IFormFile foto, int userId, int[] roleIds, bool esResidente)
+        {
+            await ValidarEdicionAsync(projectId, userId, roleIds, esResidente);
+
             var extension   = Path.GetExtension(foto.FileName).TrimStart('.');
             var fileName    = $"proyecto-{projectId}.{extension}";
             var contentType = foto.ContentType ?? "application/octet-stream";
@@ -48,8 +70,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             var fotoUrl = result?.WebUrl
                 ?? throw new InvalidOperationException("SharePoint no devolvió una URL para la foto.");
 
-            await _repository.UpdateFotoUrlAsync(projectId, fotoUrl);
+            await _repository.UpdateFotoUrlAsync(projectId, fotoUrl, userId);
             return fotoUrl;
+        }
+
+        public async Task<string?> UpdateLevelDescriptionAsync(int projectId, string? levelDescription, int userId, int[] roleIds, bool esResidente)
+        {
+            await ValidarEdicionAsync(projectId, userId, roleIds, esResidente);
+            return await _repository.UpdateLevelDescriptionAsync(projectId, levelDescription, userId);
         }
     }
 }

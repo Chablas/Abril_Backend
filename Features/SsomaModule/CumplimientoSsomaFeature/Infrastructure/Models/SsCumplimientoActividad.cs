@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.SsomaModule.CumplimientoSsomaFeature.Infrastruc
         [Column("rol_responsable")]
         public string RolResponsable { get; set; } = "ambos";
 
-        // "diaria" | "semanal" | "mensual"
+        // "diaria" | "semanal" | "mensual" | "anual"
         [Column("frecuencia")]
         public string Frecuencia { get; set; } = "diaria";
 

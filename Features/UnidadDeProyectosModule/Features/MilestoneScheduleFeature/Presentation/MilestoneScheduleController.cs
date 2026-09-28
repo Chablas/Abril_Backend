@@ -2,15 +2,17 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [RequireFeature("mejora-continua.milestone-schedule")]
+    [RequireFeature(CronogramaHitosFeatures.Ver)]
     public class MilestoneScheduleController : ControllerBase
     {
         private readonly IMilestoneScheduleService _service;
@@ -19,6 +21,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         {
             _service = service;
         }
+
+        /// <summary>IDs de rol del JWT (llegan como varios claims ClaimTypes.Role), para decidir
+        /// por feature si el usuario administra el cronograma.</summary>
+        private int[] RoleIds() => User.FindAll(ClaimTypes.Role)
+            .Select(c => int.TryParse(c.Value, out var id) ? id : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToArray();
 
         [Authorize]
         [HttpGet]
@@ -50,15 +61,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
+        /// <summary>Quien administra el cronograma (cualquier proyecto) o el residente del
+        /// proyecto dueño del hito, ver MilestoneScheduleService.ValidarEdicionAsync.</summary>
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/culminar")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar, CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> Culminar(int milestoneScheduleId, [FromBody] MilestoneScheduleCulminarRequest request)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId);
+                var esResidente = User.IsInRole(Roles.Residente);
+                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId, RoleIds(), esResidente);
                 var message = request.FechaRealFin.HasValue
                     ? "Hito marcado como culminado."
                     : "Hito desmarcado como culminado.";
@@ -81,13 +95,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// </summary>
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/marcar-critico")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar, CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> MarcarCritico(int milestoneScheduleId, [FromBody] MilestoneScheduleMarcarCriticoRequest request)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId);
+                var esResidente = User.IsInRole(Roles.Residente);
+                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId, RoleIds(), esResidente);
                 var message = request.EsHitoCritico
                     ? "Hito marcado como crítico."
                     : "Hito desmarcado como crítico.";
@@ -96,6 +111,72 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Edita los campos de un hito ya guardado (descripción/orden/fechas/crítico) sin
+        /// tener que subir una versión nueva completa del cronograma — solo quien administra el
+        /// cronograma, en cualquier proyecto (mismo alcance que Delete en
+        /// MilestoneScheduleHistoryController).</summary>
+        [Authorize]
+        [HttpPut("{milestoneScheduleId:int}")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
+        public async Task<IActionResult> Editar(int milestoneScheduleId, [FromBody] MilestoneScheduleEditDTO dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                await _service.EditAsync(milestoneScheduleId, dto, userId);
+                return Ok(new { message = "Hito actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Agrega un único hito nuevo (de catálogo o personalizado) a una versión de
+        /// cronograma ya existente, sin tener que subir una versión completa nueva — mismo
+        /// alcance que Editar.</summary>
+        [Authorize]
+        [HttpPost("{milestoneScheduleHistoryId:int}/hito")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
+        public async Task<IActionResult> AgregarHito(int milestoneScheduleHistoryId, [FromBody] MilestoneScheduleAddDTO dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _service.AddHitoAsync(milestoneScheduleHistoryId, dto, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Hitos del catálogo que todavía no están en el cronograma vigente del proyecto —
+        /// para que el frontend arme el selector de "hitos faltantes" antes de llamar a AgregarHito.</summary>
+        [Authorize]
+        [HttpGet("faltantes")]
+        public async Task<IActionResult> Faltantes([FromQuery] int projectId)
+        {
+            try
+            {
+                var result = await _service.GetFaltantesAsync(projectId);
+                return Ok(result);
             }
             catch (Exception)
             {

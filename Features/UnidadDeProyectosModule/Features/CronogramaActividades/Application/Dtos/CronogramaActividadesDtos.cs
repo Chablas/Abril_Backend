@@ -80,14 +80,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int ProgressPercentage { get; set; }
     }
 
-    public class DebugProyectoDto
-    {
-        public int ProjectId { get; set; }
-        public string ProjectDescription { get; set; } = string.Empty;
-        public bool TieneUnidadDeProyectos { get; set; }
-        public bool State { get; set; }
-    }
-
     public class ImportarMppResultDto
     {
         public int ActividadesImportadas { get; set; }
@@ -274,5 +266,47 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     public class AplicarPlantillaResultDto
     {
         public int ActividadesCreadas { get; set; }
+    }
+
+    public class PlantillaItemDto
+    {
+        public int Id { get; set; }
+        public string TipoCronograma { get; set; } = string.Empty;
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
+    }
+
+    public class PlantillaDto
+    {
+        public string TipoCronograma { get; set; } = string.Empty;
+        public List<PlantillaItemDto> Items { get; set; } = new();
+    }
+
+    public class CrearPlantillaItemRequest
+    {
+        public string TipoCronograma { get; set; } = string.Empty;
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
+    }
+
+    public class EditarPlantillaItemRequest
+    {
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public int Nivel { get; set; }
+        public bool EsPadre { get; set; }
+        public string? ParentCodigo { get; set; }
+        public string? PredecesoraCodigo { get; set; }
+        public int Orden { get; set; }
     }
 }

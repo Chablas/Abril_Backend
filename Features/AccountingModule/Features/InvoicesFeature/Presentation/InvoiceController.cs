@@ -138,8 +138,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
                 var userId = GetUserId();
                 if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
 
-                await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value, $"Facturas.Firmar #{invoiceId}");
-                var signedDocumentUrl = await _service.Sign(invoiceId, userId.Value);
+                var signedDocumentUrl = await _verificacionMfa.FirmarAsync(firmaMfa, userId.Value,
+                    $"Facturas.Firmar #{invoiceId}", () => _service.Sign(invoiceId, userId.Value));
                 return Ok(new { message = "Documento firmado generado exitosamente.", signedDocumentUrl });
             }
             catch (AbrilException ex)

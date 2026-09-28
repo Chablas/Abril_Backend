@@ -152,6 +152,14 @@
         public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
 
         /// <summary>
+        /// Al consolidador: Tesorería pagó el consolidado (plantilla 22, «El consolidado fue
+        /// pagado»). Tesorería le abona el total a él y él le reembolsa a cada trabajador, así que
+        /// lleva el monto y lo que le toca a cada uno. Sale UNO por consolidado, del mismo acto que
+        /// <see cref="ReembolsoPagado"/>, y solo al consolidador.
+        /// </summary>
+        public const string ReembolsoPagadoConsolidador = "REEMBOLSO_PAGADO_CONSOLIDADOR";
+
+        /// <summary>
         /// Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49), con el motivo
         /// y los dos caminos para subsanar.
         ///

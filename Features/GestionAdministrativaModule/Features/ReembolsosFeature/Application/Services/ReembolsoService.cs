@@ -165,22 +165,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                 "preview del correo de revisión confirmada");
 
         /// <summary>
-        /// A quién le llegaría el aviso de pago si se marcan como pagados los consolidados
-        /// seleccionados. Se resuelve con la MISMA llamada que hace el envío
+        /// A quién le llegarían los avisos de pago si se marcan como pagados los consolidados
+        /// seleccionados: a cada colaborador lo suyo y al consolidador de cada consolidado lo que
+        /// Tesorería le abona. Se resuelve con los MISMOS datos que usa el envío
         /// (<see cref="NotificarPagoAsync"/>) sobre las salidas que de verdad se van a pagar —las
         /// que ya pasaron la revisión de Tesorería—, así que la confirmación no promete un aviso
         /// que la configuración dejó fuera ni nombra a alguien a quien el pago no va a tocar.
         ///
         /// Best-effort: ante un error devuelve una lista vacía y la confirmación sale sin correos.
         /// </summary>
-        public Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto) =>
-            PreviewAsync(
-                dto,
-                new[] { EstadosSalida.Reembolso.PorPagar },
-                CorreoEventoCodigos.ReembolsoPagado,
-                "Al colaborador",
-                async ids => (await _repo.GetPagadoCorreoDatos(ids)).Select(d => d.TrabajadorEmail),
-                "preview del correo de pago");
+        public async Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto)
+        {
+            try
+            {
+                var ids = await _repo.ResolverSolicitudIds(dto.ConsolidadoIds, EstadosSalida.Reembolso.PorPagar);
+                if (ids.Count == 0) return new();
+
+                var info = await _repo.GetPagoCorreoInfo(ids);
+
+                var avisos = new List<CorreoAvisoPreviewDto?>
+                {
+                    await AvisoAsync(CorreoEventoCodigos.ReembolsoPagadoConsolidador, "Al consolidador",
+                        info.Consolidados.Select(c => c.ConsolidadorEmail)),
+                    await AvisoAsync(CorreoEventoCodigos.ReembolsoPagado, "Al colaborador",
+                        info.Personas.Select(p => p.TrabajadorEmail)),
+                };
+
+                return avisos.OfType<CorreoAvisoPreviewDto>().ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resolviendo el preview de los correos de pago");
+                return new();
+            }
+        }
 
         /// <summary>
         /// A quién le llegaría el aviso de que Tesorería devolvió lo seleccionado: al consolidador de
@@ -205,31 +223,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                 var ids = await _repo.ResolverSolicitudIds(dto.ConsolidadoIds, estados);
                 if (ids.Count == 0) return new();
 
-                var principal = (await destinatarios(ids))
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e!.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var envio = await _correoResolver.ResolveEnvioAsync(eventoCodigo, principal);
-
-                if (!envio.Enviar || envio.Para.Count == 0) return new();
-
-                return new List<CorreoAvisoPreviewDto>
-                {
-                    new()
-                    {
-                        Etiqueta = etiqueta,
-                        Para     = envio.Para,
-                        Copia    = envio.Copia,
-                    },
-                };
+                var aviso = await AvisoAsync(eventoCodigo, etiqueta, await destinatarios(ids));
+                return aviso == null ? new() : new List<CorreoAvisoPreviewDto> { aviso };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error resolviendo el {Que}", queSeEstabaHaciendo);
                 return new();
             }
+        }
+
+        /// <summary>
+        /// Un correo del preview: sus destinatarios principales, sin repetir, pasados por
+        /// Configuración → Correos con la misma llamada que hace el envío. Null si no sale.
+        /// </summary>
+        private async Task<CorreoAvisoPreviewDto?> AvisoAsync(
+            string eventoCodigo, string etiqueta, IEnumerable<string?> destinatarios)
+        {
+            var principal = destinatarios
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var envio = await _correoResolver.ResolveEnvioAsync(eventoCodigo, principal);
+
+            if (!envio.Enviar || envio.Para.Count == 0) return null;
+
+            return new CorreoAvisoPreviewDto
+            {
+                Etiqueta = etiqueta,
+                Para     = envio.Para,
+                Copia    = envio.Copia,
+            };
         }
 
         // ── Aviso a Tesorería ────────────────────────────────────────────────
@@ -290,7 +316,89 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             }
         }
 
-        // ── Correo de cierre ─────────────────────────────────────────────────
+        // ── Correos de cierre ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Los dos avisos del pago, armados con los mismos datos: Tesorería le abona el consolidado
+        /// al consolidador y él le reembolsa a cada trabajador, así que le avisa a él cuánto recibe
+        /// y cuánto le toca a cada uno (<see cref="NotificarConsolidadoresAsync"/>), y a cada
+        /// colaborador lo suyo (<see cref="NotificarColaboradoresAsync"/>).
+        ///
+        /// Es best-effort: el pago ya está registrado y no se revierte porque un correo falle
+        /// (mismo criterio que la decisión del reembolso). Cada aviso va por su lado: si uno
+        /// falla, el otro sale igual.
+        /// </summary>
+        private async Task NotificarPagoAsync(List<int> solicitudIds)
+        {
+            if (solicitudIds.Count == 0) return;
+
+            ReembolsoPagoCorreoInfoDto info;
+            try
+            {
+                info = await _repo.GetPagoCorreoInfo(solicitudIds);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error armando los avisos del pago de los reembolsos {Ids}",
+                    string.Join(",", solicitudIds));
+                return;
+            }
+
+            var layout = SalidaEmailLayout.Desde(_configuration);
+
+            await NotificarConsolidadoresAsync(info.Consolidados, layout);
+            await NotificarColaboradoresAsync(info.Personas, layout);
+        }
+
+        /// <summary>
+        /// Avisa al consolidador que Tesorería pagó su consolidado (plantilla 22): el monto que le
+        /// abonó y lo que le toca reembolsar a cada trabajador, con el código del consolidado y el
+        /// de la planilla grupal. Va UNO por consolidado y solo a quien lo adjuntó; el botón lo
+        /// abre en Consolidados, que es donde el consolidador sigue lo que adjuntó.
+        /// </summary>
+        private async Task NotificarConsolidadoresAsync(
+            List<ConsolidadoPagadoCorreoDatos> consolidados, SalidaEmailLayout layout)
+        {
+            try
+            {
+                foreach (var d in consolidados)
+                {
+                    if (string.IsNullOrWhiteSpace(d.ConsolidadorEmail))
+                    {
+                        _logger.LogWarning(
+                            "Consolidado {ConsolidadoId}: quien lo adjuntó no tiene correo registrado, no se avisó el pago.",
+                            d.ConsolidadoId);
+                        continue;
+                    }
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.ReembolsoPagadoConsolidador, new List<string> { d.ConsolidadorEmail });
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para el consolidado {ConsolidadoId}: está apagado o sin destinatarios.",
+                            CorreoEventoCodigos.ReembolsoPagadoConsolidador, d.ConsolidadoId);
+                        continue;
+                    }
+
+                    var url = SalidaEnlaces.Consolidados(_configuration, d.ConsolidadoId);
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: "El consolidado fue pagado"
+                                 + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso),
+                        body: ReembolsoEmailTemplates.ConsolidadoPagado(layout, d, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error avisando a los consolidadores el pago de los consolidados {Ids}",
+                    string.Join(",", consolidados.Select(c => c.ConsolidadoId)));
+            }
+        }
 
         /// <summary>
         /// Avisa a cada colaborador que su reembolso ya se pagó (RG-28). Va UN correo por persona
@@ -298,20 +406,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         /// planilla ni por salida: quien tenía tres rendiciones en el consolidado recibía tres
         /// correos del mismo pago. El botón lo lleva a Mis Rendiciones, que es donde sigue sus
         /// planillas: a la rendición si es una sola, a la lista si son varias.
-        ///
-        /// Es best-effort: el pago ya está registrado y no se revierte porque un correo falle
-        /// (mismo criterio que la decisión del reembolso).
         /// </summary>
-        private async Task NotificarPagoAsync(List<int> solicitudIds)
+        private async Task NotificarColaboradoresAsync(
+            List<ReembolsoPagadoCorreoDatos> personas, SalidaEmailLayout layout)
         {
-            if (solicitudIds.Count == 0) return;
-
             try
             {
-                var datos  = await _repo.GetPagadoCorreoDatos(solicitudIds);
-                var layout = SalidaEmailLayout.Desde(_configuration);
-
-                foreach (var d in datos)
+                foreach (var d in personas)
                 {
                     var codigos = string.Join(", ", d.Rendiciones.Select(r => r.Codigo));
 
@@ -351,8 +452,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error avisando el pago de los reembolsos {Ids}",
-                    string.Join(",", solicitudIds));
+                _logger.LogError(ex, "Error avisando a los colaboradores el pago de las rendiciones {Rendiciones}",
+                    string.Join(", ", personas.SelectMany(p => p.Rendiciones).Select(r => r.Codigo)));
             }
         }
 

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -27,6 +29,12 @@ namespace Abril_Backend.Shared.Services.Firma.Services
     /// re-login con <c>prompt=login</c> solo con contraseña conserva el <c>mfa</c> de la sesión (está
     /// por probar), a quien sabe la contraseña del jefe le alcanza con ella. La marca <c>ngcmfa</c>
     /// no ayuda: Microsoft la pone en cualquier inicio de sesión aprobado con Authenticator, sin fecha.
+    ///
+    /// Y cada token sirve para UNA firma (<see cref="Usados"/>): antes valía los 10 minutos para
+    /// aprobar varios seguidos, y el pedido es que cada firma pase por Microsoft. Lo que Microsoft
+    /// pide en esa ventana ya no depende de la app: con el claims <c>ngcmfa</c>, el número de
+    /// Authenticator solo si la última MFA tiene más de 10 minutos (la contraseña o el passkey,
+    /// siempre, por el <c>prompt=login</c>).
     /// </remarks>
     public class VerificacionMfaFirma : IVerificacionMfaFirma
     {
@@ -35,9 +43,8 @@ namespace Abril_Backend.Shared.Services.Firma.Services
 
         /// <summary>
         /// Cuánto puede tener el inicio de sesión de Microsoft. Cubre dibujar la firma cuando
-        /// faltaba (el 409 reintenta con el mismo token) y aprobar varios seguidos; es el mismo
-        /// margen que Microsoft da a una MFA antes de volver a pedirla. Se puede bajar con
-        /// <c>FirmaMfa:VentanaMinutos</c>.
+        /// faltaba (el 409 reintenta ESA firma con el mismo token); es el mismo margen que Microsoft
+        /// da a una MFA antes de volver a pedirla. Se puede bajar con <c>FirmaMfa:VentanaMinutos</c>.
         /// </summary>
         private const int VentanaMinutosPorDefecto = 10;
 
@@ -65,6 +72,15 @@ namespace Abril_Backend.Shared.Services.Firma.Services
         private static readonly TimeSpan PausaDescargaForzada = TimeSpan.FromMinutes(5);
         private static long _ultimaDescargaForzadaTicks;
 
+        /// <summary>
+        /// Tokens con los que ya se firmó —o se está firmando—, por su <c>uti</c>, hasta que la
+        /// ventana los vence solos: una verificación sirve para UNA firma. Se reserva al validar
+        /// (dos firmas a la vez con el mismo token no pasan) y se libera si la firma falla, para
+        /// que el reintento de esa misma firma lo pueda usar. Vive en memoria del proceso: un
+        /// reinicio del backend los olvida, y para entonces casi todos ya vencieron por la ventana.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, DateTimeOffset> Usados = new();
+
         private readonly IConfiguration _configuration;
         private readonly IAuthRepository _authRepository;
         private readonly IGraphAppTokenProvider _graphToken;
@@ -85,7 +101,30 @@ namespace Abril_Backend.Shared.Services.Firma.Services
             _logger = logger;
         }
 
-        public async Task VerificarAsync(string? token, int userId, string accion, CancellationToken ct = default)
+        public async Task<T> FirmarAsync<T>(
+            string? token, int userId, string accion, Func<Task<T>> firmar, CancellationToken ct = default)
+        {
+            var reserva = await VerificarAsync(token, userId, accion, ct);
+            var firmo = false;
+            try
+            {
+                var resultado = await firmar();
+                firmo = true;
+                return resultado;
+            }
+            finally
+            {
+                // No firmó (p. ej. el 409 de «registra tu firma»): el token vuelve a servir para
+                // reintentar esa misma firma.
+                if (reserva != null && !firmo) Usados.TryRemove(reserva, out _);
+            }
+        }
+
+        /// <summary>
+        /// Valida el token y lo reserva para esta firma (<see cref="Usados"/>). Devuelve la clave de
+        /// la reserva, o null si la válvula <c>FirmaMfa:Exigir</c> está apagada.
+        /// </summary>
+        private async Task<string?> VerificarAsync(string? token, int userId, string accion, CancellationToken ct)
         {
             // Válvula para una emergencia (p. ej. Microsoft cambia algo y nadie puede firmar): se
             // apaga en el appsettings del servidor sin desplegar. Por defecto se exige. El frontend
@@ -94,7 +133,7 @@ namespace Abril_Backend.Shared.Services.Firma.Services
             {
                 _logger.LogWarning("Firma sin verificación de Microsoft (FirmaMfa:Exigir = false): usuario {UserId}, {Accion}",
                     userId, accion);
-                return;
+                return null;
             }
 
             if (string.IsNullOrWhiteSpace(token))
@@ -178,8 +217,28 @@ namespace Abril_Backend.Shared.Services.Firma.Services
                 throw new AbrilException("La verificación de Microsoft venció. Vuelve a firmar.", 403);
             }
 
+            // Una verificación, una firma: con la que ya se firmó (o se está firmando) no se firma
+            // otra cosa, aunque siga dentro de la ventana.
+            var clave = Texto("uti") ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            Purgar();
+            if (!Usados.TryAdd(clave, inicio + ventana + Tolerancia))
+            {
+                _logger.LogWarning("Verificación de Microsoft reusada al firmar: token {Uti}; usuario {UserId}, {Accion}",
+                    clave, userId, accion);
+                throw new AbrilException("Esa verificación de Microsoft ya se usó en otra firma. Vuelve a firmar.", 403);
+            }
+
             _logger.LogInformation("Firma con verificación de Microsoft: usuario {UserId}, cuenta {Cuenta}, inicio {Inicio:o}, emitido {Emision:o}, amr {Amr}, token {Uti}; {Accion}",
                 userId, cuenta, inicio, emision, string.Join(",", amr), Texto("uti"), accion);
+            return clave;
+        }
+
+        /// <summary>Saca de <see cref="Usados"/> los tokens que la ventana ya venció: igual no sirven.</summary>
+        private static void Purgar()
+        {
+            var ahora = DateTimeOffset.UtcNow;
+            foreach (var (clave, vence) in Usados)
+                if (vence < ahora) Usados.TryRemove(clave, out _);
         }
 
         /// <summary>Firma, emisor, audiencia y vigencia del token contra las claves públicas de Entra.</summary>

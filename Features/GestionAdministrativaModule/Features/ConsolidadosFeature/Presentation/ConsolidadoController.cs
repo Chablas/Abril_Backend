@@ -193,9 +193,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
             {
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value,
-                    $"Consolidados.VolverAFirmar [{string.Join(",", dto.ConsolidadoIds)}]");
-                return Ok(await _service.VolverAFirmar(dto, Scope(), userId.Value));
+                return Ok(await _verificacionMfa.FirmarAsync(firmaMfa, userId.Value,
+                    $"Consolidados.VolverAFirmar [{string.Join(",", dto.ConsolidadoIds)}]",
+                    () => _service.VolverAFirmar(dto, Scope(), userId.Value)));
             }
             catch (AbrilException ex)
             {
@@ -304,10 +304,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Presentation
             {
                 var userId = CurrentUserId;
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
-                if (aprobar)
-                    await _verificacionMfa.VerificarAsync(firmaMfa, userId.Value,
-                        $"Consolidados.Aprobar [{string.Join(",", dto.ConsolidadoIds)}]");
-                return Ok(await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
+                return Ok(aprobar
+                    ? await _verificacionMfa.FirmarAsync(firmaMfa, userId.Value,
+                        $"Consolidados.Aprobar [{string.Join(",", dto.ConsolidadoIds)}]",
+                        () => _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value))
+                    : await _service.DecidirReembolso(dto, aprobar, Scope(), userId.Value));
             }
             catch (AbrilException ex)
             {

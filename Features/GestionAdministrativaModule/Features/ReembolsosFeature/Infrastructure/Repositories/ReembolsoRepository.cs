@@ -349,10 +349,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return solicitudes.Select(s => s.Id).ToList();
         }
 
-        public async Task<List<ReembolsoPagadoCorreoDatos>> GetPagadoCorreoDatos(IEnumerable<int> solicitudIds)
+        public async Task<ReembolsoPagoCorreoInfoDto> GetPagoCorreoInfo(IEnumerable<int> solicitudIds)
         {
+            var info    = new ReembolsoPagoCorreoInfoDto();
             var idsList = solicitudIds?.Distinct().ToList() ?? new List<int>();
-            if (idsList.Count == 0) return new();
+            if (idsList.Count == 0) return info;
 
             using var ctx = _factory.CreateDbContext();
 
@@ -363,22 +364,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 from per in perGroup.DefaultIfEmpty()
                 join u   in ctx.User on per.UserId equals (int?)u.UserId into uGroup
                 from u   in uGroup.DefaultIfEmpty()
-                select new
-                {
+                select new SalidaPagada(
                     s.Id,
-                    RendicionId = s.RendicionId!.Value,
-                    WorkerId    = w.Id,
+                    s.RendicionId!.Value,
+                    w.Id,
                     w.PersonId,
                     w.Subarea,
-                    Trabajador  = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
-                    Email       = u != null ? u.Email : null,
-                    Area        = w.Area,
+                    per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
+                    u != null ? u.Email : null,
+                    w.Area,
                     s.FechaSalida,
-                    s.PagadoPorId,
-                }
+                    s.PagadoPorId)
             ).ToListAsync();
 
-            if (filas.Count == 0) return new();
+            if (filas.Count == 0) return info;
 
             var rendicionIds = filas.Select(f => f.RendicionId).Distinct().ToList();
 
@@ -387,12 +386,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 .Select(r => new { r.Id, r.Codigo, r.NumeroPlanilla })
                 .ToDictionaryAsync(r => r.Id, r => r);
 
-            var consolidados = await ConsolidadoS10Loader.LoadPorRendicionAsync(ctx, rendicionIds);
+            // El documento de cada salida, con la precedencia del módulo: es el mismo con el que
+            // Tesorería lo eligió en la bandeja.
+            var consolidadoDe = await ConsolidadoS10Loader.LoadAsync(
+                ctx, filas.ToDictionary(f => f.Id, f => (int?)f.RendicionId));
 
-            // El consolidador de cada planilla es quien subió su consolidado: el aviso de pago lo
-            // nombra debajo del trabajador.
-            var subidoPor = await SubidoPorAsync(
-                ctx, consolidados.Values.Select(c => c.Id).Distinct().ToList());
+            var cabeceras = await CabecerasPagoAsync(
+                ctx, consolidadoDe.Values.Select(c => c.Id).Distinct().ToList());
 
             var montoPorSolicitud = await MontoPorSolicitudAsync(
                 ctx, filas.ToDictionary(f => f.Id, f => f.Subarea));
@@ -400,36 +400,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             var nombresUsuario = await NombrePorUserIdAsync(
                 ctx, filas.Where(f => f.PagadoPorId.HasValue).Select(f => f.PagadoPorId!.Value));
 
-            return filas
-                // Por persona y no por ficha: quien tiene dos fichas (un reingreso) es la misma
-                // persona con el mismo correo, y también recibe uno solo. Sin persona no hay correo
-                // a quien escribirle, así que ahí basta la ficha.
-                .GroupBy(f => (f.PersonId, WorkerId: f.PersonId.HasValue ? 0 : f.WorkerId))
+            string CodigoDe(int rendicionId) => PlanillaRendicionHelper.CodigoRendicion(
+                planillas.TryGetValue(rendicionId, out var planilla) ? planilla.Codigo : null, rendicionId);
+
+            decimal MontoDe(IEnumerable<SalidaPagada> salidas) =>
+                salidas.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m);
+
+            string? PagadoPorDe(IEnumerable<SalidaPagada> salidas)
+            {
+                var id = salidas.Select(x => x.PagadoPorId).FirstOrDefault(x => x.HasValue);
+                return id.HasValue && nombresUsuario.TryGetValue(id.Value, out var tesorero) ? tesorero : null;
+            }
+
+            info.Personas = filas
+                .GroupBy(f => f.Persona)
                 .Select(porPersona =>
                 {
                     var rendiciones = porPersona
                         .GroupBy(x => x.RendicionId)
-                        .Select(g =>
+                        .Select(g => new RendicionPagadaCorreoDatos
                         {
-                            planillas.TryGetValue(g.Key, out var planilla);
-                            return new RendicionPagadaCorreoDatos
-                            {
-                                RendicionId    = g.Key,
-                                Codigo         = PlanillaRendicionHelper.CodigoRendicion(planilla?.Codigo, g.Key),
-                                NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla?.NumeroPlanilla),
-                                Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(
-                                                     g.Min(x => x.FechaSalida), g.Max(x => x.FechaSalida)),
-                                SalidasCount   = g.Count(),
-                                Monto          = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
-                            };
+                            RendicionId    = g.Key,
+                            Codigo         = CodigoDe(g.Key),
+                            NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(
+                                                 planillas.TryGetValue(g.Key, out var planilla)
+                                                     ? planilla.NumeroPlanilla : null),
+                            Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(
+                                                 g.Min(x => x.FechaSalida), g.Max(x => x.FechaSalida)),
+                            SalidasCount   = g.Count(),
+                            Monto          = MontoDe(g),
                         })
                         .OrderBy(r => r.Codigo, StringComparer.Ordinal)
                         .ToList();
 
                     // Casi siempre es un solo consolidado; son varios cuando Tesorería paga juntos
                     // consolidados donde la persona tiene rendiciones.
-                    var suyos = rendiciones
-                        .Select(r => consolidados.GetValueOrDefault(r.RendicionId))
+                    var suyos = porPersona
+                        .Select(x => consolidadoDe.GetValueOrDefault(x.Id))
                         .OfType<ConsolidadoS10Dto>()
                         .DistinctBy(c => c.Id)
                         .ToList();
@@ -440,15 +447,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                         .ThenByDescending(x => x.WorkerId)
                         .First();
 
-                    var pagadoPorId = porPersona.Select(x => x.PagadoPorId).FirstOrDefault(x => x.HasValue);
-
                     return new ReembolsoPagadoCorreoDatos
                     {
                         Trabajador       = reciente.Trabajador,
                         TrabajadorEmail  = reciente.Email,
                         Area             = reciente.Area,
                         Consolidadores   = suyos
-                            .Select(c => subidoPor.TryGetValue(c.Id, out var quien) ? quien.Nombre : null)
+                            .Select(c => cabeceras.GetValueOrDefault(c.Id)?.Consolidador)
                             .OfType<string>()
                             .Where(nombre => !string.IsNullOrWhiteSpace(nombre))
                             .Distinct()
@@ -463,13 +468,120 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                                                porPersona.Min(x => x.FechaSalida), porPersona.Max(x => x.FechaSalida)),
                         SalidasCount     = porPersona.Count(),
                         MontoTotal       = rendiciones.Sum(r => r.Monto),
-                        PagadoPor        = pagadoPorId.HasValue
-                                           && nombresUsuario.TryGetValue(pagadoPorId.Value, out var tesorero)
-                                               ? tesorero : null,
+                        PagadoPor        = PagadoPorDe(porPersona),
                         Rendiciones      = rendiciones,
                     };
                 })
                 .ToList();
+
+            // Uno por consolidado, al consolidador: Tesorería le abona lo pagado y él le reembolsa a
+            // cada persona lo suyo. Es solo lo que se pagó ahora, que casi siempre es el documento
+            // entero.
+            info.Consolidados = filas
+                .Where(f => consolidadoDe.ContainsKey(f.Id))
+                .GroupBy(f => consolidadoDe[f.Id].Id)
+                .Select(porConsolidado =>
+                {
+                    var dto      = consolidadoDe[porConsolidado.First().Id];
+                    var cabecera = cabeceras.GetValueOrDefault(porConsolidado.Key);
+
+                    var trabajadores = porConsolidado
+                        .GroupBy(f => f.Persona)
+                        .Select(g => new ReembolsoPorTrabajadorCorreoDatos
+                        {
+                            Trabajador  = g.First().Trabajador,
+                            Rendiciones = g.Select(x => CodigoDe(x.RendicionId))
+                                           .Distinct()
+                                           .OrderBy(c => c, StringComparer.Ordinal)
+                                           .ToList(),
+                            Monto       = MontoDe(g),
+                        })
+                        .OrderBy(t => t.Trabajador, StringComparer.CurrentCulture)
+                        .ToList();
+
+                    return new ConsolidadoPagadoCorreoDatos
+                    {
+                        ConsolidadoId        = porConsolidado.Key,
+                        Codigo               = dto.Codigo,
+                        PlanillaGrupalCodigo = cabecera?.PlanillaGrupal,
+                        Area                 = cabecera?.Area,
+                        NumeroReembolso      = dto.NumeroReembolso,
+                        ConsolidadorEmail    = cabecera?.Email,
+                        PagadoPor            = PagadoPorDe(porConsolidado),
+                        MontoTotal           = trabajadores.Sum(t => t.Monto),
+                        RendicionesCount     = porConsolidado.Select(x => x.RendicionId).Distinct().Count(),
+                        Trabajadores         = trabajadores,
+                    };
+                })
+                .OrderBy(c => c.ConsolidadoId)
+                .ToList();
+
+            return info;
+        }
+
+        /// <summary>
+        /// Una salida del pago con lo que necesitan sus dos avisos (ver <see cref="GetPagoCorreoInfo"/>).
+        /// </summary>
+        private sealed record SalidaPagada(
+            int Id, int RendicionId, int WorkerId, int? PersonId, string? Subarea, string Trabajador,
+            string? Email, string? Area, DateOnly FechaSalida, int? PagadoPorId)
+        {
+            /// <summary>
+            /// De quién es, por persona y no por ficha: quien tiene dos fichas (un reingreso) es la
+            /// misma persona con el mismo correo, y recibe un solo aviso y una sola fila en el del
+            /// consolidador. Sin persona no hay correo a quien escribirle, así que ahí basta la ficha.
+            /// </summary>
+            public (int? PersonId, int WorkerId) Persona => (PersonId, PersonId.HasValue ? 0 : WorkerId);
+        }
+
+        /// <summary>Lo que el aviso de pago necesita de cada consolidado además de su DTO.</summary>
+        /// <param name="Consolidador">Nombre de quien lo adjuntó.</param>
+        /// <param name="Email">Su correo (app_user.email): el destinatario del aviso al consolidador.</param>
+        /// <param name="Area">Área del consolidado, la del consolidador.</param>
+        /// <param name="PlanillaGrupal">Código de la planilla grupal con la que se registró en el S10.</param>
+        private sealed record CabeceraPago(string? Consolidador, string? Email, string? Area, string? PlanillaGrupal);
+
+        /// <summary>
+        /// Quién adjuntó cada consolidado —el consolidador, a quien Tesorería le abona— con su
+        /// correo, el área con la que quedó el consolidado y el código de su planilla grupal.
+        /// </summary>
+        private static async Task<Dictionary<int, CabeceraPago>> CabecerasPagoAsync(
+            AppDbContext ctx, List<int> consolidadoIds)
+        {
+            if (consolidadoIds.Count == 0) return new();
+
+            var filas = await (
+                from c   in ctx.GaConsolidadoS10
+                join u   in ctx.User on c.UploadedById equals u.UserId into uGroup
+                from u   in uGroup.DefaultIfEmpty()
+                join per in ctx.Person on (int?)c.UploadedById equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                join s   in ctx.AreaScope on c.AreaScopeId equals (int?)s.AreaScopeId into sGroup
+                from s   in sGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
+                join pg  in ctx.GaPlanillaGrupal on c.PlanillaGrupalId equals (int?)pg.Id into pgGroup
+                from pg  in pgGroup.DefaultIfEmpty()
+                where consolidadoIds.Contains(c.Id)
+                select new
+                {
+                    c.Id,
+                    Nombre         = per != null ? per.FullName : null,
+                    Email          = u != null ? u.Email : null,
+                    Area           = ai != null ? ai.AreaItemName : null,
+                    PlanillaGrupal = pg != null ? pg.Codigo : null,
+                }
+            ).ToListAsync();
+
+            return filas
+                .GroupBy(x => x.Id)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new CabeceraPago(
+                        g.Select(x => x.Nombre).FirstOrDefault(n => n != null),
+                        g.First().Email,
+                        g.First().Area,
+                        g.First().PlanillaGrupal));
         }
 
         public async Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters)

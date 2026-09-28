@@ -323,6 +323,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public List<string> Destinatarios { get; set; } = new();
     }
 
+    /// <summary>
+    /// Lo que necesitan los dos avisos del pago, armados juntos porque salen de las mismas salidas y
+    /// las mismas consultas: el de cada persona (lo suyo, sumado) y el de cada consolidador (lo que
+    /// Tesorería le abonó y cuánto le toca reembolsar a cada trabajador).
+    /// </summary>
+    public class ReembolsoPagoCorreoInfoDto
+    {
+        /// <summary>Uno por persona: el aviso <c>REEMBOLSO_PAGADO</c>.</summary>
+        public List<ReembolsoPagadoCorreoDatos> Personas { get; set; } = new();
+        /// <summary>Uno por consolidado: el aviso <c>REEMBOLSO_PAGADO_CONSOLIDADOR</c>.</summary>
+        public List<ConsolidadoPagadoCorreoDatos> Consolidados { get; set; } = new();
+    }
+
     // ── Seguimiento (11.4 del requerimiento) ─────────────────────────────────
     // La segunda vista de Tesorería: no es una bandeja de trabajo sino la consulta de lo ya
     // abonado, con filtro por colaborador. Por eso solo mira lo Pagado y se agrupa por persona

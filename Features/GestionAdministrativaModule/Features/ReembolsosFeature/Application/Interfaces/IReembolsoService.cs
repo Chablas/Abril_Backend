@@ -54,7 +54,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
 
         /// <summary>
         /// Marca como pagadas las salidas ya confirmadas de los consolidados seleccionados y avisa
-        /// a cada colaborador.
+        /// al consolidador de cada consolidado y a cada colaborador.
         /// </summary>
         Task<ReembolsoBulkResultDto> MarcarPagadas(ReembolsoSeleccionDto dto, int tesoreroUserId);
 
@@ -66,9 +66,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.In
         Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewConfirmacion(ReembolsoSeleccionDto dto);
 
         /// <summary>
-        /// A quién le llegaría el aviso de pago de lo seleccionado. Lo piden las confirmaciones
-        /// (el botón masivo y el del modal de detalle) para nombrar las direcciones reales en vez
-        /// de prometer un aviso genérico. Lista vacía = hoy no sale ningún correo.
+        /// A quién le llegarían los avisos de pago de lo seleccionado (al consolidador y a los
+        /// colaboradores). Lo piden las confirmaciones (el botón masivo y el del modal de detalle)
+        /// para nombrar las direcciones reales en vez de prometer un aviso genérico. Lista vacía =
+        /// hoy no sale ningún correo.
         /// </summary>
         Task<List<CorreoAvisoPreviewDto>> GetCorreoPreviewPago(ReembolsoSeleccionDto dto);
 

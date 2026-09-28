@@ -195,6 +195,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
+    /// Lo que necesita el aviso al consolidador de que Tesorería pagó su consolidado (plantilla 22).
+    /// Tesorería le abona el total a él y él le reembolsa a cada trabajador, así que lleva el monto
+    /// pagado y el reparto por persona. Va UNO por consolidado.
+    /// </summary>
+    public sealed class ConsolidadoPagadoCorreoDatos
+    {
+        public int ConsolidadoId { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN. Null en los consolidados anteriores a la columna.</summary>
+        public string? Codigo { get; set; }
+        /// <summary>
+        /// Código de la planilla grupal con la que se registró en el S10. Null en los consolidados
+        /// anteriores a la planilla preparada.
+        /// </summary>
+        public string? PlanillaGrupalCodigo { get; set; }
+        /// <summary>Área del consolidado (la del consolidador). Null si no se pudo resolver.</summary>
+        public string? Area { get; set; }
+        /// <summary>Número de reembolso que devolvió el S10. Null en los consolidados viejos.</summary>
+        public string? NumeroReembolso { get; set; }
+        /// <summary>Correo de quien adjuntó el consolidado (app_user.email): es el destinatario.</summary>
+        public string? ConsolidadorEmail { get; set; }
+        /// <summary>Nombre del tesorero que registró el pago.</summary>
+        public string? PagadoPor { get; set; }
+        /// <summary>
+        /// Lo que se pagó: la suma de lo que le toca a cada trabajador. Casi siempre es el
+        /// consolidado entero; es menos cuando alguna de sus planillas todavía no estaba por pagar.
+        /// </summary>
+        public decimal MontoTotal { get; set; }
+        /// <summary>Cuántas planillas entran en el pago.</summary>
+        public int RendicionesCount { get; set; }
+        /// <summary>Lo que le toca a cada persona, ordenado por nombre. Nunca vacía.</summary>
+        public List<ReembolsoPorTrabajadorCorreoDatos> Trabajadores { get; set; } = new();
+    }
+
+    /// <summary>Una fila del reparto del aviso al consolidador: una persona, sus planillas y su monto.</summary>
+    public sealed class ReembolsoPorTrabajadorCorreoDatos
+    {
+        public string Trabajador { get; set; } = string.Empty;
+        /// <summary>Códigos de sus planillas pagadas en el consolidado, ordenados.</summary>
+        public List<string> Rendiciones { get; set; } = new();
+        /// <summary>Lo que le toca: la suma de esas planillas, en soles.</summary>
+        public decimal Monto { get; set; }
+    }
+
+    /// <summary>
     /// Los correos que cierran el ciclo de la rendición, todos con el mismo chrome de la intranet
     /// (<see cref="SalidaEmailLayout"/>):
     ///
@@ -214,6 +258,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///   <item>A Tesorería: confirmó la revisión del consolidado y quedó listo para programar el
     ///     pago.</item>
     ///   <item>Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49).</item>
+    ///   <item>Al consolidador: Tesorería le pagó el consolidado y cuánto le toca reembolsar a cada
+    ///     trabajador. Uno por consolidado.</item>
     ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo. Uno por persona con todas
     ///     sus rendiciones pagadas, no uno por planilla.</item>
     /// </list>
@@ -251,8 +297,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaFirma       = "req-vistobueno";
         private const string FilaObservacion = "req-comentario";
         private const string FilaEstado      = "req-estado";
+        private const string FilaPlanillaGrupal = "req-formulario";
 
-        private const string SeccionRendiciones = "req-formulario";
+        private const string SeccionRendiciones  = "req-formulario";
+        private const string SeccionTrabajadores = "req-candidatos";
 
         /// <summary>
         /// Al trabajador: su rendición quedó incluida en la planilla grupal que acaba de preparar el
@@ -469,32 +517,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         ///
         /// El título completo de la plantilla no entra en la cabecera (va en una sola línea): lo
         /// lleva el asunto. La franja se adaptó al flujo real: la app no registra montos pagados
-        /// —marca el consolidado como pagado— y al pagar se avisa a los colaboradores, no al
-        /// consolidador. Si eso cambia, cambia esta línea.
+        /// —marca el consolidado como pagado—. Al pagar se avisa al consolidador y a los
+        /// colaboradores (<see cref="ConsolidadoPagado"/> y <see cref="Pagado"/>): si eso cambia,
+        /// cambia esta línea.
         /// </summary>
         public static string ConsolidadoListoParaPago(
-            SalidaEmailLayout l, ConsolidadoPorPagarCorreoDatos d, string urlPagar)
-        {
-            // Los consolidados anteriores al código se nombran por su número de reembolso.
-            var nombre = !string.IsNullOrWhiteSpace(d.Codigo)
-                ? $" <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>"
-                : !string.IsNullOrWhiteSpace(d.NumeroReembolso)
-                    ? $" <b>N.° {AbrilEmailLayout.Esc(d.NumeroReembolso)}</b>"
-                    : string.Empty;
-
-            return l.Documento(
+            SalidaEmailLayout l, ConsolidadoPorPagarCorreoDatos d, string urlPagar) =>
+            l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoPorPagar,
                     "Consolidado listo para programación de pago",
-                    $"La revisión del Consolidado del S10{nombre} fue confirmada y ahora puede continuar "
-                    + "con la programación del pago."),
+                    $"La revisión del Consolidado del S10{NombreEnBajada(d.Codigo, d.NumeroReembolso)} fue "
+                    + "confirmada y ahora puede continuar con la programación del pago."),
                 l.Tarjeta(FilasPorPagar(d)),
                 l.Franja(IconoFranjaAviso, AbrilEmailLayout.Tono.Info,
                     "Registra el pago en <b>Reembolsos</b>. Al marcarlo como pagado, Abril One notificará "
-                    + "a <b>todos los colaboradores incluidos en el consolidado</b>."),
+                    + "al <b>consolidador</b> y a <b>todos los colaboradores incluidos en el consolidado</b>."),
                 l.Boton("Programar pago", urlPagar),
                 l.EnlaceDirecto(urlPagar));
-        }
 
         /// <summary>
         /// Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49). Es el mismo
@@ -521,6 +561,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     "Vuelve a adjuntar el Consolidado del S10 corregido, o solicita la corrección al "
                     + "Coordinador ERP si el arreglo tiene que hacerse dentro del S10. Al recargarlo, "
                     + "vuelve a la jefatura para la firma y de ahí a Tesorería."),
+                l.Boton("Ver el consolidado", urlVer),
+                l.EnlaceDirecto(urlVer));
+        }
+
+        /// <summary>
+        /// Al consolidador: Tesorería pagó el consolidado (plantilla 22, «El consolidado fue
+        /// pagado»). Tesorería le abona el total a él y él le reembolsa a cada trabajador, así que la
+        /// franja lleva el monto pagado y la tabla lo que le toca a cada persona, con sus planillas.
+        /// El botón abre el consolidado en Consolidados, que es donde el consolidador sigue lo que
+        /// adjuntó.
+        ///
+        /// De la plantilla no van «Fecha de pago» ni «Estado»: la fecha es la del correo y el
+        /// estado lo dice la cabecera.
+        /// </summary>
+        public static string ConsolidadoPagado(SalidaEmailLayout l, ConsolidadoPagadoCorreoDatos d, string urlVer)
+        {
+            var monto = d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"));
+
+            return l.Documento(
+                new AbrilEmailLayout.Cabecera(
+                    IconoPago,
+                    "El consolidado fue pagado",
+                    $"Tesorería registró el pago del Consolidado del S10{NombreEnBajada(d.Codigo, d.NumeroReembolso)}."),
+                l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
+                    string.IsNullOrWhiteSpace(d.PagadoPor)
+                        ? $"Monto reembolsado: <b>S/ {monto}</b>."
+                        : $"Monto reembolsado: <b>S/ {monto}</b> · registrado por "
+                          + $"<b>{AbrilEmailLayout.Esc(d.PagadoPor)}</b>."),
+                l.Tarjeta(FilasConsolidadoPagado(d)),
+                l.Seccion(SeccionTrabajadores, "Reembolso por trabajador"),
+                TablaReembolsoPorTrabajador(l, d.Trabajadores),
                 l.Boton("Ver el consolidado", urlVer),
                 l.EnlaceDirecto(urlVer));
         }
@@ -564,6 +635,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public static string NombreEnAsunto(string? codigo, string? numeroReembolso) =>
             !string.IsNullOrWhiteSpace(codigo) ? $" - {codigo}"
             : !string.IsNullOrWhiteSpace(numeroReembolso) ? $" - Consolidado del S10 N.° {numeroReembolso}"
+            : string.Empty;
+
+        /// <summary>
+        /// Lo mismo para la bajada, después de «Consolidado del S10»: " <b>CONS-…</b>", o
+        /// " <b>N.° …</b>" en los anteriores al código.
+        /// </summary>
+        private static string NombreEnBajada(string? codigo, string? numeroReembolso) =>
+            !string.IsNullOrWhiteSpace(codigo) ? $" <b>{AbrilEmailLayout.Esc(codigo)}</b>"
+            : !string.IsNullOrWhiteSpace(numeroReembolso) ? $" <b>N.° {AbrilEmailLayout.Esc(numeroReembolso)}</b>"
             : string.Empty;
 
         /// <summary>" N.° 00123" si el consolidado tiene número de reembolso; vacío si es de los viejos.</summary>
@@ -816,6 +896,66 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                     new(r.SalidasCount.ToString()),
                     new($"S/ {r.Monto.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}",
                         NoWrap: true),
+                })
+                .ToList();
+
+            return l.Tabla(columnas, cuerpo);
+        }
+
+        /// <summary>
+        /// Filas del aviso de pago al consolidador: con qué códigos conoce el documento —el del
+        /// consolidado y el de la planilla grupal con la que lo registró en el S10— y lo que se pagó.
+        /// Las que no tienen dato (consolidados anteriores al código o a la planilla preparada) no se
+        /// agregan.
+        /// </summary>
+        private static List<AbrilEmailLayout.Fila> FilasConsolidadoPagado(ConsolidadoPagadoCorreoDatos d)
+        {
+            var filas = new List<AbrilEmailLayout.Fila>();
+
+            if (!string.IsNullOrWhiteSpace(d.Codigo))
+                filas.Add(new(FilaPlanilla, "Consolidado", AbrilEmailLayout.Esc(d.Codigo)));
+
+            if (!string.IsNullOrWhiteSpace(d.PlanillaGrupalCodigo))
+                filas.Add(new(FilaPlanillaGrupal, "Planilla grupal", AbrilEmailLayout.Esc(d.PlanillaGrupalCodigo)));
+
+            if (!string.IsNullOrWhiteSpace(d.Area))
+                filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
+
+            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
+                filas.Add(new(FilaReembolso, "N.º de reembolso del S10", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+
+            filas.Add(new(FilaRendiciones, "Rendiciones pagadas", d.RendicionesCount.ToString()));
+
+            // Siempre, aunque sea cero: es lo que Tesorería le abonó.
+            filas.Add(new(FilaMonto, "Monto total",
+                $"S/ {d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
+
+            return filas;
+        }
+
+        /// <summary>
+        /// Una fila por persona, para el aviso al consolidador: a quién le reembolsa y cuánto. Las
+        /// planillas van una debajo de otra, que es como las busca en la planilla grupal.
+        /// </summary>
+        private static string TablaReembolsoPorTrabajador(
+            SalidaEmailLayout l, IReadOnlyList<ReembolsoPorTrabajadorCorreoDatos> trabajadores)
+        {
+            // Los anchos suman el ancho interno de la tarjeta (580) para que las columnas no se
+            // aprieten — ver la nota de Columna en AbrilEmailLayout.
+            var columnas = new List<AbrilEmailLayout.Columna>
+            {
+                new("Trabajador", 270),
+                new("Rendiciones", 170),
+                new("Monto", 140, AbrilEmailLayout.Alineacion.Derecha),
+            };
+
+            var cuerpo = trabajadores
+                .Select(t => (IReadOnlyList<AbrilEmailLayout.Celda>)new List<AbrilEmailLayout.Celda>
+                {
+                    new(AbrilEmailLayout.Esc(t.Trabajador)),
+                    new(string.Join("<br />", t.Rendiciones.Select(AbrilEmailLayout.Esc)), NoWrap: true),
+                    new($"S/ {t.Monto.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}",
+                        Negrita: true, NoWrap: true),
                 })
                 .ToList();
 

@@ -234,8 +234,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>El residente que se guarda acá decide quién sube el Cronograma de Hitos de
+        /// la obra, así que no basta con estar logueado: exige la misma feature que la pantalla
+        /// (Configuración → Proyectos), que es la única que llama a este endpoint.</summary>
         [Authorize]
         [HttpPatch("{id}/emails")]
+        [RequireFeature("configuracion.proyectos")]
         public async Task<IActionResult> UpdateEmails(int id, [FromBody] ProjectEmailsUpdateDto dto)
         {
             try

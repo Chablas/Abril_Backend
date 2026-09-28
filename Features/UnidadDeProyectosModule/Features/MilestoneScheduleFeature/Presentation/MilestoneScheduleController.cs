@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
@@ -11,7 +12,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [RequireFeature("mejora-continua.milestone-schedule")]
+    [RequireFeature(CronogramaHitosFeatures.Ver)]
     public class MilestoneScheduleController : ControllerBase
     {
         private readonly IMilestoneScheduleService _service;
@@ -20,6 +21,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         {
             _service = service;
         }
+
+        /// <summary>IDs de rol del JWT (llegan como varios claims ClaimTypes.Role), para decidir
+        /// por feature si el usuario administra el cronograma.</summary>
+        private int[] RoleIds() => User.FindAll(ClaimTypes.Role)
+            .Select(c => int.TryParse(c.Value, out var id) ? id : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToArray();
 
         [Authorize]
         [HttpGet]
@@ -51,16 +61,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
+        /// <summary>Quien administra el cronograma (cualquier proyecto) o el residente del
+        /// proyecto dueño del hito, ver MilestoneScheduleService.ValidarEdicionAsync.</summary>
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/culminar")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar, CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> Culminar(int milestoneScheduleId, [FromBody] MilestoneScheduleCulminarRequest request)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
-                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId, esAdminResidentes);
+                var esResidente = User.IsInRole(Roles.Residente);
+                await _service.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId, RoleIds(), esResidente);
                 var message = request.FechaRealFin.HasValue
                     ? "Hito marcado como culminado."
                     : "Hito desmarcado como culminado.";
@@ -83,14 +95,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// </summary>
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/marcar-critico")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar, CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> MarcarCritico(int milestoneScheduleId, [FromBody] MilestoneScheduleMarcarCriticoRequest request)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
-                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId, esAdminResidentes);
+                var esResidente = User.IsInRole(Roles.Residente);
+                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId, RoleIds(), esResidente);
                 var message = request.EsHitoCritico
                     ? "Hito marcado como crítico."
                     : "Hito desmarcado como crítico.";
@@ -107,12 +119,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>Edita los campos de un hito ya guardado (descripción/orden/fechas/crítico) sin
-        /// tener que subir una versión nueva completa del cronograma — solo ADMINISTRADOR DE
-        /// RESIDENTES, en cualquier proyecto (mismo alcance que Delete en
+        /// tener que subir una versión nueva completa del cronograma — solo quien administra el
+        /// cronograma, en cualquier proyecto (mismo alcance que Delete en
         /// MilestoneScheduleHistoryController).</summary>
-        [Authorize(Roles = Roles.AdministradorResidentes)]
+        [Authorize]
         [HttpPut("{milestoneScheduleId:int}")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> Editar(int milestoneScheduleId, [FromBody] MilestoneScheduleEditDTO dto)
         {
             try
@@ -132,11 +144,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>Agrega un único hito nuevo (de catálogo o personalizado) a una versión de
-        /// cronograma ya existente, sin tener que subir una versión completa nueva — solo
-        /// ADMINISTRADOR DE RESIDENTES, mismo alcance que Editar.</summary>
-        [Authorize(Roles = Roles.AdministradorResidentes)]
+        /// cronograma ya existente, sin tener que subir una versión completa nueva — mismo
+        /// alcance que Editar.</summary>
+        [Authorize]
         [HttpPost("{milestoneScheduleHistoryId:int}/hito")]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> AgregarHito(int milestoneScheduleHistoryId, [FromBody] MilestoneScheduleAddDTO dto)
         {
             try

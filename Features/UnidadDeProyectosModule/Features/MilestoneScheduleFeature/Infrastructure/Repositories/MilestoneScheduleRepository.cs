@@ -85,7 +85,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>Resuelve el proyecto dueño de un hito, para validar que quien edita
-        /// (Culminar/MarcarCritico) es el residente asignado a ese proyecto.</summary>
+        /// (Culminar/MarcarCritico) administra el cronograma o es el residente de ese proyecto.</summary>
         public async Task<int?> GetProjectIdByMilestoneScheduleId(int milestoneScheduleId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -139,8 +139,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         private const string DescripcionInicioDeObra = "Inicio de obra";
 
         /// <summary>Edita un hito ya guardado sin necesidad de subir una versión nueva completa del
-        /// cronograma (eso es Create, en MilestoneScheduleHistoryRepository) — solo llamado para
-        /// ADMINISTRADOR DE RESIDENTES, ver el [Authorize(Roles=...)] en el controller.</summary>
+        /// cronograma (eso es Create, en MilestoneScheduleHistoryRepository) — solo con la feature
+        /// mejora-continua.milestone-schedule.administrar, ver el [RequireFeature] del controller.</summary>
         public async Task EditAsync(int milestoneScheduleId, MilestoneScheduleEditDTO dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -189,8 +189,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>Agrega un único hito nuevo a una MilestoneScheduleHistory ya existente, sin subir
-        /// una versión completa nueva — solo ADMINISTRADOR DE RESIDENTES (ver el
-        /// [Authorize(Roles=...)] en el controller, mismo alcance que EditAsync). Devuelve el hito
+        /// una versión completa nueva — mismo alcance que EditAsync (feature de administrar, ver el
+        /// [RequireFeature] del controller). Devuelve el hito
         /// ya resuelto (mismo shape que GetAllByMilestoneScheduleHistoryIdFactory) para que el
         /// frontend actualice el Gantt en memoria sin un segundo GET.</summary>
         public async Task<MilestoneScheduleDTO> AddHitoAsync(int milestoneScheduleHistoryId, MilestoneScheduleAddDTO dto, int userId)

@@ -109,9 +109,33 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public int ProjectId { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
+        /// <summary>Nombre del trabajador que subió la versión (person del usuario creador).
+        /// Null si ese usuario no tiene persona asociada: el frontend muestra "—".</summary>
+        public string? CreatedUserFullName { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
+    }
+
+    // ── Listado de proyectos (tarjetas) ──────────────────────────────────────
+    /// <summary>Tarjeta del listado del Cronograma de Hitos (GET project/paged-with-residents).</summary>
+    public class MilestoneProjectDTO
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+        public string? LevelDescription { get; set; }
+        public string? FotoUrl { get; set; }
+        /// <summary>Residente del proyecto según Configuración → Proyectos → Emails SSOMA
+        /// (project.residente_workers_id). Null si no tiene uno asignado.</summary>
+        public string? ResidenteNombre { get; set; }
+        /// <summary>true si el usuario que consulta es ese residente. Junto con el rol RESIDENTE
+        /// es lo que habilita subir versiones nuevas (ver CronogramaPermisosRepository).</summary>
+        public bool EsResidenteDelProyecto { get; set; }
+    }
+
+    public class ProjectLevelDescriptionUpdateDTO
+    {
+        public string? LevelDescription { get; set; }
     }
 
     public class MilestoneChange

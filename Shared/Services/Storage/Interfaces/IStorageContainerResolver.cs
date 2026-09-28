@@ -20,5 +20,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         string GetEppFichasTecnicasContainerName();
         string GetResiduosContainerName();
         string GetCursoImagenesContainerName();
+        string GetAtsContainerName();
     }
 }

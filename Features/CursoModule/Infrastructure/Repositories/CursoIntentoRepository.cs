@@ -33,6 +33,34 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Repositories
             return await ctx.CursoIntentos.FirstOrDefaultAsync(i => i.Id == intentoId);
         }
 
+        public async Task<List<CursoIntento>> GetPorUsuarioAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.CursoIntentos
+                .Where(i => i.UserId == userId)
+                .OrderByDescending(i => i.FechaInicio)
+                .ToListAsync();
+        }
+
+        public async Task<List<CursoIntento>> GetHistorialAsync(int? cursoId, DateTime? desde, DateTime? hasta)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = ctx.CursoIntentos.AsQueryable();
+            if (cursoId.HasValue) query = query.Where(i => i.CursoId == cursoId.Value);
+            if (desde.HasValue) query = query.Where(i => i.FechaInicio >= desde.Value);
+            if (hasta.HasValue) query = query.Where(i => i.FechaInicio <= hasta.Value);
+
+            return await query.OrderByDescending(i => i.FechaInicio).ToListAsync();
+        }
+
+        public async Task<Dictionary<int, string>> GetNombresTrabajadoresAsync(int[] userIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Person
+                .Where(p => p.UserId.HasValue && userIds.Contains(p.UserId.Value))
+                .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "(sin nombre)");
+        }
+
         public async Task<CursoIntentoRespuesta> GuardarRespuestaAsync(CursoIntentoRespuesta respuesta)
         {
             using var ctx = _factory.CreateDbContext();

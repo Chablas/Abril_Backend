@@ -65,6 +65,40 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en CursoIntentoController.Finalizar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("mis-cursos")]
+        public async Task<IActionResult> GetMisCursos()
+        {
+            try
+            {
+                var roleIds = User.FindAll(ClaimTypes.Role)
+                    .Select(c => int.TryParse(c.Value, out var id) ? id : (int?)null)
+                    .Where(id => id.HasValue)
+                    .Select(id => id!.Value)
+                    .Distinct()
+                    .ToArray();
+
+                var resultado = await _service.GetMisCursosAsync(GetUserId(), roleIds);
+                return Ok(resultado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoIntentoController.GetMisCursos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Historial de evaluaciones para auditoría (SUNAFIL): lista de intentos con
+        /// filtros opcionales por curso y rango de fechas. El detalle completo (respuestas +
+        /// evidencia con hash) se pide aparte por GET /curso-intento/{intentoId}.</summary>
+        [HttpGet("historial")]
+        public async Task<IActionResult> GetHistorial([FromQuery] int? cursoId, [FromQuery] DateTime? desde, [FromQuery] DateTime? hasta)
+        {
+            try
+            {
+                var resultado = await _service.GetHistorialAsync(cursoId, desde, hasta);
+                return Ok(resultado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoIntentoController.GetHistorial"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("{intentoId:int}")]
         public async Task<IActionResult> GetDetalle(int intentoId)
         {

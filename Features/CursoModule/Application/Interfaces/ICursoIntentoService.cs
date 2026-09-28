@@ -8,5 +8,7 @@ namespace Abril_Backend.Features.CursoModule.Application.Interfaces
         Task<ResponderSlideResultDto> ResponderAsync(int intentoId, ResponderSlideDto dto);
         Task<FinalizarIntentoResultDto> FinalizarAsync(int intentoId, FinalizarIntentoDto dto);
         Task<CursoIntentoDetalleDto> GetDetalleAsync(int intentoId);
+        Task<List<MiCursoProgresoDto>> GetMisCursosAsync(int userId, int[] roleIds);
+        Task<List<CursoIntentoHistorialDto>> GetHistorialAsync(int? cursoId, DateTime? desde, DateTime? hasta);
     }
 }

@@ -23,6 +23,8 @@ public interface IAtsRepository
     Task<List<AtsPasoPuestoDto>> GetPasoPuestoMapeo();
     Task SetPasoPuestos(int pasoId, List<int> puestoIds);
     Task<int?> GetPlantillaSugerida(int? puestoId);
+    Task<List<AtsPlantillaPuestoDto>> GetPlantillaPuestoMapeo();
+    Task SetPlantillaPuestos(int plantillaId, List<int> puestoIds);
 
     Task<int> Crear(int workerId, AtsGuardarRequestDto dto);
     Task Editar(int id, int workerId, AtsGuardarRequestDto dto);
@@ -40,6 +42,8 @@ public interface IAtsRepository
     Task<bool> TieneAutorizacionPermiso(int workerId);
     Task SubirAutorizacionPermiso(int workerId, string archivoUrl, int? subidoPorUserId);
     Task<List<AtsAutorizacionTrabajadorDto>> GetTrabajadoresParaAutorizacion();
+    Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId);
+    Task CapturarFirmaDigitalAutorizacion(int workerId, string firmaUrl, string firmaHash, int capturadoPorUserId);
 
     Task Firmar(SsAts ats, string selfieUrl, string selfieHash, string firmaUrl, string firmaHash, DateTime horaServidor, AtsFirmarRequestDto body, string? ipOrigen, string? userAgent);
 
@@ -73,4 +77,20 @@ public interface IAtsRepository
     Task<int> CrearPlantilla(AtsPlantillaGuardarRequestDto dto);
     Task EditarPlantilla(int id, AtsPlantillaGuardarRequestDto dto);
     Task DesactivarPlantilla(int id);
+
+    // ── Actividades/pasos por plantilla ──────────────────────────────────
+    Task<List<AtsPlantillaActividadDto>> GetActividadesDePlantilla(int plantillaId);
+    Task<int> CrearActividad(int plantillaId, string texto);
+    Task EditarActividad(int actividadId, string texto);
+    Task EliminarActividad(int actividadId);
+    Task<int> CrearPaso(int actividadId, string texto);
+    Task EditarPaso(int pasoId, string texto);
+    Task EliminarPaso(int pasoId);
+    Task SetActividadPeligros(int actividadId, List<int> peligroIds);
+
+    // ── Controles sugeridos por riesgo ───────────────────────────────────
+    Task<List<AtsRiesgoConControlesDto>> GetRiesgosConControles();
+    Task<int> CrearControl(int riesgoId, string texto);
+    Task EditarControl(int controlId, string texto);
+    Task EliminarControl(int controlId);
 }

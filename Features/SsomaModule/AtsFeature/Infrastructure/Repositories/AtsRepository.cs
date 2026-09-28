@@ -215,7 +215,42 @@ public class AtsRepository : IAtsRepository
     {
         if (!puestoId.HasValue) return null;
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsAtsPlantilla.Where(p => p.Activo && p.PuestoId == puestoId).Select(p => (int?)p.Id).FirstOrDefaultAsync();
+        return await ctx.SsAtsPlantillaPuesto
+            .Where(pp => pp.PuestoId == puestoId && pp.Plantilla!.Activo)
+            .Select(pp => (int?)pp.PlantillaId)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<List<AtsPlantillaPuestoDto>> GetPlantillaPuestoMapeo()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var plantillas = await ctx.SsAtsPlantilla
+            .Where(p => p.Activo)
+            .OrderBy(p => p.Nombre)
+            .Select(p => new { p.Id, p.Nombre })
+            .ToListAsync();
+        var plantillaIds = plantillas.Select(p => p.Id).ToList();
+        var mapeos = await ctx.SsAtsPlantillaPuesto
+            .Where(pp => plantillaIds.Contains(pp.PlantillaId))
+            .ToListAsync();
+        var puestosPorPlantilla = mapeos.GroupBy(m => m.PlantillaId).ToDictionary(g => g.Key, g => g.Select(m => m.PuestoId).ToList());
+
+        return plantillas.Select(p => new AtsPlantillaPuestoDto
+        {
+            PlantillaId = p.Id,
+            PlantillaNombre = p.Nombre,
+            PuestoIds = puestosPorPlantilla.GetValueOrDefault(p.Id, []),
+        }).ToList();
+    }
+
+    public async Task SetPlantillaPuestos(int plantillaId, List<int> puestoIds)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existentes = await ctx.SsAtsPlantillaPuesto.Where(pp => pp.PlantillaId == plantillaId).ToListAsync();
+        ctx.SsAtsPlantillaPuesto.RemoveRange(existentes);
+        foreach (var pid in puestoIds.Distinct())
+            ctx.SsAtsPlantillaPuesto.Add(new SsAtsPlantillaPuesto { PlantillaId = plantillaId, PuestoId = pid });
+        await ctx.SaveChangesAsync();
     }
 
     public async Task<int> Crear(int workerId, AtsGuardarRequestDto dto)
@@ -472,7 +507,42 @@ public class AtsRepository : IAtsRepository
     public async Task<bool> TieneAutorizacionPermiso(int workerId)
     {
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsAtsAutorizacionPermiso.AnyAsync(a => a.WorkerId == workerId);
+        return await ctx.SsAtsAutorizacionPermiso.AnyAsync(a => a.WorkerId == workerId && a.ArchivoUrl != null);
+    }
+
+    public async Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var permiso = await ctx.SsAtsAutorizacionPermiso.FirstOrDefaultAsync(a => a.WorkerId == workerId);
+        var (nombre, dni) = await GetNombreYDni(workerId);
+        return (permiso?.FirmaDigitalUrl, nombre, dni);
+    }
+
+    public async Task CapturarFirmaDigitalAutorizacion(int workerId, string firmaUrl, string firmaHash, int capturadoPorUserId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existente = await ctx.SsAtsAutorizacionPermiso.FirstOrDefaultAsync(a => a.WorkerId == workerId);
+
+        if (existente != null)
+        {
+            existente.FirmaDigitalUrl = firmaUrl;
+            existente.FirmaDigitalHash = firmaHash;
+            existente.FirmadoDigitalEn = DateTime.UtcNow;
+            existente.FirmadoDigitalPorUserId = capturadoPorUserId;
+        }
+        else
+        {
+            ctx.SsAtsAutorizacionPermiso.Add(new SsAtsAutorizacionPermiso
+            {
+                WorkerId = workerId,
+                FirmaDigitalUrl = firmaUrl,
+                FirmaDigitalHash = firmaHash,
+                FirmadoDigitalEn = DateTime.UtcNow,
+                FirmadoDigitalPorUserId = capturadoPorUserId,
+            });
+        }
+
+        await ctx.SaveChangesAsync();
     }
 
     public async Task SubirAutorizacionPermiso(int workerId, string archivoUrl, int? subidoPorUserId)
@@ -500,32 +570,59 @@ public class AtsRepository : IAtsRepository
         await ctx.SaveChangesAsync();
     }
 
-    /// <summary>Universo: todo trabajador activo — cualquiera puede necesitar hacer un ATS,
-    /// a diferencia del enrolamiento de Arquitectura Comercial que solo aplica a "obreros AC".</summary>
+    /// <summary>Universo: trabajadores activos de Staff/Oficina Central — los obreros de obra
+    /// llenan su ATS en físico y no necesitan esta autorización de firma digital.</summary>
     public async Task<List<AtsAutorizacionTrabajadorDto>> GetTrabajadoresParaAutorizacion()
     {
         using var ctx = _factory.CreateDbContext();
 
         var workers = await ctx.Worker
-            .Where(w => w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo)
+            .Where(w => w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo
+                && w.ObraOficinaStaffId != null
+                && Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(w.ObraOficinaStaffId.Value))
             .OrderBy(w => w.Person != null ? w.Person.FullName : null)
-            .Select(w => new { w.Id, Nombre = w.Person != null ? w.Person.FullName : null, Dni = w.Person != null ? w.Person.DocumentIdentityCode : null })
+            .Select(w => new
+            {
+                w.Id,
+                Nombre = w.Person != null ? w.Person.FullName : null,
+                Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                ObraOficinaStaffId = w.ObraOficinaStaffId,
+            })
             .ToListAsync();
 
         var workerIds = workers.Select(w => w.Id).ToList();
+
         var autorizaciones = await ctx.SsAtsAutorizacionPermiso
             .Where(a => workerIds.Contains(a.WorkerId))
             .ToListAsync();
         var autorizacionMap = autorizaciones.ToDictionary(a => a.WorkerId, a => a);
 
-        return workers.Select(w => new AtsAutorizacionTrabajadorDto
+        // El proyecto vigente de un worker no vive en workers (no hay workers.project_id): se lee
+        // de worker_vinculaciones sin fecha_fin, mismo criterio que EvGestionSsomaRepository.
+        var proyectoPorWorker = await ctx.WorkerVinculacion
+            .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
+            .Select(v => new { v.WorkerId, v.ProyectoId, ProyectoNombre = v.Proyecto != null ? v.Proyecto.ProjectDescription : null })
+            .ToListAsync();
+        var proyectoMap = proyectoPorWorker
+            .GroupBy(v => v.WorkerId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return workers.Select(w =>
         {
-            WorkerId = w.Id,
-            Nombre = w.Nombre ?? $"Worker {w.Id}",
-            Dni = w.Dni,
-            TieneAutorizacion = autorizacionMap.ContainsKey(w.Id),
-            SubidoEn = autorizacionMap.GetValueOrDefault(w.Id)?.SubidoEn,
-            ArchivoUrl = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl,
+            proyectoMap.TryGetValue(w.Id, out var proy);
+            return new AtsAutorizacionTrabajadorDto
+            {
+                WorkerId = w.Id,
+                Nombre = w.Nombre ?? $"Worker {w.Id}",
+                Dni = w.Dni,
+                ProyectoId = proy?.ProyectoId,
+                ProyectoNombre = proy?.ProyectoNombre,
+                ObraOficinaStaff = Abril_Backend.Shared.Constants.ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId),
+                TieneFirmaDigital = autorizacionMap.GetValueOrDefault(w.Id)?.FirmaDigitalUrl != null,
+                TieneAutorizacion = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl != null,
+                SubidoEn = autorizacionMap.GetValueOrDefault(w.Id)?.SubidoEn,
+                ArchivoUrl = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl,
+            };
         }).ToList();
     }
 
@@ -779,6 +876,155 @@ public class AtsRepository : IAtsRepository
         using var ctx = _factory.CreateDbContext();
         var plantilla = await ctx.SsAtsPlantilla.FirstOrDefaultAsync(p => p.Id == id) ?? throw new AbrilException("Plantilla no encontrada.", 404);
         plantilla.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── Actividades/pasos por plantilla ──────────────────────────────────
+
+    public async Task<List<AtsPlantillaActividadDto>> GetActividadesDePlantilla(int plantillaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var actividades = await ctx.SsAtsPlantillaActividad
+            .Where(a => a.PlantillaId == plantillaId && a.Activo)
+            .Include(a => a.Pasos.Where(p => p.Activo))
+            .Include(a => a.Peligros)
+            .OrderBy(a => a.Orden)
+            .ToListAsync();
+
+        return actividades.Select(a => new AtsPlantillaActividadDto
+        {
+            Id = a.Id,
+            PlantillaId = a.PlantillaId,
+            Texto = a.Texto,
+            Orden = a.Orden,
+            Pasos = a.Pasos.OrderBy(p => p.Orden)
+                .Select(p => new AtsPlantillaPasoDto { Id = p.Id, Texto = p.Texto, Orden = p.Orden }).ToList(),
+            PeligroIds = a.Peligros.Select(p => p.PeligroId).ToList(),
+        }).ToList();
+    }
+
+    public async Task<int> CrearActividad(int plantillaId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var maxOrden = await ctx.SsAtsPlantillaActividad
+            .Where(a => a.PlantillaId == plantillaId)
+            .Select(a => (short?)a.Orden)
+            .MaxAsync() ?? 0;
+        var actividad = new SsAtsPlantillaActividad { PlantillaId = plantillaId, Texto = texto, Orden = (short)(maxOrden + 1), Activo = true };
+        ctx.SsAtsPlantillaActividad.Add(actividad);
+        await ctx.SaveChangesAsync();
+        return actividad.Id;
+    }
+
+    public async Task EditarActividad(int actividadId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var actividad = await ctx.SsAtsPlantillaActividad.FirstOrDefaultAsync(a => a.Id == actividadId) ?? throw new AbrilException("Actividad no encontrada.", 404);
+        actividad.Texto = texto;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task EliminarActividad(int actividadId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var actividad = await ctx.SsAtsPlantillaActividad.FirstOrDefaultAsync(a => a.Id == actividadId) ?? throw new AbrilException("Actividad no encontrada.", 404);
+        actividad.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> CrearPaso(int actividadId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var maxOrden = await ctx.SsAtsPlantillaPaso
+            .Where(p => p.ActividadId == actividadId)
+            .Select(p => (short?)p.Orden)
+            .MaxAsync() ?? 0;
+        var paso = new SsAtsPlantillaPaso { ActividadId = actividadId, Texto = texto, Orden = (short)(maxOrden + 1), Activo = true };
+        ctx.SsAtsPlantillaPaso.Add(paso);
+        await ctx.SaveChangesAsync();
+        return paso.Id;
+    }
+
+    public async Task EditarPaso(int pasoId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var paso = await ctx.SsAtsPlantillaPaso.FirstOrDefaultAsync(p => p.Id == pasoId) ?? throw new AbrilException("Paso no encontrado.", 404);
+        paso.Texto = texto;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task EliminarPaso(int pasoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var paso = await ctx.SsAtsPlantillaPaso.FirstOrDefaultAsync(p => p.Id == pasoId) ?? throw new AbrilException("Paso no encontrado.", 404);
+        paso.Activo = false;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task SetActividadPeligros(int actividadId, List<int> peligroIds)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existentes = await ctx.SsAtsPlantillaActividadPeligro.Where(x => x.ActividadId == actividadId).ToListAsync();
+        ctx.SsAtsPlantillaActividadPeligro.RemoveRange(existentes);
+        foreach (var pid in peligroIds.Distinct())
+            ctx.SsAtsPlantillaActividadPeligro.Add(new SsAtsPlantillaActividadPeligro { ActividadId = actividadId, PeligroId = pid });
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── Controles sugeridos por riesgo ───────────────────────────────────
+
+    public async Task<List<AtsRiesgoConControlesDto>> GetRiesgosConControles()
+    {
+        using var ctx = _factory.CreateDbContext();
+        var riesgos = await ctx.SsAtsRiesgo
+            .Where(r => r.Activo)
+            .Include(r => r.Peligro)
+            .OrderBy(r => r.Peligro!.Orden).ThenBy(r => r.Orden)
+            .ToListAsync();
+        var riesgoIds = riesgos.Select(r => r.Id).ToList();
+        var controles = await ctx.SsAtsRiesgoControl
+            .Where(c => riesgoIds.Contains(c.RiesgoId) && c.Activo)
+            .OrderBy(c => c.Orden)
+            .ToListAsync();
+        var controlesPorRiesgo = controles.GroupBy(c => c.RiesgoId).ToDictionary(g => g.Key, g => g.ToList());
+
+        return riesgos.Select(r => new AtsRiesgoConControlesDto
+        {
+            RiesgoId = r.Id,
+            RiesgoNombre = r.Nombre,
+            PeligroId = r.PeligroId,
+            PeligroNombre = r.Peligro?.Nombre ?? string.Empty,
+            Controles = controlesPorRiesgo.GetValueOrDefault(r.Id, [])
+                .Select(c => new AtsRiesgoControlDto { Id = c.Id, Texto = c.Texto, Orden = c.Orden }).ToList(),
+        }).ToList();
+    }
+
+    public async Task<int> CrearControl(int riesgoId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var maxOrden = await ctx.SsAtsRiesgoControl
+            .Where(c => c.RiesgoId == riesgoId)
+            .Select(c => (short?)c.Orden)
+            .MaxAsync() ?? 0;
+        var control = new SsAtsRiesgoControl { RiesgoId = riesgoId, Texto = texto, Orden = (short)(maxOrden + 1), Activo = true };
+        ctx.SsAtsRiesgoControl.Add(control);
+        await ctx.SaveChangesAsync();
+        return control.Id;
+    }
+
+    public async Task EditarControl(int controlId, string texto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var control = await ctx.SsAtsRiesgoControl.FirstOrDefaultAsync(c => c.Id == controlId) ?? throw new AbrilException("Control no encontrado.", 404);
+        control.Texto = texto;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task EliminarControl(int controlId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var control = await ctx.SsAtsRiesgoControl.FirstOrDefaultAsync(c => c.Id == controlId) ?? throw new AbrilException("Control no encontrado.", 404);
+        control.Activo = false;
         await ctx.SaveChangesAsync();
     }
 

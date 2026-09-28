@@ -111,16 +111,32 @@ public class AtsService : IAtsService
         await _repository.SubirAutorizacionPermiso(workerId, urls[0], subidoPorUserId);
     }
 
+    public async Task CapturarFirmaDigitalAutorizacion(int workerId, AtsAutorizacionFirmaDigitalRequestDto body, int capturadoPorUserId)
+    {
+        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
+            throw new AbrilException("La firma es obligatoria.", 400);
+
+        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
+        var firmaUrl = await SubirBytes("autorizacion-firma-digital", workerId, firmaBytes, "png");
+
+        await _repository.CapturarFirmaDigitalAutorizacion(workerId, firmaUrl, firmaHash, capturadoPorUserId);
+    }
+
     public async Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId)
     {
-        var (nombre, dni) = await _repository.GetNombreYDni(workerId);
+        var (firmaDigitalUrl, nombre, dni) = await _repository.GetFirmaDigitalAutorizacion(workerId);
+        if (firmaDigitalUrl == null)
+            throw new AbrilException("Primero debes capturar la firma digital del trabajador — recién ahí se habilita descargar la plantilla.", 400);
 
         byte[]? logoBytes = null;
         var logoPath = _logoPaths.FirstOrDefault(File.Exists);
         if (logoPath != null)
             logoBytes = await File.ReadAllBytesAsync(logoPath);
 
-        return AtsAutorizacionPdfService.GenerarPdf(nombre, dni, logoBytes);
+        byte[]? firmaDigitalBytes = await DescargarBytes(firmaDigitalUrl);
+
+        return AtsAutorizacionPdfService.GenerarPdf(nombre ?? string.Empty, dni, logoBytes, firmaDigitalBytes);
     }
 
     private static readonly HashSet<string> NivelesValidos = ["A", "M", "B"];
@@ -371,6 +387,8 @@ public class AtsService : IAtsService
     public Task<List<AtsPuestoDto>> GetPuestos() => _repository.GetPuestos();
     public Task<List<AtsPasoPuestoDto>> GetPasoPuestoMapeo() => _repository.GetPasoPuestoMapeo();
     public Task SetPasoPuestos(int pasoId, List<int> puestoIds) => _repository.SetPasoPuestos(pasoId, puestoIds);
+    public Task<List<AtsPlantillaPuestoDto>> GetPlantillaPuestoMapeo() => _repository.GetPlantillaPuestoMapeo();
+    public Task SetPlantillaPuestos(int plantillaId, List<int> puestoIds) => _repository.SetPlantillaPuestos(plantillaId, puestoIds);
 
     public async Task<int> CrearPlantilla(AtsPlantillaGuardarRequestDto dto)
     {
@@ -391,6 +409,64 @@ public class AtsService : IAtsService
     public Task<List<AtsPeligroDto>> GetPeligrosConRiesgos() => _repository.GetPeligrosConRiesgos();
 
     public Task SetRiesgoRequierePetar(int riesgoId, bool requierePetar) => _repository.SetRiesgoRequierePetar(riesgoId, requierePetar);
+
+    // ── Actividades/pasos por plantilla ──────────────────────────────────
+
+    public Task<List<AtsPlantillaActividadDto>> GetActividadesDePlantilla(int plantillaId) => _repository.GetActividadesDePlantilla(plantillaId);
+
+    public async Task<int> CrearActividad(int plantillaId, AtsPlantillaActividadGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("La actividad necesita un texto.", 400);
+        return await _repository.CrearActividad(plantillaId, dto.Texto.Trim());
+    }
+
+    public async Task EditarActividad(int actividadId, AtsPlantillaActividadGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("La actividad necesita un texto.", 400);
+        await _repository.EditarActividad(actividadId, dto.Texto.Trim());
+    }
+
+    public Task EliminarActividad(int actividadId) => _repository.EliminarActividad(actividadId);
+
+    public async Task<int> CrearPaso(int actividadId, AtsPlantillaPasoGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("El paso necesita un texto.", 400);
+        return await _repository.CrearPaso(actividadId, dto.Texto.Trim());
+    }
+
+    public async Task EditarPaso(int pasoId, AtsPlantillaPasoGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("El paso necesita un texto.", 400);
+        await _repository.EditarPaso(pasoId, dto.Texto.Trim());
+    }
+
+    public Task EliminarPaso(int pasoId) => _repository.EliminarPaso(pasoId);
+
+    public Task SetActividadPeligros(int actividadId, AtsPlantillaActividadPeligrosRequestDto dto) => _repository.SetActividadPeligros(actividadId, dto.PeligroIds);
+
+    // ── Controles sugeridos por riesgo ───────────────────────────────────
+
+    public Task<List<AtsRiesgoConControlesDto>> GetRiesgosConControles() => _repository.GetRiesgosConControles();
+
+    public async Task<int> CrearControl(int riesgoId, AtsRiesgoControlGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("El control necesita un texto.", 400);
+        return await _repository.CrearControl(riesgoId, dto.Texto.Trim());
+    }
+
+    public async Task EditarControl(int controlId, AtsRiesgoControlGuardarRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Texto))
+            throw new AbrilException("El control necesita un texto.", 400);
+        await _repository.EditarControl(controlId, dto.Texto.Trim());
+    }
+
+    public Task EliminarControl(int controlId) => _repository.EliminarControl(controlId);
 
     private async Task<(string Url, string Hash)> SubirImagenConHash(string prefijo, int workerId, string base64)
     {

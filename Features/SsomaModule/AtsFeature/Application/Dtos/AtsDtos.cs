@@ -32,9 +32,18 @@ public class AtsAutorizacionTrabajadorDto
     public int WorkerId { get; set; }
     public string Nombre { get; set; } = string.Empty;
     public string? Dni { get; set; }
+    public int? ProyectoId { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string? ObraOficinaStaff { get; set; }
+    public bool TieneFirmaDigital { get; set; }
     public bool TieneAutorizacion { get; set; }
     public DateTime? SubidoEn { get; set; }
     public string? ArchivoUrl { get; set; }
+}
+
+public class AtsAutorizacionFirmaDigitalRequestDto
+{
+    public string FirmaBase64 { get; set; } = string.Empty;
 }
 
 public class AtsCategoriaPasoDto
@@ -289,6 +298,15 @@ public class AtsListResponseDto
 
 // ── Administración de plantillas ────────────────────────────────────────────
 
+/// <summary>Fila del mapeo "Plantillas por puesto" — misma idea que AtsPasoPuestoDto pero para
+/// autosugerir la plantilla de ATS según el puesto del trabajador.</summary>
+public class AtsPlantillaPuestoDto
+{
+    public int PlantillaId { get; set; }
+    public string PlantillaNombre { get; set; } = string.Empty;
+    public List<int> PuestoIds { get; set; } = [];
+}
+
 public class AtsPlantillaGuardarRequestDto
 {
     public string Nombre { get; set; } = string.Empty;
@@ -296,4 +314,61 @@ public class AtsPlantillaGuardarRequestDto
     public List<int> PeligroIds { get; set; } = [];
     public List<int> EppIds { get; set; } = [];
     public List<int> HerramientaIds { get; set; } = [];
+}
+
+// ── Actividades/pasos por plantilla ─────────────────────────────────────────
+
+public class AtsPlantillaPasoDto
+{
+    public int Id { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+}
+
+public class AtsPlantillaActividadDto
+{
+    public int Id { get; set; }
+    public int PlantillaId { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+    public List<AtsPlantillaPasoDto> Pasos { get; set; } = [];
+    public List<int> PeligroIds { get; set; } = [];
+}
+
+public class AtsPlantillaActividadGuardarRequestDto
+{
+    public string Texto { get; set; } = string.Empty;
+}
+
+public class AtsPlantillaPasoGuardarRequestDto
+{
+    public string Texto { get; set; } = string.Empty;
+}
+
+public class AtsPlantillaActividadPeligrosRequestDto
+{
+    public List<int> PeligroIds { get; set; } = [];
+}
+
+// ── Controles sugeridos por riesgo ──────────────────────────────────────────
+
+public class AtsRiesgoControlDto
+{
+    public int Id { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+}
+
+public class AtsRiesgoConControlesDto
+{
+    public int RiesgoId { get; set; }
+    public string RiesgoNombre { get; set; } = string.Empty;
+    public int PeligroId { get; set; }
+    public string PeligroNombre { get; set; } = string.Empty;
+    public List<AtsRiesgoControlDto> Controles { get; set; } = [];
+}
+
+public class AtsRiesgoControlGuardarRequestDto
+{
+    public string Texto { get; set; } = string.Empty;
 }

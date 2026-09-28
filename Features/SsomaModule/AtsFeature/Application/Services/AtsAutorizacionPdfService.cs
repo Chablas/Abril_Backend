@@ -22,7 +22,7 @@ public static class AtsAutorizacionPdfService
     private const string Codigo = "SSO-FO-151";
     private const string Titulo = "AUTORIZACIÓN DE USO DE FIRMA DIGITAL E IMAGEN — ATS DIGITAL";
 
-    public static byte[] GenerarPdf(string nombre, string? dni, byte[]? logoBytes)
+    public static byte[] GenerarPdf(string nombre, string? dni, byte[]? logoBytes, byte[]? firmaDigitalBytes)
     {
         return Document.Create(container =>
         {
@@ -33,7 +33,7 @@ public static class AtsAutorizacionPdfService
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9).FontColor(TextMain));
 
                 page.Header().Element(c => ComposeHeader(c, logoBytes));
-                page.Content().PaddingTop(12).Element(c => ComposeBody(c, nombre, dni));
+                page.Content().PaddingTop(12).Element(c => ComposeBody(c, nombre, dni, firmaDigitalBytes));
 
                 page.Footer().AlignCenter().PaddingTop(6).Text(t =>
                 {
@@ -88,7 +88,7 @@ public static class AtsAutorizacionPdfService
         });
     }
 
-    private static void ComposeBody(IContainer container, string nombre, string? dni)
+    private static void ComposeBody(IContainer container, string nombre, string? dni, byte[]? firmaDigitalBytes)
     {
         container.Column(col =>
         {
@@ -147,10 +147,29 @@ public static class AtsAutorizacionPdfService
                 });
             });
 
-            col.Item().PaddingTop(20).Column(c =>
+            col.Item().PaddingTop(20).Row(row =>
             {
-                c.Item().Height(60).BorderBottom(1).BorderColor(Border);
-                c.Item().PaddingTop(4).Text("Firma del trabajador").FontSize(8).AlignCenter();
+                row.RelativeItem().Column(c =>
+                {
+                    c.Item().Height(60).AlignMiddle().AlignCenter().Element(box =>
+                    {
+                        if (firmaDigitalBytes != null)
+                            box.Image(firmaDigitalBytes).FitArea();
+                        else
+                            box.Text("(sin firma digital)").FontSize(8).FontColor(TextMuted).AlignCenter();
+                    });
+                    c.Item().BorderTop(1).BorderColor(Border);
+                    c.Item().PaddingTop(4).Text("Firma digital (registrada en el sistema)").FontSize(8).AlignCenter();
+                });
+
+                row.ConstantItem(20);
+
+                row.RelativeItem().Column(c =>
+                {
+                    c.Item().Height(60);
+                    c.Item().BorderTop(1).BorderColor(Border);
+                    c.Item().PaddingTop(4).Text("Firma física del trabajador (rúbrica)").FontSize(8).AlignCenter();
+                });
             });
 
             col.Item().PaddingTop(6).AlignCenter().Column(c =>
@@ -159,6 +178,12 @@ public static class AtsAutorizacionPdfService
                 if (!string.IsNullOrWhiteSpace(dni))
                     c.Item().Text($"DNI {dni}").FontSize(8).FontColor(TextMuted).AlignCenter();
             });
+
+            col.Item().PaddingTop(10).Text(
+                "La firma digital de arriba fue capturada en el sistema Abril antes de imprimir este documento. " +
+                "La rúbrica física al lado es el respaldo en papel de esa misma firma — el escaneado de este " +
+                "documento firmado en físico queda como evidencia de trazabilidad de ambas.")
+                .FontSize(7.5f).FontColor(TextMuted).Italic();
         });
     }
 

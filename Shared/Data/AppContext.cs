@@ -239,9 +239,14 @@ namespace Abril_Backend.Infrastructure.Data
 
         // ATS Digital — plantillas
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantilla> SsAtsPlantilla => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantilla>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPuesto> SsAtsPlantillaPuesto => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPuesto>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPeligro> SsAtsPlantillaPeligro => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPeligro>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaEpp> SsAtsPlantillaEpp => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaEpp>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaHerramienta> SsAtsPlantillaHerramienta => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaHerramienta>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaActividad> SsAtsPlantillaActividad => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaActividad>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPaso> SsAtsPlantillaPaso => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaPaso>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaActividadPeligro> SsAtsPlantillaActividadPeligro => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsPlantillaActividadPeligro>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsRiesgoControl> SsAtsRiesgoControl => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsRiesgoControl>();
 
         // ATS Digital — instancia
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAts> SsAts => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAts>();

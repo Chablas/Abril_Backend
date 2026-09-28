@@ -241,6 +241,26 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SetRiesgoRequierePetar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("plantillas-puesto")]
+        public async Task<IActionResult> GetPlantillaPuestoMapeo()
+        {
+            try { return Ok(await _service.GetPlantillaPuestoMapeo()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetPlantillaPuestoMapeo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("plantillas-puesto/{plantillaId:int}")]
+        public async Task<IActionResult> SetPlantillaPuestos(int plantillaId, [FromBody] List<int> puestoIds)
+        {
+            try
+            {
+                await _service.SetPlantillaPuestos(plantillaId, puestoIds);
+                return Ok(new { message = "Actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SetPlantillaPuestos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("plantillas")]
         public async Task<IActionResult> GetPlantillas()
         {
@@ -285,6 +305,146 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.DesactivarPlantilla"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // ── Actividades/pasos por plantilla ──────────────────────────────────
+
+        [HttpGet("plantillas/{plantillaId:int}/actividades")]
+        public async Task<IActionResult> GetActividadesDePlantilla(int plantillaId)
+        {
+            try { return Ok(await _service.GetActividadesDePlantilla(plantillaId)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetActividadesDePlantilla"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("plantillas/{plantillaId:int}/actividades")]
+        public async Task<IActionResult> CrearActividad(int plantillaId, [FromBody] AtsPlantillaActividadGuardarRequestDto dto)
+        {
+            try
+            {
+                var id = await _service.CrearActividad(plantillaId, dto);
+                return Ok(new { id });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearActividad"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("actividades/{actividadId:int}")]
+        public async Task<IActionResult> EditarActividad(int actividadId, [FromBody] AtsPlantillaActividadGuardarRequestDto dto)
+        {
+            try
+            {
+                await _service.EditarActividad(actividadId, dto);
+                return Ok(new { message = "Actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EditarActividad"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("actividades/{actividadId:int}")]
+        public async Task<IActionResult> EliminarActividad(int actividadId)
+        {
+            try
+            {
+                await _service.EliminarActividad(actividadId);
+                return Ok(new { message = "Eliminado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EliminarActividad"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("actividades/{actividadId:int}/peligros")]
+        public async Task<IActionResult> SetActividadPeligros(int actividadId, [FromBody] AtsPlantillaActividadPeligrosRequestDto dto)
+        {
+            try
+            {
+                await _service.SetActividadPeligros(actividadId, dto);
+                return Ok(new { message = "Actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SetActividadPeligros"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("actividades/{actividadId:int}/pasos")]
+        public async Task<IActionResult> CrearPaso(int actividadId, [FromBody] AtsPlantillaPasoGuardarRequestDto dto)
+        {
+            try
+            {
+                var id = await _service.CrearPaso(actividadId, dto);
+                return Ok(new { id });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("pasos/{pasoId:int}")]
+        public async Task<IActionResult> EditarPaso(int pasoId, [FromBody] AtsPlantillaPasoGuardarRequestDto dto)
+        {
+            try
+            {
+                await _service.EditarPaso(pasoId, dto);
+                return Ok(new { message = "Actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EditarPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("pasos/{pasoId:int}")]
+        public async Task<IActionResult> EliminarPaso(int pasoId)
+        {
+            try
+            {
+                await _service.EliminarPaso(pasoId);
+                return Ok(new { message = "Eliminado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EliminarPaso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Controles sugeridos por riesgo ───────────────────────────────────
+
+        [HttpGet("riesgos-controles")]
+        public async Task<IActionResult> GetRiesgosConControles()
+        {
+            try { return Ok(await _service.GetRiesgosConControles()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetRiesgosConControles"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("riesgos/{riesgoId:int}/controles")]
+        public async Task<IActionResult> CrearControl(int riesgoId, [FromBody] AtsRiesgoControlGuardarRequestDto dto)
+        {
+            try
+            {
+                var id = await _service.CrearControl(riesgoId, dto);
+                return Ok(new { id });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearControl"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("controles/{controlId:int}")]
+        public async Task<IActionResult> EditarControl(int controlId, [FromBody] AtsRiesgoControlGuardarRequestDto dto)
+        {
+            try
+            {
+                await _service.EditarControl(controlId, dto);
+                return Ok(new { message = "Actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EditarControl"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("controles/{controlId:int}")]
+        public async Task<IActionResult> EliminarControl(int controlId)
+        {
+            try
+            {
+                await _service.EliminarControl(controlId);
+                return Ok(new { message = "Eliminado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.EliminarControl"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ── Autorización de uso de firma digital e imagen (firmada en físico) — gate para poder hacer ATS ──
 
         /// <summary>El propio trabajador consulta esto ANTES de abrir el formulario de "Nuevo
@@ -313,9 +473,24 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetTrabajadoresParaAutorizacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>El Coordinador SSOMA captura en pantalla la firma del trabajador ANTES de poder
+        /// descargar la plantilla — requisito previo (ver GetPlantillaAutorizacionPdf).</summary>
+        [HttpPost("trabajadores/{workerId:int}/autorizacion/firma-digital")]
+        public async Task<IActionResult> CapturarFirmaDigitalAutorizacion(int workerId, [FromBody] AtsAutorizacionFirmaDigitalRequestDto dto)
+        {
+            try
+            {
+                await _service.CapturarFirmaDigitalAutorizacion(workerId, dto, CurrentUserId());
+                return Ok(new { message = "Firma digital registrada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CapturarFirmaDigitalAutorizacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         /// <summary>Plantilla imprimible de la autorización (SSO-FO-151) para un trabajador
-        /// puntual — la descarga el Coordinador SSOMA, se la da a firmar en físico, y luego sube
-        /// el escaneado con el endpoint de abajo.</summary>
+        /// puntual — ya trae impresa la firma digital capturada arriba, junto a un espacio para la
+        /// firma física. La descarga el Coordinador SSOMA, se la da a firmar en físico junto a la
+        /// digital, y luego sube el escaneado con el endpoint de abajo.</summary>
         [HttpGet("trabajadores/{workerId:int}/autorizacion/pdf")]
         public async Task<IActionResult> GetPlantillaAutorizacionPdf(int workerId)
         {

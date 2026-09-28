@@ -118,6 +118,20 @@ public class SsAtsPlantilla
     public ICollection<SsAtsPlantillaHerramienta> Herramientas { get; set; } = [];
 }
 
+/// <summary>Qué puestos autosugieren esta plantilla (muchos-a-muchos, igual que
+/// <see cref="SsAtsPasoPuesto"/>) — una especialidad puede corresponder a varios puestos reales del
+/// catálogo (ej. "ATS Albañilería" → ALBAÑIL, OFICIAL ALBAÑIL, PEÓN). Reemplaza a
+/// <see cref="SsAtsPlantilla.PuestoId"/> (1-a-1), que queda en desuso.</summary>
+public class SsAtsPlantillaPuesto
+{
+    public int Id { get; set; }
+    public int PlantillaId { get; set; }
+    public int PuestoId { get; set; }
+
+    public SsAtsPlantilla? Plantilla { get; set; }
+    public Puesto? Puesto { get; set; }
+}
+
 public class SsAtsPlantillaPeligro
 {
     public int Id { get; set; }
@@ -146,6 +160,60 @@ public class SsAtsPlantillaHerramienta
 
     public SsAtsPlantilla? Plantilla { get; set; }
     public SsAtsHerramienta? Herramienta { get; set; }
+}
+
+/// <summary>Actividad madre de la tarea dentro de una plantilla (ej. "Asentado de ladrillos"),
+/// sacada de la sección "Identifique las actividades y pasos de la tarea" del ATS en papel.
+/// Contiene sub-pasos (<see cref="SsAtsPlantillaPaso"/>) y peligros sugeridos
+/// (<see cref="SsAtsPlantillaActividadPeligro"/>).</summary>
+public class SsAtsPlantillaActividad
+{
+    public int Id { get; set; }
+    public int PlantillaId { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+    public bool Activo { get; set; } = true;
+
+    public SsAtsPlantilla? Plantilla { get; set; }
+    public ICollection<SsAtsPlantillaPaso> Pasos { get; set; } = [];
+    public ICollection<SsAtsPlantillaActividadPeligro> Peligros { get; set; } = [];
+}
+
+/// <summary>Sub-paso de una actividad (ej. "Traslado de materiales y herramientas").</summary>
+public class SsAtsPlantillaPaso
+{
+    public int Id { get; set; }
+    public int ActividadId { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+    public bool Activo { get; set; } = true;
+
+    public SsAtsPlantillaActividad? Actividad { get; set; }
+}
+
+/// <summary>Qué peligros del catálogo aplican a una actividad concreta — al marcarla en el ATS,
+/// solo se sugieren estos en vez de todo el catálogo de la plantilla.</summary>
+public class SsAtsPlantillaActividadPeligro
+{
+    public int Id { get; set; }
+    public int ActividadId { get; set; }
+    public int PeligroId { get; set; }
+
+    public SsAtsPlantillaActividad? Actividad { get; set; }
+    public SsAtsPeligro? Peligro { get; set; }
+}
+
+/// <summary>Control sugerido para un riesgo (ej. riesgo "Sobreesfuerzos" → "Pausas activas y
+/// rotación de personal"). El trabajador los marca en vez de escribir el control a mano.</summary>
+public class SsAtsRiesgoControl
+{
+    public int Id { get; set; }
+    public int RiesgoId { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public short Orden { get; set; }
+    public bool Activo { get; set; } = true;
+
+    public SsAtsRiesgo? Riesgo { get; set; }
 }
 
 // ============================================================================
@@ -323,18 +391,31 @@ public class SsAtsConsentimiento
     public Worker? Worker { get; set; }
 }
 
-/// <summary>Autorización de uso de firma digital e imagen: el trabajador la firma en papel (da su
-/// consentimiento a que su selfie/geolocalización/firma se capturen para el ATS digital) y un
-/// Coordinador SSOMA la escanea y sube aquí — sin esto el trabajador NO puede crear ni editar un
-/// ATS (ver AtsService.Crear/Editar). Mismo patrón que AcTareoAutorizacion (SSO-FO-150 de
+/// <summary>Autorización de uso de firma digital e imagen. Flujo: el Coordinador SSOMA primero
+/// captura en pantalla la firma DIGITAL del trabajador (<see cref="FirmaDigitalUrl"/>) — recién con
+/// eso se puede descargar el PDF (que ya trae esa firma impresa junto a un espacio para la firma
+/// física). El trabajador firma en físico al lado, y el Coordinador escanea y sube ese documento
+/// (<see cref="ArchivoUrl"/>) como evidencia final. Sin <see cref="ArchivoUrl"/> el trabajador NO
+/// puede crear ni editar un ATS (ver AtsService.Crear/Editar) — la firma digital sola no habilita,
+/// es solo el paso previo obligatorio. Mismo patrón que AcTareoAutorizacion (SSO-FO-150 de
 /// Arquitectura Comercial), pero es un concepto propio de SSOMA/ATS, no reutiliza esa tabla.</summary>
 public class SsAtsAutorizacionPermiso
 {
     public int Id { get; set; }
     public int WorkerId { get; set; }
-    public string ArchivoUrl { get; set; } = string.Empty;
+
+    /// <summary>Escaneado del documento firmado en físico (con la firma digital ya impresa). Null
+    /// mientras solo existe la firma digital — ver <see cref="FirmaDigitalUrl"/>.</summary>
+    public string? ArchivoUrl { get; set; }
     public int? SubidoPorUserId { get; set; }
-    public DateTime SubidoEn { get; set; } = DateTime.UtcNow;
+    public DateTime? SubidoEn { get; set; }
+
+    /// <summary>Firma capturada en pantalla por el Coordinador SSOMA antes de generar el PDF —
+    /// requisito previo a poder descargar la plantilla y subir el escaneado.</summary>
+    public string? FirmaDigitalUrl { get; set; }
+    public string? FirmaDigitalHash { get; set; }
+    public DateTime? FirmadoDigitalEn { get; set; }
+    public int? FirmadoDigitalPorUserId { get; set; }
 
     public Worker? Worker { get; set; }
 }

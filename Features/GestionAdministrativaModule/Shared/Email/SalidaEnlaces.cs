@@ -70,7 +70,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         /// envía a primera revisión, la subsana si vuelve observada y ve en qué va su reembolso.
         /// </summary>
         public static string Rendiciones(IConfiguration configuration, int rendicionId) =>
-            $"{Base(configuration)}/gestion-administrativa/rendiciones?rendicion={rendicionId}";
+            $"{Rendiciones(configuration)}?rendicion={rendicionId}";
+
+        /// <summary>
+        /// Mis Rendiciones sin abrir ninguna planilla. La usa el aviso de pago cuando Tesorería le
+        /// pagó a la persona varias rendiciones a la vez: no hay una sola que abrir.
+        /// </summary>
+        public static string Rendiciones(IConfiguration configuration) =>
+            $"{Base(configuration)}/gestion-administrativa/rendiciones";
 
         /// <summary>
         /// Correcciones S10 abierta en esa solicitud de corrección — la bandeja del Coordinador

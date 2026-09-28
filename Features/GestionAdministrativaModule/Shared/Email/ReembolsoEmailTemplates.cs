@@ -103,8 +103,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
     /// <summary>
     /// Lo que necesita el aviso al trabajador de que su rendición quedó incluida en un Consolidado
-    /// del S10. Va UNO por (planilla, trabajador), igual que el de pago: una planilla puede agrupar
-    /// a varios trabajadores y a cada uno le importa lo suyo.
+    /// del S10. Va UNO por (planilla, trabajador): una planilla puede agrupar a varios trabajadores
+    /// y a cada uno le importa lo suyo.
     /// </summary>
     public sealed class RendicionConsolidadaCorreoDatos
     {
@@ -148,35 +148,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     }
 
     /// <summary>
-    /// Lo que necesitan los correos de una PLANILLA entera y no de un consolidado: el aviso de
-    /// pago al trabajador.
+    /// Lo que necesita el aviso de pago a UNA persona: todo lo que Tesorería le acaba de pagar, con
+    /// el monto sumado y sus rendiciones una por una. Va UNO por persona y por pago —aunque el pago
+    /// cubra varias de sus planillas, o varios consolidados—: con uno por planilla, quien tenía
+    /// tres rendiciones en el consolidado recibía tres correos del mismo pago.
     /// </summary>
-    public sealed class ReembolsoPlanillaCorreoDatos
+    public sealed class ReembolsoPagadoCorreoDatos
+    {
+        public string Trabajador { get; set; } = string.Empty;
+        /// <summary>Correo del trabajador (app_user.email): es el destinatario.</summary>
+        public string? TrabajadorEmail { get; set; }
+        public string? Area { get; set; }
+        /// <summary>
+        /// Quienes adjuntaron los Consolidados del S10 que cubren esas planillas, sin repetir: los
+        /// consolidadores. Casi siempre uno; más solo si Tesorería pagó varios consolidados juntos.
+        /// </summary>
+        public List<string> Consolidadores { get; set; } = new();
+        /// <summary>Números de reembolso de esos consolidados, sin repetir. Casi siempre uno.</summary>
+        public List<string> NumerosReembolso { get; set; } = new();
+        /// <summary>Periodo de todas las salidas pagadas ("Agosto 2026", o un rango si cruza meses).</summary>
+        public string? Periodo { get; set; }
+        /// <summary>Cuántas salidas suyas entran en el pago.</summary>
+        public int SalidasCount { get; set; }
+        /// <summary>Lo que se le pagó: la suma de sus rendiciones, en soles.</summary>
+        public decimal MontoTotal { get; set; }
+        /// <summary>Nombre del tesorero que registró el pago.</summary>
+        public string? PagadoPor { get; set; }
+        /// <summary>Sus planillas pagadas, ordenadas por código. Nunca vacía.</summary>
+        public List<RendicionPagadaCorreoDatos> Rendiciones { get; set; } = new();
+    }
+
+    /// <summary>Una planilla del aviso de pago: lo que se le pagó a la persona por ella.</summary>
+    public sealed class RendicionPagadaCorreoDatos
     {
         public int RendicionId { get; set; }
-        /// <summary>Código REN-AAAA-NNNN de la planilla. Vacío en las anteriores a la columna.</summary>
+        /// <summary>Código REN-AAAA-NNNN de la planilla, o <c>#id</c> en las anteriores a la columna.</summary>
         public string Codigo { get; set; } = string.Empty;
-        public string Trabajador { get; set; } = string.Empty;
-        /// <summary>Correo del trabajador. Lo usa el aviso de pago, que va dirigido a él.</summary>
-        public string? TrabajadorEmail { get; set; }
-        /// <summary>
-        /// Nombre de quien adjuntó el Consolidado del S10 que cubre la planilla: el consolidador.
-        /// Null si la planilla no tiene consolidado o no se pudo resolver.
-        /// </summary>
-        public string? Consolidador { get; set; }
-        public string? Area { get; set; }
         /// <summary>Número de la planilla ("TI: 000123"), o null si la planilla no lo tiene.</summary>
         public string? NumeroPlanilla { get; set; }
         /// <summary>Periodo que cubre la planilla ("Agosto 2026", o un rango si cruza meses).</summary>
         public string? Periodo { get; set; }
-        /// <summary>Cuántas salidas del trabajador entran en la planilla.</summary>
+        /// <summary>Cuántas salidas de la persona entran en la planilla.</summary>
         public int SalidasCount { get; set; }
-        /// <summary>Suma de lo rendido por el trabajador en esa planilla, en soles.</summary>
-        public decimal MontoTotal { get; set; }
-        /// <summary>Número de reembolso del Consolidado del S10. Null si la planilla no lo tiene.</summary>
-        public string? NumeroReembolso { get; set; }
-        /// <summary>Nombre del tesorero que registró el pago. Lo usa el aviso de pago.</summary>
-        public string? PagadoPor { get; set; }
+        /// <summary>Lo rendido por la persona en esa planilla, en soles.</summary>
+        public decimal Monto { get; set; }
     }
 
     /// <summary>
@@ -199,7 +214,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
     ///   <item>A Tesorería: confirmó la revisión del consolidado y quedó listo para programar el
     ///     pago.</item>
     ///   <item>Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49).</item>
-    ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo.</item>
+    ///   <item>Al trabajador: Tesorería ya pagó — el cierre del ciclo. Uno por persona con todas
+    ///     sus rendiciones pagadas, no uno por planilla.</item>
     /// </list>
     ///
     /// Desde la primera revisión aprobada el trámite del S10 es del consolidador, así que todo lo
@@ -235,6 +251,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaFirma       = "req-vistobueno";
         private const string FilaObservacion = "req-comentario";
         private const string FilaEstado      = "req-estado";
+
+        private const string SeccionRendiciones = "req-formulario";
 
         /// <summary>
         /// Al trabajador: su rendición quedó incluida en la planilla grupal que acaba de preparar el
@@ -509,24 +527,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
 
         /// <summary>
         /// Al solicitante: Tesorería ya pagó su reembolso (RG-28). Es el cierre del ciclo, así que
-        /// no pide nada — el botón solo lo lleva a su planilla en Mis Rendiciones.
+        /// no pide nada — el botón solo lo lleva a Mis Rendiciones.
+        ///
+        /// Es UNO por persona con todo lo que se le pagó, y la franja lleva el monto sumado. Con
+        /// una sola rendición va la tarjeta de siempre; con varias, la tarjeta lleva lo que tienen
+        /// en común y debajo va una fila por rendición con lo que le tocó por cada una.
         /// </summary>
-        public static string Pagado(SalidaEmailLayout l, ReembolsoPlanillaCorreoDatos d, string urlVer)
+        public static string Pagado(SalidaEmailLayout l, ReembolsoPagadoCorreoDatos d, string urlVer)
         {
             var monto = d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"));
+            var una   = d.Rendiciones.Count == 1;
 
             return l.Documento(
                 new AbrilEmailLayout.Cabecera(
                     IconoPago,
                     "Reembolso realizado",
-                    $"Tesorería registró el pago de tu rendición <b>{AbrilEmailLayout.Esc(d.Codigo)}</b>."),
+                    una
+                        ? $"Tesorería registró el pago de tu rendición <b>{AbrilEmailLayout.Esc(d.Rendiciones[0].Codigo)}</b>."
+                        : $"Tesorería registró el pago de <b>{d.Rendiciones.Count}</b> rendiciones tuyas."),
                 l.Franja(IconoFranjaOk, AbrilEmailLayout.Tono.Verde,
                     string.IsNullOrWhiteSpace(d.PagadoPor)
                         ? $"Monto reembolsado: <b>S/ {monto}</b>."
                         : $"Monto reembolsado: <b>S/ {monto}</b> · registrado por "
                           + $"<b>{AbrilEmailLayout.Esc(d.PagadoPor)}</b>."),
-                l.Tarjeta(FilasPlanilla(d)),
-                l.Boton("Ver mi rendición", urlVer),
+                l.Tarjeta(FilasPagado(d)),
+                una ? "" : l.Seccion(SeccionRendiciones, "Rendiciones pagadas"),
+                una ? "" : TablaRendicionesPagadas(l, d.Rendiciones),
+                l.Boton(una ? "Ver mi rendición" : "Ver mis rendiciones", urlVer),
                 l.EnlaceDirecto(urlVer));
         }
 
@@ -721,10 +748,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Filas de los correos de una PLANILLA entera: en vez de una fecha de salida suelta muestra
-        /// el periodo que cubre y cuántas salidas trae.
+        /// Filas del aviso de pago: en vez de una fecha de salida suelta muestra el periodo que
+        /// cubre y cuántas salidas trae. Con varias rendiciones el periodo, las salidas y el monto
+        /// son los de todas juntas, y el número de planilla —que es de cada una— pasa a la tabla.
         /// </summary>
-        private static List<AbrilEmailLayout.Fila> FilasPlanilla(ReembolsoPlanillaCorreoDatos d)
+        private static List<AbrilEmailLayout.Fila> FilasPagado(ReembolsoPagadoCorreoDatos d)
         {
             var filas = new List<AbrilEmailLayout.Fila>
             {
@@ -732,8 +760,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             };
 
             // Mismo ícono que en el aviso de rendición consolidada: es una persona, como el trabajador.
-            if (!string.IsNullOrWhiteSpace(d.Consolidador))
-                filas.Add(new(FilaTrabajador, "Consolidador", AbrilEmailLayout.Esc(d.Consolidador)));
+            if (d.Consolidadores.Count > 0)
+                filas.Add(new(FilaTrabajador, d.Consolidadores.Count == 1 ? "Consolidador" : "Consolidadores",
+                    AbrilEmailLayout.Esc(string.Join(", ", d.Consolidadores))));
 
             if (!string.IsNullOrWhiteSpace(d.Area))
                 filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
@@ -742,17 +771,55 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             filas.Add(new(FilaFecha, "Periodo",
                 string.IsNullOrWhiteSpace(d.Periodo) ? salidas : $"{AbrilEmailLayout.Esc(d.Periodo)} · {salidas}"));
 
-            if (!string.IsNullOrWhiteSpace(d.NumeroPlanilla))
-                filas.Add(new(FilaPlanilla, "Planilla", AbrilEmailLayout.Esc(d.NumeroPlanilla)));
+            if (d.Rendiciones.Count == 1 && !string.IsNullOrWhiteSpace(d.Rendiciones[0].NumeroPlanilla))
+                filas.Add(new(FilaPlanilla, "Planilla", AbrilEmailLayout.Esc(d.Rendiciones[0].NumeroPlanilla)));
 
-            if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
-                filas.Add(new(FilaReembolso, "N.º de reembolso del S10", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+            if (d.NumerosReembolso.Count > 0)
+                filas.Add(new(FilaReembolso, "N.º de reembolso del S10",
+                    AbrilEmailLayout.Esc(string.Join(", ", d.NumerosReembolso))));
 
             if (d.MontoTotal > 0m)
                 filas.Add(new(FilaMonto, "Monto rendido",
                     $"S/ {d.MontoTotal.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}"));
 
             return filas;
+        }
+
+        /// <summary>
+        /// Una fila por rendición pagada, para el aviso que junta varias: cuánto le tocó por cada
+        /// una. El número de planilla va debajo del código en gris, como en el aviso de rendiciones
+        /// disponibles para consolidar.
+        /// </summary>
+        private static string TablaRendicionesPagadas(
+            SalidaEmailLayout l, IReadOnlyList<RendicionPagadaCorreoDatos> rendiciones)
+        {
+            // Los anchos suman el ancho interno de la tarjeta (580) para que las columnas no se
+            // aprieten — ver la nota de Columna en AbrilEmailLayout.
+            var columnas = new List<AbrilEmailLayout.Columna>
+            {
+                new("Rendición", 170),
+                new("Periodo", 200),
+                new("Salidas", 90, AbrilEmailLayout.Alineacion.Centro),
+                new("Monto", 120, AbrilEmailLayout.Alineacion.Derecha),
+            };
+
+            static string Secundario(string? valor) =>
+                string.IsNullOrWhiteSpace(valor)
+                    ? string.Empty
+                    : $"<br /><span style=\"color:#64748b;font-weight:400\">{AbrilEmailLayout.Esc(valor)}</span>";
+
+            var cuerpo = rendiciones
+                .Select(r => (IReadOnlyList<AbrilEmailLayout.Celda>)new List<AbrilEmailLayout.Celda>
+                {
+                    new(AbrilEmailLayout.Esc(r.Codigo) + Secundario(r.NumeroPlanilla), Negrita: true, NoWrap: true),
+                    new(string.IsNullOrWhiteSpace(r.Periodo) ? "—" : AbrilEmailLayout.Esc(r.Periodo)),
+                    new(r.SalidasCount.ToString()),
+                    new($"S/ {r.Monto.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))}",
+                        NoWrap: true),
+                })
+                .ToList();
+
+            return l.Tabla(columnas, cuerpo);
         }
     }
 }

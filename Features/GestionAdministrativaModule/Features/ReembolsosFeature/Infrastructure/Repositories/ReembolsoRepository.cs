@@ -349,7 +349,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
             return solicitudes.Select(s => s.Id).ToList();
         }
 
-        public async Task<List<ReembolsoPlanillaCorreoDatos>> GetPlanillaCorreoInfo(IEnumerable<int> solicitudIds)
+        public async Task<List<ReembolsoPagadoCorreoDatos>> GetPagadoCorreoDatos(IEnumerable<int> solicitudIds)
         {
             var idsList = solicitudIds?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
@@ -368,6 +368,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     s.Id,
                     RendicionId = s.RendicionId!.Value,
                     WorkerId    = w.Id,
+                    w.PersonId,
                     w.Subarea,
                     Trabajador  = per != null ? (per.FullName ?? "Trabajador") : "Trabajador",
                     Email       = u != null ? u.Email : null,
@@ -400,36 +401,72 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 ctx, filas.Where(f => f.PagadoPorId.HasValue).Select(f => f.PagadoPorId!.Value));
 
             return filas
-                .GroupBy(f => new { f.RendicionId, f.WorkerId })
-                .Select(g =>
+                // Por persona y no por ficha: quien tiene dos fichas (un reingreso) es la misma
+                // persona con el mismo correo, y también recibe uno solo. Sin persona no hay correo
+                // a quien escribirle, así que ahí basta la ficha.
+                .GroupBy(f => (f.PersonId, WorkerId: f.PersonId.HasValue ? 0 : f.WorkerId))
+                .Select(porPersona =>
                 {
-                    var primera = g.First();
-                    var desde   = g.Min(x => x.FechaSalida);
-                    var hasta   = g.Max(x => x.FechaSalida);
-                    planillas.TryGetValue(g.Key.RendicionId, out var planilla);
-                    consolidados.TryGetValue(g.Key.RendicionId, out var consolidado);
+                    var rendiciones = porPersona
+                        .GroupBy(x => x.RendicionId)
+                        .Select(g =>
+                        {
+                            planillas.TryGetValue(g.Key, out var planilla);
+                            return new RendicionPagadaCorreoDatos
+                            {
+                                RendicionId    = g.Key,
+                                Codigo         = PlanillaRendicionHelper.CodigoRendicion(planilla?.Codigo, g.Key),
+                                NumeroPlanilla = PlanillaRendicionHelper.NumeroPlanilla(planilla?.NumeroPlanilla),
+                                Periodo        = PlanillaRendicionHelper.EtiquetaPeriodo(
+                                                     g.Min(x => x.FechaSalida), g.Max(x => x.FechaSalida)),
+                                SalidasCount   = g.Count(),
+                                Monto          = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
+                            };
+                        })
+                        .OrderBy(r => r.Codigo, StringComparer.Ordinal)
+                        .ToList();
 
-                    var pagadoPorId = g.Select(x => x.PagadoPorId).FirstOrDefault(x => x.HasValue);
+                    // Casi siempre es un solo consolidado; son varios cuando Tesorería paga juntos
+                    // consolidados donde la persona tiene rendiciones.
+                    var suyos = rendiciones
+                        .Select(r => consolidados.GetValueOrDefault(r.RendicionId))
+                        .OfType<ConsolidadoS10Dto>()
+                        .DistinctBy(c => c.Id)
+                        .ToList();
 
-                    var consolidador = consolidado != null && subidoPor.TryGetValue(consolidado.Id, out var quien)
-                        ? quien.Nombre
-                        : null;
+                    // Con un reingreso, el área es la de la ficha con la que rindió lo más reciente.
+                    var reciente = porPersona
+                        .OrderByDescending(x => x.FechaSalida)
+                        .ThenByDescending(x => x.WorkerId)
+                        .First();
 
-                    return new ReembolsoPlanillaCorreoDatos
+                    var pagadoPorId = porPersona.Select(x => x.PagadoPorId).FirstOrDefault(x => x.HasValue);
+
+                    return new ReembolsoPagadoCorreoDatos
                     {
-                        RendicionId     = g.Key.RendicionId,
-                        Codigo          = PlanillaRendicionHelper.CodigoRendicion(planilla?.Codigo, g.Key.RendicionId),
-                        Trabajador      = primera.Trabajador,
-                        TrabajadorEmail = primera.Email,
-                        Consolidador    = consolidador,
-                        Area            = primera.Area,
-                        NumeroPlanilla  = PlanillaRendicionHelper.NumeroPlanilla(planilla?.NumeroPlanilla),
-                        Periodo         = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
-                        SalidasCount    = g.Count(),
-                        MontoTotal      = g.Sum(x => montoPorSolicitud.TryGetValue(x.Id, out var m) ? m : 0m),
-                        NumeroReembolso = consolidado?.NumeroReembolso,
-                        PagadoPor       = pagadoPorId.HasValue && nombresUsuario.TryGetValue(pagadoPorId.Value, out var n)
-                                            ? n : null,
+                        Trabajador       = reciente.Trabajador,
+                        TrabajadorEmail  = reciente.Email,
+                        Area             = reciente.Area,
+                        Consolidadores   = suyos
+                            .Select(c => subidoPor.TryGetValue(c.Id, out var quien) ? quien.Nombre : null)
+                            .OfType<string>()
+                            .Where(nombre => !string.IsNullOrWhiteSpace(nombre))
+                            .Distinct()
+                            .ToList(),
+                        NumerosReembolso = suyos
+                            .Select(c => c.NumeroReembolso)
+                            .OfType<string>()
+                            .Where(numero => !string.IsNullOrWhiteSpace(numero))
+                            .Distinct()
+                            .ToList(),
+                        Periodo          = PlanillaRendicionHelper.EtiquetaPeriodo(
+                                               porPersona.Min(x => x.FechaSalida), porPersona.Max(x => x.FechaSalida)),
+                        SalidasCount     = porPersona.Count(),
+                        MontoTotal       = rendiciones.Sum(r => r.Monto),
+                        PagadoPor        = pagadoPorId.HasValue
+                                           && nombresUsuario.TryGetValue(pagadoPorId.Value, out var tesorero)
+                                               ? tesorero : null,
+                        Rendiciones      = rendiciones,
                     };
                 })
                 .ToList();

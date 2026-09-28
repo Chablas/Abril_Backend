@@ -82,6 +82,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public int? RazonSocialId { get; set; }
         public string? RazonSocial { get; set; }
 
+        /// <summary>
+        /// Área del consolidado (<c>ga_consolidado_s10.area_scope_id</c>): la de su consolidador, la
+        /// misma que da la sigla del <see cref="Codigo"/> y la que imprime la planilla grupal. Null si
+        /// no se pudo resolver.
+        /// </summary>
+        public string? Area { get; set; }
+
         /// <summary>"Agosto 2026", o un rango si el consolidado cruza meses.</summary>
         public string Periodo { get; set; } = string.Empty;
         public int PeriodoAnio { get; set; }

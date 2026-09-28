@@ -301,7 +301,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
 
             var todosLosTrabajadores = agrupables.Values.SelectMany(a => a.WorkerIds).Distinct().ToList();
 
-            // Quién adjuntó cada consolidado y bajo qué razón social: la del consolidador.
+            // Quién adjuntó cada consolidado, con qué área quedó y bajo qué razón social: las del
+            // consolidador.
             var subidoPor = await SubidoPorAsync(ctx, grupos.Keys.ToList());
 
             // A quién puede consolidar el usuario y, en la misma resolución, quienes subieron los
@@ -463,6 +464,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                     SalidasCount  = visibles.Count,
                     RazonSocialId = razon?.Id,
                     RazonSocial   = razon?.Nombre,
+                    Area          = quienSubio.Area,
 
                     Periodo     = PlanillaRendicionHelper.EtiquetaPeriodo(desde, hasta),
                     PeriodoAnio = desde.Year,
@@ -538,10 +540,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
         }
 
         /// <summary>
-        /// Quién subió cada consolidado —el consolidador—: su usuario (para resolver su razón social)
-        /// y su nombre (la columna «Adjuntado por»).
+        /// Quién subió cada consolidado —el consolidador—: su usuario (para resolver su razón social),
+        /// su nombre (la columna «Adjuntado por») y el área con la que quedó el consolidado, que es la
+        /// suya (la de la sigla del código y la de la planilla grupal).
         /// </summary>
-        private static async Task<Dictionary<int, (int UserId, string? Nombre)>> SubidoPorAsync(
+        private static async Task<Dictionary<int, (int UserId, string? Nombre, string? Area)>> SubidoPorAsync(
             AppDbContext ctx, List<int> consolidadoIds)
         {
             if (consolidadoIds.Count == 0) return new();
@@ -550,13 +553,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 from c   in ctx.GaConsolidadoS10
                 join per in ctx.Person on c.UploadedById equals per.UserId into perGroup
                 from per in perGroup.DefaultIfEmpty()
+                join s   in ctx.AreaScope on c.AreaScopeId equals (int?)s.AreaScopeId into sGroup
+                from s   in sGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
                 where consolidadoIds.Contains(c.Id)
-                select new { c.Id, c.UploadedById, Nombre = per != null ? per.FullName : null }
+                select new
+                {
+                    c.Id,
+                    c.UploadedById,
+                    Nombre = per != null ? per.FullName : null,
+                    Area   = ai != null ? ai.AreaItemName : null,
+                }
             ).ToListAsync();
 
             return filas
                 .GroupBy(x => x.Id)
-                .ToDictionary(g => g.Key, g => (g.First().UploadedById, g.Select(x => x.Nombre).FirstOrDefault(n => n != null)));
+                .ToDictionary(
+                    g => g.Key,
+                    g => (g.First().UploadedById,
+                          g.Select(x => x.Nombre).FirstOrDefault(n => n != null),
+                          g.First().Area));
         }
 
         /// <summary>
@@ -2187,7 +2204,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.UploadedAt = o.UploadedAt; d.SubidoPor = o.SubidoPor;
             d.Rendiciones = o.Rendiciones; d.Trabajadores = o.Trabajadores; d.SalidasCount = o.SalidasCount;
-            d.RazonSocialId = o.RazonSocialId; d.RazonSocial = o.RazonSocial;
+            d.RazonSocialId = o.RazonSocialId; d.RazonSocial = o.RazonSocial; d.Area = o.Area;
             d.Periodo = o.Periodo; d.PeriodoAnio = o.PeriodoAnio; d.PeriodoMes = o.PeriodoMes;
             d.EstadoReembolso = o.EstadoReembolso; d.ReembolsoMixto = o.ReembolsoMixto;
             d.ObservacionReembolso = o.ObservacionReembolso;
@@ -2218,12 +2235,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Infrastructu
                 q = q.Where(x => x.PeriodoAnio == filters.PeriodoAnio.Value
                               && x.PeriodoMes  == filters.PeriodoMes.Value);
 
+            // Los códigos de las planillas ya no son columna, pero se siguen buscando: son como las
+            // nombran los correos.
             if (!string.IsNullOrWhiteSpace(filters.Texto))
             {
                 var texto = filters.Texto!.Trim();
                 q = q.Where(x =>
                     (x.Codigo ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
                     || (x.NumeroReembolso ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
+                    || (x.Area ?? string.Empty).Contains(texto, StringComparison.OrdinalIgnoreCase)
                     || x.Rendiciones.Any(r => r.Codigo.Contains(texto, StringComparison.OrdinalIgnoreCase)));
             }
 

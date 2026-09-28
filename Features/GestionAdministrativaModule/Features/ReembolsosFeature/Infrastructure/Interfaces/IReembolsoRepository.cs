@@ -62,11 +62,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         Task<List<int>> MarcarPagadas(IEnumerable<int> ids, int tesoreroUserId);
 
         /// <summary>
-        /// Lo que necesita el aviso de pago, UNA fila por (planilla, trabajador): dice algo de "tu
-        /// rendición", así que una planilla que agrupe a varias personas manda un correo a cada una
-        /// con SUS números, no con el total del documento.
+        /// Lo que necesita el aviso de pago, UNA fila por persona: su monto sumado y sus planillas
+        /// una por una. Un consolidado que agrupe a varias personas manda un correo a cada una con
+        /// SUS números, no con el total del documento, y quien tenga varias rendiciones en el pago
+        /// recibe un solo correo.
         /// </summary>
-        Task<List<ReembolsoPlanillaCorreoDatos>> GetPlanillaCorreoInfo(IEnumerable<int> solicitudIds);
+        Task<List<ReembolsoPagadoCorreoDatos>> GetPagadoCorreoDatos(IEnumerable<int> solicitudIds);
 
         /// <summary>
         /// Lo que necesita el aviso de que Tesorería devolvió el reembolso: UNO por consolidado,

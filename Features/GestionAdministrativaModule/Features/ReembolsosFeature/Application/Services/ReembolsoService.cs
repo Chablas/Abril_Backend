@@ -179,7 +179,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                 new[] { EstadosSalida.Reembolso.PorPagar },
                 CorreoEventoCodigos.ReembolsoPagado,
                 "Al colaborador",
-                async ids => (await _repo.GetPlanillaCorreoInfo(ids)).Select(d => d.TrabajadorEmail),
+                async ids => (await _repo.GetPagadoCorreoDatos(ids)).Select(d => d.TrabajadorEmail),
                 "preview del correo de pago");
 
         /// <summary>
@@ -293,9 +293,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         // ── Correo de cierre ─────────────────────────────────────────────────
 
         /// <summary>
-        /// Avisa a cada colaborador que su reembolso ya se pagó (RG-28). Va UN correo por planilla
-        /// y trabajador, no uno por salida: una planilla puede traer diez salidas de la misma
-        /// persona y el aviso es del desembolso, que es uno solo.
+        /// Avisa a cada colaborador que su reembolso ya se pagó (RG-28). Va UN correo por persona
+        /// con todo lo que se le pagó —el monto sumado y sus rendiciones una por una—, no uno por
+        /// planilla ni por salida: quien tenía tres rendiciones en el consolidado recibía tres
+        /// correos del mismo pago. El botón lo lleva a Mis Rendiciones, que es donde sigue sus
+        /// planillas: a la rendición si es una sola, a la lista si son varias.
         ///
         /// Es best-effort: el pago ya está registrado y no se revierte porque un correo falle
         /// (mismo criterio que la decisión del reembolso).
@@ -304,12 +306,54 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
         {
             if (solicitudIds.Count == 0) return;
 
-            await NotificarAsync(
-                solicitudIds,
-                CorreoEventoCodigos.ReembolsoPagado,
-                d => $"Reembolso realizado - rendición {d.Codigo}",
-                (layout, d, url) => ReembolsoEmailTemplates.Pagado(layout, d, url),
-                "el pago de los reembolsos");
+            try
+            {
+                var datos  = await _repo.GetPagadoCorreoDatos(solicitudIds);
+                var layout = SalidaEmailLayout.Desde(_configuration);
+
+                foreach (var d in datos)
+                {
+                    var codigos = string.Join(", ", d.Rendiciones.Select(r => r.Codigo));
+
+                    if (string.IsNullOrWhiteSpace(d.TrabajadorEmail))
+                    {
+                        _logger.LogWarning(
+                            "Rendiciones {Rendiciones}: el colaborador no tiene correo registrado, no se envió {Codigo}.",
+                            codigos, CorreoEventoCodigos.ReembolsoPagado);
+                        continue;
+                    }
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.ReembolsoPagado, new List<string> { d.TrabajadorEmail! });
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para las rendiciones {Rendiciones}: está apagado o sin destinatarios.",
+                            CorreoEventoCodigos.ReembolsoPagado, codigos);
+                        continue;
+                    }
+
+                    var una = d.Rendiciones.Count == 1;
+                    var url = una
+                        ? SalidaEnlaces.Rendiciones(_configuration, d.Rendiciones[0].RendicionId)
+                        : SalidaEnlaces.Rendiciones(_configuration);
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: una
+                            ? $"Reembolso realizado - rendición {d.Rendiciones[0].Codigo}"
+                            : $"Reembolso realizado - {d.Rendiciones.Count} rendiciones",
+                        body: ReembolsoEmailTemplates.Pagado(layout, d, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error avisando el pago de los reembolsos {Ids}",
+                    string.Join(",", solicitudIds));
+            }
         }
 
         /// <summary>
@@ -365,64 +409,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
             {
                 _logger.LogError(ex, "Error avisando la observación de Tesorería de las salidas {Ids}",
                     string.Join(",", solicitudIds));
-            }
-        }
-
-        /// <summary>
-        /// El envío del aviso de pago: UNO por (planilla, trabajador), nunca uno por salida —una
-        /// planilla puede traer diez salidas de la misma persona y lo que se avisa es del
-        /// documento—, con el botón apuntando a Mis Rendiciones, que es donde el trabajador sigue su
-        /// planilla.
-        /// </summary>
-        private async Task NotificarAsync(
-            List<int> solicitudIds,
-            string eventoCodigo,
-            Func<ReembolsoPlanillaCorreoDatos, string> asunto,
-            Func<SalidaEmailLayout, ReembolsoPlanillaCorreoDatos, string, string> cuerpo,
-            string queSeEstabaAvisando)
-        {
-            if (solicitudIds.Count == 0) return;
-
-            try
-            {
-                var datos  = await _repo.GetPlanillaCorreoInfo(solicitudIds);
-                var layout = SalidaEmailLayout.Desde(_configuration);
-
-                foreach (var d in datos)
-                {
-                    if (string.IsNullOrWhiteSpace(d.TrabajadorEmail))
-                    {
-                        _logger.LogWarning(
-                            "Rendición {RendicionId}: el colaborador no tiene correo registrado, no se envió {Codigo}.",
-                            d.RendicionId, eventoCodigo);
-                        continue;
-                    }
-
-                    var envio = await _correoResolver.ResolveEnvioAsync(
-                        eventoCodigo, new List<string> { d.TrabajadorEmail! });
-
-                    if (!envio.Enviar)
-                    {
-                        _logger.LogInformation(
-                            "Correo {Codigo} no enviado para la rendición {RendicionId}: está apagado o sin destinatarios.",
-                            eventoCodigo, d.RendicionId);
-                        continue;
-                    }
-
-                    var url = SalidaEnlaces.Rendiciones(_configuration, d.RendicionId);
-
-                    await _emailService.SendAsync(
-                        to: envio.Para,
-                        subject: asunto(d),
-                        body: cuerpo(layout, d, url),
-                        isHtml: true,
-                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error avisando {Que} {Ids}",
-                    queSeEstabaAvisando, string.Join(",", solicitudIds));
             }
         }
     }

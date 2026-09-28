@@ -9,8 +9,8 @@
 --   él quien después le reembolsa a cada trabajador. Desde este cambio, al
 --   pagar sale también REEMBOLSO_PAGADO_CONSOLIDADOR, uno por consolidado y
 --   solo a quien lo adjuntó, con el monto que Tesorería le abonó, lo que le
---   toca reembolsar a cada trabajador (con sus rendiciones), el código del
---   consolidado y el de la planilla grupal.
+--   toca reembolsar a cada trabajador (con sus rendiciones) y el código del
+--   consolidado.
 --
 --   Es un correo nuevo, con su propia fila en Reembolsos → Configuración →
 --   Correos, justo antes de «Reembolso realizado» (el orden de la plata: primero

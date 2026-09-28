@@ -79,6 +79,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         /// <param name="workersEstadoId"><c>workers.workers_estado_id</c> de la ficha.</param>
         public static string ParaFicha(string baseCodigo, int workersEstadoId) =>
             Para(baseCodigo, WorkersEstadoIds.PreIngreso.Contains(workersEstadoId));
+
+        /// <summary>true si el código es la versión del correo que le habla a un postulante.</summary>
+        public static bool EsVersionPostulante(string? codigo) =>
+            codigo != null && codigo.EndsWith(SufijoPostulante, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -151,8 +155,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configu
         /// área que pidió la vacante— en vez de recibir uno u otro según el estado de la ficha.
         /// </summary>
         public const string Solicitante        = "SOLICITANTE";
-        /// <summary>Correo corporativo del propio trabajador.</summary>
+        /// <summary>
+        /// La propia persona examinada: el correo corporativo del trabajador o, si la ficha todavía
+        /// es de pre-ingreso (<c>WorkersEstadoIds.PreIngreso</c>), el correo personal del
+        /// postulante (<c>person.email</c>). El postulante todavía no tiene corporativo, así que
+        /// resolverlo por ahí dejaba la celda prendida sin que le llegara nada.
+        /// </summary>
         public const string Trabajador         = "TRABAJADOR";
+
+        /// <summary>
+        /// Cómo se muestra la fila <see cref="Trabajador"/> en las secciones del postulante de la
+        /// Configuración: el nombre y la descripción del catálogo hablan del trabajador y de su
+        /// correo corporativo, que ahí no aplican.
+        /// </summary>
+        public const string DescripcionTrabajadorPostulante = "Correo personal del postulante.";
         /// <summary>Residente del proyecto donde está vinculado el trabajador.</summary>
         public const string Residente          = "RESIDENTE";
         /// <summary>Coordinador administrativo del proyecto.</summary>

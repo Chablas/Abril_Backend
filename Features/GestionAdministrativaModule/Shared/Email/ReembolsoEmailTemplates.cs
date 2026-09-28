@@ -204,11 +204,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         public int ConsolidadoId { get; set; }
         /// <summary>Código CONS-SIGLA-AAAA-NNN. Null en los consolidados anteriores a la columna.</summary>
         public string? Codigo { get; set; }
-        /// <summary>
-        /// Código de la planilla grupal con la que se registró en el S10. Null en los consolidados
-        /// anteriores a la planilla preparada.
-        /// </summary>
-        public string? PlanillaGrupalCodigo { get; set; }
         /// <summary>Área del consolidado (la del consolidador). Null si no se pudo resolver.</summary>
         public string? Area { get; set; }
         /// <summary>Número de reembolso que devolvió el S10. Null en los consolidados viejos.</summary>
@@ -297,7 +292,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         private const string FilaFirma       = "req-vistobueno";
         private const string FilaObservacion = "req-comentario";
         private const string FilaEstado      = "req-estado";
-        private const string FilaPlanillaGrupal = "req-formulario";
 
         private const string SeccionRendiciones  = "req-formulario";
         private const string SeccionTrabajadores = "req-candidatos";
@@ -903,10 +897,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
         }
 
         /// <summary>
-        /// Filas del aviso de pago al consolidador: con qué códigos conoce el documento —el del
-        /// consolidado y el de la planilla grupal con la que lo registró en el S10— y lo que se pagó.
-        /// Las que no tienen dato (consolidados anteriores al código o a la planilla preparada) no se
-        /// agregan.
+        /// Filas del aviso de pago al consolidador: el código del consolidado y lo que se pagó. La
+        /// planilla grupal no va: el consolidado hereda su código, así que repetía el mismo. Las que
+        /// no tienen dato (consolidados anteriores al código) no se agregan.
         /// </summary>
         private static List<AbrilEmailLayout.Fila> FilasConsolidadoPagado(ConsolidadoPagadoCorreoDatos d)
         {
@@ -915,14 +908,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
             if (!string.IsNullOrWhiteSpace(d.Codigo))
                 filas.Add(new(FilaPlanilla, "Consolidado", AbrilEmailLayout.Esc(d.Codigo)));
 
-            if (!string.IsNullOrWhiteSpace(d.PlanillaGrupalCodigo))
-                filas.Add(new(FilaPlanillaGrupal, "Planilla grupal", AbrilEmailLayout.Esc(d.PlanillaGrupalCodigo)));
-
             if (!string.IsNullOrWhiteSpace(d.Area))
                 filas.Add(new(FilaArea, "Área", AbrilEmailLayout.Esc(d.Area)));
 
             if (!string.IsNullOrWhiteSpace(d.NumeroReembolso))
-                filas.Add(new(FilaReembolso, "N.º de reembolso del S10", AbrilEmailLayout.Esc(d.NumeroReembolso)));
+                filas.Add(new(FilaReembolso, "N.º de reembolso", AbrilEmailLayout.Esc(d.NumeroReembolso)));
 
             filas.Add(new(FilaRendiciones, "Rendiciones pagadas", d.RendicionesCount.ToString()));
 

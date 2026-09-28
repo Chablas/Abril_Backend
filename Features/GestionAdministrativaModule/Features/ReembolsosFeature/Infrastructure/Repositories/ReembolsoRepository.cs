@@ -501,16 +501,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
 
                     return new ConsolidadoPagadoCorreoDatos
                     {
-                        ConsolidadoId        = porConsolidado.Key,
-                        Codigo               = dto.Codigo,
-                        PlanillaGrupalCodigo = cabecera?.PlanillaGrupal,
-                        Area                 = cabecera?.Area,
-                        NumeroReembolso      = dto.NumeroReembolso,
-                        ConsolidadorEmail    = cabecera?.Email,
-                        PagadoPor            = PagadoPorDe(porConsolidado),
-                        MontoTotal           = trabajadores.Sum(t => t.Monto),
-                        RendicionesCount     = porConsolidado.Select(x => x.RendicionId).Distinct().Count(),
-                        Trabajadores         = trabajadores,
+                        ConsolidadoId     = porConsolidado.Key,
+                        Codigo            = dto.Codigo,
+                        Area              = cabecera?.Area,
+                        NumeroReembolso   = dto.NumeroReembolso,
+                        ConsolidadorEmail = cabecera?.Email,
+                        PagadoPor         = PagadoPorDe(porConsolidado),
+                        MontoTotal        = trabajadores.Sum(t => t.Monto),
+                        RendicionesCount  = porConsolidado.Select(x => x.RendicionId).Distinct().Count(),
+                        Trabajadores      = trabajadores,
                     };
                 })
                 .OrderBy(c => c.ConsolidadoId)
@@ -538,12 +537,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
         /// <param name="Consolidador">Nombre de quien lo adjuntó.</param>
         /// <param name="Email">Su correo (app_user.email): el destinatario del aviso al consolidador.</param>
         /// <param name="Area">Área del consolidado, la del consolidador.</param>
-        /// <param name="PlanillaGrupal">Código de la planilla grupal con la que se registró en el S10.</param>
-        private sealed record CabeceraPago(string? Consolidador, string? Email, string? Area, string? PlanillaGrupal);
+        private sealed record CabeceraPago(string? Consolidador, string? Email, string? Area);
 
         /// <summary>
         /// Quién adjuntó cada consolidado —el consolidador, a quien Tesorería le abona— con su
-        /// correo, el área con la que quedó el consolidado y el código de su planilla grupal.
+        /// correo y el área con la que quedó el consolidado.
         /// </summary>
         private static async Task<Dictionary<int, CabeceraPago>> CabecerasPagoAsync(
             AppDbContext ctx, List<int> consolidadoIds)
@@ -560,16 +558,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                 from s   in sGroup.DefaultIfEmpty()
                 join ai  in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId into aiGroup
                 from ai  in aiGroup.DefaultIfEmpty()
-                join pg  in ctx.GaPlanillaGrupal on c.PlanillaGrupalId equals (int?)pg.Id into pgGroup
-                from pg  in pgGroup.DefaultIfEmpty()
                 where consolidadoIds.Contains(c.Id)
                 select new
                 {
                     c.Id,
-                    Nombre         = per != null ? per.FullName : null,
-                    Email          = u != null ? u.Email : null,
-                    Area           = ai != null ? ai.AreaItemName : null,
-                    PlanillaGrupal = pg != null ? pg.Codigo : null,
+                    Nombre = per != null ? per.FullName : null,
+                    Email  = u != null ? u.Email : null,
+                    Area   = ai != null ? ai.AreaItemName : null,
                 }
             ).ToListAsync();
 
@@ -580,8 +575,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Infrastructure
                     g => new CabeceraPago(
                         g.Select(x => x.Nombre).FirstOrDefault(n => n != null),
                         g.First().Email,
-                        g.First().Area,
-                        g.First().PlanillaGrupal));
+                        g.First().Area));
         }
 
         public async Task<ReembolsoSeguimientoDto> GetSeguimiento(ReembolsoFiltersDto filters)

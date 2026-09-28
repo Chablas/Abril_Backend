@@ -352,9 +352,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
         /// <summary>
         /// Avisa al consolidador que Tesorería pagó su consolidado (plantilla 22): el monto que le
-        /// abonó y lo que le toca reembolsar a cada trabajador, con el código del consolidado y el
-        /// de la planilla grupal. Va UNO por consolidado y solo a quien lo adjuntó; el botón lo
-        /// abre en Consolidados, que es donde el consolidador sigue lo que adjuntó.
+        /// abonó y lo que le toca reembolsar a cada trabajador, con el código del consolidado. Va
+        /// UNO por consolidado y solo a quien lo adjuntó; el botón lo abre en Consolidados, que es
+        /// donde el consolidador sigue lo que adjuntó.
         /// </summary>
         private async Task NotificarConsolidadoresAsync(
             List<ConsolidadoPagadoCorreoDatos> consolidados, SalidaEmailLayout layout)

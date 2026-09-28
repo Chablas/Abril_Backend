@@ -125,6 +125,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> VolverALongList(int requerimientoId, int? userId);
 
         /// <summary>
+        /// Cancela el proceso de selección: el requerimiento pasa a CANCELADO y ya no continúa. En
+        /// cualquier fase de GTH hasta que se le envía la carta oferta al seleccionado. No avisa a
+        /// nadie por correo. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/>
+        /// 409 cuando ya no se puede cancelar.
+        /// </summary>
+        Task<CancelarRequerimientoResultDto> CancelarRequerimiento(int requerimientoId, int? userId);
+
+        /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato y le envía la invitación por correo.
         /// El envío es best-effort: si el correo falla, la programación queda igual guardada y se
         /// informa en el mensaje para que GTH reintente.

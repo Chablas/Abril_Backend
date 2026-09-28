@@ -326,6 +326,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
         public DbSet<CursoIntentoRespuesta> CursoIntentoRespuestas => Set<CursoIntentoRespuesta>();
         public DbSet<CursoIntentoEvidencia> CursoIntentoEvidencias => Set<CursoIntentoEvidencia>();
+        public DbSet<CursoPreguntaBanco> CursoPreguntasBanco => Set<CursoPreguntaBanco>();
         public DbSet<EvPlantilla> EvPlantillas => Set<EvPlantilla>();
         public DbSet<EvEvaluacionResidente> EvEvaluacionesResidente => Set<EvEvaluacionResidente>();
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
@@ -387,6 +388,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
         public DbSet<UserCronogramaPreference> UserCronogramaPreferences { get; set; }
+        public DbSet<CronogramaTemplateItem> CronogramaTemplateItems { get; set; }
         public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
         // ── Dossier Semanal ────────────────────────────────────────────────────
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
@@ -1541,6 +1543,7 @@ namespace Abril_Backend.Infrastructure.Data
             // ── CursoModule ──────────────────────────────────────────────────
             modelBuilder.Entity<CursoSlide>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
             modelBuilder.Entity<CursoIntentoRespuesta>().Property(e => e.RespuestaJson).HasColumnType("jsonb");
+            modelBuilder.Entity<CursoPreguntaBanco>().Property(e => e.ConfiguracionJson).HasColumnType("jsonb");
 
             // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // ScopeItem: evitar ambigüedad en FK self-referential con snake_case
@@ -1601,6 +1604,17 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.HasKey(e => new { e.UserId, e.ProjectId });
                 entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30);
                 entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+            });
+
+            modelBuilder.Entity<CronogramaTemplateItem>(entity =>
+            {
+                entity.ToTable("cronograma_template_item");
+                entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.Codigo).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.Nombre).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.ParentCodigo).HasMaxLength(30);
+                entity.Property(e => e.PredecesoraCodigo).HasMaxLength(30);
+                entity.HasIndex(e => new { e.TipoCronograma, e.Codigo }).IsUnique();
             });
 
             // ── RAC — HasColumnName para prefijos conflictivos en snake_case ──

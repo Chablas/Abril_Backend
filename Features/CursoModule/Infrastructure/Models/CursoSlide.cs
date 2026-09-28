@@ -16,6 +16,11 @@ namespace Abril_Backend.Features.CursoModule.Infrastructure.Models
         public bool EsEvaluable { get; set; }
         public decimal? Puntaje { get; set; }
 
+        /// <summary>Solo tiene efecto cuando EsEvaluable=true. false = "solo práctica": el
+        /// reproductor sigue mostrando acierto/error (CorregirGenerico corre igual), pero
+        /// el puntaje NO se suma a la nota final (ver CursoIntentoService.FinalizarAsync).</summary>
+        public bool ContarParaNota { get; set; } = true;
+
         /// <summary>"igualdad_exacta" | "sin_calificar".</summary>
         public string? ModoCorreccion { get; set; }
 

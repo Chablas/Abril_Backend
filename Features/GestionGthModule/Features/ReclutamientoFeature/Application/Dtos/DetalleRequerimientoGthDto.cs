@@ -130,6 +130,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// necesita para poder enviarla.
         /// </summary>
         public CartaOfertaRequerimientoDto? CartaOferta { get; set; }
+
+        /// <summary>
+        /// Cuándo, quién y desde qué fase GTH canceló el proceso. Null mientras no esté cancelado.
+        /// Con él el modal se dibuja como quedó en esa fase, en solo lectura.
+        /// </summary>
+        public CancelacionRequerimientoDto? Cancelacion { get; set; }
+    }
+
+    /// <summary>
+    /// La cancelación de un proceso, leída de la fila del historial de estados que lo pasó a
+    /// CANCELADO: la fase es su estado anterior.
+    /// </summary>
+    public class CancelacionRequerimientoDto
+    {
+        /// <summary>Fase en la que estaba el proceso al cancelarse (código estable del catálogo).</summary>
+        public string? FaseCodigo { get; set; }
+        public string? FaseNombre { get; set; }
+
+        /// <summary>Momento de la cancelación, en hora de Perú.</summary>
+        public DateTime CanceladoEn { get; set; }
+
+        /// <summary>Quién lo canceló. Null si su usuario no tiene ficha de persona.</summary>
+        public string? CanceladoPor { get; set; }
+    }
+
+    /// <summary>Resultado de cancelar un proceso: el código del requerimiento y la fase en la que quedó.</summary>
+    public class CancelarRequerimientoResultDto
+    {
+        public string Codigo { get; set; } = string.Empty;
+        public string EstadoCodigo { get; set; } = string.Empty;
+        public string EstadoNombre { get; set; } = string.Empty;
     }
 
     /// <summary>Candidato aprobado por el solicitante, tal como lo ve GTH en la fase "Long list aprobada".</summary>

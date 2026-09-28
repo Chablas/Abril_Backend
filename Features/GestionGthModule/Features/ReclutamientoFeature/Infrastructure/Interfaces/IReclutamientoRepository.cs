@@ -213,6 +213,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EstadoRequerimientoResultDto> VolverALongList(int requerimientoId, int? userId);
 
         /// <summary>
+        /// Cancela el proceso: deja el requerimiento en CANCELADO, estado terminal. Se puede desde
+        /// cualquier fase de GTH (<c>EstadoReclutamiento.FasesCancelables</c>) mientras al
+        /// seleccionado no se le haya enviado la carta oferta. Solo cambia la fase: candidatos,
+        /// formularios, entrevistas e informes quedan como expediente. No manda correos. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 409 fuera de esas
+        /// fases, con la carta ya enviada o si ya estaba cancelado.
+        /// </summary>
+        Task<CancelarRequerimientoResultDto> CancelarRequerimiento(int requerimientoId, int? userId);
+
+        /// <summary>
         /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO y el
         /// Multitest marcado: crea o actualiza su única fila vigente en <c>gth_entrevista</c> y
         /// resuelve el correo del postulante al que se envía la invitación. Lanza

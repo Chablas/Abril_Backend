@@ -37,7 +37,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 where c.GthCandidatoId == f.GthCandidatoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, Puesto = p.Nombre }).FirstOrDefaultAsync();
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { c.Nombre, Puesto = p.Nombre, EstadoProceso = e.Codigo }).FirstOrDefaultAsync();
+
+            // Con el proceso cancelado el enlace deja de estar disponible: no tiene sentido pedirle
+            // sus datos a alguien para una vacante que ya no se cubre.
+            if (head?.EstadoProceso == EstadoReclutamiento.Cancelado) return null;
 
             var dto = new PostulanteFormularioPublicoDto
             {
@@ -77,6 +82,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Un proceso cancelado no tiene formulario que guardar (ver GetByToken): sin contexto el
+            // envío se corta antes de subir el CV a SharePoint.
             return await (
                 from f in ctx.GthPostulanteFormulario
                 where f.Token == token && f.State
@@ -84,6 +91,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
                 join c in ctx.GthCandidato on f.GthCandidatoId equals c.GthCandidatoId
                 join req in ctx.GthRequerimiento on c.GthRequerimientoId equals req.GthRequerimientoId
+                join e in ctx.GthEstadoRequerimiento on req.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo != EstadoReclutamiento.Cancelado
                 select new PostulanteCvContextoDto
                 {
                     CandidatoId = f.GthCandidatoId,
@@ -215,9 +224,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre }).FirstOrDefaultAsync();
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new { c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre, EstadoProceso = e.Codigo })
+                .FirstOrDefaultAsync();
             if (cand == null)
                 throw new AbrilException("Candidato no encontrado.", 404);
+            EstadoReclutamiento.ValidarNoCancelado(cand.EstadoProceso);
             if (cand.EstadoCandidato != EstadoCandidato.Aprobado)
                 throw new AbrilException("El formulario solo se envía a candidatos aprobados por el solicitante.", 400);
 
@@ -260,7 +272,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
                 join p in ctx.Puesto on r.PuestoId equals p.PuestoId
-                select new { c.GthCandidatoId, c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre })
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    c.GthCandidatoId, c.Nombre, EstadoCandidato = est.Codigo, Puesto = p.Nombre,
+                    EstadoProceso = e.Codigo,
+                })
                 .ToListAsync();
 
             var estados = await ctx.GthPostulanteFormularioEstado.Where(e => e.State).ToListAsync();
@@ -274,9 +291,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // TryAdd y no ToDictionary: una fila repetida por candidato no debería existir, pero si la
             // hubiera tumbaría el lote entero en vez de resolver el envío con la primera, que es lo que
             // hace el envío individual (FirstOrDefault).
-            var candidatoPorId = new Dictionary<int, (string Nombre, string EstadoCandidato, string Puesto)>();
+            var candidatoPorId = new Dictionary<int, (string Nombre, string EstadoCandidato, string Puesto, string EstadoProceso)>();
             foreach (var c in candidatos)
-                candidatoPorId.TryAdd(c.GthCandidatoId, (c.Nombre, c.EstadoCandidato, c.Puesto));
+                candidatoPorId.TryAdd(c.GthCandidatoId, (c.Nombre, c.EstadoCandidato, c.Puesto, c.EstadoProceso));
 
             var formularioPorCandidato = new Dictionary<int, GthPostulanteFormulario>();
             foreach (var f in formularios)
@@ -294,6 +311,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     {
                         CandidatoId = s.CandidatoId,
                         Error       = "Candidato no encontrado.",
+                    });
+                    continue;
+                }
+
+                if (cand.EstadoProceso == EstadoReclutamiento.Cancelado)
+                {
+                    preparados.Add(new EnvioMasivoPreparadoDto
+                    {
+                        CandidatoId = s.CandidatoId,
+                        Error       = "Este proceso de selección fue cancelado: ya no admite cambios.",
                     });
                     continue;
                 }
@@ -574,6 +601,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var f = await ctx.GthPostulanteFormulario.FirstOrDefaultAsync(x => x.GthCandidatoId == candidatoId && x.State);
             if (f == null)
                 throw new AbrilException("No se encontró el formulario del candidato.", 404);
+
+            // Decidir sobre un proceso cancelado no va: rechazar le escribe al postulante y aprobar
+            // un ingreso directo (FFT) del flujo anterior mueve la fase al EMO de ingreso (ver
+            // FftFlujo.CerrarConSeleccionadoAsync), que sacaría al requerimiento de CANCELADO.
+            var estadoProceso = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == candidatoId
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select e.Codigo).FirstOrDefaultAsync();
+            EstadoReclutamiento.ValidarNoCancelado(estadoProceso);
 
             var estados = await ctx.GthPostulanteFormularioEstado.Where(e => e.State).ToListAsync();
             var actual = estados.FirstOrDefault(e => e.GthPostulanteFormularioEstadoId == f.GthPostulanteFormularioEstadoId);

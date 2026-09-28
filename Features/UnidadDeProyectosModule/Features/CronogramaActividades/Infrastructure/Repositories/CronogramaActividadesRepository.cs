@@ -6,7 +6,6 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 using Mpxj = MPXJ.Net;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Repositories
@@ -1161,36 +1160,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // ─────────────────────────── Plantilla ───────────────────────────
 
-        private static readonly string PlantillaProyectoPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "Features", "UnidadDeProyectosModule", "Features", "CronogramaActividades",
-            "Seeds", "plantilla_proyecto_seed.json");
-
-        private static readonly string PlantillaAnteproyectoPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "Features", "UnidadDeProyectosModule", "Features", "CronogramaActividades",
-            "Seeds", "plantilla_anteproyecto_seed.json");
-
-        private static readonly JsonSerializerOptions PlantillaJsonOptions = new() { PropertyNameCaseInsensitive = true };
-
-        private sealed class PlantillaItem
-        {
-            public string Codigo { get; set; } = string.Empty;
-            public string Nombre { get; set; } = string.Empty;
-            public int Nivel { get; set; }
-            public bool EsPadre { get; set; }
-            public string? ParentCodigo { get; set; }
-            public string? PredecesoraCodigo { get; set; }
-        }
-
         public async Task<AplicarPlantillaResultDto> AplicarPlantillaAsync(int proyectoId, string tipoCronograma, int userId)
         {
-            var plantillaPath = tipoCronograma == "ANTEPROYECTO" ? PlantillaAnteproyectoPath : PlantillaProyectoPath;
-            var json = await File.ReadAllTextAsync(plantillaPath);
-            var items = JsonSerializer.Deserialize<List<PlantillaItem>>(json, PlantillaJsonOptions)
-                ?? throw new AbrilException("La plantilla de proyecto está vacía o es inválida.", 500);
-
             using var ctx = _factory.CreateDbContext();
+
+            var items = await ctx.CronogramaTemplateItems
+                .Where(i => i.TipoCronograma == tipoCronograma && i.State && i.Active)
+                .OrderBy(i => i.Orden)
+                .ToListAsync();
+
+            if (items.Count == 0)
+                throw new AbrilException("La plantilla de proyecto está vacía o es inválida.", 500);
 
             var strategy = ctx.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>

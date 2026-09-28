@@ -117,7 +117,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 ((evaluador.Subarea == "Unidad de Proyectos"
                     && evaluador.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                     && evaluador.Area == "Proyectos")
-                 || evaluador.Subarea == "Planeamiento BIM");
+                 || evaluador.Subarea == "Ingeniería BIM");
 
             // Jefes de área ven contratistas de TODOS los proyectos (no solo el suyo propio).
             bool puedeVerTodos = evaluador?.CategoriaId == CategoriaIds.Jefe;

@@ -83,6 +83,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     NotaMinimaAprobacion = dto.NotaMinimaAprobacion,
                     Activo = dto.Activo,
                     ColorTema = dto.ColorTema,
+                    LogoUrl = dto.LogoUrl,
                 });
                 return Ok(MapToDto(curso));
             }
@@ -103,6 +104,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     NotaMinimaAprobacion = dto.NotaMinimaAprobacion,
                     Activo = dto.Activo,
                     ColorTema = dto.ColorTema,
+                    LogoUrl = dto.LogoUrl,
                 });
                 return Ok();
             }
@@ -122,6 +124,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     TipoCodigo = dto.TipoCodigo,
                     EsEvaluable = dto.EsEvaluable,
                     Puntaje = dto.Puntaje,
+                    ContarParaNota = dto.ContarParaNota,
                     ModoCorreccion = dto.ModoCorreccion,
                     ConfiguracionJson = dto.ConfiguracionJson,
                 });
@@ -141,6 +144,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
                     TipoCodigo = dto.TipoCodigo,
                     EsEvaluable = dto.EsEvaluable,
                     Puntaje = dto.Puntaje,
+                    ContarParaNota = dto.ContarParaNota,
                     ModoCorreccion = dto.ModoCorreccion,
                     ConfiguracionJson = dto.ConfiguracionJson,
                 });
@@ -220,6 +224,62 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetSlidesAdmin"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // ---- Banco de preguntas reutilizable entre cursos ----
+
+        [HttpGet("preguntas-banco")]
+        public async Task<IActionResult> GetPreguntasBanco([FromQuery] string? tipoCodigo)
+        {
+            try
+            {
+                var preguntas = await _repo.GetPreguntasBancoAsync(tipoCodigo);
+                return Ok(preguntas.Select(MapPreguntaBancoDto));
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.GetPreguntasBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("preguntas-banco")]
+        public async Task<IActionResult> CrearPreguntaBanco([FromBody] CursoPreguntaBancoUpsertDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.Titulo))
+                    throw new AbrilException("El título es obligatorio.", 400);
+
+                var pregunta = await _repo.CreatePreguntaBancoAsync(new CursoPreguntaBanco
+                {
+                    TipoCodigo = dto.TipoCodigo,
+                    Titulo = dto.Titulo,
+                    Categoria = dto.Categoria,
+                    PuntajeSugerido = dto.PuntajeSugerido,
+                    ConfiguracionJson = dto.ConfiguracionJson,
+                });
+                return Ok(MapPreguntaBancoDto(pregunta));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.CrearPreguntaBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("preguntas-banco/{id:int}")]
+        public async Task<IActionResult> EliminarPreguntaBanco(int id)
+        {
+            try
+            {
+                await _repo.DeletePreguntaBancoAsync(id);
+                return Ok();
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CursoController.EliminarPreguntaBanco"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private static CursoPreguntaBancoDto MapPreguntaBancoDto(CursoPreguntaBanco p) => new()
+        {
+            Id = p.Id,
+            TipoCodigo = p.TipoCodigo,
+            Titulo = p.Titulo,
+            Categoria = p.Categoria,
+            PuntajeSugerido = p.PuntajeSugerido,
+            ConfiguracionJson = p.ConfiguracionJson,
+        };
+
         private static CursoDto MapToDto(Curso c) => new()
         {
             Id = c.Id,
@@ -230,6 +290,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             NotaMinimaAprobacion = c.NotaMinimaAprobacion,
             Activo = c.Activo,
             ColorTema = c.ColorTema,
+            LogoUrl = c.LogoUrl,
         };
 
         /// <summary>Slide completa (con "respuestaCorrecta" incluida) para el editor administrativo —
@@ -243,6 +304,7 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
             TipoCodigo = s.TipoCodigo,
             EsEvaluable = s.EsEvaluable,
             Puntaje = s.Puntaje,
+            ContarParaNota = s.ContarParaNota,
             ModoCorreccion = s.ModoCorreccion,
             ConfiguracionJson = s.ConfiguracionJson,
         };
@@ -251,13 +313,24 @@ namespace Abril_Backend.Features.CursoModule.Presentation.Controllers
         /// Mapea la slide quitando "respuestaCorrecta" (y cualquier dato de solución) de
         /// ConfiguracionJson antes de exponerla al frontend, para no filtrar la respuesta.
         /// </summary>
+        /// <summary>Tipos cuya corrección se hace en el FRONTEND con comparación tolerante
+        /// (trim/minúsculas/sin tildes, ver normalizarTexto en el frontend) — necesitan
+        /// conocer la respuesta correcta del lado del cliente para poder compararla, a
+        /// diferencia de V/F, opción múltiple, ordenar y emparejar (donde el jugador solo
+        /// envía su elección y el backend corrige sin que el cliente sepa la respuesta).</summary>
+        private static readonly HashSet<string> TiposConCorreccionEnCliente = new()
+        {
+            "pregunta_respuesta_corta",
+            "pregunta_completar_huecos",
+        };
+
         private static CursoSlideDto MapSlideDtoSinRespuesta(CursoSlide s)
         {
             string configuracionLimpia = s.ConfiguracionJson;
             try
             {
                 var node = JsonNode.Parse(s.ConfiguracionJson) as JsonObject;
-                if (node != null && node.ContainsKey("respuestaCorrecta"))
+                if (node != null && node.ContainsKey("respuestaCorrecta") && !TiposConCorreccionEnCliente.Contains(s.TipoCodigo))
                 {
                     node.Remove("respuestaCorrecta");
                     configuracionLimpia = node.ToJsonString();

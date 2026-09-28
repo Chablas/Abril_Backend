@@ -65,7 +65,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 WHERE w.state AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral}
                   AND w.area          = 'Proyectos'
                   AND pu.categoria_id IN ({CategoriaIds.Jefe}, {CategoriaIds.Coordinador})
-                  AND w.subarea      NOT IN ('Unidad de Proyectos', 'Planeamiento BIM')
+                  AND w.subarea      NOT IN ('Unidad de Proyectos', 'Ingeniería BIM')
                   AND {filtroBase}
                   {(soloSinEvaluar ? @"AND NOT EXISTS (
                       SELECT 1 FROM ev_evaluacion_residente er
@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 JOIN person p         ON p.person_id = w.person_id
                 LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN puesto pu   ON pu.puesto_id = w.puesto_id
-                WHERE w.state AND w.subarea IN ('Unidad de Proyectos', 'Planeamiento BIM')
+                WHERE w.state AND w.subarea IN ('Unidad de Proyectos', 'Ingeniería BIM')
                   AND NOT (pu.categoria_id = {CategoriaIds.Gerente} AND w.area = 'Proyectos')
                   AND {filtroBase}
                   AND EXISTS (

@@ -123,6 +123,9 @@ public class AtsService : IAtsService
         await _repository.CapturarFirmaDigitalAutorizacion(workerId, firmaUrl, firmaHash, capturadoPorUserId);
     }
 
+    public Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId)
+        => _repository.GetFirmaDigitalAutorizacion(workerId);
+
     public async Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId)
     {
         var (firmaDigitalUrl, nombre, dni) = await _repository.GetFirmaDigitalAutorizacion(workerId);
@@ -349,14 +352,17 @@ public class AtsService : IAtsService
         var verificacionUrl = $"{baseUrl}/ats-verificar/{ats.Id}?hash={(ats.PdfHash != null ? ats.PdfHash[..Math.Min(12, ats.PdfHash.Length)] : "")}";
 
         var pdfBytes = AtsPdfService.Generar(ats, selfieBytes, firmaBytes, verificacionUrl, firmaAutorizaBytes, firmaSsomaBytes);
-        var pdfHash = Convert.ToHexString(SHA256.HashData(pdfBytes));
 
         var container = _containerResolver.GetAtsContainerName();
         using var stream = new MemoryStream(pdfBytes);
         var fileName = $"ats_{ats.Id}_{DateTime.UtcNow:yyyyMMddHHmmssfff}.pdf";
         var urls = await _fileStorageService.UploadFilesAsync([(stream, fileName)], container);
 
-        await _repository.GuardarPdf(id, urls[0], pdfHash);
+        // PdfHash ya quedó fijado al firmar (ver AtsRepository.Firmar/ComputeHashVerificacion) —
+        // acá solo se actualiza la URL del archivo. Antes este método recalculaba el hash a
+        // partir de los bytes del PDF recién generado, que ya llevaban impreso el QR con el
+        // hash de la exportación ANTERIOR: la verificación pública nunca podía coincidir.
+        await _repository.GuardarPdf(id, urls[0], ats.PdfHash ?? string.Empty);
 
         return pdfBytes;
     }

@@ -70,6 +70,9 @@ public class SsomaRac
     public int? EmpresaReportadaId { get; set; }   // FK contributor (contributor_id)
 
     // Ubicación
+    /// <summary>Torre/bloque elegida (nombre libre tomado de project_torre al momento de crear
+    /// el RAC, ej. "A") — null cuando el lugar es exterior/fachada/vecinos (sin torre).</summary>
+    public string? TorreNombre { get; set; }
     public string? ProyectoPiso { get; set; }
     public string? LugarDescripcion { get; set; }
     public decimal? Latitud { get; set; }

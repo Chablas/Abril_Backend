@@ -138,6 +138,9 @@ public class InspeccionRepository : IInspeccionRepository
             HoraInicio = horaInicio,
             HoraFin = horaFin,
             Area = request.Area,
+            AmbitoLugar = request.AmbitoLugar,
+            TorreNombre = request.TorreNombre,
+            ProyectoPiso = request.ProyectoPiso,
             ResponsableArea = request.ResponsableArea,
             InspectorWorkerId = inspectorWorkerId,
             InspectorNombre = request.InspectorNombre,
@@ -267,6 +270,9 @@ public class InspeccionRepository : IInspeccionRepository
         insp.HoraInicio = horaInicio;
         insp.HoraFin = horaFin;
         insp.Area = request.Area;
+        insp.AmbitoLugar = request.AmbitoLugar;
+        insp.TorreNombre = request.TorreNombre;
+        insp.ProyectoPiso = request.ProyectoPiso;
         insp.ResponsableArea = request.ResponsableArea;
         insp.InspectorNombre = request.InspectorNombre;
         insp.InspectorCargo = request.InspectorCargo;
@@ -486,6 +492,9 @@ public class InspeccionRepository : IInspeccionRepository
             HoraInicio = insp.HoraInicio?.ToString("HH:mm"),
             HoraFin = insp.HoraFin?.ToString("HH:mm"),
             Area = insp.Area,
+            AmbitoLugar = insp.AmbitoLugar,
+            TorreNombre = insp.TorreNombre,
+            ProyectoPiso = insp.ProyectoPiso,
             ResponsableArea = insp.ResponsableArea,
             InspectorNombre = insp.InspectorNombre,
             InspectorCargo = insp.InspectorCargo,

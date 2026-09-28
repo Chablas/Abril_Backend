@@ -12,6 +12,9 @@ public class AtsPasoDto
 {
     public int Id { get; set; }
     public string Texto { get; set; } = string.Empty;
+    /// <summary>Marca los ítems de trabajo de alto riesgo (andamios, elevador, anclajes) para
+    /// que el wizard los agrupe aparte de las verificaciones básicas de rutina.</summary>
+    public bool RequierePetar { get; set; }
 }
 
 /// <summary>Un paso de las categorías NO universales (Liberación de Seguridad/Producción/Calidad)
@@ -85,6 +88,7 @@ public class AtsEppDto
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = string.Empty;
+    public string Categoria { get; set; } = string.Empty;
 }
 
 public class AtsHerramientaDto
@@ -142,9 +146,15 @@ public class AtsInitDto
 
 // ── Guardar borrador ─────────────────────────────────────────────────────────
 
+/// <summary>Un paso marcado al llenar el ATS. <see cref="PasoId"/> presente = viene del catálogo.
+/// <see cref="PasoId"/> null = paso "de una sola vez" que el trabajador escribió a mano para ESTE
+/// ATS (no se guarda en el catálogo ni en la plantilla — no toda actividad se repite en otro ATS),
+/// y entonces <see cref="Texto"/>/<see cref="CategoriaNombre"/> son obligatorios.</summary>
 public class AtsPasoRequestDto
 {
-    public int PasoId { get; set; }
+    public int? PasoId { get; set; }
+    public string? Texto { get; set; }
+    public string? CategoriaNombre { get; set; }
     public bool Aplica { get; set; }
 }
 
@@ -163,11 +173,20 @@ public class AtsGuardarRequestDto
     public int ProyectoId { get; set; }
     public int? PlantillaId { get; set; }
     public string Actividad { get; set; } = string.Empty;
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
     public string? Lugar { get; set; }
     public List<AtsPasoRequestDto> Pasos { get; set; } = [];
     public List<int> EppIds { get; set; } = [];
     public List<int> HerramientaIds { get; set; } = [];
+    /// <summary>Herramientas "otros" escritas a mano para este ATS puntual — no están en el
+    /// catálogo ni lo tocan (ver SsAtsHerramientaSeleccionada.HerramientaId).</summary>
+    public List<string> HerramientasPersonalizadas { get; set; } = [];
     public List<AtsRiesgoDetalleRequestDto> Riesgos { get; set; } = [];
+    /// <summary>Presente solo cuando este ATS nace como corrección de uno ya FIRMADO el mismo
+    /// día (condición de campo distinta a la evaluada) — enlaza con el original vía AtsAnteriorId,
+    /// nunca lo modifica (un ATS firmado es inmutable, Art. 76 del Reglamento de la Ley 29783).</summary>
+    public int? AtsAnteriorId { get; set; }
 }
 
 // ── Firmas adicionales (Autoriza / Visto Bueno SSOMA) ───────────────────────
@@ -197,7 +216,7 @@ public class AtsFirmarRequestDto
 
 public class AtsPasoResponseDto
 {
-    public int PasoId { get; set; }
+    public int? PasoId { get; set; }
     public string CategoriaNombre { get; set; } = string.Empty;
     public string Texto { get; set; } = string.Empty;
     public bool Aplica { get; set; }
@@ -226,6 +245,8 @@ public class AtsResponseDto
     public int? PlantillaId { get; set; }
 
     public string Actividad { get; set; } = string.Empty;
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
     public string? Lugar { get; set; }
     public DateOnly Fecha { get; set; }
     public DateTime? HoraServidorFirma { get; set; }

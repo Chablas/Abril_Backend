@@ -82,6 +82,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<FirmaTipo> FirmaTipo { get; set; }
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
+        public DbSet<ProjectTorre> ProjectTorre { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}

@@ -307,5 +307,40 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>Torres/bloques del proyecto (A, B, C...) con su cantidad de sótanos/pisos/
+        /// cisternas — de ahí RAC/ATS arman el selector de "Lugar" en vez de texto libre.</summary>
+        [Authorize]
+        [HttpGet("{id}/torres")]
+        public async Task<IActionResult> GetTorres(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetTorres(id));
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}/torres")]
+        public async Task<IActionResult> SetTorres(int id, [FromBody] List<ProjectTorreGuardarDto> torres)
+        {
+            try
+            {
+                await _service.SetTorres(id, torres);
+                return Ok(new { message = "Torres actualizadas correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

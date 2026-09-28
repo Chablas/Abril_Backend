@@ -52,5 +52,6 @@ public interface IAtsService
     Task<List<AtsAutorizacionTrabajadorDto>> GetTrabajadoresParaAutorizacion();
     Task SubirAutorizacionPermiso(int workerId, Stream archivo, string nombreArchivo, int subidoPorUserId);
     Task CapturarFirmaDigitalAutorizacion(int workerId, AtsAutorizacionFirmaDigitalRequestDto body, int capturadoPorUserId);
+    Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId);
     Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId);
 }

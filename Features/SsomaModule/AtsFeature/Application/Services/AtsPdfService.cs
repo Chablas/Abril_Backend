@@ -52,6 +52,8 @@ public static class AtsPdfService
                             c.Item().Text($"Puesto: {ats.PuestoNombre ?? "—"}");
                             c.Item().Text($"Proyecto: {ats.ProyectoNombre}");
                             c.Item().Text($"Actividad: {ats.Actividad}");
+                            if (!string.IsNullOrWhiteSpace(ats.TorreNombre))
+                                c.Item().Text($"Torre: {ats.TorreNombre} — Piso(s): {ats.Pisos}");
                             if (!string.IsNullOrWhiteSpace(ats.Lugar))
                                 c.Item().Text($"Lugar: {ats.Lugar}");
                             c.Item().Text($"Fecha: {ats.Fecha:dd/MM/yyyy}");

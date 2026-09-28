@@ -13,9 +13,9 @@ public class AtsRepository : IAtsRepository
 {
     private const int PageSize = 20;
 
-    /// <summary>Categorías que le tocan a CUALQUIER puesto — el resto (Liberación de Seguridad/
-    /// Producción/Calidad) solo aparece si hay un mapeo explícito en ss_ats_paso_puesto.</summary>
-    private static readonly string[] CategoriasUniversales = ["Trabajos de gabinete", "Supervisión en campo"];
+    /// <summary>Categorías que le tocan a CUALQUIER puesto, sin importar staff/oficina central —
+    /// el resto solo aparece si hay un mapeo explícito en ss_ats_paso_puesto.</summary>
+    private static readonly string[] CategoriasUniversales = ["Trabajos de gabinete", "Supervisión y liberación en campo"];
 
     private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -73,7 +73,7 @@ public class AtsRepository : IAtsRepository
                 Pasos = c.Pasos
                     .Where(p => CategoriasUniversales.Contains(c.Nombre) || pasoIdsPermitidos.Contains(p.Id))
                     .OrderBy(p => p.Orden)
-                    .Select(p => new AtsPasoDto { Id = p.Id, Texto = p.Texto })
+                    .Select(p => new AtsPasoDto { Id = p.Id, Texto = p.Texto, RequierePetar = p.RequierePetar })
                     .ToList(),
             })
             .Where(c => c.Pasos.Count > 0)
@@ -130,7 +130,7 @@ public class AtsRepository : IAtsRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsAtsEpp.Where(e => e.Activo).OrderBy(e => e.Orden)
-            .Select(e => new AtsEppDto { Id = e.Id, Nombre = e.Nombre }).ToListAsync();
+            .Select(e => new AtsEppDto { Id = e.Id, Nombre = e.Nombre, Categoria = e.Categoria }).ToListAsync();
     }
 
     public async Task<List<AtsHerramientaDto>> GetHerramientasActivas()
@@ -259,6 +259,20 @@ public class AtsRepository : IAtsRepository
 
         var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
 
+        int? atsAnteriorId = null;
+        if (dto.AtsAnteriorId.HasValue)
+        {
+            var anterior = await ctx.SsAts.FirstOrDefaultAsync(a => a.Id == dto.AtsAnteriorId.Value)
+                ?? throw new AbrilException("El ATS que intentas corregir no existe.", 404);
+            if (anterior.WorkerId != workerId)
+                throw new AbrilException("Ese ATS no te pertenece.", 403);
+            if (anterior.Estado != "Firmado")
+                throw new AbrilException("Solo se puede corregir un ATS ya firmado.", 409);
+            if (anterior.Fecha != DateOnly.FromDateTime(DateTime.Today))
+                throw new AbrilException("Solo se puede corregir un ATS firmado el mismo día. Si es otro día, crea un ATS nuevo.", 409);
+            atsAnteriorId = anterior.Id;
+        }
+
         var ats = new SsAts
         {
             WorkerId = workerId,
@@ -266,9 +280,12 @@ public class AtsRepository : IAtsRepository
             PuestoId = worker?.PuestoId,
             PlantillaId = dto.PlantillaId,
             Actividad = dto.Actividad,
+            TorreNombre = dto.TorreNombre,
+            Pisos = dto.Pisos,
             Lugar = dto.Lugar,
             Fecha = DateOnly.FromDateTime(DateTime.Today),
             Estado = "Borrador",
+            AtsAnteriorId = atsAnteriorId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -309,6 +326,8 @@ public class AtsRepository : IAtsRepository
         ats.ProyectoId = dto.ProyectoId;
         ats.PlantillaId = dto.PlantillaId;
         ats.Actividad = dto.Actividad;
+        ats.TorreNombre = dto.TorreNombre;
+        ats.Pisos = dto.Pisos;
         ats.Lugar = dto.Lugar;
         ats.UpdatedAt = DateTime.UtcNow;
 
@@ -337,22 +356,38 @@ public class AtsRepository : IAtsRepository
     {
         if (dto.Pasos.Count > 0)
         {
-            var pasoIds = dto.Pasos.Select(p => p.PasoId).ToList();
+            var pasoIds = dto.Pasos.Where(p => p.PasoId.HasValue).Select(p => p.PasoId!.Value).ToList();
             var pasosCatalogo = await ctx.SsAtsPaso.Include(p => p.Categoria)
                 .Where(p => pasoIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
 
             short orden = 0;
             foreach (var p in dto.Pasos)
             {
-                if (!pasosCatalogo.TryGetValue(p.PasoId, out var cat)) continue;
-                ats.Pasos.Add(new SsAtsPasoSeleccionado
+                if (p.PasoId.HasValue)
                 {
-                    PasoId = p.PasoId,
-                    CategoriaNombre = cat.Categoria?.Nombre ?? string.Empty,
-                    Texto = cat.Texto,
-                    Aplica = p.Aplica,
-                    Orden = orden++,
-                });
+                    if (!pasosCatalogo.TryGetValue(p.PasoId.Value, out var cat)) continue;
+                    ats.Pasos.Add(new SsAtsPasoSeleccionado
+                    {
+                        PasoId = p.PasoId,
+                        CategoriaNombre = cat.Categoria?.Nombre ?? string.Empty,
+                        Texto = cat.Texto,
+                        Aplica = p.Aplica,
+                        Orden = orden++,
+                    });
+                }
+                else if (!string.IsNullOrWhiteSpace(p.Texto))
+                {
+                    // Paso "de una sola vez": escrito a mano para este ATS puntual, no toca el
+                    // catálogo ni la plantilla — no toda actividad se repite en otro ATS.
+                    ats.Pasos.Add(new SsAtsPasoSeleccionado
+                    {
+                        PasoId = null,
+                        CategoriaNombre = p.CategoriaNombre ?? string.Empty,
+                        Texto = p.Texto.Trim(),
+                        Aplica = p.Aplica,
+                        Orden = orden++,
+                    });
+                }
             }
         }
 
@@ -368,6 +403,12 @@ public class AtsRepository : IAtsRepository
             var herramientas = await ctx.SsAtsHerramienta.Where(h => dto.HerramientaIds.Contains(h.Id)).ToListAsync();
             foreach (var h in herramientas)
                 ats.Herramientas.Add(new SsAtsHerramientaSeleccionada { HerramientaId = h.Id, Nombre = h.Nombre });
+        }
+
+        foreach (var nombre in dto.HerramientasPersonalizadas)
+        {
+            if (string.IsNullOrWhiteSpace(nombre)) continue;
+            ats.Herramientas.Add(new SsAtsHerramientaSeleccionada { HerramientaId = null, Nombre = nombre.Trim() });
         }
 
         if (dto.Riesgos.Count > 0)
@@ -428,6 +469,8 @@ public class AtsRepository : IAtsRepository
         PuestoNombre = ats.Puesto?.Nombre,
         PlantillaId = ats.PlantillaId,
         Actividad = ats.Actividad,
+        TorreNombre = ats.TorreNombre,
+        Pisos = ats.Pisos,
         Lugar = ats.Lugar,
         Fecha = ats.Fecha,
         HoraServidorFirma = ats.HoraServidorFirma,
@@ -650,6 +693,16 @@ public class AtsRepository : IAtsRepository
         entidad.UserAgent = userAgent;
         entidad.Estado = "Firmado";
         entidad.UpdatedAt = DateTime.UtcNow;
+
+        // Hash de verificación pública (QR del PDF) — se fija ACÁ, al firmar, y nunca se
+        // vuelve a tocar. Antes se recalculaba en AtsService.GenerarPdf a partir de los bytes
+        // del PDF ya generado, después de que esos mismos bytes ya llevaban impreso el QR con
+        // el hash ANTERIOR (o vacío, la primera vez) — un huevo-y-gallina que garantizaba que
+        // el hash del QR nunca coincidiera con el que terminaba guardado. Al depender solo de
+        // datos que quedan fijos desde la firma (no de la renderización del PDF, que puede
+        // variar entre exportaciones del mismo documento), el QR y el valor guardado siempre
+        // coinciden, sin importar cuántas veces se vuelva a exportar el PDF.
+        entidad.PdfHash = ComputeHashVerificacion(ats.Id, entidad.WorkerId, firmaHash, selfieHash, horaServidor);
 
         await ctx.SaveChangesAsync();
 
@@ -1033,6 +1086,16 @@ public class AtsRepository : IAtsRepository
     private static string ComputeHash(string? hashAnterior, string evento, int atsId, int workerId, string? extra = null)
     {
         var payload = $"{hashAnterior}|{evento}|{atsId}|{workerId}|{DateTime.UtcNow:O}|{extra}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    /// <summary>Hash estable del contenido firmado (para el QR de verificación pública) — a
+    /// diferencia de <see cref="ComputeHash"/>, NO incluye la hora actual ni se recalcula
+    /// nunca: se fija una sola vez al firmar, a partir de datos que no cambian sin importar
+    /// cuántas veces se re-exporte el PDF.</summary>
+    private static string ComputeHashVerificacion(int atsId, int workerId, string firmaHash, string selfieHash, DateTime horaServidorFirma)
+    {
+        var payload = $"{atsId}|{workerId}|{firmaHash}|{selfieHash}|{horaServidorFirma:O}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 }

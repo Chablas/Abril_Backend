@@ -99,6 +99,7 @@ public class InspeccionPdfService
                         Fila("Tipo Inspección:", d.TipoNombre, "Ámbito:", d.TipoAmbito);
                         Fila("Fecha:", d.Fecha.ToString("dd/MM/yyyy"), "Modalidad:", d.EsPlanificada ? "Planificada" : "No Planificada");
                         Fila("Hora Inicio:", d.HoraInicio ?? "-", "Hora Fin:", d.HoraFin ?? "-");
+                        Fila("Torre:", d.TorreNombre ?? (d.AmbitoLugar == "OBRA_GENERAL" ? "Obra en general" : "-"), "Piso / Nivel:", d.ProyectoPiso ?? "-");
                         Fila("Área:", d.Area ?? "-", "Responsable Área:", d.ResponsableArea ?? "-");
                         Fila("Inspector:", d.InspectorNombre ?? "-", "Cargo Inspector:", d.InspectorCargo ?? "-");
                         Fila("Empresa Inspector:", d.InspectorEmpresa ?? "-", "Estado:", d.Estado);

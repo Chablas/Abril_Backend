@@ -33,6 +33,9 @@ public class SsAtsPaso
     public string Texto { get; set; } = string.Empty;
     public short Orden { get; set; }
     public bool Activo { get; set; } = true;
+    /// <summary>Ítem de trabajo de alto riesgo (andamios, elevador, anclajes) — el wizard lo
+    /// agrupa aparte de las verificaciones básicas de rutina dentro de la misma categoría.</summary>
+    public bool RequierePetar { get; set; }
 
     public SsAtsCategoriaPaso? Categoria { get; set; }
     public ICollection<SsAtsPasoPuesto> Puestos { get; set; } = [];
@@ -76,10 +79,14 @@ public class SsAtsRiesgo
     public SsAtsPeligro? Peligro { get; set; }
 }
 
+/// <summary>EPP (ej. "Casco"). <see cref="Categoria"/> distingue "Básico" (va siempre, sin
+/// importar la tarea) de "Específico" (depende de la tarea/peligro concreto) — antes era una
+/// sola lista plana y no quedaba claro cuál era cuál al llenar el ATS.</summary>
 public class SsAtsEpp
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = string.Empty;
+    public string Categoria { get; set; } = "Específico";
     public short Orden { get; set; }
     public bool Activo { get; set; } = true;
 }
@@ -235,6 +242,13 @@ public class SsAts
     public int? PlantillaId { get; set; }
 
     public string Actividad { get; set; } = string.Empty;
+    /// <summary>Torre/bloque elegida (nombre de project_torre, ej. "A") — null cuando el lugar
+    /// es exterior/fachada/vecinos (sin torre).</summary>
+    public string? TorreNombre { get; set; }
+    /// <summary>Uno o varios pisos/niveles de esa torre, separados por coma (ej. "Piso 3, Piso 4")
+    /// — un ATS de supervisión puede cubrir varios niveles a la vez. Siempre se pide (nunca
+    /// "torre completa" a secas) salvo cuando el lugar es exterior.</summary>
+    public string? Pisos { get; set; }
     /// <summary>Lugar específico de ESTA tarea (no una lista de toda la obra — ver regla de un ATS por lugar/tarea).</summary>
     public string? Lugar { get; set; }
 
@@ -313,7 +327,9 @@ public class SsAtsPasoSeleccionado
 {
     public int Id { get; set; }
     public int AtsId { get; set; }
-    public int PasoId { get; set; }
+    /// <summary>Null cuando es un paso "de una sola vez" que el trabajador escribió a mano para
+    /// este ATS puntual — no viene del catálogo ni lo modifica.</summary>
+    public int? PasoId { get; set; }
     public string CategoriaNombre { get; set; } = string.Empty;
     public string Texto { get; set; } = string.Empty;
     public bool Aplica { get; set; }
@@ -336,7 +352,9 @@ public class SsAtsHerramientaSeleccionada
 {
     public int Id { get; set; }
     public int AtsId { get; set; }
-    public int HerramientaId { get; set; }
+    /// <summary>Null cuando es una herramienta "otros" escrita a mano para este ATS puntual — no
+    /// viene del catálogo ni lo modifica.</summary>
+    public int? HerramientaId { get; set; }
     public string Nombre { get; set; } = string.Empty;
 
     public SsAts? Ats { get; set; }

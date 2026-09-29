@@ -71,6 +71,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Milestone> Milestone { get; set; }
         public DbSet<MilestoneSchedule> MilestoneSchedule { get; set; }
         public DbSet<MilestoneScheduleHistory> MilestoneScheduleHistory { get; set; }
+        public DbSet<OwnerMilestone> OwnerMilestone { get; set; }
         public DbSet<Notificacion> Notificacion { get; set; }
         public DbSet<NotificacionTipo> NotificacionTipo { get; set; }
         public DbSet<Person> Person { get; set; }
@@ -1569,6 +1570,10 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<MilestoneScheduleHistory>(entity =>
             {
                 entity.Property(e => e.IsEqualToLastVersion).HasColumnName("is_equal_to_last_version");
+            });
+            modelBuilder.Entity<OwnerMilestone>(entity =>
+            {
+                entity.Property(e => e.Order).HasColumnName("owner_milestone_order");
             });
             modelBuilder.Entity<AuditoriaCambio>(entity =>
             {

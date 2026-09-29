@@ -129,5 +129,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         public Task<List<MilestoneSimpleDTO>> GetFaltantesAsync(int projectId)
             => _repository.GetFaltantesAsync(projectId);
+
+        /// <summary>Vista simplificada para propietarios (9 hitos fijos) resuelta contra una versión
+        /// puntual del cronograma — pensado para el botón al costado de cada versión en el listado
+        /// de MilestoneScheduleHistory.</summary>
+        public Task<List<OwnerMilestoneDTO>> GetOwnerMilestonesAsync(int milestoneScheduleHistoryId)
+            => _repository.GetOwnerMilestonesByHistoryIdAsync(milestoneScheduleHistoryId);
     }
 }

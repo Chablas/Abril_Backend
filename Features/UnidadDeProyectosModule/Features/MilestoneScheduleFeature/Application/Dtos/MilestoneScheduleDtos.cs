@@ -130,6 +130,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public List<MilestoneChange> Changes { get; set; } = new();
     }
 
+    // ── OwnerMilestone (vista simplificada para propietarios) ───────────────
+    /// <summary>Un hito del catálogo de propietarios ya resuelto contra una versión de cronograma
+    /// puntual (milestoneScheduleHistoryId): trae la fecha del MilestoneSchedule al que apunta,
+    /// null si esa versión no tiene ese hito cargado.</summary>
+    public class OwnerMilestoneDTO
+    {
+        public int OwnerMilestoneId { get; set; }
+        public string Description { get; set; }
+        public int Order { get; set; }
+        /// <summary>Hito del catálogo interno del que se tomaron las fechas.</summary>
+        public int MilestoneId { get; set; }
+        public DateOnly? PlannedStartDate { get; set; }
+        public DateOnly? PlannedEndDate { get; set; }
+    }
+
     public class UserWithoutMilestoneDTO
     {
         public int UserId { get; set; }

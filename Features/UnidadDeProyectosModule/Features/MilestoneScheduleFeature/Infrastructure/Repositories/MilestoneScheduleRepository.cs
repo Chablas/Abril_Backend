@@ -314,5 +314,32 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 })
                 .ToListAsync();
         }
+
+        /// <summary>Los 9 hitos del catálogo de propietarios (fijo, no por proyecto), con las fechas
+        /// resueltas contra la versión de cronograma pedida. Left join a propósito: si esa versión
+        /// todavía no tiene cargado el hito interno al que apunta un OwnerMilestone, las fechas
+        /// salen null en vez de que la fila desaparezca — el frontend siempre ve los 9.</summary>
+        public async Task<List<OwnerMilestoneDTO>> GetOwnerMilestonesByHistoryIdAsync(int milestoneScheduleHistoryId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from om in ctx.OwnerMilestone
+                join ms in ctx.MilestoneSchedule.Where(x => x.MilestoneScheduleHistoryId == milestoneScheduleHistoryId && x.State)
+                    on om.MilestoneId equals ms.MilestoneId into gj
+                from ms in gj.DefaultIfEmpty()
+                where om.State
+                orderby om.Order
+                select new OwnerMilestoneDTO
+                {
+                    OwnerMilestoneId = om.OwnerMilestoneId,
+                    Description = om.Description,
+                    Order = om.Order,
+                    MilestoneId = om.MilestoneId,
+                    PlannedStartDate = ms != null ? ms.PlannedStartDate : null,
+                    PlannedEndDate = ms != null ? ms.PlannedEndDate : null
+                }
+            ).ToListAsync();
+        }
     }
 }

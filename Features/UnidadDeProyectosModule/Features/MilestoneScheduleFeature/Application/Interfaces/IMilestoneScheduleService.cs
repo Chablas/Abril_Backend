@@ -12,5 +12,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         Task EditAsync(int milestoneScheduleId, MilestoneScheduleEditDTO dto, int userId);
         Task<MilestoneScheduleDTO> AddHitoAsync(int milestoneScheduleHistoryId, MilestoneScheduleAddDTO dto, int userId);
         Task<List<MilestoneSimpleDTO>> GetFaltantesAsync(int projectId);
+        Task<List<OwnerMilestoneDTO>> GetOwnerMilestonesAsync(int milestoneScheduleHistoryId);
     }
 }

@@ -171,5 +171,23 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>Vista de los 9 hitos "para propietarios", con fechas resueltas contra la versión
+        /// de cronograma indicada — pensado para un botón al costado de cada fila del listado de
+        /// versiones (MilestoneScheduleHistory) en el frontend.</summary>
+        [Authorize]
+        [HttpGet("hitos-propietario")]
+        public async Task<IActionResult> HitosPropietario([FromQuery] int milestoneScheduleHistoryId)
+        {
+            try
+            {
+                var result = await _service.GetOwnerMilestonesAsync(milestoneScheduleHistoryId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

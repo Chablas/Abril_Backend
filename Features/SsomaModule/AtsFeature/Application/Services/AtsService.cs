@@ -177,55 +177,69 @@ public class AtsService : IAtsService
     public async Task<AtsResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin)
     {
         var ats = await _repository.GetPorId(id) ?? throw new AbrilException("ATS no encontrado.", 404);
+        var (esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, workerId, esAdmin);
+
+        if (!esAdmin && ats.WorkerId != workerId && !esAutoriza && !esSsoma)
+            throw new AbrilException("Este ATS no te pertenece.", 403);
+
+        MarcarPermisos(ats, esAutoriza, esSsoma);
+        await _repository.CompletarInfoPetar([ats], new() { [ats.Id] = (esAutoriza, esSsoma) });
+        return ats;
+    }
+
+    /// <summary>Autorizar = Residente asignado al proyecto (Project.ResidenteWorkersId) O el
+    /// Ingeniero/Arquitecto de Producción vinculado actualmente a ese proyecto (por puesto, no
+    /// hay campo dedicado) O el Jefe/Administrador SSOMA. Visto Bueno SSOMA = el correo de
+    /// Coordinador SSOMA configurado en el proyecto O cualquier prevencionista de Abril (puesto
+    /// "Prevencionista", cualquier proyecto) O el Jefe/Administrador SSOMA. En ambos casos, nunca
+    /// para el propio ATS — nadie se autovalida, ni siquiera el admin.</summary>
+    private async Task<(bool EsAutoriza, bool EsSsoma)> PuedeAutorizarYVistoBueno(AtsResponseDto ats, int workerId, bool esAdmin)
+    {
+        if (ats.WorkerId == workerId) return (false, false);
+
         var responsables = await _repository.GetResponsables(ats.ProyectoId);
         var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
 
         var esResidente = responsables.ResidenteWorkerId == workerId;
-        var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
+        var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, ats.ProyectoId);
+        var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
+        var esPrevencionista = !esCoordSsoma && await _repository.EsPrevencionistaAbril(workerId);
 
-        if (!esAdmin && ats.WorkerId != workerId && !esResidente && !esSsoma)
-            throw new AbrilException("Este ATS no te pertenece.", 403);
-
-        MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
-        await _repository.CompletarInfoPetar([ats], new() { [ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin) });
-        return ats;
+        return (esResidente || esProduccion || esAdmin, esCoordSsoma || esPrevencionista || esAdmin);
     }
 
     /// <summary>
-    /// Sin filtro por proyecto/responsable a propósito: el Jefe/Administrador SSOMA debe poder
-    /// ver TODOS los ATS de la empresa para saber cuáles faltan aprobar, no solo los de "sus"
-    /// proyectos — <paramref name="esAdmin"/> también le habilita los botones de Autorizar/Visto
-    /// Bueno en cualquier proyecto (ver MarcarPermisos), no solo verlos.
+    /// Un trabajador normal solo ve los ATS de SU proyecto actual (evita que vea, y sobre todo
+    /// que le salgan botones sobre, ATS de otros proyectos que no le corresponden). El Jefe/
+    /// Administrador SSOMA sigue viendo TODOS, sin filtrar — necesita saber qué falta aprobar en
+    /// cualquier proyecto, y esAdmin también lo habilita a Autorizar/Visto Bueno en cualquiera
+    /// (ver PuedeAutorizarYVistoBueno).
     /// </summary>
     public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int workerId, bool esAdmin)
     {
-        var res = await _repository.Listar(filtro);
-        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+        if (!esAdmin)
+        {
+            var (_, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
+            filtro.ProyectoId = proyectoActualId;
+        }
 
-        // Cachea GetResponsables por proyecto — la lista puede traer el mismo proyecto muchas veces.
-        var cache = new Dictionary<int, AtsResponsablesDto>();
+        var res = await _repository.Listar(filtro);
+
         var permisosPorAtsId = new Dictionary<int, (bool, bool)>();
         foreach (var ats in res.Data)
         {
-            if (!cache.TryGetValue(ats.ProyectoId, out var responsables))
-            {
-                responsables = await _repository.GetResponsables(ats.ProyectoId);
-                cache[ats.ProyectoId] = responsables;
-            }
-
-            var esResidente = responsables.ResidenteWorkerId == workerId;
-            var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
-            MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
-            permisosPorAtsId[ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin);
+            var (esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, workerId, esAdmin);
+            MarcarPermisos(ats, esAutoriza, esSsoma);
+            permisosPorAtsId[ats.Id] = (esAutoriza, esSsoma);
         }
 
         await _repository.CompletarInfoPetar(res.Data, permisosPorAtsId);
         return res;
     }
 
-    private static void MarcarPermisos(AtsResponseDto ats, bool esResidente, bool esSsoma)
+    private static void MarcarPermisos(AtsResponseDto ats, bool esAutoriza, bool esSsoma)
     {
-        ats.PuedeAutorizar = esResidente && ats.Estado == "Firmado" && ats.AutorizaFirmaUrl == null;
+        ats.PuedeAutorizar = esAutoriza && ats.Estado == "Firmado" && ats.AutorizaFirmaUrl == null;
         ats.PuedeVistoBuenoSsoma = esSsoma && ats.Estado == "Firmado" && ats.SsomaFirmaUrl == null;
     }
 
@@ -323,22 +337,30 @@ public class AtsService : IAtsService
 
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("ATS no encontrado.", 404);
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
-        var responsables = await _repository.GetResponsables(entidad.ProyectoId);
+
+        // Nadie se autovalida su propio ATS — ni siquiera el admin.
+        if (entidad.WorkerId == workerId)
+            throw new AbrilException("No puedes dar visto bueno a tu propio ATS.", 403);
 
         // El Jefe/Administrador SSOMA puede firmar cualquiera de los dos vistos en cualquier
         // proyecto — es quien pidió tener acceso total para destrabar lo que falte aprobar.
         if (!esAdmin)
         {
+            var responsables = await _repository.GetResponsables(entidad.ProyectoId);
             if (rol == "Autoriza")
             {
-                if (responsables.ResidenteWorkerId != workerId)
-                    throw new AbrilException("Solo el Residente asignado a este proyecto puede firmar como Autoriza.", 403);
+                var esResidente = responsables.ResidenteWorkerId == workerId;
+                var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, entidad.ProyectoId);
+                if (!esResidente && !esProduccion)
+                    throw new AbrilException("Solo el Residente o el Ing./Arq. de Producción de este proyecto pueden firmar como Autoriza.", 403);
             }
             else
             {
                 var email = await _repository.GetEmailCorporativoWorker(workerId);
-                if (email == null || !responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
-                    throw new AbrilException("Solo el Coordinador SSOMA de este proyecto puede dar el Visto Bueno.", 403);
+                var esCoordSsoma = email != null && responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase);
+                var esPrevencionista = !esCoordSsoma && await _repository.EsPrevencionistaAbril(workerId);
+                if (!esCoordSsoma && !esPrevencionista)
+                    throw new AbrilException("Solo el Coordinador SSOMA de este proyecto o un prevencionista de Abril pueden dar el Visto Bueno.", 403);
             }
         }
 

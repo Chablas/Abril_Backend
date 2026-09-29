@@ -774,6 +774,33 @@ public class AtsRepository : IAtsRepository
         };
     }
 
+    public async Task<bool> EsProduccionDeProyecto(int workerId, int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var vinculacionVigente = await ctx.Set<Abril_Backend.Infrastructure.Models.WorkerVinculacion>()
+            .Include(v => v.PuestoCatalogo)
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .FirstOrDefaultAsync();
+
+        if (vinculacionVigente?.ProyectoId != proyectoId || vinculacionVigente.PuestoCatalogo == null) return false;
+
+        var nombre = vinculacionVigente.PuestoCatalogo.Nombre;
+        return nombre.Contains("Ingeniero de Producción", StringComparison.OrdinalIgnoreCase)
+            || nombre.Contains("Arquitecto de Producción", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task<bool> EsPrevencionistaAbril(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var worker = await ctx.Worker.Include(w => w.PuestoCatalogo).FirstOrDefaultAsync(w => w.Id == workerId);
+        if (worker?.ContrataCasa != "Casa" || worker.PuestoCatalogo == null) return false;
+
+        return worker.PuestoCatalogo.Nombre.Contains("Prevencionista", StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task<string?> GetEmailDeUsuario(int userId)
     {
         using var ctx = _factory.CreateDbContext();

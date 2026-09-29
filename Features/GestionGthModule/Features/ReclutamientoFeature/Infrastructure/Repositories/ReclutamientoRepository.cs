@@ -2811,6 +2811,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (personId == null) return null;
 
+            var dniPersona = await ctx.Person.Where(p => p.PersonId == personId)
+                .Select(p => p.DocumentIdentityCode).FirstOrDefaultAsync();
+            if (await Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
+                    .TrabajadorRestringidoRepository.EstaRestringidoAsync(ctx, dniPersona))
+                throw new Abril_Backend.Application.Exceptions.AbrilException(
+                    "El trabajador se encuentra en la lista de restringidos y no puede ser contratado.", 400);
+
             // Una persona puede tener varias fichas (reingresos). Si ya tiene una viva se reusa en
             // vez de abrir otra: un trabajador de Abril que postula internamente sigue siendo el
             // mismo worker, y un finalista que ya paso por aca no necesita ficha nueva.

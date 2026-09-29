@@ -4,15 +4,37 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Residentes.Services;
 
 namespace Abril_Backend.Infrastructure.Repositories {
     public class ResidentReportIncidenceRepository : IResidentReportIncidenceRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
-        
+
         public ResidentReportIncidenceRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
             _context = contexto;
             _factory = factory;
+        }
+
+        /// <summary>Obras del residente en este control: donde es el residente de Configuración →
+        /// Proyectos (ResidenteQueries), visibles y sin excluir de «Residentes» en el filtro por
+        /// funcionalidad, como en el listado.</summary>
+        public async Task<List<ProjectSimpleDTO>> GetProyectosDelResidente(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var delUsuario = ctx.ProyectosDelResidente(userId);
+
+            return await ctx.Project
+                .Where(p => delUsuario.Contains(p.ProjectId)
+                    && p.Active
+                    && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active))
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProjectSimpleDTO
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription ?? string.Empty,
+                })
+                .ToListAsync();
         }
 
         public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int? projectId = null, int? stateId = null, List<int>? allowedProjectIds = null)

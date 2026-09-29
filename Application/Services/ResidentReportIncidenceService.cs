@@ -2,18 +2,19 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 
 namespace Abril_Backend.Application.Services
 {
     public class ResidentReportIncidenceService : IResidentReportIncidenceService
     {
         private readonly IResidentReportIncidenceRepository _repository;
-        private readonly IProjectResidentRepository _projectResidentRepository;
+        private readonly IResidenteProyectoResolver _residentes;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IFileStorageService _fileStorageService;
         public ResidentReportIncidenceService(
             IResidentReportIncidenceRepository repository,
-            IProjectResidentRepository projectResidentRepository,
+            IResidenteProyectoResolver residentes,
             IStorageContainerResolver containerResolver,
             IFileStorageService fileStorageService
             )
@@ -21,15 +22,18 @@ namespace Abril_Backend.Application.Services
             _containerResolver = containerResolver;
             _fileStorageService = fileStorageService;
             _repository = repository;
-            _projectResidentRepository = projectResidentRepository;
+            _residentes = residentes;
         }
+
+        /// <summary>El RESIDENTE ve las incidencias de las obras donde es el residente de
+        /// Configuración → Proyectos (ya no la tabla antigua project_resident).</summary>
         public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int userId, bool isResidente, int? projectId = null, int? stateId = null)
         {
             List<int>? allowedProjectIds = null;
 
             if (isResidente)
             {
-                var assignedProjects = await _projectResidentRepository.GetActiveProjectsForResident(userId);
+                var assignedProjects = await _repository.GetProyectosDelResidente(userId);
                 allowedProjectIds = assignedProjects.Select(p => p.ProjectId).ToList();
 
                 if (projectId.HasValue && !allowedProjectIds.Contains(projectId.Value))
@@ -44,7 +48,7 @@ namespace Abril_Backend.Application.Services
             if (!isResidente)
                 return new List<ProjectSimpleDTO>();
 
-            return await _projectResidentRepository.GetActiveProjectsForResident(userId);
+            return await _repository.GetProyectosDelResidente(userId);
         }
         public async Task Create(ResidentReportIncidenceCreateDTO dto, int userId)
         {
@@ -96,7 +100,8 @@ namespace Abril_Backend.Application.Services
             if (projectId == null)
                 throw new AbrilException("Incidencia no encontrada.", 404);
 
-            var isAssignedResident = await _projectResidentRepository.IsUserAssignedToProject(userId, projectId.Value);
+            // El rol RESIDENTE lo exige el controller; acá, que sea el residente de ESE proyecto.
+            var isAssignedResident = await _residentes.EsResidenteDelProyectoAsync(userId, projectId.Value);
 
             if (!isAssignedResident)
                 throw new AbrilException("No estás asignado como residente de este proyecto.", 403);

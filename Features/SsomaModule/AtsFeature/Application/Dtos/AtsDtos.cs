@@ -70,6 +70,16 @@ public class AtsPetarResumenDto
     public int Id { get; set; }
     public string? TipoNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
+    /// <summary>true si ya existe firma del ejecutante en este PETAR — sin ella no se puede
+    /// descargar el PDF ni firmar Supervisor/SSOMA.</summary>
+    public bool TieneFirmaEjecutante { get; set; }
+    public bool SupervisorFirmado { get; set; }
+    public bool SsomaFirmado { get; set; }
+    /// <summary>Mismo criterio que en PETAR → Listar: Residente del proyecto (o admin), con firma
+    /// de ejecutante ya puesta y sin firmar Supervisor todavía. Se calcula acá para poder firmar
+    /// el PETAR sin salir de la fila del ATS.</summary>
+    public bool PuedeFirmarSupervisor { get; set; }
+    public bool PuedeFirmarSsoma { get; set; }
 }
 
 public class AtsPeligroDto
@@ -243,6 +253,7 @@ public class AtsResponseDto
     public int? PuestoId { get; set; }
     public string? PuestoNombre { get; set; }
     public int? PlantillaId { get; set; }
+    public string? PlantillaNombre { get; set; }
 
     public string Actividad { get; set; } = string.Empty;
     public string? TorreNombre { get; set; }
@@ -378,6 +389,9 @@ public class AtsRiesgoControlDto
     public int Id { get; set; }
     public string Texto { get; set; } = string.Empty;
     public short Orden { get; set; }
+    /// <summary>Uno de: Eliminacion, Sustitucion, Ingenieria, Administrativo, Epp (jerarquía de
+    /// controles de la norma). El Coordinador SSOMA puede cambiarlo en cualquier momento.</summary>
+    public string Tipo { get; set; } = "Administrativo";
 }
 
 public class AtsRiesgoConControlesDto
@@ -392,4 +406,5 @@ public class AtsRiesgoConControlesDto
 public class AtsRiesgoControlGuardarRequestDto
 {
     public string Texto { get; set; } = string.Empty;
+    public string Tipo { get; set; } = "Administrativo";
 }

@@ -489,6 +489,22 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetMiFirmaDigitalAutorizacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>La imagen en sí (no la URL) — el navegador no puede traer el blob del storage
+        /// directo, esto pasa por el backend con sus propias credenciales.</summary>
+        [HttpGet("mi-firma-digital-autorizacion/imagen")]
+        public async Task<IActionResult> GetMiFirmaDigitalAutorizacionImagen()
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                var bytes = await _service.GetFirmaDigitalAutorizacionImagen(workerId);
+                if (bytes == null) return NotFound(new { message = "Todavía no tienes firma digital autorizada capturada." });
+                return File(bytes, "image/png");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetMiFirmaDigitalAutorizacionImagen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         /// <summary>El Coordinador SSOMA captura en pantalla la firma del trabajador ANTES de poder
         /// descargar la plantilla — requisito previo (ver GetPlantillaAutorizacionPdf).</summary>
         [HttpPost("trabajadores/{workerId:int}/autorizacion/firma-digital")]

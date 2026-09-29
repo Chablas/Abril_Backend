@@ -219,6 +219,8 @@ public class SsAtsRiesgoControl
     public string Texto { get; set; } = string.Empty;
     public short Orden { get; set; }
     public bool Activo { get; set; } = true;
+    /// <summary>Eliminacion, Sustitucion, Ingenieria, Administrativo o Epp — jerarquía de controles.</summary>
+    public string Tipo { get; set; } = "Administrativo";
 
     public SsAtsRiesgo? Riesgo { get; set; }
 }

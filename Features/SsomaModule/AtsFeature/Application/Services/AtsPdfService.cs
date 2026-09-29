@@ -14,9 +14,13 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Application.Services;
 /// </summary>
 public static class AtsPdfService
 {
+    // ── Encabezado corporativo estándar (mismo patrón que RAC/Inspecciones/Convalidación) ──
+    private const string Codigo = "SSO-FO-018";
+    private const string Titulo = "ANÁLISIS DE TRABAJO SEGURO (ATS)";
+
     public static byte[] Generar(
         AtsResponseDto ats, byte[]? selfieBytes, byte[]? firmaBytes, string verificacionUrl,
-        byte[]? firmaAutorizaBytes = null, byte[]? firmaSsomaBytes = null)
+        byte[]? firmaAutorizaBytes = null, byte[]? firmaSsomaBytes = null, byte[]? logoBytes = null)
     {
         byte[]? qrBytes = null;
         using (var generator = new QRCodeGenerator())
@@ -34,11 +38,7 @@ public static class AtsPdfService
                 page.Margin(30);
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
 
-                page.Header().Column(col =>
-                {
-                    col.Item().Text("ANÁLISIS DE TRABAJO SEGURO — ATS DIGITAL").Bold().FontSize(14);
-                    col.Item().Text("SSO-FO-018.m · ATS Supervisión").FontSize(8).FontColor(Colors.Grey.Darken1);
-                });
+                page.Header().Element(c => ComposeHeader(c, logoBytes, ats.PlantillaNombre));
 
                 page.Content().Column(col =>
                 {
@@ -164,6 +164,70 @@ public static class AtsPdfService
                 c.Item().Text(cargo).FontSize(6.5f).FontColor(Colors.Grey.Darken1).Italic();
             if (hora.HasValue)
                 c.Item().Text(FechaHoraPeru(hora)).FontSize(6.5f).FontColor(Colors.Grey.Darken1);
+        });
+    }
+
+    /// <summary>Logo | título centrado | Código/Versión/Fecha + Elab./Rev./Apro. — mismo patrón
+    /// que ConvalidacionPdfService/RacPdfService, el estándar corporativo de formatos SSOMA.</summary>
+    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? plantillaNombre)
+    {
+        container.Border(0.5f).BorderColor(Colors.Grey.Lighten1).Row(row =>
+        {
+            row.ConstantItem(90).AlignMiddle().AlignCenter().Padding(4).Element(logoEl =>
+            {
+                if (logoBytes != null)
+                    logoEl.AlignMiddle().AlignCenter().Image(logoBytes).FitArea();
+                else
+                    logoEl.AlignMiddle().AlignCenter().Text("ABRIL").Bold().FontSize(8).AlignCenter();
+            });
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            row.RelativeItem().AlignMiddle().AlignCenter().Column(tCol =>
+            {
+                tCol.Item().AlignCenter().Text(Titulo).Bold().FontSize(11).AlignCenter();
+                if (!string.IsNullOrWhiteSpace(plantillaNombre))
+                    tCol.Item().AlignCenter().Text(plantillaNombre).FontSize(8).FontColor(Colors.Grey.Darken2);
+            });
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            row.ConstantItem(120).Column(metaCol =>
+            {
+                void MetaRow(string label, string valor, bool last = false)
+                {
+                    metaCol.Item()
+                        .BorderBottom(last ? 0f : 0.5f)
+                        .Padding(2).Row(r =>
+                    {
+                        r.AutoItem().Text(label).Bold().FontSize(7);
+                        r.ConstantItem(2);
+                        r.RelativeItem().Text(valor).FontSize(7);
+                    });
+                }
+                MetaRow("Código:", Codigo);
+                MetaRow("Versión:", "01");
+                MetaRow("Fecha:", DateTime.Today.ToString("dd/MM/yyyy"));
+
+                metaCol.Item().BorderTop(0.5f).Row(subRow =>
+                {
+                    foreach (var (lbl, val, last) in new[]
+                    {
+                        ("Elab.:", "SSOMA",  false),
+                        ("Rev.:",  "JSSOMA", false),
+                        ("Apro.:", "GP",     true ),
+                    })
+                    {
+                        var cell = subRow.RelativeItem().Padding(2);
+                        if (!last) cell = cell.BorderRight(0.5f);
+                        cell.Text(t =>
+                        {
+                            t.Span(lbl + " ").Bold().FontSize(5.5f);
+                            t.Span(val).FontSize(5.5f);
+                        });
+                    }
+                });
+            });
         });
     }
 

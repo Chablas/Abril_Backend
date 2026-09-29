@@ -449,6 +449,7 @@ public class AtsRepository : IAtsRepository
             .Include(a => a.Worker).ThenInclude(w => w!.Person)
             .Include(a => a.Proyecto)
             .Include(a => a.Puesto)
+            .Include(a => a.Plantilla)
             .Include(a => a.Pasos)
             .Include(a => a.Epps)
             .Include(a => a.Herramientas)
@@ -468,6 +469,7 @@ public class AtsRepository : IAtsRepository
         PuestoId = ats.PuestoId,
         PuestoNombre = ats.Puesto?.Nombre,
         PlantillaId = ats.PlantillaId,
+        PlantillaNombre = ats.Plantilla?.Nombre,
         Actividad = ats.Actividad,
         TorreNombre = ats.TorreNombre,
         Pisos = ats.Pisos,
@@ -511,7 +513,7 @@ public class AtsRepository : IAtsRepository
         }).ToList(),
     };
 
-    public async Task CompletarInfoPetar(List<AtsResponseDto> ats)
+    public async Task CompletarInfoPetar(List<AtsResponseDto> ats, Dictionary<int, (bool EsResidente, bool EsSsoma)> permisosPorAtsId)
     {
         if (ats.Count == 0) return;
         using var ctx = _factory.CreateDbContext();
@@ -528,8 +530,19 @@ public class AtsRepository : IAtsRepository
         foreach (var dto in ats)
         {
             dto.RequierePetar = dto.Riesgos.Any(r => riesgoIdsQueRequierenPetar.Contains(r.RiesgoId));
+            var (esResidente, esSsoma) = permisosPorAtsId.GetValueOrDefault(dto.Id);
             dto.Petares = petaresPorAts[dto.Id]
-                .Select(p => new AtsPetarResumenDto { Id = p.Id, TipoNombre = p.Tipo?.Nombre, Estado = p.Estado })
+                .Select(p => new AtsPetarResumenDto
+                {
+                    Id = p.Id,
+                    TipoNombre = p.Tipo?.Nombre,
+                    Estado = p.Estado,
+                    TieneFirmaEjecutante = p.FirmaUrl != null,
+                    SupervisorFirmado = p.SupervisorFirmaUrl != null,
+                    SsomaFirmado = p.SsomaFirmaUrl != null,
+                    PuedeFirmarSupervisor = esResidente && p.FirmaUrl != null && p.SupervisorFirmaUrl == null && p.Estado == "Borrador",
+                    PuedeFirmarSsoma = esSsoma && p.FirmaUrl != null && p.SsomaFirmaUrl == null && p.Estado == "Borrador",
+                })
                 .ToList();
         }
     }
@@ -1048,28 +1061,29 @@ public class AtsRepository : IAtsRepository
             PeligroId = r.PeligroId,
             PeligroNombre = r.Peligro?.Nombre ?? string.Empty,
             Controles = controlesPorRiesgo.GetValueOrDefault(r.Id, [])
-                .Select(c => new AtsRiesgoControlDto { Id = c.Id, Texto = c.Texto, Orden = c.Orden }).ToList(),
+                .Select(c => new AtsRiesgoControlDto { Id = c.Id, Texto = c.Texto, Orden = c.Orden, Tipo = c.Tipo }).ToList(),
         }).ToList();
     }
 
-    public async Task<int> CrearControl(int riesgoId, string texto)
+    public async Task<int> CrearControl(int riesgoId, string texto, string tipo)
     {
         using var ctx = _factory.CreateDbContext();
         var maxOrden = await ctx.SsAtsRiesgoControl
             .Where(c => c.RiesgoId == riesgoId)
             .Select(c => (short?)c.Orden)
             .MaxAsync() ?? 0;
-        var control = new SsAtsRiesgoControl { RiesgoId = riesgoId, Texto = texto, Orden = (short)(maxOrden + 1), Activo = true };
+        var control = new SsAtsRiesgoControl { RiesgoId = riesgoId, Texto = texto, Tipo = tipo, Orden = (short)(maxOrden + 1), Activo = true };
         ctx.SsAtsRiesgoControl.Add(control);
         await ctx.SaveChangesAsync();
         return control.Id;
     }
 
-    public async Task EditarControl(int controlId, string texto)
+    public async Task EditarControl(int controlId, string texto, string tipo)
     {
         using var ctx = _factory.CreateDbContext();
         var control = await ctx.SsAtsRiesgoControl.FirstOrDefaultAsync(c => c.Id == controlId) ?? throw new AbrilException("Control no encontrado.", 404);
         control.Texto = texto;
+        control.Tipo = tipo;
         await ctx.SaveChangesAsync();
     }
 

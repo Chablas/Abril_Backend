@@ -23,6 +23,7 @@ public class PetarService : IPetarService
     private readonly IStorageContainerResolver _containerResolver;
     private readonly IConfiguration _configuration;
     private readonly INotificacionesService _notificacionesService;
+    private readonly string[] _logoPaths;
 
     public PetarService(
         IPetarRepository repository,
@@ -30,7 +31,8 @@ public class PetarService : IPetarService
         IFileStorageService fileStorageService,
         IStorageContainerResolver containerResolver,
         IConfiguration configuration,
-        INotificacionesService notificacionesService)
+        INotificacionesService notificacionesService,
+        IWebHostEnvironment env)
     {
         _repository = repository;
         _atsRepository = atsRepository;
@@ -38,6 +40,12 @@ public class PetarService : IPetarService
         _containerResolver = containerResolver;
         _configuration = configuration;
         _notificacionesService = notificacionesService;
+        _logoPaths =
+        [
+            Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
+            Path.Combine(env.WebRootPath, "images", "logo-abril.jpg"),
+            Path.Combine(env.ContentRootPath, "Templates", "logo-abril.jpg"),
+        ];
     }
 
     public Task<int> ResolverWorkerId(int userId) => _atsRepository.ResolverWorkerIdAsync(userId);
@@ -302,7 +310,10 @@ public class PetarService : IPetarService
     public async Task<byte[]> GenerarPdf(int id)
     {
         var petar = await _repository.GetPorId(id) ?? throw new AbrilException("PETAR no encontrado.", 404);
-        if (petar.Estado == "Borrador")
+        // OJO: Estado se queda en "Borrador" hasta que Supervisor Y SSOMA también firman (ver
+        // FirmarVisto) — NO cambia solo porque el ejecutante ya firmó. El gate real es si ya
+        // existe la firma del ejecutante, no el Estado.
+        if (petar.FirmaUrl == null)
             throw new AbrilException("Solo se puede exportar un PETAR con al menos la firma del ejecutante.", 409);
 
         byte[]? selfieBytes = petar.SelfieUrl != null ? await DescargarBytes(petar.SelfieUrl) : null;
@@ -313,7 +324,12 @@ public class PetarService : IPetarService
         var baseUrl = _configuration["Frontend:BaseUrl"]?.TrimEnd('/') ?? "https://intranet.abril.pe";
         var verificacionUrl = $"{baseUrl}/petar-verificar/{petar.Id}?hash={(petar.PdfHash != null ? petar.PdfHash[..Math.Min(12, petar.PdfHash.Length)] : "")}";
 
-        var pdfBytes = PetarPdfService.Generar(petar, selfieBytes, firmaBytes, verificacionUrl, firmaSupervisorBytes, firmaSsomaBytes);
+        byte[]? logoBytes = null;
+        var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+        if (logoPath != null)
+            logoBytes = await File.ReadAllBytesAsync(logoPath);
+
+        var pdfBytes = PetarPdfService.Generar(petar, selfieBytes, firmaBytes, verificacionUrl, firmaSupervisorBytes, firmaSsomaBytes, logoBytes);
         var pdfHash = Convert.ToHexString(SHA256.HashData(pdfBytes));
 
         var container = _containerResolver.GetAtsContainerName();

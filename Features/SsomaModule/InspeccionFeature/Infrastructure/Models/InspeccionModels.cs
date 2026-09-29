@@ -49,6 +49,11 @@ public class SsomaInspeccion
     public TimeOnly? HoraInicio { get; set; }
     public TimeOnly? HoraFin { get; set; }
     public string? Area { get; set; }
+    /// <summary>TORRE_PISO | TORRE_COMPLETA | OBRA_GENERAL | EXTERIOR — null en registros
+    /// anteriores a este selector, que siguen mostrando solo <see cref="Area"/> como antes.</summary>
+    public string? AmbitoLugar { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? ProyectoPiso { get; set; }
     public string? ResponsableArea { get; set; }
     /// <summary>
     /// Worker que hizo la inspección. Es la fuente de verdad para atribuirla a su supervisor en

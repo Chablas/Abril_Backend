@@ -55,10 +55,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 var encodedDoc = Uri.EscapeDataString(archivoUrl!).Replace("%2F", "/");
                 var urlDoc = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveIdDoc}/root:/{encodedDoc}:/content";
 
-                var clientDoc = _noRedirectClient.Value;
-                clientDoc.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-                var responseDoc = await clientDoc.GetAsync(urlDoc);
+                var responseDoc = await GetSinRedirectAsync(urlDoc, token);
                 if (responseDoc.StatusCode == System.Net.HttpStatusCode.Found ||
                     responseDoc.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
                 {
@@ -75,11 +72,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 var encodedOpt = Uri.EscapeDataString(archivoUrl!).Replace("%2F", "/");
                 var urlOpt = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveIdOpt}/root:/{encodedOpt}:/content";
 
-                var clientOpt = _noRedirectClient.Value;
-                clientOpt.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", token);
-
-                var responseOpt = await clientOpt.GetAsync(urlOpt);
+                var responseOpt = await GetSinRedirectAsync(urlOpt, token);
 
                 if (responseOpt.StatusCode == System.Net.HttpStatusCode.Found ||
                     responseOpt.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
@@ -96,9 +89,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 return null;
             }
 
-            var libraryId = ResolverLibraryId(libraryContexto ?? archivoUrl ?? string.Empty);
+            // Sin contexto explícito la librería se deduce de la ruta. Se mira primero solo la carpeta:
+            // buscar palabras clave en el nombre del archivo mandaba "habilitacion/sctr/..._constancia-
+            // trabajadores_(1).pdf" a la librería de Trabajadores (404 → sin PDF). Si la carpeta no
+            // resuelve nada se conserva el comportamiento anterior (ruta completa).
+            var libraryId = libraryContexto != null
+                ? ResolverLibraryId(libraryContexto)
+                : ResolverLibraryId(CarpetaDe(archivoUrl)) ?? ResolverLibraryId(archivoUrl ?? string.Empty);
             string? driveId;
             string path;
+
+            _logger.LogInformation("GetDownloadUrlAsync: ruta={Ruta} contexto={Ctx} libraryId={Lib}",
+                archivoUrl, libraryContexto ?? "(deducido)", libraryId ?? "(ninguna)");
 
             if (libraryId != null)
             {
@@ -129,11 +131,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
 
-            var client = _noRedirectClient.Value;
-            client.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", token);
-
-            var response = await client.GetAsync(url);
+            var response = await GetSinRedirectAsync(url, token);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Found ||
                 response.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
@@ -148,6 +146,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             _logger.LogWarning("SharePoint /content GET falló ({Status}) para {Path}", response.StatusCode, path);
             return null;
+        }
+
+        /// <summary>
+        /// GET sin seguir redirects con el token en el request (no en DefaultRequestHeaders): el cliente
+        /// es compartido y BuildDtosAsync resuelve varias pólizas en paralelo; mutar los headers por
+        /// defecto desde varios hilos a la vez es una carrera que dejaba URLs en null.
+        /// </summary>
+        private Task<HttpResponseMessage> GetSinRedirectAsync(string url, string token)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return _noRedirectClient.Value.SendAsync(request);
         }
 
         public async Task<string> SubirArchivoAsync(Stream fileStream, string fileName, string contexto)
@@ -490,6 +500,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             _logger.LogWarning("No se encontró drive con nombre '{Name}', usando drive default", libraryName);
             return await GetDriveIdAsync(siteId, token, null);
+        }
+
+        /// <summary>Ruta sin el nombre del archivo ("a/b/c.pdf" → "a/b"). Sin '/' devuelve vacío.</summary>
+        private static string CarpetaDe(string? rawPath)
+        {
+            var p = (rawPath ?? string.Empty).Trim();
+            var idx = p.LastIndexOf('/');
+            return idx > 0 ? p[..idx] : string.Empty;
         }
 
         private static string NormalizarPath(string rawPath)

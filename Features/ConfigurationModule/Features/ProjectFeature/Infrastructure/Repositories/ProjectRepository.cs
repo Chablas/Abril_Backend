@@ -607,5 +607,46 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             await _context.SaveChangesAsync();
         }
+
+        public async Task<List<ProjectTorreDto>> GetTorres(int projectId)
+        {
+            return await _context.ProjectTorre
+                .Where(t => t.ProjectId == projectId)
+                .OrderBy(t => t.Orden)
+                .Select(t => new ProjectTorreDto
+                {
+                    Id = t.Id,
+                    Nombre = t.Nombre,
+                    CantidadSotanos = t.CantidadSotanos,
+                    CantidadPisos = t.CantidadPisos,
+                    CantidadCisternas = t.CantidadCisternas,
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>Reemplaza toda la lista de torres del proyecto — más simple que diffear
+        /// altas/bajas/ediciones, y esta lista no tiene referencias externas (los niveles se
+        /// calculan al vuelo desde las cantidades, no se persisten como filas propias).</summary>
+        public async Task SetTorres(int projectId, List<ProjectTorreGuardarDto> torres)
+        {
+            var existentes = await _context.ProjectTorre.Where(t => t.ProjectId == projectId).ToListAsync();
+            _context.ProjectTorre.RemoveRange(existentes);
+
+            short orden = 0;
+            foreach (var t in torres)
+            {
+                _context.ProjectTorre.Add(new ProjectTorre
+                {
+                    ProjectId = projectId,
+                    Nombre = t.Nombre.Trim(),
+                    Orden = orden++,
+                    CantidadSotanos = t.CantidadSotanos,
+                    CantidadPisos = t.CantidadPisos,
+                    CantidadCisternas = t.CantidadCisternas,
+                });
+            }
+
+            await _context.SaveChangesAsync();
+        }
     }
 }

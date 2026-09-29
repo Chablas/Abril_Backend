@@ -20,5 +20,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task<ProjectLookupsDto> GetLookups();
         Task<List<int>> GetMyProjectIds(int userId);
         Task<MyWorkerDto?> GetMyWorker(int userId);
+        Task<List<ProjectTorreDto>> GetTorres(int projectId);
+        Task SetTorres(int projectId, List<ProjectTorreGuardarDto> torres);
     }
 }

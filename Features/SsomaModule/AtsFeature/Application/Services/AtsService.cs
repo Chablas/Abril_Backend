@@ -123,6 +123,19 @@ public class AtsService : IAtsService
         await _repository.CapturarFirmaDigitalAutorizacion(workerId, firmaUrl, firmaHash, capturadoPorUserId);
     }
 
+    public Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId)
+        => _repository.GetFirmaDigitalAutorizacion(workerId);
+
+    /// <summary>Descarga la imagen de la firma digital autorizada YA capturada de un trabajador
+    /// (misma que usa GenerarPlantillaAutorizacionPdf) para que el frontend la reutilice al firmar
+    /// un ATS o al Autorizar/dar Visto Bueno — el navegador no puede traer el blob directo (storage
+    /// privado), así que esto pasa por el backend con las credenciales del servidor.</summary>
+    public async Task<byte[]?> GetFirmaDigitalAutorizacionImagen(int workerId)
+    {
+        var (firmaDigitalUrl, _, _) = await _repository.GetFirmaDigitalAutorizacion(workerId);
+        return firmaDigitalUrl == null ? null : await DescargarBytes(firmaDigitalUrl);
+    }
+
     public async Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId)
     {
         var (firmaDigitalUrl, nombre, dni) = await _repository.GetFirmaDigitalAutorizacion(workerId);
@@ -174,7 +187,7 @@ public class AtsService : IAtsService
             throw new AbrilException("Este ATS no te pertenece.", 403);
 
         MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
-        await _repository.CompletarInfoPetar([ats]);
+        await _repository.CompletarInfoPetar([ats], new() { [ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin) });
         return ats;
     }
 
@@ -191,6 +204,7 @@ public class AtsService : IAtsService
 
         // Cachea GetResponsables por proyecto — la lista puede traer el mismo proyecto muchas veces.
         var cache = new Dictionary<int, AtsResponsablesDto>();
+        var permisosPorAtsId = new Dictionary<int, (bool, bool)>();
         foreach (var ats in res.Data)
         {
             if (!cache.TryGetValue(ats.ProyectoId, out var responsables))
@@ -202,9 +216,10 @@ public class AtsService : IAtsService
             var esResidente = responsables.ResidenteWorkerId == workerId;
             var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
             MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
+            permisosPorAtsId[ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin);
         }
 
-        await _repository.CompletarInfoPetar(res.Data);
+        await _repository.CompletarInfoPetar(res.Data, permisosPorAtsId);
         return res;
     }
 
@@ -222,6 +237,10 @@ public class AtsService : IAtsService
         if (entidad.Estado != "Borrador")
             throw new AbrilException("Este ATS ya fue firmado.", 409);
 
+        // OJO: el PETAR solo se puede generar sobre un ATS ya Firmado (PetarService.Crear lo exige),
+        // así que NO se puede bloquear la firma acá — sería un candado imposible de abrir. En vez de
+        // eso, el frontend redirige a "Generar PETAR" automáticamente apenas termina de firmar
+        // (ver AtsNuevo.firmar() en el frontend).
         if (string.IsNullOrWhiteSpace(body.SelfieBase64))
             throw new AbrilException("La selfie es obligatoria para firmar el ATS.", 400);
         if (string.IsNullOrWhiteSpace(body.FirmaBase64))
@@ -348,15 +367,23 @@ public class AtsService : IAtsService
         var baseUrl = _configuration["Frontend:BaseUrl"]?.TrimEnd('/') ?? "https://intranet.abril.pe";
         var verificacionUrl = $"{baseUrl}/ats-verificar/{ats.Id}?hash={(ats.PdfHash != null ? ats.PdfHash[..Math.Min(12, ats.PdfHash.Length)] : "")}";
 
-        var pdfBytes = AtsPdfService.Generar(ats, selfieBytes, firmaBytes, verificacionUrl, firmaAutorizaBytes, firmaSsomaBytes);
-        var pdfHash = Convert.ToHexString(SHA256.HashData(pdfBytes));
+        byte[]? logoBytes = null;
+        var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+        if (logoPath != null)
+            logoBytes = await File.ReadAllBytesAsync(logoPath);
+
+        var pdfBytes = AtsPdfService.Generar(ats, selfieBytes, firmaBytes, verificacionUrl, firmaAutorizaBytes, firmaSsomaBytes, logoBytes);
 
         var container = _containerResolver.GetAtsContainerName();
         using var stream = new MemoryStream(pdfBytes);
         var fileName = $"ats_{ats.Id}_{DateTime.UtcNow:yyyyMMddHHmmssfff}.pdf";
         var urls = await _fileStorageService.UploadFilesAsync([(stream, fileName)], container);
 
-        await _repository.GuardarPdf(id, urls[0], pdfHash);
+        // PdfHash ya quedó fijado al firmar (ver AtsRepository.Firmar/ComputeHashVerificacion) —
+        // acá solo se actualiza la URL del archivo. Antes este método recalculaba el hash a
+        // partir de los bytes del PDF recién generado, que ya llevaban impreso el QR con el
+        // hash de la exportación ANTERIOR: la verificación pública nunca podía coincidir.
+        await _repository.GuardarPdf(id, urls[0], ats.PdfHash ?? string.Empty);
 
         return pdfBytes;
     }
@@ -456,14 +483,14 @@ public class AtsService : IAtsService
     {
         if (string.IsNullOrWhiteSpace(dto.Texto))
             throw new AbrilException("El control necesita un texto.", 400);
-        return await _repository.CrearControl(riesgoId, dto.Texto.Trim());
+        return await _repository.CrearControl(riesgoId, dto.Texto.Trim(), dto.Tipo);
     }
 
     public async Task EditarControl(int controlId, AtsRiesgoControlGuardarRequestDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Texto))
             throw new AbrilException("El control necesita un texto.", 400);
-        await _repository.EditarControl(controlId, dto.Texto.Trim());
+        await _repository.EditarControl(controlId, dto.Texto.Trim(), dto.Tipo);
     }
 
     public Task EliminarControl(int controlId) => _repository.EliminarControl(controlId);

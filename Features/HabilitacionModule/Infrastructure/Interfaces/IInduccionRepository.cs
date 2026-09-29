@@ -12,6 +12,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task AprobarAsync(int id);
         Task AprobarBatchAsync(List<int> ids);
         Task RechazarAsync(int id);
+        Task ReprogramarAsync(int id, InduccionReprogramarDto dto);
         Task<int> ResetFaltaAsync();
     }
 }

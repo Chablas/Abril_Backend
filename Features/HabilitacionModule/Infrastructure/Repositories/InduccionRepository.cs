@@ -367,6 +367,44 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        public async Task ReprogramarAsync(int id, InduccionReprogramarDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var induccion = await ctx.SsInduccion.FirstOrDefaultAsync(i => i.Id == id)
+                ?? throw new AbrilException("Inducción no encontrada.", 404);
+
+            if (induccion.Estado != "PROGRAMADA")
+                throw new AbrilException("Solo se puede reprogramar una inducción en estado PROGRAMADA.", 400);
+            if (induccion.IngresoConfirmado)
+                throw new AbrilException("No se puede reprogramar: el vigilante ya registró el ingreso del trabajador.", 400);
+
+            if (dto.ProyectoId.HasValue && dto.ProyectoId.Value != induccion.ProyectoId)
+            {
+                var empresaEnProyecto = await EmpresaEnProyectoAsync(ctx, [induccion.WorkerId], dto.ProyectoId.Value);
+                var empresaId = empresaEnProyecto[induccion.WorkerId]
+                    ?? throw new AbrilException("El trabajador no tiene razón social asignada en el proyecto destino.", 400);
+                induccion.ProyectoId = dto.ProyectoId.Value;
+                induccion.EmpresaId = empresaId;
+            }
+
+            if (dto.FechaProgramada.HasValue)
+            {
+                var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+                var hoyLima = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, limaZone).Date;
+                if (dto.FechaProgramada.Value.Date < hoyLima)
+                    throw new AbrilException("La nueva fecha no puede ser anterior a hoy.", 400);
+
+                var fechaLima = DateTime.SpecifyKind(dto.FechaProgramada.Value, DateTimeKind.Unspecified);
+                induccion.FechaProgramada = TimeZoneInfo.ConvertTimeToUtc(fechaLima, limaZone);
+            }
+
+            if (dto.TrabajoAltura.HasValue)
+                induccion.TrabajoAltura = dto.TrabajoAltura.Value;
+
+            induccion.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<int> ResetFaltaAsync()
         {
             using var ctx = _factory.CreateDbContext();

@@ -124,4 +124,23 @@ namespace Abril_Backend.Shared.Models {
         // Navegaciones
         public List<ResidentReportIncidence> Incidences { get; set; }
     }
+
+    /// <summary>
+    /// Una torre/bloque de un proyecto (A, B, C...), con la cantidad de sótanos/pisos/cisternas
+    /// que tiene — de ahí se arma la lista de niveles (Sótano 1..N, Piso 1..N, Cisterna 1..N,
+    /// Azotea siempre al final) que usan los selectores de "Lugar" en RAC/ATS, en vez de texto
+    /// libre. Opcional al crear el proyecto, editable después en Configuración → Proyectos.
+    /// </summary>
+    public class ProjectTorre
+    {
+        public int Id { get; set; }
+        public int ProjectId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public short Orden { get; set; }
+        public int CantidadSotanos { get; set; }
+        public int CantidadPisos { get; set; }
+        public int CantidadCisternas { get; set; }
+
+        public Project? Project { get; set; }
+    }
 }

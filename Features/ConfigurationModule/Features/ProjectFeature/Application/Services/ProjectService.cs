@@ -139,5 +139,20 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         {
             return await _repository.GetMyWorker(userId);
         }
+
+        public async Task<List<ProjectTorreDto>> GetTorres(int projectId)
+        {
+            return await _repository.GetTorres(projectId);
+        }
+
+        public async Task SetTorres(int projectId, List<ProjectTorreGuardarDto> torres)
+        {
+            foreach (var t in torres)
+            {
+                if (string.IsNullOrWhiteSpace(t.Nombre))
+                    throw new AbrilException("Cada torre necesita un nombre.", 400);
+            }
+            await _repository.SetTorres(projectId, torres);
+        }
     }
 }

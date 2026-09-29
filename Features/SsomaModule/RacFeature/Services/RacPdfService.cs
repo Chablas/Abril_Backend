@@ -52,7 +52,8 @@ public static class RacPdfService
 
                         Fila("Tipo", rac.Tipo, "Severidad", rac.Severidad);
                         Fila("Categoría", rac.CategoriaNombre, "Ámbito", rac.CategoriaAmbito);
-                        Fila("Proyecto", rac.ProyectoNombre ?? "-", "Piso / Zona", rac.ProyectoPiso ?? "-");
+                        Fila("Proyecto", rac.ProyectoNombre ?? "-", "Torre", rac.TorreNombre ?? "-");
+                        Fila("Piso / Zona", rac.ProyectoPiso ?? "-", "Lugar específico", rac.LugarDescripcion ?? "-");
                         Fila("Fecha Reporte", rac.FechaReporte.ToString("dd/MM/yyyy HH:mm"),
                              "Plazo Levantamiento", rac.PlazoLevantamiento?.ToString("dd/MM/yyyy") ?? "-");
                         Fila("Empresa Reportante", rac.EmpresaReportanteNombre ?? "-",

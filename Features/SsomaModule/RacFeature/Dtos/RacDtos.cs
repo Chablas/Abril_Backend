@@ -45,6 +45,7 @@ public class RacCreateRequest
     public bool EsAnonimoObservado { get; set; }
     public int? ObservadoWorkerId { get; set; }
     public int? EmpresaReportadaId { get; set; }
+    public string? TorreNombre { get; set; }
     public string? ProyectoPiso { get; set; }
     public string? LugarDescripcion { get; set; }
     public decimal? Latitud { get; set; }
@@ -112,6 +113,7 @@ public class RacDetalleDto
     public string? ObservadoNombre { get; set; }
     public int? EmpresaReportadaId { get; set; }
     public string? EmpresaReportadaNombre { get; set; }
+    public string? TorreNombre { get; set; }
     public string? ProyectoPiso { get; set; }
     public string? LugarDescripcion { get; set; }
     public decimal? Latitud { get; set; }

@@ -6695,3 +6695,40 @@ Cambio idéntico en los 7 archivos: literal `"Planeamiento BIM"` → `"Ingenier�
 - Confirmar en UI real que el combo "Responsable Planeamiento UDP" y el de Planeamiento BIM → Configuración Inicial ahora traen los 7 candidatos y matchean los 6 proyectos con responsable ya guardado.
 - Evaluar si hay asignaciones huérfanas en `ev_asignacion_supervisor` que quedaron activas por el bug histórico de `HabTrabajadorRepository` (pendiente de que el usuario corra el SELECT de verificación y decida).
 - Ninguna migración de esquema involucrada — es un fix de literal en código, no de datos.
+
+## Sesión 2026-09-29 — Vista "Hitos de propietarios" + exploración módulo Contratos (Unidad de Proyectos)
+
+### Cambios: hitos de propietarios (implementado y aplicado en BD)
+- Se definió con el usuario (varias rondas de preguntas) un mapeo fijo de 9 "hitos de propietarios" derivados del catálogo interno `Milestone` (21 hitos técnicos): cada hito público toma `PlannedStartDate`/`PlannedEndDate` de UN hito interno puntual (no agregación), resuelto contra una versión concreta de `MilestoneScheduleHistory` — pensado para un botón al costado de cada versión en el listado del frontend.
+- Entidad nueva `OwnerMilestone` (`Infrastructure/Models/OwnerMilestone.cs`, tabla `owner_milestone`): `Description`, `MilestoneId` (FK al catálogo interno), `Order`, auditoría estándar. Override de columna `Order` → `owner_milestone_order` en `AppContext.ConfigurePostgreSQL` (mismo patrón que `MilestoneSchedule.Order`).
+- Endpoint nuevo `GET /api/v1/milestoneSchedule/hitos-propietario?milestoneScheduleHistoryId={id}` en `MilestoneScheduleController` (mismo auth/feature que el resto: `mejora-continua.milestone-schedule`). Repositorio (`GetOwnerMilestonesByHistoryIdAsync`, left join para que los 9 siempre aparezcan aunque el hito interno no esté cargado en esa versión) y servicio siguen el patrón existente del feature.
+- 2 hitos nuevos agregados al catálogo interno `Milestone` (a pedido del usuario, para completar el mapeo): "Inicio de demolición" (antes de "Inicio de obra") y "Energización definitiva del edificio" (después de "Acabados fachada principal"), ambos `EsPuntual=true`.
+- Migración EF `20260928194647_AddOwnerMilestone` generada y **recortada a mano**: arrastraba de nuevo un backlog grande (tablas `ss_ats_*`/`ss_petar_*`, columnas de `curso`) ya aplicado en producción vía `Migrations_Manual/` sin migración EF asociada — mismo patrón de drift ya documentado en sesiones anteriores. Se verificó contra los archivos manuales correspondientes (`2026-09-26_ats_digital.sql`, `2026-09-27_ats_digital_iperc.sql`, los `*_petar*.sql`, `curso_kit_marca_y_plantillas.sql`) que todo eso ya existe en BD antes de recortar el `Up()`/`Down()` a solo `owner_milestone`.
+- **Aplicado en producción por el usuario** (D1): script de schema (`CREATE TABLE owner_milestone` + registro en `__EFMigrationsHistory`) y seed `Migrations_Manual/2026-09-28_owner_milestone_seed.sql` (2 milestones nuevos + 9 filas de `owner_milestone`, `created_user_id = 23` → vcolonio@abril.pe). Verificado con SELECT de solo lectura: los 9 hitos mapean correctamente.
+
+### Archivos clave (hitos de propietarios)
+- `Infrastructure/Models/OwnerMilestone.cs`, `Shared/Data/AppContext.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Dtos/MilestoneScheduleDtos.cs` (DTO `OwnerMilestoneDTO`)
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/{Application,Infrastructure}/Interfaces/IMilestoneSchedule{Service,Repository}.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Application/Services/MilestoneScheduleService.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/Repositories/MilestoneScheduleRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Presentation/MilestoneScheduleController.cs`
+- `Migrations/20260928194647_AddOwnerMilestone.cs`, `Migrations/AppDbContextModelSnapshot.cs`
+- `Migrations_Manual/2026-09-28_owner_milestone_seed.sql`
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores. Script de schema y seed corridos por el usuario contra producción (único entorno, D1), verificados con SELECT de solo lectura.
+
+### Exploración (solo consulta, sin código): módulo Contratos en Unidad de Proyectos
+El usuario quiere un módulo nuevo de "Contratos" en Unidad de Proyectos, tomando como referencia el patrón de generación de contratos del paso 3 de Adjudicaciones (`ProjectSubContractorService` en `CostsModule`). Se investigó y se acordó con el usuario (sin escribir código todavía):
+- **Tipo de contrato**: "Contrato de Locación de Servicios" para consultores/proyectistas de diseño (arquitectura/ingeniería por especialidad), distinto de los contratos de subcontratistas de construcción que ya cubre Adjudicaciones. Se revisó un contrato cerrado real (IIEE, proyecto Eucalipto) compartido por el usuario para entender la estructura: 14 cláusulas + paquete de 7 documentos (Contrato, Contrato Resumen xlsx, Anexo 01/Propuesta, 2 protocolos fijos GP-PRT 001/002, Consideraciones de especialidad UDP, Orden de Servicio).
+- **Entidad asociada**: reutiliza `Contractor`/`Contributor` (Shared/Models), igual que Adjudicaciones — sin tabla nueva de contratistas.
+- **Especialidad**: reutiliza `WorkSpecialty` (Costos/Configuration), no se crea catálogo nuevo.
+- **Plantillas**: 2 `.docx` con placeholders — una genérica (para todas las especialidades salvo Arquitectura/Estructuras) y una específica para Arquitectura/Estructuras.
+- **Hitos de pago**: libres por contrato (no catálogo fijo) — varían nombre/%/cantidad según lo pactado, a diferencia de los hitos de proyecto.
+- **Flujo**: se replican los 9 pasos de `ProjectSubContractorStatus` (Cotización → Datos del contrato → Generación de documentos → Envío al contratista → Llegada a Of. Central → Firma → Escaneo del firmado → Notificación → Cierre), con un solo ajuste: el paso 8 notifica al **correo de Unidad de Proyectos** en vez de a Staff de Obra.
+
+### Pendiente (bloqueante para empezar a construir)
+- El usuario debe compartir las 2 plantillas `.docx` **en blanco con placeholders** (lo compartido hasta ahora es un contrato ya cerrado/lleno, no sirve como plantilla reutilizable sin inventar texto legal).
+- Falta el correo exacto de Unidad de Proyectos para el paso 8.
+- No se creó ninguna entidad, migración ni endpoint de este módulo todavía — toda esta sección es solo diseño acordado en conversación.

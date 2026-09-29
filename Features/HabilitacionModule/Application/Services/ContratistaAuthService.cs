@@ -144,7 +144,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             destinatario = destinatario.Trim().ToLower();
 
-            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == destinatario)
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == destinatario && u.State)
                 ?? throw new AbrilException("No existe un usuario registrado para este email.", 400);
 
             var tokensPrevios = await ctx.SsResetToken

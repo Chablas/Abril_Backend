@@ -985,7 +985,7 @@ public class InspeccionRepository : IInspeccionRepository
             @"SELECT DISTINCT p.full_name AS Nombre, au.email AS Email
               FROM workers w
               JOIN person p ON p.person_id = w.person_id
-              JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+              JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
               JOIN user_role ur ON ur.user_id = au.user_id AND ur.role_id = 72 AND ur.active = TRUE AND ur.state = TRUE
               JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
               WHERE w.state AND wv.proyecto_id = @ProyectoId AND au.email IS NOT NULL",

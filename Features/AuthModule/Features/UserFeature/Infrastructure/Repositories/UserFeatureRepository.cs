@@ -318,6 +318,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     if (userExists)
                         throw new AbrilException("El trabajador ya tiene un usuario registrado.");
 
+                    await ValidarCorreoLibre(ctx, worker.EmailCorporativo);
+
                     // Los trabajadores de Abril ingresan vía Microsoft SSO: el usuario nace
                     // activo y con el correo confirmado, sin contraseña (igual que el alta por login).
                     var user = new UserModel
@@ -372,11 +374,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                 using var transaction = await ctx.Database.BeginTransactionAsync();
                 try
                 {
-                    // Índice único uq_app_user_email: se valida sin importar el state para
-                    // evitar chocar con la restricción (incluye usuarios dados de baja).
-                    var exists = await ctx.User.AnyAsync(u => u.Email.ToLower() == email.ToLower());
-                    if (exists)
-                        throw new AbrilException("Ya existe un usuario con ese correo.", 409);
+                    await ValidarCorreoLibre(ctx, email);
 
                     // Trabajador de Abril: ingresa vía Microsoft SSO, nace activo y con el
                     // correo confirmado, sin contraseña (igual que el alta por login).
@@ -444,6 +442,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                 using var transaction = await ctx.Database.BeginTransactionAsync();
                 try
                 {
+                    await ValidarCorreoLibre(ctx, dto.Email);
+
                     var person = await ctx.Person
                         .FirstOrDefaultAsync(p => p.DocumentIdentityCode == dto.DocumentIdentityCode && p.State);
 
@@ -527,6 +527,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == userId && u.State)
                         ?? throw new AbrilException("Usuario no encontrado.", 404);
 
+                    await ValidarCorreoLibre(ctx, dto.Email, salvoUserId: userId);
+
                     user.Email = dto.Email;
                     user.UpdatedDateTime = DateTime.UtcNow;
                     user.UpdatedUserId = updatedUserId;
@@ -606,6 +608,28 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             user.UpdatedDateTime = DateTime.UtcNow;
             user.UpdatedUserId = updatedUserId;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// El correo es único solo entre los usuarios vigentes (índice <c>uq_app_user_email ... WHERE
+        /// state</c>): el de un usuario eliminado se puede volver a usar. Se valida antes de guardar
+        /// para responder un 409 claro en vez del 23505, que el front mostraba como «Error del
+        /// servidor». Sin distinguir mayúsculas, igual que el login.
+        /// </summary>
+        private static async Task ValidarCorreoLibre(AppDbContext ctx, string? email, int? salvoUserId = null)
+        {
+            var normalizado = (email ?? string.Empty).Trim().ToLower();
+            if (normalizado.Length == 0)
+                return;
+
+            var enUso = await ctx.User.AnyAsync(u =>
+                u.State
+                && u.Email != null
+                && u.Email.ToLower() == normalizado
+                && (salvoUserId == null || u.UserId != salvoUserId));
+
+            if (enUso)
+                throw new AbrilException("Ya existe un usuario con ese correo.", 409);
         }
     }
 

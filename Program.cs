@@ -59,6 +59,8 @@ using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Interfaces;
 using Abril_Backend.Shared.Services.Firma.Services;
 using Abril_Backend.Shared.Services.Revisores.Services;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
+using Abril_Backend.Shared.Services.Residentes.Services;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Services.Decolecta.Interfaces;
@@ -318,6 +320,11 @@ builder.Services.AddScoped<IVerificacionMfaFirma, VerificacionMfaFirma>();
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint
 // que alimenta sus desplegables.
 builder.Services.AddScoped<IAreaScopeLegacyResolver, AreaScopeLegacyResolver>();
+
+// Qué proyecto maneja cada residente: el Residente de Configuración → Proyectos, cruzado por persona.
+// Es la única respuesta del sistema (PLAN-RESIDENTES.md); registrado globalmente porque la van a
+// usar varios módulos. Hoy lo usa el Cronograma de Hitos.
+builder.Services.AddScoped<IResidenteProyectoResolver, ResidenteProyectoResolver>();
 
 // Efecto de la aptitud de un EMO de Ingreso sobre el requerimiento de Reclutamiento que dejo a esa
 // persona como finalista aprobado: APTO lo cierra, NO APTO lo devuelve a GTH. Es de los dos modulos

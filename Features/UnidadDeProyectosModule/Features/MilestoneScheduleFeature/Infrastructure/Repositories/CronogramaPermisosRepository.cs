@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
 
@@ -8,26 +9,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     public class CronogramaPermisosRepository : ICronogramaPermisosRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IResidenteProyectoResolver _residentes;
 
-        public CronogramaPermisosRepository(IDbContextFactory<AppDbContext> factory)
+        public CronogramaPermisosRepository(IDbContextFactory<AppDbContext> factory, IResidenteProyectoResolver residentes)
         {
             _factory = factory;
+            _residentes = residentes;
         }
 
-        /// <summary>Se compara la persona de la ficha que apunta el proyecto con la del usuario:
-        /// una persona puede tener varias fichas (reingresos) y el proyecto guarda una sola.</summary>
-        public async Task<bool> EsResidenteDelProyectoAsync(int userId, int projectId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            return await (
-                from p in ctx.Project
-                join w in ctx.Worker on p.ResidenteWorkersId equals (int?)w.Id
-                join pe in ctx.Person on w.PersonId equals (int?)pe.PersonId
-                where p.ProjectId == projectId && pe.UserId == userId
-                select p.ProjectId
-            ).AnyAsync();
-        }
+        /// <summary>La regla (cruzar por persona, con la ficha viva) vive en el resolver compartido.</summary>
+        public Task<bool> EsResidenteDelProyectoAsync(int userId, int projectId)
+            => _residentes.EsResidenteDelProyectoAsync(userId, projectId);
 
         public async Task<bool> AdministraAsync(int[] roleIds)
         {
@@ -46,34 +38,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 .AnyAsync();
         }
 
-        /// <summary>El SQL crudo no pasa por el filtro global de Worker (<c>w.State</c>): se repite a
-        /// mano para que una ficha eliminada no cuente, igual que en el listado de tarjetas.</summary>
+        /// <summary>Primero el residente, que es quien edita casi siempre (una consulta); si no lo
+        /// es, la feature de administrar. El residente sale del resolver para no repetir la regla
+        /// en SQL crudo.</summary>
         public async Task<bool> PuedeEditarProyectoAsync(int userId, int[] roleIds, bool esResidente, int projectId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var resultado = await ctx.Database.SqlQuery<int>($"""
-                SELECT CASE
-                    WHEN EXISTS (
-                            SELECT 1
-                            FROM role_feature rf
-                            JOIN feature f ON f.feature_id = rf.feature_id
-                            WHERE rf.role_id = ANY({roleIds})
-                              AND f.feature_key = {CronogramaHitosFeatures.Administrar})
-                      OR ({esResidente} AND EXISTS (
-                            SELECT 1
-                            FROM project p
-                            JOIN workers w ON w.id = p.residente_workers_id AND w.state
-                            JOIN person pe ON pe.person_id = w.person_id
-                            WHERE p.project_id = {projectId}
-                              AND pe.user_id = {userId}))
-                    THEN 1
-                    ELSE 0
-                END AS "Value"
-                """)
-                .ToListAsync();
-
-            return resultado.FirstOrDefault() == 1;
-        }
+            => (esResidente && await _residentes.EsResidenteDelProyectoAsync(userId, projectId))
+               || await AdministraAsync(roleIds);
     }
 }

@@ -1,9 +1,9 @@
 -- ============================================================================
--- Residentes — verificación de los Pasos 4a a 4d de PLAN-RESIDENTES.md
+-- Residentes — verificación de los Pasos 4a a 4e de PLAN-RESIDENTES.md
 -- SOLO LECTURA: un único SELECT, no cambia nada. Se puede correr las veces que haga falta.
 -- Fecha: 2026-09-29
 --
--- Correrlo en PROD antes de hacer push de master con los Pasos 4a–4d (y en demo, si se quiere
+-- Correrlo en PROD antes de hacer push de master con los Pasos 4a–4e (y en demo, si se quiere
 -- comparar). Compara lo que hoy sale de la tabla vieja project_resident con lo que va a salir del
 -- residente de Configuración → Proyectos (ResidenteQueries en el backend):
 --
@@ -12,6 +12,9 @@
 --   4c  IVTs y Cuaderno de obra: filtros, «mis proyectos» del modal de subir y quién subió
 --       desde junio (con el 4c solo puede subir el residente de la obra).
 --   4d  Seguimiento y medición de residentes: una fila por obra, con su residente.
+--   4e  Planeamiento BIM: el selector de proyecto de los administradores (el de Planeamiento
+--       UDP no cambia). Suma también las obras que ya tienen datos de BIM aunque no estén en el
+--       selector ni antes ni ahora: esas no se pueden abrir desde el selector.
 --
 -- Cómo leerlo: una fila por obra, persona o subida. cambia = true es lo que va a cambiar al
 -- desplegar; lo esperado en prod es que solo cambien filas de gente que ya no es residente.
@@ -89,6 +92,21 @@ seguimiento_antes AS (
   WHERE p.project_id IN (SELECT project_id FROM filtros_ahora)
 ),
 
+-- 4e: lo que ya se cargó en Planeamiento BIM, por obra (las fases se crean solas al abrir la
+--     configuración, así que no cuentan)
+bim_datos AS (
+  SELECT project_id, string_agg(n || ' ' || que, ', ' ORDER BY que) AS datos
+  FROM (
+    SELECT project_id, que, count(*) AS n FROM (
+      SELECT project_id, 'torres' AS que FROM bim_proyecto_torre
+      UNION ALL SELECT project_id, 'registros diarios' FROM bim_registro_diario
+      UNION ALL SELECT project_id, 'restricciones' FROM bim_bloqueo
+      UNION ALL SELECT project_id, 'metas semanales' FROM bim_meta_semanal
+      UNION ALL SELECT project_id, 'fotos' FROM bim_evidencia_foto
+    ) x GROUP BY 1, 2
+  ) y GROUP BY project_id
+),
+
 -- 4c: quién subió IVTs y cuadernos desde junio
 subidas AS (
   SELECT 'IVT' AS tipo, x.project_id, x.created_user_id, x.created_date_time FROM ivt_control_pdf x WHERE x.state
@@ -130,6 +148,17 @@ filas AS (
          (SELECT string_agg(n.full_name, ', ' ORDER BY n.full_name) FROM seguimiento_ahora n WHERE n.project_id = p.project_id)
   FROM project p
   WHERE p.project_id IN (SELECT project_id FROM seguimiento_antes UNION SELECT project_id FROM seguimiento_ahora)
+
+  UNION ALL
+  -- 4e: el selector de los administradores tenía el mismo criterio que los filtros del 4c
+  SELECT '4e Planeamiento BIM: selector de administradores',
+         p.project_description || coalesce(' (datos BIM: ' || b.datos || ')', ''),
+         CASE WHEN p.project_id IN (SELECT project_id FROM filtros_antes) THEN 'sale' ELSE '-' END,
+         CASE WHEN p.project_id IN (SELECT project_id FROM filtros_ahora) THEN 'sale' ELSE '-' END
+  FROM project p
+  LEFT JOIN bim_datos b ON b.project_id = p.project_id
+  WHERE p.project_id IN (SELECT project_id FROM filtros_antes UNION SELECT project_id FROM filtros_ahora
+                         UNION SELECT project_id FROM bim_datos)
 
   UNION ALL
   SELECT '4c IVTs y Cuaderno: quién subió desde junio',

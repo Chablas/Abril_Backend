@@ -1,9 +1,9 @@
-using Abril_Backend.Shared.Constants;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Residentes.Services;
 
 namespace Abril_Backend.Infrastructure.Repositories
 {
@@ -17,6 +17,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             _factory = factory;
         }
 
+        /// <summary>
+        /// Una fila por obra del módulo de Residentes (ResidenteQueries: obras con residente, visibles
+        /// y sin excluir de RESIDENTES) con su residente de Configuración → Proyectos; ya no la tabla
+        /// antigua project_resident. Los conteos son de la obra: como no hay historial de residentes
+        /// anterior al 2026-09-29, los meses pasados quedan a nombre del residente actual, igual que
+        /// antes.
+        /// </summary>
         public async Task<IEnumerable<TrackingRawDto>> GetTrackingDataAsync(
             int? projectId,
             int? residentUserId,
@@ -24,14 +31,11 @@ namespace Abril_Backend.Infrastructure.Repositories
             int? year)
         {
             return await (
-                from pr in _context.ProjectResident
-                join p in _context.Project on pr.ProjectId equals p.ProjectId
-                join u in _context.User on pr.UserId equals u.UserId
-                join pe in _context.Person on u.UserId equals pe.UserId
-                where pr.State && pr.Active
-                   && p.Active
-                   && !_context.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
-                   && u.State && u.Active
+                from p in _context.ObrasEnResidentes()
+                join w in _context.Worker on p.ResidenteWorkersId equals (int?)w.Id
+                join pe in _context.Person on w.PersonId equals (int?)pe.PersonId
+                join u in _context.User on pe.UserId equals (int?)u.UserId
+                where u.State && u.Active
                    && (!projectId.HasValue || p.ProjectId == projectId.Value)
                    && (!residentUserId.HasValue || u.UserId == residentUserId.Value)
                 select new TrackingRawDto

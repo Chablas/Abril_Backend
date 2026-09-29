@@ -1,9 +1,9 @@
 -- ============================================================================
--- Residentes — verificación de los Pasos 4a, 4b y 4c de PLAN-RESIDENTES.md
+-- Residentes — verificación de los Pasos 4a a 4d de PLAN-RESIDENTES.md
 -- SOLO LECTURA: un único SELECT, no cambia nada. Se puede correr las veces que haga falta.
 -- Fecha: 2026-09-29
 --
--- Correrlo en PROD antes de hacer push de master con los Pasos 4a–4c (y en demo, si se quiere
+-- Correrlo en PROD antes de hacer push de master con los Pasos 4a–4d (y en demo, si se quiere
 -- comparar). Compara lo que hoy sale de la tabla vieja project_resident con lo que va a salir del
 -- residente de Configuración → Proyectos (ResidenteQueries en el backend):
 --
@@ -11,6 +11,7 @@
 --   4b  Control de respuesta de informes: obras de cada RESIDENTE.
 --   4c  IVTs y Cuaderno de obra: filtros, «mis proyectos» del modal de subir y quién subió
 --       desde junio (con el 4c solo puede subir el residente de la obra).
+--   4d  Seguimiento y medición de residentes: una fila por obra, con su residente.
 --
 -- Cómo leerlo: una fila por obra, persona o subida. cambia = true es lo que va a cambiar al
 -- desplegar; lo esperado en prod es que solo cambien filas de gente que ya no es residente.
@@ -73,6 +74,21 @@ mis_antes AS (
     AND d.user_id IN (SELECT user_id FROM es_residente)
 ),
 
+-- 4d: filas del Seguimiento (obra y su residente, con usuario vigente y activo)
+seguimiento_antes AS (
+  SELECT p.project_id, pe.full_name FROM project_resident pr
+  JOIN project p ON p.project_id = pr.project_id
+  JOIN app_user u ON u.user_id = pr.user_id AND u.state AND u.active
+  JOIN person pe ON pe.user_id = u.user_id
+  WHERE pr.state AND pr.active AND p.active AND p.project_id NOT IN (SELECT project_id FROM excl)
+), seguimiento_ahora AS (
+  SELECT p.project_id, pe.full_name FROM project p
+  JOIN workers w ON w.id = p.residente_workers_id AND w.state
+  JOIN person pe ON pe.person_id = w.person_id
+  JOIN app_user u ON u.user_id = pe.user_id AND u.state AND u.active
+  WHERE p.project_id IN (SELECT project_id FROM filtros_ahora)
+),
+
 -- 4c: quién subió IVTs y cuadernos desde junio
 subidas AS (
   SELECT 'IVT' AS tipo, x.project_id, x.created_user_id, x.created_date_time FROM ivt_control_pdf x WHERE x.state
@@ -107,6 +123,13 @@ filas AS (
          (SELECT string_agg(n.project_description, ', ' ORDER BY n.project_description) FROM mis_ahora n WHERE n.user_id = u.user_id)
   FROM app_user u
   WHERE u.user_id IN (SELECT user_id FROM mis_antes UNION SELECT user_id FROM mis_ahora)
+
+  UNION ALL
+  SELECT '4d Seguimiento: filas', p.project_description,
+         (SELECT string_agg(a.full_name, ', ' ORDER BY a.full_name) FROM seguimiento_antes a WHERE a.project_id = p.project_id),
+         (SELECT string_agg(n.full_name, ', ' ORDER BY n.full_name) FROM seguimiento_ahora n WHERE n.project_id = p.project_id)
+  FROM project p
+  WHERE p.project_id IN (SELECT project_id FROM seguimiento_antes UNION SELECT project_id FROM seguimiento_ahora)
 
   UNION ALL
   SELECT '4c IVTs y Cuaderno: quién subió desde junio',

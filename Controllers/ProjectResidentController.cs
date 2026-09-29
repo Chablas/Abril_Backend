@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Controllers
 {
@@ -28,7 +29,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                var result = await _projectResidentService.GetProjectByResidentUserId(userId);
+                var result = await _projectResidentService.GetProjectByResidentUserId(userId, User.IsInRole(Roles.Residente));
                 return Ok(result);
             }
             catch (Exception)

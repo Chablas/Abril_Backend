@@ -2,6 +2,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 
 namespace Abril_Backend.Application.Services
 {
@@ -13,13 +14,15 @@ namespace Abril_Backend.Application.Services
         private readonly IProjectRepository _projectRepository;
         private readonly IUserRepository _userRepository;
         private readonly IProjectResidentRepository _projecResidentRepository;
+        private readonly IResidenteProyectoResolver _residentes;
         public ConstructionSiteLogbookControlService(
             IConstructionSiteLogbookControlRepository repository, 
             IStorageContainerResolver containerResolver, 
             IFileStorageService fileStorageService, 
             IProjectRepository projectRepository, 
             IUserRepository userRepository, 
-            IProjectResidentRepository projectResidentRepository)
+            IProjectResidentRepository projectResidentRepository,
+            IResidenteProyectoResolver residentes)
         {
             _containerResolver = containerResolver;
             _repository = repository;
@@ -27,10 +30,16 @@ namespace Abril_Backend.Application.Services
             _projectRepository = projectRepository;
             _userRepository = userRepository;
             _projecResidentRepository = projectResidentRepository;
+            _residentes = residentes;
         }
 
-        public async Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, int userId)
+        /// <summary>Sube el residente del proyecto: rol RESIDENTE y ser el residente de ESA obra en
+        /// Configuración → Proyectos. Antes el backend aceptaba cualquier proyecto.</summary>
+        public async Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, int userId, bool esResidente)
         {
+            if (!esResidente || !await _residentes.EsResidenteDelProyectoAsync(userId, dto.ProjectId))
+                throw new AbrilException("Solo el residente del proyecto puede subir su cuaderno de obra.", 403);
+
             if (dto.Pdfs == null || !dto.Pdfs.Any())
                 throw new AbrilException("No se pusieron archivos.");
 

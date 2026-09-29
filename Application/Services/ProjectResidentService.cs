@@ -11,10 +11,15 @@ namespace Abril_Backend.Application.Services
         {
             _repository = repository;
         }
-        public async Task<List<ProjectSimpleDTO>> GetProjectByResidentUserId(int userId)
+        /// <summary>Las obras donde sube el residente (IVTs y cuaderno de obra). Sin el rol RESIDENTE,
+        /// ninguna: el Residente de Configuración → Proyectos también es destinatario de correos en
+        /// proyectos que no son obra, y esa gente no sube.</summary>
+        public async Task<List<ProjectSimpleDTO>> GetProjectByResidentUserId(int userId, bool esResidente)
         {
-            var registros = await _repository.GetProjectByResidentUserId(userId);
-            return registros;
+            if (!esResidente)
+                return new List<ProjectSimpleDTO>();
+
+            return await _repository.GetProjectByResidentUserId(userId);
         }
         public async Task<List<ProjectSimpleDTO>> GetProjectsDescription()
         {

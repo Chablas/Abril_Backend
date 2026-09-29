@@ -4,7 +4,7 @@ namespace Abril_Backend.Application.Interfaces
 {
     public interface IConstructionSiteLogbookControlService
     {
-        Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, int userId);
+        Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, int userId, bool esResidente);
         Task<PagedResult<ConstructionSiteLogbookControlGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId);
         Task<ConstructionSiteLogbookControlFiltersDTO> GetFiltersData();
     }

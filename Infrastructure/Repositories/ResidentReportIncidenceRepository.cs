@@ -17,17 +17,12 @@ namespace Abril_Backend.Infrastructure.Repositories {
         }
 
         /// <summary>Obras del residente en este control: donde es el residente de Configuración →
-        /// Proyectos (ResidenteQueries), visibles y sin excluir de «Residentes» en el filtro por
-        /// funcionalidad, como en el listado.</summary>
+        /// Proyectos, visibles y sin excluir de «Residentes» (ResidenteQueries), como en el listado.</summary>
         public async Task<List<ProjectSimpleDTO>> GetProyectosDelResidente(int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var delUsuario = ctx.ProyectosDelResidente(userId);
 
-            return await ctx.Project
-                .Where(p => delUsuario.Contains(p.ProjectId)
-                    && p.Active
-                    && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active))
+            return await ctx.ObrasDelResidenteEnResidentes(userId)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProjectSimpleDTO
                 {

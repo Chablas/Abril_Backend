@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Controllers
 {
@@ -32,7 +33,7 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var result = await _service.Create(dto, userId);
+                var result = await _service.Create(dto, userId, User.IsInRole(Roles.Residente));
 
                 if (!result)
                     throw new Exception();
@@ -41,7 +42,7 @@ namespace Abril_Backend.Controllers
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

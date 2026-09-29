@@ -1,48 +1,50 @@
-using Abril_Backend.Shared.Constants;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Residentes.Services;
 
 namespace Abril_Backend.Infrastructure.Repositories {
+    /// <summary>
+    /// Proyectos del módulo de Residentes (Control de IVTs, Cuaderno de obra, Control de respuesta
+    /// de informes y Seguimiento). Ya no lee la tabla antigua <c>project_resident</c>: sale del
+    /// residente de Configuración → Proyectos (ResidenteQueries). El nombre se queda hasta el Paso 6
+    /// de PLAN-RESIDENTES.md.
+    /// </summary>
     public class ProjectResidentRepository : IProjectResidentRepository {
-        private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
-        public ProjectResidentRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
-            _context = contexto;
+        public ProjectResidentRepository(IDbContextFactory<AppDbContext> factory) {
             _factory = factory;
         }
 
+        /// <summary>Filtros y combos: las obras con residente, visibles y sin excluir de RESIDENTES.</summary>
         public async Task<List<ProjectSimpleDTO>> GetProjectsDescription()
         {
             using var ctx = _factory.CreateDbContext();
 
-            var registros = from project_resident in ctx.ProjectResident
-                join project in ctx.Project on project_resident.ProjectId equals project.ProjectId
-                where (project_resident.State == true) && (project_resident.Active == true) && (project.Active == true)
-                    && !ctx.ProyectoFiltro.Any(f => f.ProjectId == project.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
-                orderby project.ProjectDescription
-                select new ProjectSimpleDTO
+            return await ctx.ObrasEnResidentes()
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProjectSimpleDTO
                 {
-                    ProjectId = project.ProjectId,
-                    ProjectDescription = project.ProjectDescription ?? string.Empty
-                };
-            return await registros.ToListAsync();
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription ?? string.Empty
+                })
+                .ToListAsync();
         }
 
+        /// <summary>Las obras donde el usuario es el residente, visibles y sin excluir de RESIDENTES.</summary>
         public async Task<List<ProjectSimpleDTO>> GetProjectByResidentUserId(int userId)
         {
-            var registros = from pj in _context.Project
-                join up in _context.ProjectResident on pj.ProjectId equals up.ProjectId
-                where (up.UserId == userId)
-                && (pj.Active == true)
-                && !_context.ProyectoFiltro.Any(f => f.ProjectId == pj.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
-                select new ProjectSimpleDTO
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.ObrasDelResidenteEnResidentes(userId)
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProjectSimpleDTO
                 {
-                    ProjectId = pj.ProjectId,
-                    ProjectDescription = pj.ProjectDescription ?? string.Empty,
-                };
-            return await registros.ToListAsync();
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription ?? string.Empty,
+                })
+                .ToListAsync();
         }
     }
 }

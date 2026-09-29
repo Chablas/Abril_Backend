@@ -996,14 +996,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!string.IsNullOrEmpty(e.ArchivoUrl))
                 {
-                    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
-                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = null; }
+                    // Si SharePoint no resuelve la URL (throttling, token, etc.) se conserva la ruta
+                    // original: el visor la reintenta al abrir la póliza. Devolver null hacía que el
+                    // front mostrara "Sin archivo PDF" aunque la póliza sí tenía archivo.
+                    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl) ?? e.ArchivoUrl; }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = e.ArchivoUrl; }
                 }
 
                 if (!string.IsNullOrEmpty(e.ArchivoUrl2))
                 {
-                    try { archivoUrl2 = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl2); }
-                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl2); archivoUrl2 = null; }
+                    try { archivoUrl2 = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl2) ?? e.ArchivoUrl2; }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl2); archivoUrl2 = e.ArchivoUrl2; }
                 }
 
                 return new SctrVidaLeyDto

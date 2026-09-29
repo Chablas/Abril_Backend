@@ -265,12 +265,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
                 .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
 
-            // El coordinador administrativo es una FK a workers: su correo se lee de la
-            // ficha, por eso el Include (en el mismo roundtrip, sin N+1).
+            // Correos del proyecto en un solo roundtrip. El coordinador administrativo y el
+            // residente son FK a workers y su correo se lee de la ficha; Project no tiene
+            // navegación al residente, así que va por subconsulta (sin N+1), como en
+            // Configuración → Proyectos. No leer el texto viejo email_residente: nadie lo mantiene.
             var proyectoMap = await ctx.Project
-                .Include(p => p.CoordAdmin)
                 .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId, p => p);
+                .Select(p => new
+                {
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    CoordAdminEmail = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
+                    ResidenteEmail = ctx.Worker
+                        .Where(w => w.Id == p.ResidenteWorkersId)
+                        .Select(w => w.EmailCorporativo)
+                        .FirstOrDefault(),
+                    p.EmailResponsable,
+                    p.EmailRrhh,
+                    p.EmailCoordSsoma
+                })
+                .ToDictionaryAsync(p => p.ProjectId);
             var empresaMap = await ctx.Contributor
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c);
@@ -284,7 +298,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
                 var proyectoId = esOficinaCentral ? null : (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId);
                 var empresaId = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
-                Project? proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
+                var proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
                 Contributor? empresa = empresaId.HasValue && empresaMap.TryGetValue(empresaId.Value, out var e) ? e : null;
 
                 jefeMap.TryGetValue(x.WorkerId, out var jefe);
@@ -308,8 +322,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     JefaturaEmail = jefaturaEmail,
                     ProyectoId = proyectoId,
                     ProyectoNombre = esOficinaCentral ? "Oficina Central" : proyecto?.ProjectDescription,
-                    ProyectoEmailCoordAdmin = proyecto?.CoordAdmin?.EmailCorporativo,
-                    ProyectoEmailResidente = proyecto?.EmailResidente,
+                    ProyectoEmailCoordAdmin = proyecto?.CoordAdminEmail,
+                    ProyectoEmailResidente = proyecto?.ResidenteEmail,
                     ProyectoEmailResponsable = proyecto?.EmailResponsable,
                     ProyectoEmailRrhh = proyecto?.EmailRrhh,
                     ProyectoEmailCoordSsoma = proyecto?.EmailCoordSsoma,

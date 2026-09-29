@@ -7,6 +7,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
+        /// <summary>
+        /// La ficha es de un finalista aprobado de Reclutamiento que todavía no ingresa
+        /// (workers_estado_id = FINALISTA_APROBADO): no tiene proyecto ni jefe aún.
+        /// </summary>
+        public bool EsPostulante { get; set; }
         public int? ProyectoId { get; set; }
         public string? ProyectoNombre { get; set; }
         public int? ContributorId { get; set; }

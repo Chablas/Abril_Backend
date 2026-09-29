@@ -4,6 +4,7 @@ using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Actores.Interfaces;
 using Abril_Backend.Shared.Services.Jerarquia;
+using Abril_Backend.Shared.Services.RolesPorFuncion.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Shared.Services.Actores.Services
@@ -17,10 +18,13 @@ namespace Abril_Backend.Shared.Services.Actores.Services
         private const string EmailDomainCorp = EstructuraAreaLoader.EmailDomainCorp;
 
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IRolesPorFuncionService _rolesPorFuncion;
 
-        public ActoresPersonalizadosService(IDbContextFactory<AppDbContext> factory)
+        public ActoresPersonalizadosService(
+            IDbContextFactory<AppDbContext> factory, IRolesPorFuncionService rolesPorFuncion)
         {
             _factory = factory;
+            _rolesPorFuncion = rolesPorFuncion;
         }
 
         public async Task SetAsync(int workerId, IReadOnlyDictionary<int, IReadOnlyList<int>> porActor)
@@ -66,6 +70,7 @@ namespace Abril_Backend.Shared.Services.Actores.Services
             var vivas = await ctx.WorkersActorAsignacion
                 .Where(r => r.State && r.WorkerId == workerId)
                 .ToListAsync();
+            var cambio = false;
 
             foreach (var actorId in ActorIds.Todos)
             {
@@ -77,6 +82,7 @@ namespace Abril_Backend.Shared.Services.Actores.Services
                 {
                     r.State = false;
                     r.UpdatedAt = now;
+                    cambio = true;
                 }
 
                 // Las que van, en su lugar: la posición en la lista es la prioridad.
@@ -86,6 +92,7 @@ namespace Abril_Backend.Shared.Services.Actores.Services
                     var fila = delActor.FirstOrDefault(r => r.AsignadoId == lista[i]);
                     if (fila == null)
                     {
+                        cambio = true;
                         ctx.WorkersActorAsignacion.Add(new WorkersActorAsignacion
                         {
                             WorkerId       = workerId,
@@ -102,11 +109,17 @@ namespace Abril_Backend.Shared.Services.Actores.Services
                         fila.OrdenPrioridad = orden;
                         fila.Active = true;
                         fila.UpdatedAt = now;
+                        cambio = true;
                     }
                 }
             }
 
+            if (!cambio) return;
             await ctx.SaveChangesAsync();
+
+            // Quien quedó (o dejó de estar) como consolidador o aprobador de este trabajador tiene que
+            // poder entrar a la bandeja donde actúa: CONSOLIDADOR y la jefatura salen de acá.
+            await _rolesPorFuncion.SincronizarAsync();
         }
 
         public async Task<List<ActorCandidatoDto>> GetCandidatosAsync()

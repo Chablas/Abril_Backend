@@ -2,7 +2,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
-using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,7 +10,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Presen
 {
     [ApiController]
     [Route("api/v1/gestion-administrativa/delegacion-revision")]
-    [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
+    [Authorize]
+    // Hasta el 2026-09-29 la pedía el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS (76), que se dio de
+    // baja: ahora es la feature, que tienen las jefaturas que aprueban salidas.
+    [RequireFeature("gestion-administrativa.delegacion-revision")]
     public class DelegacionRevisionController : ControllerBase
     {
         private readonly IDelegacionRevisionService _service;

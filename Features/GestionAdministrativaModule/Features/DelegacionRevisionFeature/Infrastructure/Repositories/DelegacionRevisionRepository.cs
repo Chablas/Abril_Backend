@@ -17,8 +17,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
     /// Revisores de Áreas), una asignación por área, obra y tipo de trabajador, con alcance y
     /// autorización acotados al propio usuario.
     ///
-    /// El acceso a la funcionalidad se controla por el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS;
-    /// una vez dentro, cada quien solo administra las asignaciones en las que ya es revisor.
+    /// El acceso a la funcionalidad se controla por su feature (la tienen las jefaturas que aprueban
+    /// salidas); una vez dentro, cada quien solo administra las asignaciones en las que ya es revisor.
     /// </summary>
     public class DelegacionRevisionRepository : IDelegacionRevisionRepository
     {

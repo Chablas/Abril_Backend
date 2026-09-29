@@ -12,19 +12,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Presentati
     /// Gestión Administrativa → Configuración → Revisores de Áreas. Reemplaza a las tres secciones
     /// que hacían lo mismo por separado (Revisores de Áreas de Solicitud de Salidas y de Mis
     /// Rendiciones, y Consolidadores de Consolidados).
+    ///
+    /// ADMINISTRADOR DEL SISTEMA y USUARIO DE GTH ven todas las áreas y editan todo. Un JEFE ve su
+    /// área y elige a sus consolidadores de oficina central; lo decide el repositorio celda por celda.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/configuracion/revisores-areas")]
     [Authorize]
     public class RevisoresAreasController : ControllerBase
     {
-        /// <summary>
-        /// Roles que editan, en el formato separado por comas que espera
-        /// <c>[Authorize(Roles = ...)]</c>. Son también los que ven todas las áreas.
-        /// </summary>
-        private const string RolesQueEditan =
-            Roles.AdministradorSolicitudSalidas + "," + Roles.UsuarioGth;
-
         private readonly IRevisoresAreasService _service;
         private readonly ILogger<RevisoresAreasController> _logger;
 
@@ -37,7 +33,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Presentati
         /// <summary>
         /// Carga inicial: las áreas configurables con los cinco actores de un trabajador normal de
         /// cada una (y de cada obra en las que se parten por obra), los catálogos y el selector de
-        /// personas. Una jefatura sin esos roles ve solo su área, sin editar.
+        /// personas. Sin esos roles se ve solo el área propia: un jefe edita sus consolidadores de
+        /// oficina central; el resto de las jefaturas, nada.
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetInitialData()
@@ -81,7 +78,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Presentati
 
         /// <summary>Guarda de una vez todas las celdas de una fila y devuelve su detalle recalculado.</summary>
         [HttpPut("{areaScopeId:int}")]
-        [Authorize(Roles = RolesQueEditan)]
         public async Task<IActionResult> Guardar(int areaScopeId, [FromBody] RevisoresAreaGuardarDto dto)
         {
             try
@@ -89,7 +85,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Presentati
                 var userId = UsuarioId();
                 if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
 
-                return Ok(await _service.GuardarAsync(userId.Value, areaScopeId, dto ?? new RevisoresAreaGuardarDto()));
+                return Ok(await _service.GuardarAsync(
+                    userId.Value, VeTodas(), areaScopeId, dto ?? new RevisoresAreaGuardarDto()));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
@@ -104,6 +101,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Presentati
 
         /// <summary>Ver todas las áreas y editarlas van juntos: los dos roles que administran la pantalla.</summary>
         private bool VeTodas() =>
-            User.IsInRole(Roles.AdministradorSolicitudSalidas) || User.IsInRole(Roles.UsuarioGth);
+            User.IsInRole(Roles.AdministradorSistema) || User.IsInRole(Roles.UsuarioGth);
     }
 }

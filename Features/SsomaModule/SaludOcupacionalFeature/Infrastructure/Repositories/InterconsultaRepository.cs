@@ -268,7 +268,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // Correos del proyecto en un solo roundtrip. El coordinador administrativo y el
             // residente son FK a workers y su correo se lee de la ficha; Project no tiene
             // navegación al residente, así que va por subconsulta (sin N+1), como en
-            // Configuración → Proyectos. No leer el texto viejo email_residente: nadie lo mantiene.
+            // Configuración → Proyectos.
             var proyectoMap = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .Select(p => new

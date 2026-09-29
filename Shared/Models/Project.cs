@@ -50,6 +50,7 @@ namespace Abril_Backend.Shared.Models {
 
         // Residente: referencia al trabajador. Su correo se lee de
         // workers.email_corporativo al enviar, así sigue siempre al dato maestro.
+        // Reemplazó a la columna email_residente (texto suelto), eliminada.
         public int? ResidenteWorkersId {get; set;}
 
         /// <summary>
@@ -71,12 +72,6 @@ namespace Abril_Backend.Shared.Models {
         public Worker? CoordAdmin {get; set;}
 
         // Emails del proyecto
-        /// <summary>
-        /// DEPRECADO — reemplazado por <see cref="ResidenteWorkersId"/>. Se conserva
-        /// solo como histórico (convención del proyecto: no se borran campos); ningún
-        /// código lo lee. Para el residente usar la FK.
-        /// </summary>
-        public string? EmailResidente {get; set;}
         public string? EmailResponsable {get; set;}
         public string? EmailRrhh {get; set;}
         public string? EmailCoordSsoma {get; set;}
